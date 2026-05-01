@@ -21,6 +21,7 @@ export default class BrowserContext {
     this._config = { ...DEFAULT_BROWSER_CONTEXT_CONFIG, ...config };
   }
 
+  
   public getConfig(): BrowserContextConfig {
     return this._config;
   }

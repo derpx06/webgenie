@@ -20,7 +20,7 @@ Think of the agent like a person sitting at a computer:
 
 ### Layer 1 — The Entry Point (Where it all starts)
 
-#### `chrome-extension/src/background/index.ts`
+index#### `chrome-extension/src/background/index.ts`
 **What it does**: This is the brain that starts up when Chrome opens. It listens for messages from the side panel (the chat UI). When you press Send, this file gets the message first.
 
 - Creates ONE `BrowserContext` (the browser controller)
