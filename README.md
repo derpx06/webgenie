@@ -1,12 +1,15 @@
 # WebSurfer
 
+<div align="center">
+    <img src="chrome-extension/public/webgenie-logo.png" alt="WebSurfer Logo" width="160" style="margin-top: 8px; margin-bottom: 12px;">
+</div>
+
 > **The Open-Source AI Web Automation Extension** — Run sophisticated multi-agent systems directly in your browser. Automate complex web tasks, extract data, and streamline workflows—all locally and privacy-first.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Chrome Extension](https://img.shields.io/badge/Platform-Chrome%20%7C%20Edge-informational?logo=google-chrome)](https://chrome.google.com)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-informational?logo=typescript)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/UI-React%2018-informational?logo=react)](https://react.dev)
-
 ---
 
 ## Vision
