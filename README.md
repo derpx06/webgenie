@@ -187,8 +187,8 @@ Get up and running in just a few commands:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/WebSurfer.git
-cd WebSurfer
+git clone https://github.com/derpx06/webgenie.git
+cd webgenie
 
 # Install dependencies
 pnpm install
