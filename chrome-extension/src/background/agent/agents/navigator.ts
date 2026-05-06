@@ -174,9 +174,11 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       const currentState = await this.context.browserContext.getCachedState();
       browserStateHistory = new BrowserStateHistory(currentState);
 
-      // Emit sight update event if screenshot is available
-      if (currentState.screenshot) {
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.SIGHT_UPDATE, 'Sight updated', currentState.screenshot);
+      // Emit sight update event - always take a screenshot for the user's "Agent Sight" feed
+      // even if the model doesn't use vision, the user wants to see what the agent is doing.
+      const screenshot = await this.context.browserContext.takeScreenshot();
+      if (screenshot) {
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.SIGHT_UPDATE, 'Sight updated', screenshot);
       }
 
       // check if the task is paused or stopped

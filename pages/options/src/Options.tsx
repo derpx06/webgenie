@@ -67,7 +67,7 @@ const Options = () => {
         />
 
         <main className="scrollbar-none custom-scrollbar flex-1 overflow-y-auto pb-20">
-          <div className="mx-auto max-w-4xl px-10 py-12">
+          <div className="mx-auto max-w-7xl px-8 py-10">
             <OptionsHeader title={TABS.find(t => t.id === activeTab)?.label || ''} isDarkMode={isDarkMode} />
 
             <div className="animate-[fadeUp_0.6s_ease-out_0.2s_both]">

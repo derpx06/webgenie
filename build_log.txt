@@ -1,0 +1,237 @@
+
+> webgenie@0.1.13 build /home/manas/Documents/webSurfer
+> pnpm clean:bundle && turbo ready && turbo build
+
+
+> webgenie@0.1.13 clean:bundle /home/manas/Documents/webSurfer
+> rimraf dist && turbo clean:bundle
+
+turbo 2.6.1
+
+• Packages in scope: @extension/content-script, @extension/dev-utils, @extension/hmr, @extension/i18n, @extension/options, @extension/schema-utils, @extension/shared, @extension/sidepanel, @extension/storage, @extension/tailwindcss-config, @extension/tsconfig, @extension/ui, @extension/vite-config, @extension/zipper, chrome-extension
+• Running clean:bundle in 15 packages
+• Remote caching disabled
+@extension/schema-utils:clean:bundle: cache bypass, force executing 0b903c8755b9bd1c
+@extension/zipper:clean:bundle: cache bypass, force executing 39905e7872731dbe
+@extension/storage:clean:bundle: cache bypass, force executing d0c0ee918252c3b0
+@extension/hmr:clean:bundle: cache bypass, force executing 297803685880d64b
+@extension/ui:clean:bundle: cache bypass, force executing b91cb7b514b7b201
+@extension/zipper:clean:bundle: 
+@extension/zipper:clean:bundle: > @extension/zipper@0.1.13 clean:bundle /home/manas/Documents/webSurfer/packages/zipper
+@extension/zipper:clean:bundle: > rimraf dist
+@extension/zipper:clean:bundle: 
+@extension/ui:clean:bundle: 
+@extension/ui:clean:bundle: > @extension/ui@0.1.13 clean:bundle /home/manas/Documents/webSurfer/packages/ui
+@extension/ui:clean:bundle: > rimraf dist
+@extension/ui:clean:bundle: 
+@extension/schema-utils:clean:bundle: 
+@extension/schema-utils:clean:bundle: > @extension/schema-utils@0.1.13 clean:bundle /home/manas/Documents/webSurfer/packages/schema-utils
+@extension/schema-utils:clean:bundle: > rimraf dist
+@extension/schema-utils:clean:bundle: 
+@extension/hmr:clean:bundle: 
+@extension/hmr:clean:bundle: > @extension/hmr@0.1.13 clean:bundle /home/manas/Documents/webSurfer/packages/hmr
+@extension/hmr:clean:bundle: > rimraf dist && pnpx rimraf build
+@extension/hmr:clean:bundle: 
+@extension/storage:clean:bundle: 
+@extension/storage:clean:bundle: > @extension/storage@0.1.13 clean:bundle /home/manas/Documents/webSurfer/packages/storage
+@extension/storage:clean:bundle: > rimraf dist
+@extension/storage:clean:bundle: 
+@extension/shared:clean:bundle: cache bypass, force executing 7ccafb685842704a
+@extension/shared:clean:bundle: 
+@extension/shared:clean:bundle: > @extension/shared@0.1.13 clean:bundle /home/manas/Documents/webSurfer/packages/shared
+@extension/shared:clean:bundle: > rimraf dist
+@extension/shared:clean:bundle: 
+@extension/i18n:clean:bundle: cache bypass, force executing d0e1836b6c551951
+@extension/dev-utils:clean:bundle: cache bypass, force executing beeabb05763bc339
+@extension/dev-utils:clean:bundle: 
+@extension/dev-utils:clean:bundle: > @extension/dev-utils@0.1.13 clean:bundle /home/manas/Documents/webSurfer/packages/dev-utils
+@extension/dev-utils:clean:bundle: > rimraf dist
+@extension/dev-utils:clean:bundle: 
+@extension/i18n:clean:bundle: 
+@extension/i18n:clean:bundle: > @extension/i18n@0.1.13 clean:bundle /home/manas/Documents/webSurfer/packages/i18n
+@extension/i18n:clean:bundle: > rimraf dist
+@extension/i18n:clean:bundle: 
+
+ Tasks:    8 successful, 8 total
+Cached:    0 cached, 8 total
+  Time:    2.131s 
+
+turbo 2.6.1
+
+• Packages in scope: @extension/content-script, @extension/dev-utils, @extension/hmr, @extension/i18n, @extension/options, @extension/schema-utils, @extension/shared, @extension/sidepanel, @extension/storage, @extension/tailwindcss-config, @extension/tsconfig, @extension/ui, @extension/vite-config, @extension/zipper, chrome-extension
+• Running ready in 15 packages
+• Remote caching disabled
+@extension/hmr:ready: cache hit, replaying logs 8482a77f486dc064
+@extension/hmr:ready: 
+@extension/hmr:ready: 
+@extension/hmr:ready: > @extension/hmr@0.1.13 ready /home/manas/Documents/nanobrowser/packages/hmr
+@extension/hmr:ready: > pnpm run build:tsc && pnpm run build:rollup
+@extension/hmr:ready: 
+@extension/hmr:ready: 
+@extension/hmr:ready: > @extension/hmr@0.1.13 build:tsc /home/manas/Documents/nanobrowser/packages/hmr
+@extension/hmr:ready: > tsc -b tsconfig.build.json
+@extension/hmr:ready: 
+@extension/hmr:ready: 
+@extension/hmr:ready: > @extension/hmr@0.1.13 build:rollup /home/manas/Documents/nanobrowser/packages/hmr
+@extension/hmr:ready: > rollup --config rollup.config.mjs
+@extension/hmr:ready: 
+@extension/hmr:ready: [36m
+@extension/hmr:ready: [1mlib/injections/reload.ts[22m → [1mbuild/injections/reload.js[22m...[39m
+@extension/hmr:ready: [32mcreated [1mbuild/injections/reload.js[22m in [1m58ms[22m[39m
+@extension/hmr:ready: [36m
+@extension/hmr:ready: [1mlib/injections/refresh.ts[22m → [1mbuild/injections/refresh.js[22m...[39m
+@extension/hmr:ready: [32mcreated [1mbuild/injections/refresh.js[22m in [1m14ms[22m[39m
+@extension/storage:ready: cache hit, replaying logs c8ab17ebf181927f
+@extension/storage:ready: 
+@extension/storage:ready: 
+@extension/storage:ready: > @extension/storage@0.1.13 ready /home/manas/Documents/webSurfer/packages/storage
+@extension/storage:ready: > node build.mjs
+@extension/storage:ready: 
+@extension/ui:ready: cache hit, replaying logs fa659617133d6a08
+@extension/ui:ready: 
+@extension/ui:ready: 
+@extension/ui:ready: > @extension/ui@0.1.13 ready /home/manas/Documents/nanobrowser/packages/ui
+@extension/ui:ready: > node build.mjs
+@extension/ui:ready: 
+@extension/zipper:ready: cache hit, replaying logs 3b84c6fe796e6b94
+@extension/zipper:ready: 
+@extension/zipper:ready: 
+@extension/zipper:ready: > @extension/zipper@0.1.13 ready /home/manas/Documents/nanobrowser/packages/zipper
+@extension/zipper:ready: > tsc
+@extension/zipper:ready: 
+@extension/schema-utils:ready: cache hit, replaying logs 1889a0a4e8ac1653
+@extension/schema-utils:ready: 
+@extension/schema-utils:ready: 
+@extension/schema-utils:ready: > @extension/schema-utils@0.1.13 ready /home/manas/Documents/nanobrowser/packages/schema-utils
+@extension/schema-utils:ready: > node build.mjs
+@extension/schema-utils:ready: 
+@extension/schema-utils:ready: [33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mThe glob pattern "./lib/**/*.tsx" did not match any files[0m [empty-glob]
+@extension/schema-utils:ready: 
+@extension/i18n:ready: cache hit, replaying logs 4549cac677568aae
+@extension/i18n:ready: 
+@extension/i18n:ready: 
+@extension/i18n:ready: > @extension/i18n@0.1.13 ready /home/manas/Documents/webSurfer/packages/i18n
+@extension/i18n:ready: > pnpm genenrate-i8n && node build.dev.mjs
+@extension/i18n:ready: 
+@extension/i18n:ready: 
+@extension/i18n:ready: > @extension/i18n@0.1.13 genenrate-i8n /home/manas/Documents/webSurfer/packages/i18n
+@extension/i18n:ready: > node genenrate-i18n.mjs
+@extension/i18n:ready: 
+@extension/i18n:ready: I18n build complete
+@extension/shared:ready: cache hit, replaying logs e329ae0b1b468ddb
+@extension/shared:ready: 
+@extension/shared:ready: 
+@extension/shared:ready: > @extension/shared@0.1.13 ready /home/manas/Documents/webSurfer/packages/shared
+@extension/shared:ready: > node build.mjs
+@extension/shared:ready: 
+@extension/dev-utils:ready: cache hit, replaying logs fe09e7171bb4819a
+@extension/dev-utils:ready: 
+@extension/dev-utils:ready: 
+@extension/dev-utils:ready: > @extension/dev-utils@0.1.13 ready /home/manas/Documents/webSurfer/packages/dev-utils
+@extension/dev-utils:ready: > tsc
+@extension/dev-utils:ready: 
+
+ Tasks:    8 successful, 8 total
+Cached:    8 cached, 8 total
+  Time:    151ms >>> FULL TURBO
+
+turbo 2.6.1
+
+• Packages in scope: @extension/content-script, @extension/dev-utils, @extension/hmr, @extension/i18n, @extension/options, @extension/schema-utils, @extension/shared, @extension/sidepanel, @extension/storage, @extension/tailwindcss-config, @extension/tsconfig, @extension/ui, @extension/vite-config, @extension/zipper, chrome-extension
+• Running build in 15 packages
+• Remote caching disabled
+@extension/i18n:build: cache bypass, force executing 2252abaa434e64f5
+@extension/content-script:build: cache bypass, force executing abed086dd5548db6
+@extension/content-script:build: 
+@extension/content-script:build: > @extension/content-script@0.1.13 build /home/manas/Documents/webSurfer/pages/content
+@extension/content-script:build: > vite build
+@extension/content-script:build: 
+@extension/i18n:build: 
+@extension/i18n:build: > @extension/i18n@0.1.13 build /home/manas/Documents/webSurfer/packages/i18n
+@extension/i18n:build: > pnpm genenrate-i8n && node build.prod.mjs
+@extension/i18n:build: 
+@extension/content-script:build: vite v6.4.1 building for production...
+@extension/content-script:build: transforming...
+@extension/content-script:build: ✓ 1 modules transformed.
+@extension/content-script:build: rendering chunks...
+@extension/content-script:build: computing gzip size...
+@extension/content-script:build: ../../dist/content/index.iife.js  11.22 kB │ gzip: 3.41 kB
+@extension/content-script:build: ✓ built in 102ms
+@extension/i18n:build: 
+@extension/i18n:build: > @extension/i18n@0.1.13 genenrate-i8n /home/manas/Documents/webSurfer/packages/i18n
+@extension/i18n:build: > node genenrate-i18n.mjs
+@extension/i18n:build: 
+@extension/i18n:build: I18n build complete
+@extension/options:build: cache bypass, force executing f7787fcc1766c6b9
+@extension/sidepanel:build: cache bypass, force executing 40c35887711c6122
+chrome-extension:build: cache bypass, force executing b9740a2c4a76264c
+@extension/options:build: 
+chrome-extension:build: 
+chrome-extension:build: > chrome-extension@0.1.13 build /home/manas/Documents/webSurfer/chrome-extension
+chrome-extension:build: > vite build
+chrome-extension:build: 
+@extension/options:build: > @extension/options@0.1.13 build /home/manas/Documents/webSurfer/pages/options
+@extension/options:build: > vite build
+@extension/options:build: 
+@extension/sidepanel:build: 
+@extension/sidepanel:build: > @extension/sidepanel@0.1.13 build /home/manas/Documents/webSurfer/pages/side-panel
+@extension/sidepanel:build: > vite build
+@extension/sidepanel:build: 
+@extension/options:build: vite v6.4.1 building for production...
+@extension/sidepanel:build: vite v6.4.1 building for production...
+@extension/options:build: [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+@extension/sidepanel:build: [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+chrome-extension:build: vite v5.4.21 building for production...
+@extension/options:build: transforming...
+@extension/sidepanel:build: transforming...
+@extension/options:build: Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+@extension/options:build:   npx update-browserslist-db@latest
+@extension/options:build:   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+chrome-extension:build: transforming...
+@extension/sidepanel:build: Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+@extension/sidepanel:build:   npx update-browserslist-db@latest
+@extension/sidepanel:build:   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+@extension/sidepanel:build: (node:146021) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/manas/Documents/webSurfer/packages/tailwind-config/tailwind.config.ts is not specified and it doesn't parse as CommonJS.
+@extension/sidepanel:build: Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+@extension/sidepanel:build: To eliminate this warning, add "type": "module" to /home/manas/Documents/webSurfer/packages/tailwind-config/package.json.
+@extension/sidepanel:build: (Use `node --trace-warnings ...` to show where the warning was created)
+@extension/options:build: (node:146009) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/manas/Documents/webSurfer/packages/tailwind-config/tailwind.config.ts is not specified and it doesn't parse as CommonJS.
+@extension/options:build: Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+@extension/options:build: To eliminate this warning, add "type": "module" to /home/manas/Documents/webSurfer/packages/tailwind-config/package.json.
+@extension/options:build: (Use `node --trace-warnings ...` to show where the warning was created)
+@extension/sidepanel:build: ✓ 7 modules transformed.
+@extension/sidepanel:build: ✗ Build failed in 785ms
+@extension/sidepanel:build: error during build:
+@extension/sidepanel:build: [vite:esbuild] Transform failed with 1 error:
+@extension/sidepanel:build: /home/manas/Documents/webSurfer/pages/side-panel/src/components/EmptyChat.tsx:37:4: ERROR: Unexpected "return"
+@extension/sidepanel:build: file: /home/manas/Documents/webSurfer/pages/side-panel/src/components/EmptyChat.tsx:37:4
+@extension/sidepanel:build: 
+@extension/sidepanel:build: Unexpected "return"
+@extension/sidepanel:build: 35 |  
+@extension/sidepanel:build: 36 |      return (
+@extension/sidepanel:build: 37 |      return (
+@extension/sidepanel:build:    |      ^
+@extension/sidepanel:build: 38 |          <div className={`relative flex-1 w-full overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-[#020617]' : 'bg-[#fcfcff]'}`}>
+@extension/sidepanel:build: 39 |              {/* 1. LIVING BACKGROUND SYSTEM */}
+@extension/sidepanel:build: 
+@extension/sidepanel:build:     at failureErrorWithLog (/home/manas/Documents/webSurfer/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/lib/main.js:1467:15)
+@extension/sidepanel:build:     at /home/manas/Documents/webSurfer/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/lib/main.js:736:50
+@extension/sidepanel:build:     at responseCallbacks.<computed> (/home/manas/Documents/webSurfer/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/lib/main.js:603:9)
+@extension/sidepanel:build:     at handleIncomingPacket (/home/manas/Documents/webSurfer/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/lib/main.js:658:12)
+@extension/sidepanel:build:     at Socket.readFromStdout (/home/manas/Documents/webSurfer/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/lib/main.js:581:7)
+@extension/sidepanel:build:     at Socket.emit (node:events:508:20)
+@extension/sidepanel:build:     at addChunk (node:internal/streams/readable:564:12)
+@extension/sidepanel:build:     at readableAddChunkPushByteMode (node:internal/streams/readable:515:3)
+@extension/sidepanel:build:     at Readable.push (node:internal/streams/readable:395:5)
+@extension/sidepanel:build:     at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+@extension/sidepanel:build:  ELIFECYCLE  Command failed with exit code 1.
+@extension/sidepanel:build: ERROR: command finished with error: command (/home/manas/Documents/webSurfer/pages/side-panel) /home/manas/.local/share/pnpm/.tools/pnpm/9.15.1/bin/pnpm run build exited (1)
+@extension/sidepanel#build: command (/home/manas/Documents/webSurfer/pages/side-panel) /home/manas/.local/share/pnpm/.tools/pnpm/9.15.1/bin/pnpm run build exited (1)
+
+ Tasks:    2 successful, 5 total
+Cached:    0 cached, 5 total
+  Time:    3.119s 
+Failed:    @extension/sidepanel#build
+
+ ERROR  run failed: command  exited (1)
+ ELIFECYCLE  Command failed with exit code 1.

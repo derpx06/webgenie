@@ -8,14 +8,7 @@ import SidePanelHeader from './components/SidePanelHeader';
 import { AgentSight } from './components/AgentSight';
 import WelcomeScreen from './components/WelcomeScreen';
 import { useSidePanelController } from './hooks/useSidePanelController';
-import './SidePanel.css';
-
-// Declare chrome API types
-declare global {
-  interface Window {
-    chrome: typeof chrome;
-  }
-}
+import { NeuralBackground } from './components/shared/NeuralBackground';
 
 const SidePanel = () => {
   const {
@@ -46,20 +39,7 @@ const SidePanel = () => {
     handleSessionBookmark,
   } = useSidePanelController();
 
-  // ---------------------------------------------------------------------------
-  // Omnibox handoff
-  //
-  // Two-phase approach to avoid race conditions:
-  //
-  // Phase 1 (this effect): read the pending prompt from chrome.storage.session
-  //   into a ref. This runs on mount AND whenever the panel is already open
-  //   and the background writes a new prompt (via onChanged). The key is
-  //   cleared immediately so it can never fire twice.
-  //
-  // Phase 2 (next effect): watch hasConfiguredModels. The moment it becomes
-  //   `true` (panel is fully initialised, port connected), flush the ref and
-  //   call handleSendMessage. This is the only correct trigger point.
-  // ---------------------------------------------------------------------------
+  // Declare chrome API types
   const pendingOmniboxPrompt = useRef<string | null>(null);
 
   useEffect(() => {
@@ -67,18 +47,15 @@ const SidePanel = () => {
 
     const storePrompt = (prompt: string) => {
       if (!prompt.trim()) return;
-      // Clear the key immediately — prevent replay on any future effect run
       chrome.storage.session.remove(PENDING_KEY);
       pendingOmniboxPrompt.current = prompt.trim();
     };
 
-    // Cold open: panel was just opened, check storage now
     chrome.storage.session.get(PENDING_KEY, (result) => {
       const pending = result?.[PENDING_KEY];
       if (typeof pending === 'string') storePrompt(pending);
     });
 
-    // Hot path: panel was already open when user pressed Enter in omnibox
     const onStorageChanged = (
       changes: Record<string, chrome.storage.StorageChange>,
       area: string,
@@ -87,7 +64,6 @@ const SidePanel = () => {
       const newValue = changes[PENDING_KEY]?.newValue;
       if (typeof newValue === 'string') {
         storePrompt(newValue);
-        // Panel is already open and ready — dispatch immediately
         if (hasConfiguredModels === true) {
           const prompt = pendingOmniboxPrompt.current;
           pendingOmniboxPrompt.current = null;
@@ -98,10 +74,8 @@ const SidePanel = () => {
 
     chrome.storage.onChanged.addListener(onStorageChanged);
     return () => chrome.storage.onChanged.removeListener(onStorageChanged);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasConfiguredModels, handleSendMessage]);
 
-  // Phase 2: fire the pending prompt the instant the panel is ready
   useEffect(() => {
     if (hasConfiguredModels === true && pendingOmniboxPrompt.current) {
       const prompt = pendingOmniboxPrompt.current;
@@ -111,8 +85,9 @@ const SidePanel = () => {
   }, [hasConfiguredModels, handleSendMessage]);
 
   return (
-    <div>
-      <div className={`relative flex h-screen flex-col overflow-hidden ${isDarkMode ? 'theme-dark' : 'theme-light'}`}>
+    <div className="ws-app-container">
+      <div className={`relative flex h-screen flex-col overflow-hidden ${isDarkMode ? 'theme-dark bg-slate-950' : 'theme-light bg-slate-50'}`}>
+        <NeuralBackground isDarkMode={isDarkMode} />
         <SidePanelHeader
           isDarkMode={isDarkMode}
           showHistory={showHistory}
@@ -159,23 +134,7 @@ const SidePanel = () => {
                       if (setInputTextRef.current) {
                         setInputTextRef.current(text);
                       }
-                    }}
-                  />
-                )}
-
-                {messages.length > 0 && (
-                  <div className="ws-body ws-body--floating-input">
-                    <MessageList messages={messages} isDarkMode={isDarkMode} onOptionSelect={handleSendMessage} />
-                    <div ref={messagesEndRef} />
-                  </div>
-                )}
-
-                <div
-                  className={`pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pb-2 pt-8 ${isDarkMode
-                    ? 'bg-gradient-to-t from-[#020617]/95 via-[#020617]/60 to-transparent'
-                    : 'bg-gradient-to-t from-white/95 via-white/65 to-transparent'
-                    }`}>
-                  <div className="pointer-events-auto">
+                    }}>
                     <ChatInput
                       onSendMessage={handleSendMessage}
                       onStopTask={handleStopTask}
@@ -191,8 +150,41 @@ const SidePanel = () => {
                       historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
                       onReplay={handleReplay}
                     />
-                  </div>
-                </div>
+                  </EmptyChat>
+                )}
+
+                {messages.length > 0 && (
+                  <>
+                    <div className="ws-body ws-body--floating-input">
+                      <MessageList messages={messages} isDarkMode={isDarkMode} onOptionSelect={handleSendMessage} />
+                      <div ref={messagesEndRef} />
+                    </div>
+
+                    <div
+                      className={`pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pb-2 pt-8 ${isDarkMode
+                        ? 'bg-gradient-to-t from-[#020617]/95 via-[#020617]/60 to-transparent'
+                        : 'bg-gradient-to-t from-white/95 via-white/65 to-transparent'
+                        }`}>
+                      <div className="pointer-events-auto">
+                        <ChatInput
+                          onSendMessage={handleSendMessage}
+                          onStopTask={handleStopTask}
+                          onMicClick={handleMicClick}
+                          isRecording={isRecording}
+                          isProcessingSpeech={isProcessingSpeech}
+                          disabled={!inputEnabled}
+                          showStopButton={showStopButton}
+                          setContent={setter => {
+                            setInputTextRef.current = setter;
+                          }}
+                          isDarkMode={isDarkMode}
+                          historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
+                          onReplay={handleReplay}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </>

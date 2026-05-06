@@ -18,18 +18,19 @@ const SidePanelHeader = ({
 }: SidePanelHeaderProps) => {
 
   return (
-    <header className={`sticky top-0 z-[60] overflow-hidden px-5 py-4 transition-all duration-700 ${isDarkMode
-      ? 'border-b border-white/[0.04] bg-webgenie-bg/80 shadow-[0_4px_20px_rgba(0,0,0,0.3)]'
-      : 'border-b border-slate-200/60 bg-white/80 shadow-[0_4px_20px_rgba(0,0,0,0.01)]'
-      } backdrop-blur-2xl`}>
+    <header className={`sticky top-0 z-[60] overflow-hidden px-5 py-5 transition-all duration-700 ${isDarkMode
+      ? 'border-b border-white/[0.04] bg-webgenie-bg/40'
+      : 'border-b border-slate-200/40 bg-white/40'
+      } backdrop-blur-3xl`}>
 
-      {/* Background Micro-Accents */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-30">
-        <div className={`absolute -right-10 -top-10 size-24 rounded-full blur-2xl ${isDarkMode ? 'bg-indigo-500/15' : 'bg-indigo-100/30'}`}></div>
+      {/* Atmospheric Glow Integration */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className={`absolute -right-20 -top-20 size-48 rounded-full blur-[100px] transition-all duration-1000 ${isDarkMode ? 'bg-indigo-500/10' : 'bg-indigo-400/10'}`}></div>
+        <div className={`absolute -left-20 -bottom-20 size-48 rounded-full blur-[100px] transition-all duration-1000 ${isDarkMode ? 'bg-purple-500/5' : 'bg-purple-400/5'}`}></div>
       </div>
 
       <div className="relative z-10 flex items-center justify-between">
-        {/* BRAND IDENTITY - RECALIBRATED PRECISION */}
+        {/* BRAND IDENTITY - NEURAL CORE LINK */}
         <button
           type="button"
           className="group flex items-center gap-3.5 text-left"
@@ -37,74 +38,80 @@ const SidePanelHeader = ({
           aria-label={showHistory ? 'Back to chat' : 'WebGenie'}
         >
           <div className="relative">
-            <div className={`flex size-10 items-center justify-center transition-all duration-700 group-hover:scale-110`}>
+            <div className={`flex size-11 items-center justify-center rounded-[1.25rem] border transition-all duration-700 group-hover:scale-110 ${
+              isDarkMode ? 'border-white/5 bg-white/5 shadow-2xl' : 'border-slate-200 bg-white shadow-lg'
+            }`}>
               <img
                 src={chrome.runtime.getURL('webgenie-logo.png')}
                 alt="WebGenie"
-                className={`size-[32px] object-contain ${isDarkMode ? 'drop-shadow-[0_0_8px_rgba(129,140,248,0.4)]' : 'drop-shadow-[0_0_8px_rgba(99,102,241,0.2)]'}`}
+                className={`size-[34px] object-contain ${isDarkMode ? 'drop-shadow-[0_0_12px_rgba(129,140,248,0.5)]' : 'drop-shadow-[0_0_12px_rgba(99,102,241,0.3)]'}`}
               />
             </div>
-            {/* Live Status Indicator - Premium Glow */}
+            {/* Neural Status Pulse */}
             <div className="absolute -right-1 -top-1 flex">
-              <span className={`absolute inline-flex size-3 animate-ping rounded-full opacity-60 ${isDarkMode ? 'bg-emerald-400' : 'bg-emerald-300'}`}></span>
-              <span className={`relative inline-flex size-3 rounded-full border-2 shadow-[0_0_8px_rgba(16,185,129,0.5)] ${isDarkMode
-                ? 'border-webgenie-bg bg-emerald-500'
-                : 'border-white bg-emerald-500'
+              <span className={`absolute inline-flex size-3.5 animate-ping rounded-full opacity-60 ${isDarkMode ? 'bg-indigo-400' : 'bg-indigo-500'}`}></span>
+              <span className={`relative inline-flex size-3.5 rounded-full border-2 shadow-[0_0_10px_rgba(99,102,241,0.6)] ${isDarkMode
+                ? 'border-slate-900 bg-indigo-500'
+                : 'border-white bg-indigo-500'
                 }`}></span>
             </div>
           </div>
 
           <div className="flex flex-col">
-            <span className={`font-outfit text-[19px] font-black leading-none tracking-[-0.03em] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            <span className={`font-outfit text-[20px] font-black leading-none tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
               WebGenie
             </span>
-
+            <span className={`mt-1 text-[9px] font-black uppercase tracking-[0.2em] opacity-40 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              Active System
+            </span>
           </div>
         </button>
 
-        {/* NAVIGATION SYSTEM - OPTIMIZED GLASS PILL */}
-        <div className={`flex items-center rounded-2xl p-1.5 backdrop-blur-3xl transition-all duration-700 ${isDarkMode
-          ? 'bg-white/[0.04] shadow-xl ring-1 ring-white/10'
-          : 'border border-slate-200/80 bg-slate-50/60 shadow-sm'
+        {/* NAVIGATION SYSTEM - SYMMETRICAL GLASS PILL */}
+        <div className={`flex items-center rounded-2xl p-1.5 transition-all duration-700 ${isDarkMode
+          ? 'bg-white/[0.05] shadow-2xl ring-1 ring-white/10 backdrop-blur-2xl'
+          : 'border border-slate-200 bg-white shadow-xl backdrop-blur-2xl'
           }`}>
-          {showHistory ? (
-            <button
-              type="button"
-              onClick={onBackToChat}
-              className={`flex items-center justify-center rounded-xl p-2.5 transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 hover:bg-white hover:shadow-md'
-                }`}
-              title={t('nav_back')}>
-              <FaChevronLeft size={13} />
-            </button>
-          ) : (
-            <div className="flex items-center">
+          <div className="flex items-center gap-1">
+            {showHistory ? (
               <button
                 type="button"
-                onClick={onNewChat}
-                className={`group/btn flex items-center justify-center rounded-xl p-2.5 transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-indigo-400' : 'text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-md'
+                onClick={onBackToChat}
+                className={`flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 shadow-sm'
                   }`}
-                title={t('nav_newChat_a11y')}>
-                <FaPlus size={13} className="transition-transform duration-500 group-hover/btn:rotate-90" />
+                title={t('nav_back')}>
+                <FaChevronLeft size={12} />
               </button>
-              <button
-                type="button"
-                onClick={onLoadHistory}
-                className={`flex items-center justify-center rounded-xl p-2.5 transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-indigo-400' : 'text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-md'
-                  }`}
-                title={t('nav_loadHistory_a11y')}>
-                <FaHistory size={13} />
-              </button>
-            </div>
-          )}
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={onNewChat}
+                  className={`group/btn flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-indigo-400' : 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                    }`}
+                  title={t('nav_newChat_a11y')}>
+                  <FaPlus size={12} className="transition-transform duration-500 group-hover/btn:rotate-90" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onLoadHistory}
+                  className={`flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-indigo-400' : 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+                    }`}
+                  title={t('nav_loadHistory_a11y')}>
+                  <FaHistory size={12} />
+                </button>
+              </>
+            )}
+          </div>
 
           <div className={`mx-2 h-5 w-px ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
 
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-1">
             <a
               href="https://github.com/derpx06/webgenie"
               target="_blank"
               rel="noopener noreferrer"
-              className={`flex items-center justify-center rounded-xl p-2.5 transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 hover:bg-white hover:shadow-md'
+              className={`flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 shadow-sm'
                 }`}
               title="GitHub"
             >
@@ -114,7 +121,7 @@ const SidePanelHeader = ({
             <button
               type="button"
               onClick={() => chrome.runtime.openOptionsPage()}
-              className={`group/cog flex items-center justify-center rounded-xl p-2.5 transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 hover:bg-white hover:shadow-md'
+              className={`group/cog flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 shadow-sm'
                 }`}
               title={t('nav_settings_a11y')}>
               <FaCog size={15} className="transition-transform duration-1000 group-hover/cog:rotate-180" />

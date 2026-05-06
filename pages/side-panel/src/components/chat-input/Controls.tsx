@@ -55,7 +55,7 @@ export const ChatActionButtons: React.FC<ChatActionButtonsProps> = ({
                 : 'bg-gradient-to-br from-cyan-500 via-indigo-500 to-indigo-600 text-white hover:-translate-y-0.5 hover:shadow-[0_0_30px_rgba(34,211,238,0.4)] active:translate-y-0 active:scale-95'
                 }`}
             style={{ fontFamily: "'Outfit', sans-serif" }}>
-            <span className="relative z-10 transition-colors duration-300">Send</span>
+            <span className="relative z-10 transition-colors duration-300">Run task</span>
             <BsSendFill
                 size={14}
                 className={`relative z-10 transition-all duration-500 ${!isSendButtonDisabled ? 'group-hover/send:-translate-y-1 group-hover/send:translate-x-1 group-hover/send:scale-110' : ''}`}
@@ -81,7 +81,7 @@ export const ShortcutHint: React.FC<ShortcutHintProps> = ({ isDarkMode, disabled
                 <span className={`flex h-[20px] min-w-[20px] items-center justify-center rounded-md border px-1 font-mono text-[10px] font-black shadow-sm ${isDarkMode ? 'border-white/20 bg-white/10 text-slate-300' : 'border-slate-300 bg-white text-slate-600'}`}>⌘</span>
                 <span className={`flex h-[20px] items-center justify-center rounded-md border px-2 font-mono text-[10px] font-black shadow-sm ${isDarkMode ? 'border-white/20 bg-white/10 text-slate-300' : 'border-slate-300 bg-white text-slate-600'}`}>ENTER</span>
             </div>
-            <span className={`font-outfit text-[10px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>navigate & automate</span>
+            <span className={`font-outfit text-[10px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>Search, extract, automate</span>
         </div>
     );
 };

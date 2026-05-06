@@ -5,82 +5,97 @@
     width: 100vw;
     height: 100vh;
     pointer-events: none;
-    z-index: 2147483646;
-    /* Just below the highlight container */
+    z-index: 2147483646; /* Just below the highlight container */
     opacity: 0;
-    transition: opacity 0.5s ease-in-out;
+    transition: opacity 1.5s cubic-bezier(0.2, 0.8, 0.2, 1);
     box-sizing: border-box;
+    /* Ultra-deep cinematic foundations with vibrant RGB atmospheric bleeds */
+    box-shadow: 
+        inset 0 0 100px rgba(2, 6, 23, 0.8),       /* Black/Navy core vignette */
+        inset 0 0 150px rgba(0, 242, 255, 0.12),   /* Cyan atmospheric wash */
+        inset 0 0 250px rgba(112, 0, 255, 0.1),    /* Purple depth bleed */
+        inset 0 0 400px rgba(255, 0, 247, 0.08);   /* Vibrant pink ambient glow */
 }
 
 #webgenie-agent-border.active {
     opacity: 1;
 }
 
+/* Base glass edge with intense RGB corner blooms */
 #webgenie-agent-border::before {
     content: "";
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    /* Use a conic-gradient for the circulating energy effect */
-    background: conic-gradient(from 0deg,
-            transparent 0%,
-            #00f2ff 10%,
-            /* neon blue */
-            #7000ff 25%,
-            /* purple */
-            #ff00f7 40%,
-            /* pink */
-            #00f2ff 50%,
-            /* cyan/blue */
-            transparent 60%);
-    mask:
-        linear-gradient(#fff 0 0) content-box,
-        linear-gradient(#fff 0 0);
-    -webkit-mask:
-        linear-gradient(#fff 0 0) content-box,
-        linear-gradient(#fff 0 0);
+    inset: 0;
+    padding: 1.5px; /* Thin vibrant edge */
+    
+    /* Intense RGB corner signatures */
+    background: 
+        radial-gradient(circle at 0% 0%, rgba(0, 242, 255, 0.9) 0%, transparent 40%),   /* Top Left: Cyan */
+        radial-gradient(circle at 100% 0%, rgba(112, 0, 255, 0.8) 0%, transparent 40%), /* Top Right: Purple */
+        radial-gradient(circle at 100% 100%, rgba(255, 0, 247, 0.8) 0%, transparent 40%), /* Bottom Right: Pink */
+        radial-gradient(circle at 0% 100%, rgba(0, 242, 255, 0.9) 0%, transparent 40%), /* Bottom Left: Cyan */
+        linear-gradient(135deg, rgba(30, 58, 138, 0.4), rgba(15, 23, 42, 0.1) 40%, rgba(15, 23, 42, 0.1) 60%, rgba(49, 46, 129, 0.4));
+        
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     mask-composite: exclude;
     -webkit-mask-composite: source-out;
-    padding: 4px;
-    /* The thickness of the border */
-    animation: rotate-border 4s linear infinite;
-    filter: blur(2px) drop-shadow(0 0 10px #00f2ff);
+    
+    /* Strong bloom for depth */
+    filter: drop-shadow(0 0 15px rgba(0, 242, 255, 0.4));
+    animation: border-pulse 6s ease-in-out infinite alternate;
 }
 
-/* Add a secondary glow layer for more depth */
+/* Ultra-vibrancy neural signals / Organic RGB waves */
 #webgenie-agent-border::after {
     content: "";
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: conic-gradient(from 180deg,
-            transparent 0%,
-            #7000ff 15%,
-            #00f2ff 30%,
-            transparent 45%);
-    mask:
-        linear-gradient(#fff 0 0) content-box,
-        linear-gradient(#fff 0 0);
-    -webkit-mask:
-        linear-gradient(#fff 0 0) content-box,
-        linear-gradient(#fff 0 0);
+    inset: 0;
+    padding: 2.5px; /* Pronounced moving highlight */
+    
+    /* Vibrant multi-layered RGB organic light waves */
+    background: linear-gradient(
+        75deg,
+        transparent 0%,
+        rgba(0, 242, 255, 0) 5%,
+        rgba(0, 242, 255, 1) 15%,    /* Cyan Signal */
+        rgba(112, 0, 255, 1) 25%,    /* Purple Core */
+        rgba(255, 0, 247, 1) 35%,    /* Pink Trail */
+        rgba(0, 242, 255, 0) 50%,
+        transparent 55%,
+        rgba(112, 0, 255, 0) 65%,
+        rgba(0, 242, 255, 0.9) 75%,  /* Cyan Signal */
+        rgba(112, 0, 255, 1) 80%,    /* Purple Core */
+        rgba(255, 0, 247, 0) 90%,
+        transparent 100%
+    );
+    background-size: 200% 200%;
+    
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     mask-composite: exclude;
     -webkit-mask-composite: source-out;
-    padding: 3px;
-    animation: rotate-border 6s linear reverse infinite;
-    filter: blur(4px) opacity(0.7);
+    
+    /* Maximum RGB glow and holographic energy */
+    filter: blur(3px) drop-shadow(0 0 25px rgba(0, 242, 255, 0.6));
+    animation: neural-sweep 8s cubic-bezier(0.4, 0.0, 0.2, 1) infinite alternate;
 }
 
-@keyframes rotate-border {
-    from {
-        transform: rotate(0deg);
-    }
+@keyframes border-pulse {
+    0% { opacity: 0.5; filter: brightness(0.8) drop-shadow(0 0 10px rgba(0, 242, 255, 0.3)); }
+    100% { opacity: 1; filter: brightness(1.3) drop-shadow(0 0 20px rgba(0, 242, 255, 0.6)); }
+}
 
-    to {
-        transform: rotate(360deg);
+@keyframes neural-sweep {
+    0% {
+        background-position: 0% 0%;
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        background-position: 100% 100%;
+        opacity: 0.3;
     }
 }

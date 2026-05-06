@@ -20,12 +20,11 @@ export interface ChatMessage extends Message {
 export interface ChatSessionMetadata {
   id: string;
   title: string;
-  createdAt: number; // Unix timestamp in milliseconds
-  updatedAt: number; // Unix timestamp in milliseconds
+  createdAt: number;
+  updatedAt: number;
   messageCount: number;
 }
 
-// ChatSession is the full conversation history displayed in the Sidepanel
 export interface ChatSession extends ChatSessionMetadata {
   messages: ChatMessage[];
 }

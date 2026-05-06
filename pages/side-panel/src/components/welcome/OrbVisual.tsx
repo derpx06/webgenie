@@ -5,110 +5,72 @@ interface OrbVisualProps {
 }
 
 export const OrbVisual: React.FC<OrbVisualProps> = ({ isDarkMode }) => {
-    const theme = isDarkMode ? {
-        glowCyan: "bg-cyan-500/10",
-        glowViolet: "bg-violet-500/10",
-        ringBorder: "border-white/5",
-        coreGradient: "from-white/20 via-transparent to-white/5",
-        coreBg: "bg-slate-950/80",
-        coreGlowId: "coreGlowDark",
-        coreGlowColor: "#22d3ee",
-        latticeGradientId: "latticeGradientDark",
-        latticeColor1: "#22d3ee",
-        latticeColor2: "#8b5cf6",
-        orbGradient: "from-indigo-500/50 via-cyan-400/40 to-white/30",
-        orbBorder: "border-white/50",
-        orbShadow: "shadow-[0_0_40px_rgba(34,211,238,0.6)]",
-        iconColor: "text-white",
-        iconShadow: "drop-shadow-[0_0_12px_rgba(255,255,255,0.9)]",
-        dataPathCyan: "via-cyan-400/50",
-        dataPathViolet: "via-violet-400/50",
-        particleCyan: "bg-cyan-400",
-        particleViolet: "bg-violet-400",
-        orbBg: "bg-slate-900/60",
-        orbBorderSmall: "border-white/10",
-        orbTextCyan: "text-cyan-400",
-        orbTextViolet: "text-violet-400",
-    } : {
-        glowCyan: "bg-indigo-500/5",
-        glowViolet: "bg-violet-500/5",
-        ringBorder: "border-indigo-200/50",
-        coreGradient: "from-indigo-200 via-transparent to-indigo-50",
-        coreBg: "bg-white",
-        coreGlowId: "coreGlowLight",
-        coreGlowColor: "#4F46E5",
-        latticeGradientId: "latticeGradientLight",
-        latticeColor1: "#4F46E5",
-        latticeColor2: "#8B5CF6",
-        orbGradient: "from-indigo-50 via-white to-indigo-100",
-        orbBorder: "border-indigo-200",
-        orbShadow: "shadow-[0_0_20px_rgba(79,70,229,0.2)]",
-        iconColor: "text-indigo-600",
-        iconShadow: "drop-shadow-[0_0_4px_rgba(79,70,229,0.3)]",
-        dataPathCyan: "via-indigo-300/40",
-        dataPathViolet: "via-violet-300/40",
-        particleCyan: "bg-indigo-300",
-        particleViolet: "bg-violet-300",
-        orbBg: "bg-white/80",
-        orbBorderSmall: "border-indigo-100",
-        orbTextCyan: "text-indigo-500",
-        orbTextViolet: "text-violet-500",
-    };
-
     return (
-        <div className="relative flex size-48 items-center justify-center">
-            {/* Deep Ambient Glows */}
-            <div className={`absolute inset-0 ${theme.glowCyan} rounded-full opacity-60 blur-[80px]`}></div>
-            <div className={`absolute inset-0 ${theme.glowViolet} animate-pulse rounded-full opacity-40 blur-[60px]`}></div>
+        <div className="relative flex size-72 items-center justify-center">
+            {/* 1. LAYERED ATMOSPHERIC GLOWS */}
+            <div className={`absolute inset-0 ${isDarkMode ? 'bg-indigo-500/10' : 'bg-indigo-500/[0.03]'} rounded-full blur-[100px] animate-pulse-gentle`}></div>
+            <div className={`absolute inset-0 ${isDarkMode ? 'bg-cyan-500/5' : 'bg-violet-500/[0.02]'} rounded-full blur-[80px] animate-pulse-slow`}></div>
 
-            {/* Outer Rotating Rings */}
-            <div className={`absolute inset-0 border ${theme.ringBorder} animate-[spin_20s_linear_infinite] rounded-full opacity-40`}></div>
-            <div className={`absolute inset-10 border ${theme.ringBorder} animate-[spin_15s_linear_infinite_reverse] rounded-full opacity-30`}></div>
+            {/* 2. HOLOGRAPHIC RINGS (OUTER) */}
+            <div className={`absolute inset-0 border border-dashed ${isDarkMode ? 'border-white/5' : 'border-indigo-500/10'} rounded-full animate-spin-slow opacity-50`}></div>
+            <div className={`absolute inset-8 border border-dashed ${isDarkMode ? 'border-indigo-400/10' : 'border-indigo-400/10'} rounded-full animate-spin-reverse opacity-40`}></div>
+            <div className={`absolute inset-16 border ${isDarkMode ? 'border-white/5' : 'border-indigo-500/5'} rounded-full animate-spin-slow opacity-30`}></div>
 
-            {/* Main AI Core Container */}
-            <div className={`relative z-20 size-44 rounded-full bg-gradient-to-br p-px ${theme.coreGradient} ${isDarkMode ? 'shadow-[0_0_70px_rgba(34,211,238,0.25)]' : 'shadow-[0_0_35px_rgba(79,70,229,0.12)]'}`}>
-                <div className={`size-full rounded-full ${theme.coreBg} relative flex items-center justify-center overflow-hidden backdrop-blur-3xl ${!isDarkMode ? 'border border-indigo-100/30' : ''}`}>
-                    {/* Internal Neural Mesh/Glow */}
-                    <div className="absolute inset-0 opacity-40">
-                        <svg height="100%" preserveAspectRatio="none" viewBox="0 0 100 100" width="100%">
-                            <defs>
-                                <radialGradient id={theme.coreGlowId} cx="50%" cy="50%" fx="50%" fy="50%" r="50%">
-                                    <stop offset="0%" stopColor={theme.coreGlowColor} stopOpacity="0.3"></stop>
-                                    <stop offset="100%" stopColor="transparent"></stop>
-                                </radialGradient>
-                            </defs>
-                            <circle cx="50" cy="50" fill={`url(#${theme.coreGlowId})`} r="40"></circle>
-                        </svg>
-                    </div>
+            {/* 3. NEURAL PATHS / SIGNAL LINES */}
+            <svg className="absolute inset-0 size-full opacity-30" viewBox="0 0 100 100">
+                <defs>
+                    <linearGradient id="neural-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor={isDarkMode ? "#22d3ee" : "#6366f1"} stopOpacity="0" />
+                        <stop offset="50%" stopColor={isDarkMode ? "#22d3ee" : "#6366f1"} stopOpacity="0.8" />
+                        <stop offset="100%" stopColor={isDarkMode ? "#22d3ee" : "#6366f1"} stopOpacity="0" />
+                    </linearGradient>
+                </defs>
+                <circle cx="50" cy="50" r="48" fill="none" stroke="url(#neural-gradient)" strokeWidth="0.5" strokeDasharray="1 10" className="animate-spin-slow origin-center" />
+                <circle cx="50" cy="50" r="40" fill="none" stroke="url(#neural-gradient)" strokeWidth="0.2" strokeDasharray="5 15" className="animate-spin-reverse origin-center" />
+            </svg>
 
-                    {/* Central High-Fidelity Icon */}
-                    <div className="relative z-10 flex size-24 items-center justify-center">
-                        <div className={`absolute inset-0 rounded-full border ${isDarkMode ? 'border-cyan-400/20 blur-[1px]' : 'border-indigo-600/10 blur-[0.5px]'} animate-[spin_8s_linear_infinite]`}></div>
+            {/* 4. FLOATING PARTICLES */}
+            <div className="absolute inset-0 overflow-hidden rounded-full opacity-40">
+                {[...Array(6)].map((_, i) => (
+                    <div
+                        key={i}
+                        className={`absolute size-1 rounded-full ${isDarkMode ? 'bg-cyan-400' : 'bg-indigo-400/40'} blur-[1px] animate-float`}
+                        style={{
+                            top: `${Math.random() * 100}%`,
+                            left: `${Math.random() * 100}%`,
+                            animationDelay: `${i * 1.5}s`,
+                            animationDuration: `${5 + Math.random() * 5}s`
+                        }}
+                    />
+                ))}
+            </div>
 
-                        <svg className={`absolute inset-0 size-full ${isDarkMode ? 'opacity-60' : 'opacity-40'} animate-pulse-gentle`} fill="none" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                            <circle cx="50" cy="50" r="40" stroke={`url(#${theme.latticeGradientId})`} strokeDasharray="2 4" strokeWidth="0.5"></circle>
-                            <ellipse cx="50" cy="50" rx="40" ry="15" stroke={`url(#${theme.latticeGradientId})`} strokeWidth="0.5" transform="rotate(45 50 50)"></ellipse>
-                            <ellipse cx="50" cy="50" rx="40" ry="15" stroke={`url(#${theme.latticeGradientId})`} strokeWidth="0.5" transform="rotate(-45 50 50)"></ellipse>
-                        </svg>
+            {/* 5. THE CORE ENGINE */}
+            <div className={`relative z-20 size-52 rounded-full p-[1px] bg-gradient-to-br ${isDarkMode ? 'from-white/20 via-transparent to-white/5' : 'from-white via-indigo-100/50 to-indigo-50/30'} ${isDarkMode ? 'shadow-[0_0_80px_rgba(34,211,238,0.2)]' : 'shadow-[0_10px_40px_rgba(79,70,229,0.08)]'}`}>
+                <div className={`size-full rounded-full ${isDarkMode ? 'bg-slate-950/95' : 'bg-white/90'} relative flex items-center justify-center overflow-hidden backdrop-blur-3xl border border-white/5`}>
+                    
+                    {/* Internal Neural Pulse */}
+                    <div className={`absolute inset-0 ${isDarkMode ? 'bg-cyan-500/5' : 'bg-indigo-500/[0.03]'} animate-pulse-soft blur-[40px]`}></div>
 
-                        {/* Central Intelligent Core (Orb) */}
-                        <div className={`relative z-10 size-12 rounded-full bg-gradient-to-tr ${theme.orbGradient} border ${theme.orbBorder} ${theme.orbShadow} flex items-center justify-center overflow-hidden backdrop-blur-md`}>
-                            <div className={`${isDarkMode ? 'bg-white/20' : 'bg-indigo-50/50'} absolute inset-0 animate-pulse`}></div>
-                            <svg className={`size-6 ${theme.iconColor} ${theme.iconShadow}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path>
+                    {/* Central Holographic Sphere */}
+                    <div className="relative z-10 flex size-32 items-center justify-center">
+                        {/* Orbiting Elements */}
+                        <div className={`absolute inset-0 rounded-full border border-t-cyan-500/40 border-r-transparent border-b-violet-500/40 border-l-transparent animate-spin-slow`}></div>
+                        <div className={`absolute inset-4 rounded-full border border-t-transparent border-r-indigo-500/40 border-b-transparent border-l-cyan-500/40 animate-spin-reverse`}></div>
+
+                        {/* Inner Intelligent Orb */}
+                        <div className={`relative z-10 size-16 rounded-full bg-gradient-to-tr ${isDarkMode ? 'from-indigo-600/80 via-cyan-500/60 to-white/40' : 'from-indigo-500/20 via-white to-indigo-50/40'} border ${isDarkMode ? 'border-white/30' : 'border-white'} ${isDarkMode ? 'shadow-[0_0_50px_rgba(34,211,238,0.5)]' : 'shadow-[0_8px_30px_rgba(79,70,229,0.15)]'} flex items-center justify-center overflow-hidden`}>
+                            <div className={`absolute inset-0 ${isDarkMode ? 'bg-white/20' : 'bg-indigo-500/5'} animate-pulse`}></div>
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/5 to-transparent"></div>
+                            <svg className={`size-8 ${isDarkMode ? 'text-white' : 'text-indigo-600/80'} drop-shadow-[0_0_15px_rgba(79,70,229,0.4)]`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                             </svg>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            {/* External Floating Agentic Elements - Compact */}
-            <div className={`absolute z-30 size-9 ${theme.orbBg} border backdrop-blur-md ${theme.orbBorderSmall} flex animate-orbit items-center justify-center rounded-xl shadow-xl`} style={{ animationDelay: '-2s' }}>
-                <svg className={`size-4 ${theme.orbTextCyan}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-            </div>
-            <div className={`absolute z-30 size-8 ${theme.orbBg} border backdrop-blur-md ${theme.orbBorderSmall} flex animate-orbit items-center justify-center rounded-full shadow-xl`} style={{ animationDuration: '15s', animationDelay: '-5s' }}>
-                <svg className={`size-4 ${theme.orbTextViolet}`} fill="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                </div>
             </div>
         </div>
     );
 };
+

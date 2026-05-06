@@ -41,12 +41,16 @@ export const useAgentEventHandler = ({
      * @param event The agent execution event received from the background engine.
      */
     const handleTaskState = useCallback((event: AgentEvent) => {
-        // ... implementation
-        const { actor, state, timestamp, data } = event;
+        const { actor, state, timestamp, data, screenshot } = event;
         let content = data?.details;
         const progressMessage = 'Showing progress...';
         let skip = true;
         let displayProgress = false;
+
+        if (screenshot) {
+            setLastScreenshot(screenshot);
+            if (state === ExecutionState.SIGHT_UPDATE) return; // Special handling for sight-only updates
+        }
 
         // Enhance rate limit message clarity
         if (content && (content.includes('429') || content.toLowerCase().includes('rate limit') || content.toLowerCase().includes('quota'))) {
@@ -62,7 +66,7 @@ export const useAgentEventHandler = ({
                     setShowStopButton(false);
                     setIsReplaying(false);
                     setIsWaitingForHuman(false);
-                    setLastScreenshot(null); // Clear sight on task completion
+                    // Don't clear screenshot here so user can see final result
                     skip = false;
                 } else if (state === ExecutionState.TASK_CANCEL) {
                     setIsFollowUpMode(false);
@@ -70,7 +74,6 @@ export const useAgentEventHandler = ({
                     setShowStopButton(false);
                     setIsReplaying(false);
                     setIsWaitingForHuman(false);
-                    setLastScreenshot(null); // Clear sight on task cancel
                     skip = false;
                 } else if (state === ExecutionState.TASK_RESUME) {
                     setIsWaitingForHuman(false);
@@ -82,10 +85,6 @@ export const useAgentEventHandler = ({
                 else if (state === ExecutionState.STEP_OK || state === ExecutionState.STEP_FAIL) skip = false;
                 break;
             case Actors.NAVIGATOR:
-                if (state === ExecutionState.SIGHT_UPDATE) {
-                    if (event.screenshot) setLastScreenshot(event.screenshot);
-                    return; // Don't append to message list
-                }
                 if (state === ExecutionState.STEP_START) displayProgress = true;
                 else if (state === ExecutionState.STEP_OK) displayProgress = false;
                 else if (state === ExecutionState.STEP_FAIL) { skip = false; displayProgress = false; }

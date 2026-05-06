@@ -1,3 +1,77 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer utilities {
+  .animate-pulse-gentle {
+    animation: pulse-gentle 4s ease-in-out infinite;
+  }
+  .animate-pulse-slow {
+    animation: pulse-gentle 8s ease-in-out infinite;
+  }
+  .animate-float {
+    animation: float 10s ease-in-out infinite;
+  }
+  .animate-haze {
+    animation: haze 15s ease-in-out infinite;
+  }
+  .animate-scan {
+    animation: scan 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  .animate-rise {
+    animation: rise 1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+  .animate-fade-in {
+    animation: fade-in 0.5s ease-out forwards;
+  }
+  .animate-spin-slow {
+    animation: spin 40s linear infinite;
+  }
+  .animate-spin-reverse {
+    animation: spin-reverse 30s linear infinite;
+  }
+}
+
+@keyframes pulse-gentle {
+  0%, 100% { opacity: 0.2; transform: scale(1); filter: blur(40px); }
+  50% { opacity: 0.5; transform: scale(1.1); filter: blur(60px); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) translateX(0); opacity: 0.4; }
+  25% { transform: translateY(-15px) translateX(8px); opacity: 0.7; }
+  50% { transform: translateY(-25px) translateX(-4px); opacity: 0.5; }
+  75% { transform: translateY(-10px) translateX(-10px); opacity: 0.8; }
+}
+
+@keyframes haze {
+  0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.1; }
+  50% { transform: scale(1.1) translate(2%, 2%); opacity: 0.2; }
+}
+
+@keyframes scan {
+  0% { transform: translateY(-100%); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(600%); opacity: 0; }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(30px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spin-reverse {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}

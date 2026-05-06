@@ -8,6 +8,12 @@ interface FirewallSettingsProps {
   isDarkMode: boolean;
 }
 
+import { DashboardSection } from './shared/DashboardSection';
+
+interface FirewallSettingsProps {
+  isDarkMode: boolean;
+}
+
 export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
   const [isEnabled, setIsEnabled] = useState(true);
   const [allowList, setAllowList] = useState<string[]>([]);
@@ -56,23 +62,15 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
     <div className="animate-in fade-in slide-in-from-bottom-4 space-y-12 duration-700">
 
       {/* Firewall Status & Rules Section */}
-      <section className={`group overflow-hidden rounded-[2.5rem] border transition-all duration-500 hover:shadow-2xl ${isDarkMode ? 'border-white/5 bg-[#1a1c23]/60 shadow-2xl backdrop-blur-3xl' : 'border-slate-200 bg-white shadow-xl'
-        }`}>
-        <div className={`flex items-center justify-between gap-6 border-b px-10 py-8 transition-colors duration-500 ${isDarkMode ? 'border-white/5 bg-white/5' : 'border-slate-100 bg-slate-50/50'
-          }`}>
-          <div className="flex items-center gap-6">
-            <div className={`flex size-14 items-center justify-center rounded-2xl shadow-inner ${isDarkMode ? 'bg-cyan-500/20 text-cyan-400' : 'bg-cyan-100 text-cyan-600'
-              }`}>
-              <FiShield size={24} />
-            </div>
-            <div>
-              <h2 className={`font-outfit text-2xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Domain Sentinel</h2>
-              <p className={`mt-1 text-[13px] font-medium ${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'}`}>
-                Hardware-level domain filtering and validation
-              </p>
-            </div>
-          </div>
-
+      <DashboardSection
+        title="Domain Sentinel"
+        subtitle="Hardware-level domain filtering and validation"
+        icon={<FiShield size={24} />}
+        isDarkMode={isDarkMode}
+        colorTheme="cyan"
+        headerClassName="justify-between"
+      >
+        <div className="absolute right-10 top-8">
           <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
             <input type="checkbox" className="peer sr-only" checked={isEnabled} onChange={handleToggleFirewall} />
             <div className={`peer h-8 w-14 rounded-full border transition-all duration-300 after:absolute 
@@ -154,24 +152,16 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
             </button>
           </div>
         </div>
-      </section>
+      </DashboardSection>
 
       {/* Protocol Information */}
-      <section className={`group overflow-hidden rounded-[2.5rem] border transition-all duration-500 hover:shadow-2xl ${isDarkMode ? 'border-emerald-500/20 bg-emerald-600/5 shadow-2xl backdrop-blur-3xl' : 'border-slate-200 bg-white shadow-xl'
-        }`}>
-        <div className={`flex items-center gap-6 border-b px-10 py-8 transition-colors duration-500 ${isDarkMode ? 'border-white/5 bg-white/5' : 'border-slate-100 bg-slate-50/50'
-          }`}>
-          <div className={`flex size-14 items-center justify-center rounded-2xl shadow-inner ${isDarkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-600'
-            }`}>
-            <FiShield size={24} />
-          </div>
-          <div>
-            <h2 className={`font-outfit text-2xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{t('options_firewall_howItWorks_header')}</h2>
-            <p className={`mt-1 text-[13px] font-medium ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
-              Security protocols and evaluation order
-            </p>
-          </div>
-        </div>
+      <DashboardSection
+        title={t('options_firewall_howItWorks_header')}
+        subtitle="Security protocols and evaluation order"
+        icon={<FiShield size={24} />}
+        isDarkMode={isDarkMode}
+        colorTheme="emerald"
+      >
         <div className="space-y-5 p-10">
           {t('options_firewall_howItWorks')
             .split('\n')
@@ -184,7 +174,7 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
               </div>
             ))}
         </div>
-      </section>
+      </DashboardSection>
     </div>
   );
 };
