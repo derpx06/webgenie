@@ -34,39 +34,39 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, child
     ];
 
     return (
-        <div className={`relative flex-1 w-full overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
+        <div className={`relative w-full flex-1 overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
             {/* Minimal Background Infrastructure */}
             <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden opacity-50">
-                <div className={`absolute -top-[10%] -left-[10%] size-[60%] rounded-full blur-[120px] ${isDarkMode ? 'bg-indigo-500/5' : 'bg-indigo-500/[0.02]'}`}></div>
-                <div className={`absolute -bottom-[10%] -right-[10%] size-[60%] rounded-full blur-[120px] ${isDarkMode ? 'bg-slate-500/5' : 'bg-slate-500/[0.02]'}`}></div>
+                <div className={`absolute -left-[10%] -top-[10%] size-3/5 rounded-full blur-[120px] ${isDarkMode ? 'bg-indigo-500/5' : 'bg-indigo-500/[0.02]'}`}></div>
+                <div className={`absolute -bottom-[10%] -right-[10%] size-3/5 rounded-full blur-[120px] ${isDarkMode ? 'bg-slate-500/5' : 'bg-slate-500/[0.02]'}`}></div>
             </div>
 
-            <div className={`relative z-10 flex h-full flex-col justify-start overflow-y-auto scrollbar-none px-6 pt-6 pb-12 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
-                <div className="w-full max-w-xl mx-auto">
+            <div className={`scrollbar-none relative z-10 flex h-full flex-col justify-start overflow-y-auto px-6 pb-12 pt-6 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                <div className="mx-auto w-full max-w-xl">
                     <div className="relative mb-6 flex flex-col items-center text-center">
                         <div className="relative mb-4 opacity-95 transition-all duration-700">
                             <OrbVisual isDarkMode={isDarkMode} />
                         </div>
 
-                        <div className="animate-in fade-in slide-in-from-bottom-8 duration-1000 space-y-2 px-4">
-                            <h1 className={`font-outfit text-5xl font-black leading-none tracking-[-0.05em] transition-all duration-700 ${isDarkMode
+                        <div className="animate-in fade-in slide-in-from-bottom-8 space-y-2 px-4 duration-1000">
+                            <h1 className={`font-outfit text-5xl font-black leading-none -tracking-wider transition-all duration-700 ${isDarkMode
                                 ? 'bg-gradient-to-b from-white via-white to-white/40 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,255,255,0.1)]'
                                 : 'bg-gradient-to-b from-slate-900 via-slate-800 to-slate-500 bg-clip-text text-transparent'
                                 }`}>
                                 WebGenie
                             </h1>
-                            <p className={`max-w-[340px] mx-auto text-[14px] font-semibold leading-relaxed tracking-tight ${isDarkMode ? 'text-slate-500/80' : 'text-slate-400'} font-outfit px-2`}>
+                            <p className={`mx-auto max-w-[340px] text-[14px] font-semibold leading-relaxed tracking-tight ${isDarkMode ? 'text-slate-500/80' : 'text-slate-400'} px-2 font-outfit`}>
                                 Professional-grade autonomous intelligence for <br />
                                 <span className={isDarkMode ? 'text-indigo-400/60' : 'text-indigo-600/60'}>web research and multi-step task execution.</span>
                             </p>
                         </div>
                     </div>
 
-                    <div className="mb-8 w-full animate-in fade-in slide-in-from-bottom-4 duration-700 [animation-delay:100ms]">
+                    <div className="animate-in fade-in slide-in-from-bottom-4 mb-8 w-full duration-700 [animation-delay:100ms]">
                         {children}
                     </div>
 
-                    <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-700 [animation-delay:200ms]">
+                    <div className="animate-in fade-in slide-in-from-bottom-4 w-full duration-700 [animation-delay:200ms]">
                         <div className="mb-4 flex items-center gap-3 px-1">
                             <h3 className={`text-[9px] font-bold uppercase tracking-wider opacity-30 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                                 System Capabilities
@@ -101,7 +101,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, child
                                         </p>
                                     </div>
 
-                                    <div className={`flex size-7 items-center justify-center rounded-full opacity-0 transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0 -translate-x-2 border ${isDarkMode ? 'bg-white/5 border-white/5 text-slate-400' : 'bg-indigo-50 border-indigo-100 text-indigo-600'}`}>
+                                    <div className={`flex size-7 -translate-x-2 items-center justify-center rounded-full border opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 ${isDarkMode ? 'border-white/5 bg-white/5 text-slate-400' : 'border-indigo-100 bg-indigo-50 text-indigo-600'}`}>
                                         <FaArrowRight size={10} />
                                     </div>
                                 </button>
@@ -110,9 +110,9 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, child
                     </div>
 
                     {/* Operational Status */}
-                    <div className="mt-8 flex flex-col items-center gap-3 animate-in fade-in duration-1000 [animation-delay:500ms]">
+                    <div className="animate-in fade-in mt-8 flex flex-col items-center gap-3 duration-1000 [animation-delay:500ms]">
                         <div className="flex items-center gap-2">
-                            <div className="size-1.5 rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)] animate-pulse"></div>
+                            <div className="size-1.5 animate-pulse rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>
                             <span className={`text-[9px] font-bold uppercase tracking-widest opacity-30 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                                 Runtime Operational
                             </span>

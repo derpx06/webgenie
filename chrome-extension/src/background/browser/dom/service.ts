@@ -604,7 +604,15 @@ export async function injectBuildDomTreeScripts(tabId: number) {
       try {
         await chrome.scripting.executeScript({
           target: { tabId },
-          files: ['buildDomTree.js'],
+          files: [
+            'dom/constants.js',
+            'dom/cache.js',
+            'dom/helpers.js',
+            'dom/interactivity.js',
+            'dom/highlighting.js',
+            'dom/traversal.js',
+            'buildDomTree.js',
+          ],
         });
       } catch (injectionErr) {
         // Silently ignore - script might already be injected or frame might be inaccessible
@@ -625,7 +633,15 @@ export async function injectBuildDomTreeScripts(tabId: number) {
           tabId,
           frameIds: frameIdsToInject,
         },
-        files: ['buildDomTree.js'],
+        files: [
+          'dom/constants.js',
+          'dom/cache.js',
+          'dom/helpers.js',
+          'dom/interactivity.js',
+          'dom/highlighting.js',
+          'dom/traversal.js',
+          'buildDomTree.js',
+        ],
       });
     }
   } catch (err) {

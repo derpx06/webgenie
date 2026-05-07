@@ -329,18 +329,7 @@ export default class Page {
 
   async getContent(): Promise<string> {
     if (!this._puppeteerPage) {
-      // Try to recover from browser if available
-      if (this._browser) {
-        const pages = await this._browser.pages();
-        if (pages.length > 0) {
-          this._puppeteerPage = pages[0];
-          logger.warning('getContent: recovered puppeteer page from browser');
-        } else {
-          throw new Error('Puppeteer page is not connected');
-        }
-      } else {
-        throw new Error('Puppeteer page is not connected');
-      }
+      throw new Error('Puppeteer page is not connected');
     }
     return await this._puppeteerPage.content();
   }
@@ -353,10 +342,6 @@ export default class Page {
     if (!this._validWebPage) {
       // return the initial state
       return build_initial_state(this._tabId);
-    }
-    // If puppeteer is not connected, return last known or initial state without throwing
-    if (!this._puppeteerPage) {
-      return this._state.url ? this._state : build_initial_state(this._tabId);
     }
     await this.waitForPageAndFramesLoad();
     const updatedState = await this._updateState(useVision);
@@ -455,7 +440,7 @@ export default class Page {
 
   async takeScreenshot(fullPage = false): Promise<string | null> {
     if (!this._puppeteerPage) {
-      return null; // Not connected — return null gracefully
+      throw new Error('Puppeteer page is not connected');
     }
 
     try {
@@ -514,14 +499,7 @@ export default class Page {
 
   async navigateTo(url: string): Promise<void> {
     if (!this._puppeteerPage) {
-      logger.warning('navigateTo: _puppeteerPage is null, attempting to attach...');
-      const attached = await this.attachPuppeteer();
-      if (!attached || !this._puppeteerPage) {
-        // Fall back to chrome.tabs.update for non-attached pages
-        logger.warning('navigateTo: attach failed, using chrome.tabs.update fallback');
-        await this._navigateViaTabsApi(url);
-        return;
-      }
+      return;
     }
     logger.info('navigateTo', url);
 
@@ -543,58 +521,10 @@ export default class Page {
         return;
       }
 
-      // Cross-process navigation causes CDP session to disconnect (e.g., new tab → google.com).
-      // Fall back to chrome.tabs.update which always works, then re-attach puppeteer.
-      const isConnectivityError = error instanceof Error && (
-        error.message.includes('not connected') ||
-        error.message.includes('detached') ||
-        error.message.includes('Session closed') ||
-        error.message.includes('Target closed') ||
-        error.message.includes('Protocol error')
-      );
-
-      if (isConnectivityError) {
-        logger.warning('Puppeteer lost connection during navigation (likely cross-process swap). Using tabs API fallback.', error);
-        await this._navigateViaTabsApi(url);
-        return;
-      }
-
       logger.error('Navigation failed:', error);
       throw error;
     }
   }
-
-  /**
-   * Navigate using chrome.tabs.update as a reliable fallback.
-   * After navigation, re-attaches Puppeteer to the new renderer.
-   */
-  private async _navigateViaTabsApi(url: string): Promise<void> {
-    if (!isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls)) {
-      throw new URLNotAllowedError(`URL: ${url} is not allowed`);
-    }
-    logger.info('_navigateViaTabsApi', url);
-    await chrome.tabs.update(this._tabId, { url });
-    // Wait for the tab to finish loading
-    await new Promise<void>(resolve => {
-      const listener = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
-        if (tabId === this._tabId && changeInfo.status === 'complete') {
-          chrome.tabs.onUpdated.removeListener(listener);
-          resolve();
-        }
-      };
-      chrome.tabs.onUpdated.addListener(listener);
-      // Fallback timeout: resolve after 8s regardless
-      setTimeout(() => {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }, 8000);
-    });
-    // Re-attach puppeteer to the new renderer
-    await this.detachPuppeteer();
-    await this.attachPuppeteer();
-    logger.info('_navigateViaTabsApi complete, puppeteer re-attached');
-  }
-
 
   async refreshPage(): Promise<void> {
     if (!this._puppeteerPage) return;
@@ -1495,22 +1425,7 @@ export default class Page {
 
   private async _waitForStableNetwork() {
     if (!this._puppeteerPage) {
-      // Try to recover page from browser before giving up
-      if (this._browser) {
-        try {
-          const pages = await this._browser.pages();
-          if (pages.length > 0) {
-            this._puppeteerPage = pages[0];
-            logger.warning('_waitForStableNetwork: recovered puppeteer page from browser');
-          } else {
-            throw new Error('Puppeteer page is not connected');
-          }
-        } catch {
-          throw new Error('Puppeteer page is not connected');
-        }
-      } else {
-        throw new Error('Puppeteer page is not connected');
-      }
+      throw new Error('Puppeteer page is not connected');
     }
 
     const RELEVANT_RESOURCE_TYPES = new Set(['document', 'stylesheet', 'image', 'font', 'script', 'iframe']);

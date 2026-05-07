@@ -1,3 +1,4 @@
+import { jsonrepair } from 'jsonrepair';
 import { type BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 
 import { guardrails } from '@src/background/services/guardrails';
@@ -128,7 +129,17 @@ export function extractJsonFromModelOutput(content: string): Record<string, unkn
     }
 
     // Parse the cleaned content
-    return JSON.parse(processedContent);
+    try {
+      return JSON.parse(processedContent);
+    } catch (parseError) {
+      // Try to repair the JSON if standard parsing fails
+      try {
+        const repaired = jsonrepair(processedContent);
+        return JSON.parse(repaired);
+      } catch (repairError) {
+        throw parseError;
+      }
+    }
   } catch (e) {
     throw new ResponseParseError(`Could not manually extract JSON from model output`);
   }
@@ -195,6 +206,22 @@ function mergeSuccessiveMessages(
   const mergedMessages: BaseMessage[] = [];
   let streak = 0;
 
+  type TextContentItem = {
+    type: 'text';
+    text: string;
+  };
+
+  function isTextContentItem(item: unknown): item is TextContentItem {
+    return Boolean(
+      item &&
+        typeof item === 'object' &&
+        'type' in item &&
+        (item as { type?: unknown }).type === 'text' &&
+        'text' in item &&
+        typeof (item as { text?: unknown }).text === 'string',
+    );
+  }
+
   for (const message of messages) {
     if (message instanceof classToMerge) {
       streak += 1;
@@ -203,9 +230,7 @@ function mergeSuccessiveMessages(
         if (Array.isArray(message.content)) {
           // Handle array content case
           if (typeof lastMessage.content === 'string') {
-            const textContent = message.content.find(
-              item => typeof item === 'object' && 'type' in item && item.type === 'text',
-            );
+            const textContent = message.content.find(isTextContentItem);
             if (textContent && 'text' in textContent) {
               lastMessage.content += textContent.text;
             }

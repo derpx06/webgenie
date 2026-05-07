@@ -99,6 +99,10 @@ export class Executor {
     this.context.eventManager.clearSubscribers(EventType.EXECUTION);
   }
 
+  getCurrentTabId(): number | null {
+    return this.context.browserContext.getCurrentTabId();
+  }
+
   addFollowUpTask(task: string): void {
     this.tasks.push(task);
     this.context.messageManager.addNewTask(task);

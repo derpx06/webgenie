@@ -3,6 +3,15 @@ import { FaCheckCircle } from 'react-icons/fa';
 import { BsStars } from 'react-icons/bs';
 import type { Message } from '@extension/storage';
 
+interface FormField {
+  id: string;
+  label?: string;
+  required?: boolean;
+  type?: string;
+  options?: string[];
+  placeholder?: string;
+}
+
 interface HITLBlockProps {
   messages: Message[];
   isDarkMode: boolean;
@@ -17,7 +26,7 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
   const lastMsg = messages[messages.length - 1];
   let question = lastMsg.content;
   let options: string[] = [];
-  let fields: any[] = [];
+  let fields: FormField[] = [];
   let type = 'question';
   let actionType = '';
 
@@ -56,7 +65,7 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
   };
 
   return (
-    <div className={`animate-in fade-in zoom-in-95 my-4 overflow-hidden rounded-2xl border duration-500 shadow-xl ${isDarkMode
+    <div className={`animate-in fade-in zoom-in-95 my-4 overflow-hidden rounded-2xl border shadow-xl duration-500 ${isDarkMode
       ? 'border-indigo-500/30 bg-indigo-500/10 backdrop-blur-md'
       : 'border-indigo-200 bg-indigo-50/80 backdrop-blur-sm'
       }`}>
@@ -87,7 +96,7 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
         {fields.length > 0 && (
           <form onSubmit={handleFormSubmit} className="mt-5 space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {fields.map((field) => (
+                {fields.map(field => (
                 <div key={field.id} className="flex flex-col gap-1.5">
                   <label className={`text-[11px] font-bold uppercase tracking-wide opacity-70 ${isDarkMode ? 'text-white' : 'text-gray-700'}`}>
                     {field.label} {field.required && <span className="text-red-500">*</span>}
@@ -97,13 +106,13 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
                       required={field.required}
                       value={formData[field.id] || ''}
                       onChange={(e) => setFormData({ ...formData, [field.id]: e.target.value })}
-                      className={`w-full rounded-xl border px-3 py-2 text-[13px] font-medium transition-all focus:ring-2 focus:ring-indigo-500 outline-none ${isDarkMode
+                      className={`w-full rounded-xl border px-3 py-2 text-[13px] font-medium outline-none transition-all focus:ring-2 focus:ring-indigo-500 ${isDarkMode
                         ? 'border-white/10 bg-black/20 text-white'
                         : 'border-indigo-100 bg-white text-gray-900 shadow-sm'
                         }`}
                     >
                       <option value="">Select option...</option>
-                      {field.options?.map((opt: string) => (
+                      {field.options?.map(opt => (
                         <option key={opt} value={opt}>{opt}</option>
                       ))}
                     </select>
@@ -114,7 +123,7 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
                       placeholder={field.placeholder}
                       value={formData[field.id] || ''}
                       onChange={(e) => setFormData({ ...formData, [field.id]: e.target.value })}
-                      className={`w-full rounded-xl border px-3 py-2 text-[13px] font-medium transition-all focus:ring-2 focus:ring-indigo-500 outline-none ${isDarkMode
+                      className={`w-full rounded-xl border px-3 py-2 text-[13px] font-medium outline-none transition-all focus:ring-2 focus:ring-indigo-500 ${isDarkMode
                         ? 'border-white/10 bg-black/20 text-white placeholder:text-gray-500'
                         : 'border-indigo-100 bg-white text-gray-900 shadow-sm placeholder:text-gray-400'
                         }`}
@@ -126,8 +135,8 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
             <button
               type="submit"
               className={`mt-2 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-bold transition-all hover:scale-[1.01] active:scale-[0.99] ${isDarkMode
-                ? 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-500/20'
-                : 'bg-indigo-500 text-white hover:bg-indigo-600 shadow-lg shadow-indigo-500/20'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-500'
+                : 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-600'
                 }`}
             >
               Submit Information
@@ -145,11 +154,11 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
                   handleSelect(opt);
                 }}
                 className={`group relative flex items-center gap-2 overflow-hidden rounded-xl px-4 py-2.5 text-[13px] font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] ${isDarkMode
-                  ? 'bg-white/10 text-white hover:bg-white/20 border border-white/5'
-                  : 'bg-white text-indigo-700 hover:bg-indigo-50 shadow-sm border border-indigo-100'
+                  ? 'border border-white/5 bg-white/10 text-white hover:bg-white/20'
+                  : 'border border-indigo-100 bg-white text-indigo-700 shadow-sm hover:bg-indigo-50'
                   }`}
               >
-                <div className="absolute inset-0 translate-x-[-100%] bg-gradient-to-r from-transparent via-white/5 to-transparent transition-transform duration-500 group-hover:translate-x-[100%]" />
+                <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/5 to-transparent transition-transform duration-500 group-hover:translate-x-full" />
                 {opt}
               </button>
             ))}

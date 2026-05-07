@@ -45,10 +45,10 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
   } = useModelSettings(isDarkMode);
 
   return (
-    <div className={`grid grid-cols-1 xl:grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+    <div className={`animate-in fade-in slide-in-from-bottom-4 grid grid-cols-1 gap-8 duration-700 xl:grid-cols-12 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
 
       {/* LEFT COLUMN: MODEL CONFIGURATION (7 COLUMNS) */}
-      <div className="xl:col-span-7 space-y-8">
+      <div className="space-y-8 xl:col-span-7">
         <DashboardSection
           title="Model Configuration"
           subtitle="Cognitive role assignment and parameter tuning"
@@ -83,7 +83,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
       </div>
 
       {/* RIGHT COLUMN: CONNECTIVITY & SPEECH (5 COLUMNS) */}
-      <div className="xl:col-span-5 space-y-8">
+      <div className="space-y-8 xl:col-span-5">
         <div className="flex items-center justify-between px-2">
           <div>
             <h2 className="font-outfit text-xl font-bold tracking-tight">Model Connectivity</h2>

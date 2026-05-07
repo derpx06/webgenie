@@ -32,13 +32,17 @@ interface SpeechRecognitionAlternative {
     confidence: number;
 }
 
+interface SpeechRecognitionErrorEvent extends Event {
+    error: string;
+}
+
 interface SpeechRecognition extends EventTarget {
     continuous: boolean;
     interimResults: boolean;
     lang: string;
     onstart: (event: Event) => void;
     onresult: (event: SpeechRecognitionEvent) => void;
-    onerror: (event: any) => void;
+    onerror: (event: SpeechRecognitionErrorEvent) => void;
     onend: (event: Event) => void;
     start(): void;
     stop(): void;
@@ -122,7 +126,7 @@ export const useSpeechRecognition = ({
                 }
             };
 
-            recognition.onerror = (event: any) => {
+            recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
                 console.error('Speech recognition error:', event.error);
                 if (event.error === 'not-allowed') {
                     appendMessage({

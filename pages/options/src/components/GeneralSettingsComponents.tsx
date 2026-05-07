@@ -15,7 +15,7 @@ export const SettingToggle: React.FC<ToggleProps> = ({ title, desc, checked, isD
   }`}>
     <div className="flex-1">
       <div className="flex items-center gap-3">
-        {checked && <div className="size-1.5 rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,1)] animate-pulse"></div>}
+        {checked && <div className="size-1.5 animate-pulse rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,1)]"></div>}
         <h3 className={`font-outfit text-[14px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
           {title}
         </h3>
@@ -27,10 +27,10 @@ export const SettingToggle: React.FC<ToggleProps> = ({ title, desc, checked, isD
     <label className="relative inline-flex shrink-0 cursor-pointer items-center">
       <input type="checkbox" className="peer sr-only" checked={checked} onChange={e => onChange(e.target.checked)} />
       <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
-        after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:transition-all after:content-[''] 
-        peer-checked:after:translate-x-full peer-focus:outline-none
+        after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full 
+        peer-focus:outline-none
         ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#818cf8] peer-checked:bg-indigo-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
-        peer-checked:after:bg-white peer-checked:after:border-white`}>
+        peer-checked:after:border-white peer-checked:after:bg-white`}>
       </div>
     </label>
   </div>

@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { FaTrash, FaSearch, FaTerminal, FaRegClock } from 'react-icons/fa';
 import { BsBookmark, BsChatSquareDotsFill, BsLightningChargeFill, BsLayersHalf } from 'react-icons/bs';
-import { t } from '@extension/i18n';
 
 interface ChatSession {
   id: string;
@@ -28,8 +27,6 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
   isDarkMode = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-
-  if (!visible) return null;
 
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -77,6 +74,8 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
     }, {} as Record<string, ChatSession[]>), [filteredSessions]
   );
 
+  if (!visible) return null;
+
   return (
     <div className="flex h-full flex-col overflow-hidden pb-4">
       {/* Search and Header Area */}
@@ -109,7 +108,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
             </div>
             <input
               type="text"
-              className={`block w-full border-0 bg-transparent py-2.5 pl-3 pr-4 text-[13px] font-semibold tracking-tight transition-all focus:ring-0 focus:outline-none ${
+              className={`block w-full border-0 bg-transparent py-2.5 pl-3 pr-4 text-[13px] font-semibold tracking-tight transition-all focus:outline-none focus:ring-0 ${
                 isDarkMode ? 'text-slate-200 placeholder:text-slate-700' : 'text-slate-900 placeholder:text-slate-400'
               }`}
               placeholder="Search sessions or commands..."
@@ -151,19 +150,19 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                     <div
                       key={session.id}
                       style={{ animationDelay: `${index * 50}ms` }}
-                      className={`group relative flex cursor-pointer items-center gap-3.5 rounded-xl border p-3.5 transition-all duration-300 animate-in fade-in slide-in-from-bottom-4 fill-mode-both ${
+                      className={`animate-in fade-in slide-in-from-bottom-4 fill-mode-both group relative flex cursor-pointer items-center gap-3.5 rounded-xl border p-3.5 transition-all duration-300 ${
                         isDarkMode 
-                          ? 'border-white/10 bg-white/[0.04] backdrop-blur-md hover:border-indigo-500/30 hover:bg-white/[0.08] hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)] hover:-translate-y-px' 
-                          : 'border-slate-200/60 bg-white/70 backdrop-blur-md hover:border-indigo-200 hover:bg-white hover:shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:-translate-y-px'
+                          ? 'border-white/10 bg-white/[0.04] backdrop-blur-md hover:-translate-y-px hover:border-indigo-500/30 hover:bg-white/[0.08] hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]' 
+                          : 'border-slate-200/60 bg-white/70 backdrop-blur-md hover:-translate-y-px hover:border-indigo-200 hover:bg-white hover:shadow-[0_4px_20px_rgba(0,0,0,0.03)]'
                       }`}
                       onClick={() => onSessionSelect(session.id)}
                     >
                       {/* Active Indicator Glow */}
-                      <div className={`absolute -left-px top-1/2 -translate-y-1/2 h-8 w-[2px] rounded-full transition-all duration-300 opacity-0 group-hover:opacity-100 ${
+                      <div className={`absolute -left-px top-1/2 h-8 w-[2px] -translate-y-1/2 rounded-full opacity-0 transition-all duration-300 group-hover:opacity-100 ${
                         isDarkMode ? 'bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.8)]' : 'bg-indigo-600'
                       }`} />
 
-                      <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg border transition-all duration-500 group-hover:scale-110 group-hover:rotate-3 ${
+                      <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg border transition-all duration-500 group-hover:rotate-3 group-hover:scale-110 ${
                         isDarkMode 
                           ? 'border-indigo-500/10 bg-indigo-500/10 text-indigo-400 group-hover:border-indigo-500/30 group-hover:bg-indigo-500/20' 
                           : 'border-indigo-100 bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100'
@@ -184,14 +183,14 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                           </span>
                           {session.messageCount && (
                             <span className={`flex items-center gap-1.5 text-[10px] font-black transition-all duration-300 ${isDarkMode ? 'text-slate-600 group-hover:text-indigo-400/80' : 'text-slate-500'}`}>
-                              <BsLightningChargeFill size={9} className="text-indigo-500 animate-pulse" />
+                              <BsLightningChargeFill size={9} className="animate-pulse text-indigo-500" />
                               {session.messageCount} <span className="opacity-50">tokens</span>
                             </span>
                           )}
                         </div>
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 translate-x-2 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-0">
+                      <div className="flex shrink-0 translate-x-2 items-center gap-0.5 opacity-0 transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100">
                         {onSessionBookmark && (
                           <button
                             onClick={e => {

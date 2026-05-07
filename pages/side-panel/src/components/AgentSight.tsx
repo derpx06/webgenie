@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HiOutlineX, HiOutlineChevronUp } from 'react-icons/hi';
 
 interface AgentSightProps {
@@ -57,11 +57,11 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
             {/* The pill / expanded panel */}
             <div
                 className={`
-                    relative z-[100] overflow-hidden
-                    transition-all duration-400 ease-in-out
+                    duration-400 relative z-[100]
+                    overflow-hidden transition-all ease-in-out
                     ${isExpanded
-                        ? 'fixed top-4 left-4 right-4 rounded-2xl shadow-2xl border border-white/15'
-                        : 'mx-4 mt-3 mb-1 rounded-full border border-white/10 shadow-lg cursor-pointer hover:border-white/20'
+                        ? 'fixed inset-x-4 top-4 rounded-2xl border border-white/15 shadow-2xl'
+                        : 'mx-4 mb-1 mt-3 cursor-pointer rounded-full border border-white/10 shadow-lg hover:border-white/20'
                     }
                     bg-slate-900/90 backdrop-blur-xl
                 `}
@@ -73,30 +73,30 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
             >
                 {/* ── COLLAPSED PILL ── */}
                 <div
-                    className={`absolute inset-0 flex items-center px-3 gap-2 transition-opacity duration-200 ${isExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+                    className={`absolute inset-0 flex items-center gap-2 px-3 transition-opacity duration-200 ${isExpanded ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
                 >
                     {/* Live dot */}
                     <div className="relative flex-shrink-0">
                         <div className={`size-2 rounded-full ${isActive ? 'bg-cyan-400' : 'bg-slate-500'}`} />
                         {isActive && (
-                            <div className="absolute inset-0 size-2 rounded-full bg-cyan-400 animate-ping opacity-75" />
+                            <div className="absolute inset-0 size-2 animate-ping rounded-full bg-cyan-400 opacity-75" />
                         )}
                     </div>
                     {/* Tiny thumbnail strip */}
                     {displayScreenshot && (
-                        <div className="h-5 w-8 rounded overflow-hidden flex-shrink-0 opacity-80">
+                        <div className="h-5 w-8 flex-shrink-0 overflow-hidden rounded opacity-80">
                             <img src={formatSrc(displayScreenshot)} alt="" className="size-full object-cover" />
                         </div>
                     )}
-                    <span className="text-[9px] font-black uppercase tracking-[0.15em] text-white/60 truncate flex-1">
+                    <span className="flex-1 truncate text-[9px] font-black uppercase tracking-[0.15em] text-white/60">
                         {isActive ? 'Agent Sight · Live' : 'Agent Sight'}
                     </span>
-                    <HiOutlineChevronUp size={11} className="text-white/30 flex-shrink-0" />
+                    <HiOutlineChevronUp size={11} className="flex-shrink-0 text-white/30" />
                 </div>
 
                 {/* ── EXPANDED VIEW ── */}
                 <div
-                    className={`absolute inset-0 transition-opacity duration-250 ${isExpanded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    className={`duration-250 absolute inset-0 transition-opacity ${isExpanded ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
                 >
                     {/* Screenshot cross-fade */}
                     <div className="relative size-full">
@@ -111,12 +111,12 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
                             <img
                                 src={formatSrc(displayScreenshot)}
                                 alt="Agent View"
-                                className={`size-full object-cover transition-opacity duration-400 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}
+                                className={`duration-400 size-full object-cover transition-opacity ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}
                             />
                         ) : (
                             <div className="flex h-full items-center justify-center text-slate-500">
-                                <div className="text-center space-y-2">
-                                    <div className="size-6 mx-auto rounded-full bg-indigo-500/20 animate-pulse" />
+                                <div className="space-y-2 text-center">
+                                    <div className="mx-auto size-6 animate-pulse rounded-full bg-indigo-500/20" />
                                     <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Initializing…</span>
                                 </div>
                             </div>
@@ -125,7 +125,7 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
 
                     {/* Status badge */}
                     <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full border border-white/10 bg-black/60 px-2.5 py-1 backdrop-blur-md">
-                        <div className={`size-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-cyan-400 animate-pulse shadow-[0_0_6px_rgba(34,211,238,0.8)]' : 'bg-slate-500'}`} />
+                        <div className={`size-1.5 flex-shrink-0 rounded-full ${isActive ? 'animate-pulse bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.8)]' : 'bg-slate-500'}`} />
                         <span className="text-[9px] font-black uppercase tracking-[0.15em] text-white/80">
                             {isActive ? 'Neural Feed · Active' : 'Feed Standby'}
                         </span>
@@ -134,7 +134,7 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
                     {/* Close button */}
                     <button
                         onClick={e => { e.stopPropagation(); setIsExpanded(false); }}
-                        className="absolute right-3 top-3 flex items-center justify-center size-6 rounded-full border border-white/10 bg-black/60 text-white/70 backdrop-blur-md transition-all hover:bg-white/15 hover:text-white"
+                        className="absolute right-3 top-3 flex size-6 items-center justify-center rounded-full border border-white/10 bg-black/60 text-white/70 backdrop-blur-md transition-all hover:bg-white/15 hover:text-white"
                     >
                         <HiOutlineX size={12} />
                     </button>

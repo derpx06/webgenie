@@ -2,7 +2,6 @@ import 'webextension-polyfill';
 import {
   type BrowserContextConfig,
   type BrowserState,
-  type PageState,
   DEFAULT_BROWSER_CONTEXT_CONFIG,
   type TabInfo,
   URLNotAllowedError,
@@ -345,15 +344,9 @@ export default class BrowserContext {
   public async getState(useVision = false, cacheClickableElementsHashes = false): Promise<BrowserState> {
     const currentPage = await this.getCurrentPage();
 
-    let pageState: PageState;
-    try {
-      pageState = !currentPage
-        ? build_initial_state()
-        : await currentPage.getState(useVision, cacheClickableElementsHashes);
-    } catch (error) {
-      logger.warning('getState: page threw, returning empty state:', error);
-      pageState = build_initial_state();
-    }
+    const pageState = !currentPage
+      ? build_initial_state()
+      : await currentPage.getState(useVision, cacheClickableElementsHashes);
     const tabInfos = await this.getTabInfos();
     const browserState: BrowserState = {
       ...pageState,
@@ -366,6 +359,13 @@ export default class BrowserContext {
     const page = await this.getCurrentPage();
     if (page) {
       await page.removeHighlight();
+    }
+  }
+
+  public async waitForPageAndFramesLoad(): Promise<void> {
+    const page = await this.getCurrentPage();
+    if (page) {
+      await page.waitForPageAndFramesLoad();
     }
   }
 }

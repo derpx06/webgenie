@@ -55,7 +55,7 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="animate-in fade-in slide-in-from-bottom-4 grid grid-cols-1 gap-8 duration-700 lg:grid-cols-2">
       
       {/* 1. SYSTEM RUNTIME MODULE */}
       <DashboardSection
@@ -70,9 +70,9 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
           <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
             <input type="checkbox" className="peer sr-only" checked={isEnabled} onChange={handleToggleFirewall} />
             <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
-              after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-focus:outline-none
+              after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-focus:outline-none
               ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#818cf8] peer-checked:bg-indigo-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
-              peer-checked:after:bg-white peer-checked:after:border-white`}>
+              peer-checked:after:border-white peer-checked:after:bg-white`}>
             </div>
           </label>
         </div>

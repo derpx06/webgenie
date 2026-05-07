@@ -95,7 +95,7 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
               )}
             </div>
             {headerDomain && (
-              <div className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'
+              <div className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${isDarkMode ? 'border border-indigo-500/20 bg-indigo-500/10 text-indigo-400' : 'border border-indigo-100 bg-indigo-50 text-indigo-600'
                 }`}>
                 {headerDomain.includes('.') && (
                   <img
@@ -113,7 +113,7 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-3 ml-2">
+        <div className="ml-2 flex shrink-0 items-center gap-3">
           <span className={`hidden text-[10px] font-bold sm:inline ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
             {steps.length} {steps.length === 1 ? 'step' : 'steps'}
           </span>
@@ -140,9 +140,9 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
                     </div>
                     {!isLast && <div className={`mt-1 h-full w-px ${isDarkMode ? 'bg-white/5' : 'bg-gray-100'}`} />}
                   </div>
-                  <div className={`grow pb-1 relative overflow-hidden rounded-lg px-2 ${type === 'run' ? (isPlanner ? 'animate-soft-breathing' : 'animate-energy-flow') : ''}`}>
+                  <div className={`relative grow overflow-hidden rounded-lg px-2 pb-1 ${type === 'run' ? (isPlanner ? 'animate-soft-breathing' : 'animate-energy-flow') : ''}`}>
                     {domain && (
-                      <div className={`mb-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-tight w-fit ${isDarkMode ? 'bg-white/5 text-indigo-400' : 'bg-indigo-50 text-indigo-600'
+                      <div className={`mb-1.5 flex w-fit items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-tight ${isDarkMode ? 'bg-white/5 text-indigo-400' : 'bg-indigo-50 text-indigo-600'
                         }`}>
                         {domain.includes('.') ? (
                           <img

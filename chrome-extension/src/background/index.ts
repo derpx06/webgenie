@@ -163,7 +163,7 @@ chrome.runtime.onConnect.addListener(port => {
 
           case 'human_response': {
             if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
-            await (currentExecutor as any).submitHumanResponse(message.response);
+            await currentExecutor.submitHumanResponse(message.response);
             return port.postMessage({ type: 'success' });
           }
 
@@ -414,29 +414,32 @@ async function subscribeToExecutorEvents(executor: Executor) {
       }
 
       // Broadcast agent status to ensure Capsule UI doesn't get stuck
-      chrome.tabs.query({}, tabs => {
+      chrome.tabs.query({}, async tabs => {
         const isActive =
           event.state !== ExecutionState.TASK_OK &&
           event.state !== ExecutionState.TASK_FAIL &&
           event.state !== ExecutionState.TASK_CANCEL;
 
-        // Use the actual tab ID the agent is working on as the source of truth
-        const agentTabId = (executor as any).context.browserContext.getCurrentTabId();
+        // Fetch fresh settings to ensure we respect Ghost Mode toggles
+        const currentSettings = await generalSettingsStore.getSettings();
+
+        // Source of truth: use the context's current tab ID
+        const agentTabId = executor.getCurrentTabId();
 
         for (const tab of tabs) {
           if (!tab.id) continue;
 
-          if (isActive && tab.id === agentTabId) {
-            // Show ONLY on the specific tab the agent is working on
+          const isTargetTab = !agentTabId || tab.id === agentTabId;
+
+          if (isActive && isTargetTab) {
             chrome.tabs.sendMessage(tab.id, {
               type: 'AGENT_STATUS',
               active: true,
-              status: event.data.details,
-            }).catch(() => {
-              // Ignore errors if the tab is not ready or content script not injected
-            });
+              status: event.data.details || 'WebGenie is active...',
+              showBorder: currentSettings.showAmbientBorder,
+              showCapsule: currentSettings.showStatusCapsule,
+            }).catch(() => { });
           } else {
-            // Force clear all other tabs (or all tabs if task is finished)
             chrome.tabs.sendMessage(tab.id, {
               type: 'AGENT_STATUS',
               active: false,

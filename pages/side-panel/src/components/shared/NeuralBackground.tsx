@@ -32,7 +32,7 @@ export const NeuralBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode
         .animate-noise { animation: noise-shift 0.2s steps(2) infinite; }
       `}</style>
       {/* 1. Animated Gradient Surface */}
-      <div className={`absolute inset-0 opacity-15 transition-opacity duration-1000 animate-pulse-slow ${
+      <div className={`animate-pulse-slow absolute inset-0 opacity-15 transition-opacity duration-1000 ${
         isDarkMode 
           ? 'bg-[radial-gradient(circle_at_50%_0%,_rgba(79,70,229,0.06),_transparent_70%)]' 
           : 'bg-[radial-gradient(circle_at_50%_0%,_rgba(79,70,229,0.02),_transparent_70%)]'
@@ -43,7 +43,7 @@ export const NeuralBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode
         {[...Array(4)].map((_, i) => (
           <div
             key={i}
-            className={`absolute rounded-full blur-[100px] animate-float ${
+            className={`animate-float absolute rounded-full blur-[100px] ${
               isDarkMode ? 'bg-indigo-500/[0.02]' : 'bg-indigo-400/[0.015]'
             }`}
             style={{
@@ -59,11 +59,11 @@ export const NeuralBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode
       </div>
 
       {/* 3. Neural Noise Texture (Grain) - Animated for high-fidelity feel */}
-      <div className={`absolute inset-0 opacity-[0.02] mix-blend-soft-light pointer-events-none animate-noise ${isDarkMode ? 'contrast-125' : ''}`} 
+      <div className={`animate-noise pointer-events-none absolute inset-0 opacity-[0.02] mix-blend-soft-light ${isDarkMode ? 'contrast-125' : ''}`} 
            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }} />
       
       {/* 4. Volumetric Glow (Center) */}
-      <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-full w-full opacity-20 ${
+      <div className={`absolute left-1/2 top-1/2 size-full -translate-x-1/2 -translate-y-1/2 opacity-20 ${
         isDarkMode ? 'bg-[radial-gradient(circle_at_center,_rgba(79,70,229,0.04),_transparent_60%)]' : 'bg-[radial-gradient(circle_at_center,_rgba(79,70,229,0.01),_transparent_60%)]'
       }`} />
 
@@ -72,7 +72,7 @@ export const NeuralBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode
         {[...Array(8)].map((_, i) => (
           <div
             key={i}
-            className={`absolute size-px rounded-full animate-float-up ${
+            className={`animate-float-up absolute size-px rounded-full ${
               isDarkMode ? 'bg-indigo-400/10' : 'bg-indigo-500/5'
             }`}
             style={{

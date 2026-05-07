@@ -68,8 +68,8 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
 
       {/* Search */}
       <div className="px-5 pt-4">
-        <div className="relative group">
-          <FiSearch className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-sm opacity-30 group-focus-within:opacity-100 transition-opacity ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`} />
+        <div className="group relative">
+          <FiSearch className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-sm opacity-30 transition-opacity group-focus-within:opacity-100 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`} />
           <input 
             type="text"
             placeholder="Search providers..."

@@ -213,7 +213,16 @@ export class ActionBuilder {
       const seconds = input.seconds || 3;
       const intent = input.intent || t('act_wait_start', [seconds.toString()]);
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-      await new Promise(resolve => setTimeout(resolve, seconds * 1000));
+
+      // Use a cancellable promise for the wait
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, seconds * 1000);
+        this.context.controller.signal.addEventListener('abort', () => {
+          clearTimeout(timeout);
+          resolve();
+        }, { once: true });
+      });
+
       const msg = t('act_wait_ok', [seconds.toString()]);
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
       return new ActionResult({ extractedContent: msg, includeInMemory: true });

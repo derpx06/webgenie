@@ -62,9 +62,9 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
                 </button>
 
                 <div className={`rounded-xl border p-3 backdrop-blur-3xl ${isDarkMode ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-white/50'}`}>
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="mb-1 flex items-center justify-between">
                         <div className="text-[9px] font-black uppercase tracking-widest opacity-30">v2.1.4</div>
-                        <div className="size-1.5 rounded-full bg-emerald-500/50 animate-pulse"></div>
+                        <div className="size-1.5 animate-pulse rounded-full bg-emerald-500/50"></div>
                     </div>
                     <div className={`text-[8px] font-bold uppercase tracking-tighter opacity-20 ${isDarkMode ? 'text-white' : 'text-black'}`}>© 2026 Neural Runtime</div>
                 </div>
@@ -85,10 +85,10 @@ export const OptionsBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMod
 export const OptionsHeader: React.FC<{ title: string; isDarkMode: boolean }> = ({ title, isDarkMode }) => (
     <header className="mb-8 animate-[fadeIn_0.8s_ease-out]">
         <div className="mb-1 flex items-center gap-2">
-            <div className="h-[1px] w-6 bg-indigo-500"></div>
+            <div className="h-px w-6 bg-indigo-500"></div>
             <span className={`text-[10px] font-black uppercase tracking-[0.4em] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>System Node</span>
         </div>
-        <h1 className="font-outfit mb-2 text-4xl font-black leading-tight tracking-tighter uppercase">{title}</h1>
+        <h1 className="font-outfit mb-2 text-4xl font-black uppercase leading-tight tracking-tighter">{title}</h1>
         <p className={`max-w-md text-[13px] font-medium leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-600'} opacity-60`}>
             Configure the autonomous runtime parameters and cognitive bio-feedback loops for this node.
         </p>

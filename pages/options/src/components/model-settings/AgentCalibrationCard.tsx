@@ -128,7 +128,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
                     onClick={() => handleReasoningEffortChange(agentName, level)}
                     className={`flex-1 rounded-lg py-2 text-[10px] font-bold uppercase tracking-tight transition-all duration-200 ${(reasoningEffort[agentName] || (agentName === AgentNameEnum.Planner ? 'low' : 'minimal')) === level
                       ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
-                      : isDarkMode ? 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300' : 'bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700 border border-slate-200'
+                      : isDarkMode ? 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300' : 'border border-slate-200 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700'
                       }`}
                   >
                     {level}

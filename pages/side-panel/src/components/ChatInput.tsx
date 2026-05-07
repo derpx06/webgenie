@@ -1,37 +1,9 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { FaMicrophone, FaPaperclip } from 'react-icons/fa';
 import { AiOutlineLoading3Quarters } from 'react-icons/ai';
 import { AttachmentBar, RecordingOverlay } from './chat-input/Visuals';
 import { ChatActionButtons, ShortcutHint } from './chat-input/Controls';
 import { TabMentionsDropdown } from './chat-input/TabMentionsDropdown';
-import type { Tab } from './chat-input/TabMentionsDropdown';
-
-interface Mention {
-  id: number;
-  title: string;
-  url: string;
-}
-
-interface ChatInputProps {
-  onSendMessage: (text: string, displayText?: string) => void;
-  onStopTask: () => void;
-  onMicClick?: () => void;
-  isRecording?: boolean;
-  isProcessingSpeech?: boolean;
-  disabled: boolean;
-  showStopButton: boolean;
-  setContent?: (setter: (text: string) => void) => void;
-  isDarkMode?: boolean;
-  historicalSessionId?: string | null;
-  onReplay?: (sessionId: string) => void;
-}
-
-interface AttachedFile {
-  name: string;
-  content: string;
-  type: string;
-}
-
 import { useChatInput } from './chat-input/useChatInput';
 
 interface ChatInputProps {
@@ -114,7 +86,7 @@ export default function ChatInput({
             disabled={disabled}
             rows={2}
             style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
-            className={`font-outfit w-full resize-none border-0 bg-transparent px-5 pt-4 pb-2 text-[14px] font-medium leading-relaxed tracking-tight transition-all focus:border-0 focus:outline-none focus:ring-0 ${
+            className={`w-full resize-none border-0 bg-transparent px-5 pb-2 pt-4 font-outfit text-[14px] font-medium leading-relaxed tracking-tight transition-all focus:border-0 focus:outline-none focus:ring-0 ${
               isDarkMode
                 ? 'text-slate-100 placeholder:text-slate-600/80'
                 : 'text-slate-900 placeholder:text-slate-400'
@@ -133,10 +105,10 @@ export default function ChatInput({
                 type="button"
                 onClick={handleFileSelect}
                 disabled={disabled}
-                className={`flex items-center justify-center size-8 rounded-lg transition-all duration-200 ${
+                className={`flex size-8 items-center justify-center rounded-lg transition-all duration-200 ${
                   isDarkMode
-                    ? 'text-slate-600 hover:text-slate-400 hover:bg-white/5 active:scale-90'
-                    : 'text-slate-300 hover:text-slate-500 hover:bg-slate-100 active:scale-90'
+                    ? 'text-slate-600 hover:bg-white/5 hover:text-slate-400 active:scale-90'
+                    : 'text-slate-300 hover:bg-slate-100 hover:text-slate-500 active:scale-90'
                 }`}
                 title="Attach file">
                 <FaPaperclip size={12} />
@@ -152,12 +124,12 @@ export default function ChatInput({
                     type="button"
                     onClick={onMicClick}
                     disabled={disabled || isProcessingSpeech}
-                    className={`relative z-10 flex items-center justify-center size-8 rounded-lg transition-all duration-300 ${
+                    className={`relative z-10 flex size-8 items-center justify-center rounded-lg transition-all duration-300 ${
                       isRecording
                         ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
                         : isDarkMode
-                          ? 'text-slate-600 hover:text-slate-400 hover:bg-white/5 active:scale-90'
-                          : 'text-slate-300 hover:text-slate-500 hover:bg-slate-100 active:scale-90'
+                          ? 'text-slate-600 hover:bg-white/5 hover:text-slate-400 active:scale-90'
+                          : 'text-slate-300 hover:bg-slate-100 hover:text-slate-500 active:scale-90'
                     }`}>
                     {isProcessingSpeech
                       ? <AiOutlineLoading3Quarters size={12} className="animate-spin" />

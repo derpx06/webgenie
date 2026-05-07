@@ -174,17 +174,9 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       const currentState = await this.context.browserContext.getCachedState();
       browserStateHistory = new BrowserStateHistory(currentState);
 
-      // Emit sight update event - always take a screenshot for the user's "Agent Sight" feed
-      // even if the model doesn't use vision, the user wants to see what the agent is doing.
-      const currentPage = await this.context.browserContext.getCurrentPage();
-      let screenshot: string | null = null;
-      try {
-        screenshot = currentPage ? await currentPage.takeScreenshot() : null;
-      } catch (screenshotError) {
-        logger.warning('AgentSight: failed to take screenshot, continuing without it', screenshotError);
-      }
-      if (screenshot) {
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.SIGHT_UPDATE, 'Sight updated', screenshot);
+      // Emit sight update event if screenshot is available from the state message
+      if (currentState.screenshot) {
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.SIGHT_UPDATE, 'Sight updated', currentState.screenshot);
       }
 
       // check if the task is paused or stopped
@@ -440,8 +432,14 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         if (this.context.paused || this.context.stopped) {
           return results;
         }
-        // TODO: wait for 1 second for now, need to optimize this to avoid unnecessary waiting
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Inter-action delay (1s) that respects the abort signal
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(resolve, 1000);
+          this.context.controller.signal.addEventListener('abort', () => {
+            clearTimeout(timeout);
+            resolve();
+          }, { once: true });
+        });
       } catch (error) {
         if (error instanceof URLNotAllowedError) {
           throw error;
@@ -536,13 +534,11 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         continue;
       }
 
-      // If there's no interacted element, just use the action as is
-      if (!interactedElement) {
-        updatedActions.push(currentAction);
-        continue;
-      }
-
-      const updatedAction = await this.updateActionIndices(interactedElement, currentAction, state);
+      await this.context.browserContext.waitForPageAndFramesLoad();
+      const updatedState = await this.context.browserContext.getState(this.context.options.useVision);
+      const updatedAction = interactedElement
+        ? await this.updateActionIndices(interactedElement, currentAction, updatedState)
+        : currentAction;
       updatedActions.push(updatedAction);
 
       if (updatedAction === null) {

@@ -52,9 +52,9 @@ export const ChatActionButtons: React.FC<ChatActionButtonsProps> = ({
             disabled={isSendButtonDisabled}
             className={`group/send relative flex items-center gap-2 overflow-hidden rounded-xl px-5 py-2 text-[12px] font-black uppercase tracking-widest shadow-lg transition-all duration-300 ${isSendButtonDisabled
                 ? (isDarkMode
-                    ? 'bg-white/[0.06] text-slate-500 border border-white/[0.08]'
-                    : 'bg-slate-100 text-slate-400 border border-slate-200')
-                : 'bg-gradient-to-br from-cyan-500 via-indigo-500 to-indigo-600 text-white border border-indigo-400/30 hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(99,102,241,0.5)] active:translate-y-0 active:scale-95'
+                    ? 'border border-white/[0.08] bg-white/[0.06] text-slate-500'
+                    : 'border border-slate-200 bg-slate-100 text-slate-400')
+                : 'border border-indigo-400/30 bg-gradient-to-br from-cyan-500 via-indigo-500 to-indigo-600 text-white hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(99,102,241,0.5)] active:translate-y-0 active:scale-95'
                 }`}
             style={{ fontFamily: "'Outfit', sans-serif" }}>
             <span className="relative z-10">Run task</span>

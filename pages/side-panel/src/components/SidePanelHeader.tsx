@@ -18,7 +18,7 @@ const SidePanelHeader = ({
 }: SidePanelHeaderProps) => {
 
   return (
-    <header className={`sticky top-0 z-[60] overflow-hidden px-5 py-5 transition-all duration-700 ${isDarkMode
+    <header className={`sticky top-0 z-[60] overflow-hidden p-5 transition-all duration-700 ${isDarkMode
       ? 'border-b border-white/[0.04] bg-webgenie-bg/40'
       : 'border-b border-slate-200/40 bg-white/40'
       } backdrop-blur-3xl`}>
@@ -26,7 +26,7 @@ const SidePanelHeader = ({
       {/* Atmospheric Glow Integration */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className={`absolute -right-20 -top-20 size-48 rounded-full blur-[100px] transition-all duration-1000 ${isDarkMode ? 'bg-indigo-500/10' : 'bg-indigo-400/10'}`}></div>
-        <div className={`absolute -left-20 -bottom-20 size-48 rounded-full blur-[100px] transition-all duration-1000 ${isDarkMode ? 'bg-purple-500/5' : 'bg-purple-400/5'}`}></div>
+        <div className={`absolute -bottom-20 -left-20 size-48 rounded-full blur-[100px] transition-all duration-1000 ${isDarkMode ? 'bg-purple-500/5' : 'bg-purple-400/5'}`}></div>
       </div>
 
       <div className="relative z-10 flex items-center justify-between">
@@ -73,7 +73,7 @@ const SidePanelHeader = ({
               <button
                 type="button"
                 onClick={onBackToChat}
-                className={`flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 shadow-sm'
+                className={`flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'
                   }`}
                 title={t('nav_back')}>
                 <FaChevronLeft size={12} />
@@ -107,7 +107,7 @@ const SidePanelHeader = ({
               href="https://github.com/derpx06/webgenie"
               target="_blank"
               rel="noopener noreferrer"
-              className={`flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 shadow-sm'
+              className={`flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'
                 }`}
               title="GitHub"
             >
@@ -120,7 +120,7 @@ const SidePanelHeader = ({
                 const optionsUrl = chrome.runtime.getURL('options/index.html');
                 chrome.tabs.create({ url: optionsUrl });
               }}
-              className={`group/cog flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 shadow-sm'
+              className={`group/cog flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'
                 }`}
               title={t('nav_settings_a11y')}>
               <FaCog size={15} className="transition-transform duration-1000 group-hover/cog:rotate-180" />

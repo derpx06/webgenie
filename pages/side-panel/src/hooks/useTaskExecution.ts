@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import { Actors, chatHistoryStore, type Message } from '@extension/storage';
 import { t } from '@extension/i18n';
 

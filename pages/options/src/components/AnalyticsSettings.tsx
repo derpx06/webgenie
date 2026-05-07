@@ -105,7 +105,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
   }
 
   return (
-    <div className={`grid grid-cols-1 xl:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+    <div className={`animate-in fade-in slide-in-from-bottom-4 grid grid-cols-1 gap-8 duration-700 xl:grid-cols-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
 
       {/* LEFT COLUMN: ACTIVE VELOCITY */}
       <div className="space-y-8">
@@ -134,11 +134,11 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
           </div>
 
           <div className={`rounded-2xl border p-6 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-100 bg-slate-50/50'}`}>
-            <div className="flex items-center justify-between mb-3">
+            <div className="mb-3 flex items-center justify-between">
               <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Efficiency Score</span>
               <span className={`text-xl font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{stats.avgMessagesPerSession}%</span>
             </div>
-            <div className={`h-1.5 w-full rounded-full overflow-hidden ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`}>
+            <div className={`h-1.5 w-full overflow-hidden rounded-full ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`}>
               <div
                 className="h-full bg-indigo-500 transition-all duration-1000"
                 style={{ width: `${Math.min(100, stats.avgMessagesPerSession * 10)}%` }}
@@ -196,7 +196,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
               </p>
               
               <div className="mt-6 flex items-center gap-2">
-                <div className="size-1 rounded-full bg-amber-500 animate-pulse"></div>
+                <div className="size-1 animate-pulse rounded-full bg-amber-500"></div>
                 <span className="text-[9px] font-bold uppercase tracking-widest opacity-40">Local Mode Active</span>
               </div>
             </div>

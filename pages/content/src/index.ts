@@ -61,6 +61,9 @@ const BORDER_CSS = `
 function injectBorder() {
   if (document.getElementById(BORDER_ID)) return;
 
+  const target = document.body || document.documentElement;
+  if (!target) return;
+
   // Inject Style
   if (!document.getElementById(BORDER_STYLE_ID)) {
     const style = document.createElement('style');
@@ -72,7 +75,7 @@ function injectBorder() {
   // Inject Div
   const border = document.createElement('div');
   border.id = BORDER_ID;
-  document.body.appendChild(border);
+  target.appendChild(border);
 }
 
 function setBorderActive(active: boolean) {
@@ -358,6 +361,9 @@ function makeCapsuleDraggable(capsule: HTMLElement) {
 }
 
 function updateStatusUI(active: boolean, text = 'Agent Active...') {
+  const target = document.body || document.documentElement;
+  if (!target) return;
+
   let capsule = document.getElementById('webgenie-agent-status-capsule');
 
   if (!capsule) {
@@ -380,11 +386,7 @@ function updateStatusUI(active: boolean, text = 'Agent Active...') {
     capsule.appendChild(label);
     capsule.appendChild(wave);
 
-    if (document.body) {
-      document.body.appendChild(capsule);
-    } else {
-      document.documentElement.appendChild(capsule);
-    }
+    target.appendChild(capsule);
 
     // Attach drag tracking
     makeCapsuleDraggable(capsule);
@@ -428,6 +430,9 @@ let cursorEl: HTMLElement | null = null;
 let idleInterval: any = null;
 
 function initCursor() {
+  const target = document.body || document.documentElement;
+  if (!target) return;
+
   if (!document.getElementById(CAPSULE_STYLE_ID)) {
     const style = document.createElement('style');
     style.id = CAPSULE_STYLE_ID;
@@ -435,14 +440,14 @@ function initCursor() {
     document.head.appendChild(style);
   }
 
+  if (document.getElementById('webgenie-cursor')) {
+    cursorEl = document.getElementById('webgenie-cursor');
+    return;
+  }
+
   cursorEl = document.createElement('div');
   cursorEl.id = 'webgenie-cursor';
-
-  if (document.body) {
-    document.body.appendChild(cursorEl);
-  } else {
-    document.documentElement.appendChild(cursorEl);
-  }
+  target.appendChild(cursorEl);
 }
 
 function startIdleDrift() {
@@ -509,8 +514,8 @@ chrome.runtime.onMessage.addListener((message) => {
   if (window !== window.top) return;
 
   if (message.type === 'AGENT_STATUS') {
-    setBorderActive(message.active);
-    updateStatusUI(message.active, message.status);
+    setBorderActive(message.active && message.showBorder);
+    updateStatusUI(message.active && message.showCapsule, message.status);
   } else if (message.type === 'AGENT_ACTION') {
     // This is fired when the background is about to click or type
     if (message.x != null && message.y != null) {
