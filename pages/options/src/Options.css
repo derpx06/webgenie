@@ -1533,6 +1533,7 @@ input[type=range]::-webkit-slider-thumb {
   appearance: none;
   width: 14px;
   height: 14px;
+  margin-top: -5.5px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--cyan), var(--violet));
   box-shadow: 0 0 8px rgba(56, 189, 248, .40);

@@ -1,5 +1,5 @@
 import React from 'react';
-import { FiCpu, FiShield } from 'react-icons/fi';
+import { FiCpu, FiShield, FiPlus } from 'react-icons/fi';
 import { AgentNameEnum } from '@extension/storage';
 import { useModelSettings } from './model-settings/useModelSettings';
 import { AgentCalibrationCard } from './model-settings/AgentCalibrationCard';
@@ -47,15 +47,15 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
   return (
     <div className={`grid grid-cols-1 xl:grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
 
-      {/* LEFT COLUMN: AGENT CALIBRATION (7 COLUMNS) */}
+      {/* LEFT COLUMN: MODEL CONFIGURATION (7 COLUMNS) */}
       <div className="xl:col-span-7 space-y-8">
         <DashboardSection
-          title="Agent Calibration"
-          subtitle="Assigned cognitive roles and parameter tuning"
-          icon={<FiShield size={24} />}
+          title="Model Configuration"
+          subtitle="Cognitive role assignment and parameter tuning"
+          icon={<FiShield size={20} />}
           isDarkMode={isDarkMode}
-          colorTheme="violet"
-          contentClassName="space-y-6 p-8"
+          colorTheme="indigo"
+          contentClassName="space-y-6 p-6"
         >
           <AgentCalibrationCard
             agentName={AgentNameEnum.Planner}
@@ -82,24 +82,24 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
         </DashboardSection>
       </div>
 
-      {/* RIGHT COLUMN: INTELLIGENCE NODES & VOCAL (5 COLUMNS) */}
+      {/* RIGHT COLUMN: CONNECTIVITY & SPEECH (5 COLUMNS) */}
       <div className="xl:col-span-5 space-y-8">
         <div className="flex items-center justify-between px-2">
           <div>
-            <h2 className="font-outfit text-2xl font-black tracking-tight">Intelligence Nodes</h2>
-            <p className={`mt-1 text-[11px] font-black uppercase tracking-wider ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
-              Neural Configurations
+            <h2 className="font-outfit text-xl font-bold tracking-tight">Model Connectivity</h2>
+            <p className={`mt-0.5 text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+              API & Integration Status
             </p>
           </div>
 
           <div className="group/add provider-selector-container relative">
             <button
               onClick={() => setIsProviderSelectorOpen(!isProviderSelectorOpen)}
-              className={`flex size-10 items-center justify-center rounded-xl shadow-xl transition-all duration-300 hover:scale-110 active:scale-95 ${isDarkMode ? 'bg-indigo-600 text-white hover:bg-indigo-500' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+              className={`flex size-9 items-center justify-center rounded-xl shadow-lg transition-all duration-300 hover:scale-105 active:scale-95 ${isDarkMode ? 'bg-indigo-600 text-white hover:bg-indigo-500' : 'bg-indigo-600 text-white hover:bg-indigo-700'
                 }`}
               title="Add New Provider"
             >
-              <FiCpu size={18} />
+              <FiPlus size={20} strokeWidth={3} />
             </button>
 
             <ProviderSelector
@@ -114,22 +114,22 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
         </div>
 
         <DashboardSection
-          title="Intelligence Matrix"
-          subtitle="Neural connection protocols"
-          icon={<FiCpu size={24} />}
+          title="Model Providers"
+          subtitle="Connection and credential management"
+          icon={<FiCpu size={20} />}
           isDarkMode={isDarkMode}
           colorTheme="slate"
           isOverflowVisible={true}
           contentClassName="divide-y divide-white/[0.03]"
         >
           {getSortedProviders().length === 0 ? (
-            <div className="p-16 text-center">
-              <div className="mb-6 inline-flex size-16 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-500">
-                <FiCpu size={24} />
+            <div className="p-12 text-center">
+              <div className="mb-4 inline-flex size-12 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-500">
+                <FiCpu size={20} />
               </div>
-              <h3 className="mb-2 text-lg font-bold">No Active Nodes</h3>
-              <p className={`mx-auto max-w-xs text-xs opacity-50 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                Connect an AI provider to enable autonomous capabilities.
+              <h3 className="mb-1 text-base font-bold">No Active Providers</h3>
+              <p className={`mx-auto max-w-xs text-[11px] opacity-50 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                Connect an AI provider to enable platform capabilities.
               </p>
             </div>
           ) : (

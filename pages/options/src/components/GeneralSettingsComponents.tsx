@@ -27,10 +27,10 @@ export const SettingToggle: React.FC<ToggleProps> = ({ title, desc, checked, isD
     <label className="relative inline-flex shrink-0 cursor-pointer items-center">
       <input type="checkbox" className="peer sr-only" checked={checked} onChange={e => onChange(e.target.checked)} />
       <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
-        after:left-[3px] after:top-[3px] after:size-4.5 after:rounded-full after:transition-all after:content-[''] 
+        after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:transition-all after:content-[''] 
         peer-checked:after:translate-x-full peer-focus:outline-none
-        ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-white/20 peer-checked:bg-indigo-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
-        peer-checked:after:bg-white`}>
+        ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#818cf8] peer-checked:bg-indigo-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
+        peer-checked:after:bg-white peer-checked:after:border-white`}>
       </div>
     </label>
   </div>

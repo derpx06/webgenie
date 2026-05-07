@@ -50,18 +50,20 @@ export const ChatActionButtons: React.FC<ChatActionButtonsProps> = ({
         <button
             type="submit"
             disabled={isSendButtonDisabled}
-            className={`group/send relative flex items-center gap-3 overflow-hidden rounded-xl px-6 py-2.5 text-[13px] font-black uppercase tracking-widest shadow-2xl transition-all duration-500 ${isSendButtonDisabled
-                ? (isDarkMode ? 'bg-white/5 text-slate-600' : 'bg-slate-100 text-slate-400')
-                : 'bg-gradient-to-br from-cyan-500 via-indigo-500 to-indigo-600 text-white hover:-translate-y-0.5 hover:shadow-[0_0_30px_rgba(34,211,238,0.4)] active:translate-y-0 active:scale-95'
+            className={`group/send relative flex items-center gap-2 overflow-hidden rounded-xl px-5 py-2 text-[12px] font-black uppercase tracking-widest shadow-lg transition-all duration-300 ${isSendButtonDisabled
+                ? (isDarkMode
+                    ? 'bg-white/[0.06] text-slate-500 border border-white/[0.08]'
+                    : 'bg-slate-100 text-slate-400 border border-slate-200')
+                : 'bg-gradient-to-br from-cyan-500 via-indigo-500 to-indigo-600 text-white border border-indigo-400/30 hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(99,102,241,0.5)] active:translate-y-0 active:scale-95'
                 }`}
             style={{ fontFamily: "'Outfit', sans-serif" }}>
-            <span className="relative z-10 transition-colors duration-300">Run task</span>
+            <span className="relative z-10">Run task</span>
             <BsSendFill
-                size={14}
-                className={`relative z-10 transition-all duration-500 ${!isSendButtonDisabled ? 'group-hover/send:-translate-y-1 group-hover/send:translate-x-1 group-hover/send:scale-110' : ''}`}
+                size={11}
+                className={`relative z-10 transition-all duration-300 ${!isSendButtonDisabled ? 'group-hover/send:-translate-y-0.5 group-hover/send:translate-x-0.5' : 'opacity-50'}`}
             />
             {!isSendButtonDisabled && (
-                <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent transition-transform duration-1000 group-hover/send:translate-x-full" />
+                <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent transition-transform duration-700 group-hover/send:translate-x-full" />
             )}
         </button>
     );

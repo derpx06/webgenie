@@ -120,6 +120,13 @@ Common action sequences:
   • NEVER use scroll_to_percent action, as this will cause loss of information
   • Stop after maximum 10 page scrolls
 
+11. GOAL FOCUS - CRITICAL:
+
+- **ALWAYS re-read the original task before deciding your next action.** Every action must directly serve the original goal.
+- **NEVER click on unrelated links or content** just because they appear on the page. Ignore navigation menus, sidebar articles, promoted content, and unrelated headlines — even if they look interesting.
+- Before clicking any link, ask yourself: "Does this link directly help me complete the task?" If the answer is NO, do NOT click it.
+- If you find yourself on an unrelated page (e.g., you navigated away from the goal), immediately use go_back or go_to_url to return to a relevant page.
+
 12. Login, Authentication & Human Intervention:
 
 - ** ask_human Action(STRICT USAGE) **: 

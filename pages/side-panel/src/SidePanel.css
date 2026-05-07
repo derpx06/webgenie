@@ -26,10 +26,10 @@ code {
   }
 }
 
-/* Scrollbar styles - Subtle & Professional */
+/* High-Fidelity Custom Scrollbar - Modern & Minimalist */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -37,23 +37,27 @@ code {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(99, 102, 241, 0.1);
-  border-radius: 20px;
+  background: rgba(99, 102, 241, 0.12);
+  border-radius: 10px;
+  transition: background 0.3s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(99, 102, 241, 0.3);
 }
 
-/* Dark mode scrollbar */
-@media (prefers-color-scheme: dark) {
-  ::-webkit-scrollbar-thumb {
-    background: rgba(56, 189, 248, 0.1);
-  }
+/* Dark Mode Adaptive Scrollbar */
+.theme-dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.05);
+}
 
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(56, 189, 248, 0.25);
-  }
+.theme-dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Secondary Scrollbar for Specific Containers */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
 }
 
 /* Used classes from the component */
@@ -316,6 +320,85 @@ code {
   }
 }
 
+/* ─── EXECUTION STATE ANIMATIONS ─── */
+@keyframes soft-breathing {
+  0%, 100% { opacity: 0.4; transform: scale(1); filter: blur(8px); }
+  50% { opacity: 0.7; transform: scale(1.1); filter: blur(12px); }
+}
+
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes neural-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
+
+@keyframes energy-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
+@keyframes success-wave {
+  0% { transform: scale(0.95); opacity: 0; }
+  50% { transform: scale(1.02); opacity: 0.5; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes error-vibration {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-1px); }
+  75% { transform: translateX(1px); }
+}
+
+.animate-soft-breathing { animation: soft-breathing 3s ease-in-out infinite; }
+.animate-shimmer-sweep { animation: shimmer-sweep 2s linear infinite; }
+.animate-neural-pulse { animation: neural-pulse 2s infinite; }
+.animate-energy-flow { background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.2), transparent); background-size: 200% 100%; animation: energy-flow 1.5s linear infinite; }
+.animate-success-wave { animation: success-wave 0.5s ease-out forwards; }
+.animate-error-vibrate { animation: error-vibration 0.1s linear infinite; }
+
+/* ─── ACTOR MOTION LANGUAGES ─── */
+/* Planner: Thoughtful, Analytical, Strategic */
+.planner-motion {
+  position: relative;
+}
+.planner-motion::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: radial-gradient(circle at center, rgba(251, 191, 36, 0.15), transparent 70%);
+  animation: soft-breathing 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Navigator: Active, Kinetic, Execution-driven */
+.navigator-motion {
+  position: relative;
+  overflow: hidden;
+}
+.navigator-motion::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 2px;
+  background: var(--ws-cyan);
+  box-shadow: 0 0 15px var(--ws-cyan);
+  animation: scan-vertical 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes scan-vertical {
+  0% { top: -100%; }
+  100% { top: 100%; }
+}
+
 /* ─── TOP BAR ─── */
 .ws-topbar {
   display: flex;
@@ -424,7 +507,7 @@ code {
 }
 
 .ws-body--floating-input {
-  padding-bottom: 220px;
+  padding-bottom: 260px;
 }
 
 .ws-body::-webkit-scrollbar {

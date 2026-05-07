@@ -30,33 +30,33 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
   const isDark = isDarkMode;
 
   return (
-    <div className={`group/agent relative overflow-hidden rounded-[2.5rem] border transition-all duration-500 hover:scale-[1.01] ${isDark ? 'border-white/5 bg-white/[0.02] shadow-2xl' : 'border-slate-200 bg-slate-50 shadow-lg'
-      } mb-6 p-10`}>
-      <div className="mb-10 flex flex-col justify-between gap-8 sm:flex-row sm:items-start">
-        <div className="flex flex-col gap-4">
-          <div className={`w-fit rounded-full px-5 py-2 text-[11px] font-black uppercase tracking-[0.3em] shadow-lg ${isPlanner
-            ? (isDark ? 'bg-indigo-500/20 text-indigo-400 ring-1 ring-indigo-500/30' : 'bg-indigo-100 text-indigo-700')
-            : (isDark ? 'bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-500/30' : 'bg-cyan-100 text-cyan-700')
+    <div className={`group/agent relative overflow-hidden rounded-2xl border transition-all duration-300 ${isDark ? 'border-white/5 bg-white/[0.02]' : 'border-slate-200 bg-white'
+      } p-6`}>
+      <div className="mb-8 flex flex-col justify-between gap-6 sm:flex-row sm:items-start">
+        <div className="flex flex-col gap-3">
+          <div className={`w-fit rounded-lg px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] ${isPlanner
+            ? (isDark ? 'bg-indigo-500/10 text-indigo-400' : 'bg-indigo-50 text-indigo-700')
+            : (isDark ? 'bg-slate-500/10 text-slate-400' : 'bg-slate-100 text-slate-700')
             }`}>
-            {isPlanner ? 'Strategic Planner' : 'Execution Navigator'}
+            {isPlanner ? 'Planning Model' : 'Execution Model'}
           </div>
-          <h3 className={`font-outfit text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            {isPlanner ? 'Neural Core' : 'Tactical Unit'}
+          <h3 className={`font-outfit text-xl font-bold tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+            {isPlanner ? 'Primary Model' : 'Automation Model'}
           </h3>
         </div>
-        <div className={`max-w-xs text-[14px] font-medium leading-relaxed opacity-70 ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>
+        <div className={`max-w-xs text-[13px] font-medium leading-relaxed opacity-60 ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>
           {getAgentDescription(agentName)}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6">
+      <div className="grid grid-cols-1 gap-5">
         {/* Model Selection Field */}
-        <div className={`group/field relative rounded-2xl border p-6 transition-all duration-300 ${isDark ? 'border-white/5 bg-black/20 hover:border-indigo-500/30' : 'border-slate-200 bg-white shadow-sm hover:border-indigo-300'
+        <div className={`group/field relative rounded-xl border p-4 transition-all duration-200 ${isDark ? 'border-white/5 bg-black/20 focus-within:border-indigo-500/30' : 'border-slate-200 bg-slate-50 focus-within:border-indigo-300'
           }`}>
-          <label className="mb-3 ml-1 block text-[10px] font-black uppercase tracking-widest opacity-40">Assigned Neural Model</label>
+          <label className="mb-2 ml-1 block text-[9px] font-bold uppercase tracking-widest opacity-40">Selected Model</label>
           <div className="relative">
             <select
-              className={`w-full cursor-pointer appearance-none bg-transparent pr-10 text-sm font-bold outline-none focus:ring-0 ${isDark ? 'text-white' : 'text-slate-900'
+              className={`w-full cursor-pointer appearance-none bg-transparent pr-10 text-sm font-semibold outline-none focus:ring-0 ${isDark ? 'text-white' : 'text-slate-900'
                 }`}
               disabled={availableModels.length === 0}
               value={selectedModels[agentName] || ''}
@@ -74,12 +74,12 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
         </div>
 
         {/* Parameters Grid */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           {selectedModels[agentName] && !isOpenAIReasoningModel(selectedModels[agentName]) && (
-            <div className={`rounded-2xl border p-6 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-white shadow-sm'}`}>
-              <div className="mb-4 flex items-center justify-between">
-                <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Creativity (Temp)</label>
-                <span className={`font-mono text-xs font-black ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
+            <div className={`rounded-xl border p-4 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+              <div className="mb-3 flex items-center justify-between">
+                <label className="text-[9px] font-bold uppercase tracking-widest opacity-40">Temperature</label>
+                <span className={`font-mono text-[11px] font-bold ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
                   {modelParameters[agentName].temperature.toFixed(2)}
                 </span>
               </div>
@@ -89,7 +89,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
                 max="2"
                 step="0.01"
                 value={modelParameters[agentName].temperature}
-                className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-indigo-500/10 accent-indigo-500"
+                className="h-1 w-full cursor-pointer appearance-none rounded-full bg-indigo-500/10 accent-indigo-500"
                 onChange={e => handleParameterChange(agentName, 'temperature', parseFloat(e.target.value))}
               />
             </div>
@@ -98,10 +98,10 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
           {selectedModels[agentName] &&
             !isOpenAIReasoningModel(selectedModels[agentName]) &&
             !isAnthropicModel(selectedModels[agentName]) && (
-              <div className={`rounded-2xl border p-6 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-white shadow-sm'}`}>
-                <div className="mb-4 flex items-center justify-between">
-                  <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Nucleus Sampling (TopP)</label>
-                  <span className={`font-mono text-xs font-black ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
+              <div className={`rounded-xl border p-4 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                <div className="mb-3 flex items-center justify-between">
+                  <label className="text-[9px] font-bold uppercase tracking-widest opacity-40">Top P</label>
+                  <span className={`font-mono text-[11px] font-bold ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
                     {modelParameters[agentName].topP.toFixed(3)}
                   </span>
                 </div>
@@ -111,7 +111,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
                   max="1"
                   step="0.001"
                   value={modelParameters[agentName].topP}
-                  className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-cyan-500/10 accent-cyan-500"
+                  className="h-1 w-full cursor-pointer appearance-none rounded-full bg-indigo-500/10 accent-indigo-500"
                   onChange={e => handleParameterChange(agentName, 'topP', parseFloat(e.target.value))}
                 />
               </div>
@@ -119,16 +119,16 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
 
           {/* Reasoning Effort (O-series models) */}
           {selectedModels[agentName] && isOpenAIReasoningModel(selectedModels[agentName]) && (
-            <div className={`col-span-1 rounded-2xl border p-6 md:col-span-2 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-white shadow-sm'}`}>
-              <label className="mb-4 block text-[10px] font-black uppercase tracking-widest opacity-40">Cognitive Effort</label>
+            <div className={`col-span-1 rounded-xl border p-4 md:col-span-2 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+              <label className="mb-3 block text-[9px] font-bold uppercase tracking-widest opacity-40">Reasoning Effort</label>
               <div className="flex gap-2">
                 {(['minimal', 'low', 'medium', 'high'] as const).map((level) => (
                   <button
                     key={level}
                     onClick={() => handleReasoningEffortChange(agentName, level)}
-                    className={`flex-1 rounded-xl py-3 text-xs font-black uppercase tracking-tighter transition-all duration-300 ${(reasoningEffort[agentName] || (agentName === AgentNameEnum.Planner ? 'low' : 'minimal')) === level
-                      ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-indigo-400/50'
-                      : isDarkMode ? 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                    className={`flex-1 rounded-lg py-2 text-[10px] font-bold uppercase tracking-tight transition-all duration-200 ${(reasoningEffort[agentName] || (agentName === AgentNameEnum.Planner ? 'low' : 'minimal')) === level
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
+                      : isDarkMode ? 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300' : 'bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700 border border-slate-200'
                       }`}
                   >
                     {level}

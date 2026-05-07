@@ -176,7 +176,13 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
       // Emit sight update event - always take a screenshot for the user's "Agent Sight" feed
       // even if the model doesn't use vision, the user wants to see what the agent is doing.
-      const screenshot = await this.context.browserContext.takeScreenshot();
+      const currentPage = await this.context.browserContext.getCurrentPage();
+      let screenshot: string | null = null;
+      try {
+        screenshot = currentPage ? await currentPage.takeScreenshot() : null;
+      } catch (screenshotError) {
+        logger.warning('AgentSight: failed to take screenshot, continuing without it', screenshotError);
+      }
       if (screenshot) {
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.SIGHT_UPDATE, 'Sight updated', screenshot);
       }

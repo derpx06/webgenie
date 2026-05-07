@@ -25,7 +25,10 @@ export const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: strin
  * firewall rules, and analytics.
  */
 const Options = () => {
-  const [activeTab, setActiveTab] = useState<TabTypes>('models');
+  const [activeTab, setActiveTab] = useState<TabTypes>(() => {
+    const hash = window.location.hash.replace('#', '') as TabTypes;
+    return TABS.some(t => t.id === hash) ? hash : 'models';
+  });
   const [isDarkMode, setIsDarkMode] = useState(true);
 
   useEffect(() => {
@@ -33,7 +36,19 @@ const Options = () => {
     setIsDarkMode(darkModeMediaQuery.matches);
     const handleChange = (e: MediaQueryListEvent) => setIsDarkMode(e.matches);
     darkModeMediaQuery.addEventListener('change', handleChange);
-    return () => darkModeMediaQuery.removeEventListener('change', handleChange);
+    
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '') as TabTypes;
+      if (TABS.some(t => t.id === hash)) {
+        setActiveTab(hash);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    
+    return () => {
+      darkModeMediaQuery.removeEventListener('change', handleChange);
+      window.removeEventListener('hashchange', handleHashChange);
+    };
   }, []);
 
   const handleTabClick = (tabId: TabTypes) => {
@@ -41,6 +56,7 @@ const Options = () => {
       window.open('https://WebGenie.ai/docs', '_blank');
     } else {
       setActiveTab(tabId);
+      window.location.hash = tabId;
     }
   };
 

@@ -123,11 +123,8 @@ const SidePanel = () => {
             )}
 
             {hasConfiguredModels === true && (
-              <div className="relative flex flex-1 flex-col overflow-hidden">
-                {/* Agent Sight: Live Preview Window */}
-                <AgentSight screenshot={lastScreenshot} isActive={showStopButton} />
-
-                {messages.length === 0 && (
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                {messages.length === 0 ? (
                   <EmptyChat
                     isDarkMode={isDarkMode}
                     onSelectPrompt={text => {
@@ -151,39 +148,38 @@ const SidePanel = () => {
                       onReplay={handleReplay}
                     />
                   </EmptyChat>
-                )}
+                ) : (
+                  <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                    {/* AgentSight: floating circle, only in active chat */}
+                    <AgentSight screenshot={lastScreenshot} isActive={showStopButton} />
 
-                {messages.length > 0 && (
-                  <>
-                    <div className="ws-body ws-body--floating-input">
+                    <div className="ws-body relative z-10 min-h-0 flex-1 overflow-y-auto">
                       <MessageList messages={messages} isDarkMode={isDarkMode} onOptionSelect={handleSendMessage} />
                       <div ref={messagesEndRef} />
                     </div>
 
                     <div
-                      className={`pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pb-2 pt-8 ${isDarkMode
-                        ? 'bg-gradient-to-t from-[#020617]/95 via-[#020617]/60 to-transparent'
-                        : 'bg-gradient-to-t from-white/95 via-white/65 to-transparent'
+                      className={`relative z-20 shrink-0 border-t px-2 pb-2 pt-4 transition-all duration-300 ${isDarkMode
+                        ? 'border-white/5 bg-slate-950/80 backdrop-blur-xl'
+                        : 'border-slate-200 bg-white/80 backdrop-blur-xl'
                         }`}>
-                      <div className="pointer-events-auto">
-                        <ChatInput
-                          onSendMessage={handleSendMessage}
-                          onStopTask={handleStopTask}
-                          onMicClick={handleMicClick}
-                          isRecording={isRecording}
-                          isProcessingSpeech={isProcessingSpeech}
-                          disabled={!inputEnabled}
-                          showStopButton={showStopButton}
-                          setContent={setter => {
-                            setInputTextRef.current = setter;
-                          }}
-                          isDarkMode={isDarkMode}
-                          historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
-                          onReplay={handleReplay}
-                        />
-                      </div>
+                      <ChatInput
+                        onSendMessage={handleSendMessage}
+                        onStopTask={handleStopTask}
+                        onMicClick={handleMicClick}
+                        isRecording={isRecording}
+                        isProcessingSpeech={isProcessingSpeech}
+                        disabled={!inputEnabled}
+                        showStopButton={showStopButton}
+                        setContent={setter => {
+                          setInputTextRef.current = setter;
+                        }}
+                        isDarkMode={isDarkMode}
+                        historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
+                        onReplay={handleReplay}
+                      />
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             )}

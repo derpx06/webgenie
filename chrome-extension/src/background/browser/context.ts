@@ -2,6 +2,7 @@ import 'webextension-polyfill';
 import {
   type BrowserContextConfig,
   type BrowserState,
+  type PageState,
   DEFAULT_BROWSER_CONTEXT_CONFIG,
   type TabInfo,
   URLNotAllowedError,
@@ -344,14 +345,19 @@ export default class BrowserContext {
   public async getState(useVision = false, cacheClickableElementsHashes = false): Promise<BrowserState> {
     const currentPage = await this.getCurrentPage();
 
-    const pageState = !currentPage
-      ? build_initial_state()
-      : await currentPage.getState(useVision, cacheClickableElementsHashes);
+    let pageState: PageState;
+    try {
+      pageState = !currentPage
+        ? build_initial_state()
+        : await currentPage.getState(useVision, cacheClickableElementsHashes);
+    } catch (error) {
+      logger.warning('getState: page threw, returning empty state:', error);
+      pageState = build_initial_state();
+    }
     const tabInfos = await this.getTabInfos();
     const browserState: BrowserState = {
       ...pageState,
       tabs: tabInfos,
-      // browser_errors: [],
     };
     return browserState;
   }

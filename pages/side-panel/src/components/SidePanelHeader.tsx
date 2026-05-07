@@ -38,9 +38,8 @@ const SidePanelHeader = ({
           aria-label={showHistory ? 'Back to chat' : 'WebGenie'}
         >
           <div className="relative">
-            <div className={`flex size-11 items-center justify-center rounded-[1.25rem] border transition-all duration-700 group-hover:scale-110 ${
-              isDarkMode ? 'border-white/5 bg-white/5 shadow-2xl' : 'border-slate-200 bg-white shadow-lg'
-            }`}>
+            <div className={`flex size-11 items-center justify-center rounded-[1.25rem] border transition-all duration-700 group-hover:scale-110 ${isDarkMode ? 'border-white/5 bg-white/5 shadow-2xl' : 'border-slate-200 bg-white shadow-lg'
+              }`}>
               <img
                 src={chrome.runtime.getURL('webgenie-logo.png')}
                 alt="WebGenie"
@@ -60,9 +59,6 @@ const SidePanelHeader = ({
           <div className="flex flex-col">
             <span className={`font-outfit text-[20px] font-black leading-none tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
               WebGenie
-            </span>
-            <span className={`mt-1 text-[9px] font-black uppercase tracking-[0.2em] opacity-40 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-              Active System
             </span>
           </div>
         </button>
@@ -120,7 +116,10 @@ const SidePanelHeader = ({
 
             <button
               type="button"
-              onClick={() => chrome.runtime.openOptionsPage()}
+              onClick={() => {
+                const optionsUrl = chrome.runtime.getURL('options/index.html');
+                chrome.tabs.create({ url: optionsUrl });
+              }}
               className={`group/cog flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 shadow-sm'
                 }`}
               title={t('nav_settings_a11y')}>

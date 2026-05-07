@@ -8,6 +8,7 @@ import {
   ProviderTypeEnum,
   getDefaultDisplayNameFromProviderId,
   getDefaultAgentModelParams,
+  getDefaultProviderConfig,
   getProviderTypeByProviderId,
   type ProviderConfig,
 } from '@extension/storage';
@@ -301,10 +302,7 @@ export const useModelSettings = (isDarkMode: boolean) => {
 
   const handleSave = async (provider: string) => {
     try {
-      if (providers[provider].type === ProviderTypeEnum.CustomOpenAI && providers[provider].name?.includes(' ')) {
-        setNameErrors(prev => ({ ...prev, [provider]: t('options_models_providers_errors_spacesNotAllowed') }));
-        return;
-      }
+      // Spaces are now allowed in custom provider names as we use stable unique IDs
 
       if (
         (providers[provider].type === ProviderTypeEnum.CustomOpenAI ||

@@ -43,7 +43,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
   const buttonProps = getButtonProps(providerId);
 
   return (
-    <div className="p-8 transition-all duration-300 hover:bg-white/[0.01]">
+    <div className="p-6 transition-all duration-300 hover:bg-white/[0.01]">
       <div className="mb-6 flex flex-col justify-between gap-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

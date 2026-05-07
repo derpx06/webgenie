@@ -10,6 +10,15 @@ interface AnalyticsSettingsProps {
   isDarkMode: boolean;
 }
 
+interface RealStats {
+  totalSessions: number;
+  totalMessages: number;
+  last30DaySessions: number;
+  last30DayMessages: number;
+  avgMessagesPerSession: number;
+  oldestSessionDate: number | null;
+}
+
 export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode }) => {
   const [settings, setSettings] = useState<AnalyticsSettingsConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,37 +110,37 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
       {/* LEFT COLUMN: ACTIVE VELOCITY */}
       <div className="space-y-8">
         <DashboardSection
-          title="30-Day Velocity"
-          subtitle="Dynamic performance metrics"
-          icon={<FiActivity size={24} />}
+          title="Usage Overview"
+          subtitle="Workspace activity and runtime metrics"
+          icon={<FiActivity size={20} />}
           isDarkMode={isDarkMode}
-          colorTheme="cyan"
-          contentClassName="grid grid-cols-1 gap-10 p-10"
+          colorTheme="indigo"
+          contentClassName="grid grid-cols-1 gap-6 p-6"
         >
           <div className="group/stat flex items-center justify-between">
             <div className="flex flex-col">
-              <span className={`text-[11px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Tasks Executed</span>
-              <span className={`text-5xl font-black tracking-tighter transition-all duration-500 group-hover/stat:scale-105 ${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'}`}>
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Tasks Executed</span>
+              <span className={`text-4xl font-bold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                 {formatNumber(stats.last30DaySessions)}
               </span>
             </div>
-            <div className={`h-12 w-px ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`}></div>
+            <div className={`h-10 w-px ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`}></div>
             <div className="flex flex-col text-right">
-              <span className={`text-[11px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Packets Processed</span>
-              <span className={`text-5xl font-black tracking-tighter transition-all duration-500 group-hover/stat:scale-105 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Operations Processed</span>
+              <span className={`text-4xl font-bold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
                 {formatNumber(stats.last30DayMessages)}
               </span>
             </div>
           </div>
 
-          <div className={`rounded-3xl border p-8 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-100 bg-slate-50/50'}`}>
-            <div className="flex items-center justify-between mb-4">
-              <span className={`text-[11px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Efficiency Score</span>
-              <span className={`text-2xl font-black ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>{stats.avgMessagesPerSession}%</span>
+          <div className={`rounded-2xl border p-6 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-100 bg-slate-50/50'}`}>
+            <div className="flex items-center justify-between mb-3">
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Efficiency Score</span>
+              <span className={`text-xl font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{stats.avgMessagesPerSession}%</span>
             </div>
-            <div className={`h-2 w-full rounded-full overflow-hidden ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`}>
+            <div className={`h-1.5 w-full rounded-full overflow-hidden ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`}>
               <div
-                className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 transition-all duration-1000"
+                className="h-full bg-indigo-500 transition-all duration-1000"
                 style={{ width: `${Math.min(100, stats.avgMessagesPerSession * 10)}%` }}
               ></div>
             </div>
@@ -142,26 +151,26 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
         <DashboardSection
           title="Historical Logs"
           subtitle="Cumulative system telemetry"
-          icon={<FiClock size={24} />}
+          icon={<FiClock size={20} />}
           isDarkMode={isDarkMode}
-          colorTheme="violet"
-          contentClassName="grid grid-cols-2 gap-8 p-10"
+          colorTheme="slate"
+          contentClassName="grid grid-cols-2 gap-6 p-6"
         >
           <div className="group/stat flex flex-col">
-            <span className={`text-4xl font-black tracking-tighter transition-all duration-500 group-hover/stat:scale-105 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+            <span className={`text-3xl font-bold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
               {formatNumber(stats.totalSessions)}
             </span>
-            <span className={`mt-2 text-[10px] font-black uppercase tracking-[0.2em] opacity-40`}>Operations</span>
+            <span className={`mt-1 text-[9px] font-bold uppercase tracking-wider opacity-40`}>Total Sessions</span>
           </div>
           <div className="group/stat flex flex-col">
-            <span className={`text-4xl font-black tracking-tighter transition-all duration-500 group-hover/stat:scale-105 ${isDarkMode ? 'text-amber-400' : 'text-amber-500'}`}>
+            <span className={`text-3xl font-bold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
               {formatNumber(stats.totalMessages)}
             </span>
-            <span className={`mt-2 text-[10px] font-black uppercase tracking-[0.2em] opacity-40`}>Signals</span>
+            <span className={`mt-1 text-[9px] font-bold uppercase tracking-wider opacity-40`}>Total Messages</span>
           </div>
-          <div className="group/stat col-span-2 flex items-center justify-between rounded-2xl border border-dashed border-white/10 p-5">
-            <span className={`text-[10px] font-black uppercase tracking-[0.2em] opacity-40`}>Uptime Record</span>
-            <span className={`text-lg font-black italic tracking-tight ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+          <div className="group/stat col-span-2 flex items-center justify-between rounded-xl border border-dashed border-white/10 p-4">
+            <span className={`text-[9px] font-bold uppercase tracking-wider opacity-40`}>Archive Age</span>
+            <span className={`text-sm font-bold tracking-tight ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
               {daysSince(stats.oldestSessionDate)}
             </span>
           </div>
@@ -171,25 +180,24 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
       {/* RIGHT COLUMN: SYSTEM INSTRUMENTATION & PRIVACY */}
       <div className="space-y-8">
         {/* Instrumentation Note */}
-        <section className={`overflow-hidden rounded-[2.5rem] border p-10 transition-all duration-500 ${isDarkMode ? 'border-amber-500/20 bg-amber-500/5 shadow-2xl backdrop-blur-3xl' : 'border-amber-100 bg-amber-50/50 shadow-xl'
+        <section className={`overflow-hidden rounded-2xl border p-8 transition-all duration-300 ${isDarkMode ? 'border-amber-500/10 bg-amber-500/5' : 'border-amber-100 bg-amber-50/50'
           }`}>
-          <div className="flex flex-col gap-6">
-            <div className={`flex size-14 shrink-0 items-center justify-center rounded-2xl shadow-inner ${isDarkMode ? 'bg-amber-500/20 text-amber-500' : 'bg-amber-200 text-amber-700'
+          <div className="flex flex-col gap-4">
+            <div className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${isDarkMode ? 'bg-amber-500/10 text-amber-500' : 'bg-amber-100 text-amber-700'
               }`}>
-              <FiAlertCircle size={28} />
+              <FiAlertCircle size={20} />
             </div>
             <div>
-              <h3 className={`font-outfit text-xl font-black uppercase tracking-tight ${isDarkMode ? 'text-amber-400' : 'text-amber-800'}`}>
-                Instrumentation Required
+              <h3 className={`font-outfit text-base font-bold uppercase tracking-tight ${isDarkMode ? 'text-amber-400' : 'text-amber-800'}`}>
+                Advanced Analytics Unavailable
               </h3>
-              <p className={`mt-4 text-[14px] font-semibold leading-relaxed opacity-80 ${isDarkMode ? 'text-amber-200/60' : 'text-amber-700/70'}`}>
-                Detailed token consumption tracking and cost analysis require advanced instrumentation. This protocol is currently in standby.
-                Existing telemetry is derived strictly from your local data core.
+              <p className={`mt-3 text-[13px] font-medium leading-relaxed opacity-70 ${isDarkMode ? 'text-amber-200/60' : 'text-amber-700/70'}`}>
+                Detailed token and cost tracking has not been enabled. Current metrics are derived strictly from your local session data.
               </p>
               
-              <div className="mt-8 flex items-center gap-2">
-                <div className="size-1.5 rounded-full bg-amber-500 animate-pulse"></div>
-                <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Awaiting Connection</span>
+              <div className="mt-6 flex items-center gap-2">
+                <div className="size-1 rounded-full bg-amber-500 animate-pulse"></div>
+                <span className="text-[9px] font-bold uppercase tracking-widest opacity-40">Local Mode Active</span>
               </div>
             </div>
           </div>
@@ -197,46 +205,35 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
 
         {/* Privacy Toggle Section */}
         {settings && (
-          <section className={`group overflow-hidden rounded-[2.5rem] border transition-all duration-500 hover:shadow-2xl ${isDarkMode ? 'border-indigo-500/20 bg-indigo-600/5 shadow-2xl backdrop-blur-3xl' : 'border-slate-200 bg-white shadow-xl'
-            }`}>
-            <div className={`flex items-center gap-6 border-b px-10 py-8 transition-colors duration-500 ${isDarkMode ? 'border-white/5 bg-white/5' : 'border-slate-100 bg-slate-50/50'
-              }`}>
-              <div className={`flex size-14 items-center justify-center rounded-2xl shadow-inner ${isDarkMode ? 'bg-indigo-500/20 text-indigo-400' : 'bg-indigo-100 text-indigo-600'
-                }`}>
-                <FiShield size={24} />
-              </div>
-              <div>
-                <h2 className={`font-outfit text-2xl font-black uppercase italic tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Data Privacy</h2>
-                <p className={`mt-1 text-[13px] font-medium ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
-                  Anonymous telemetry core
-                </p>
-              </div>
-            </div>
-
-            <div className="p-10 space-y-8">
-              <div className="flex items-center justify-between gap-8">
-                <p className={`text-[14px] font-semibold leading-relaxed opacity-70 ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>
-                  Securely share system-level diagnostics. No personal identifiers or data logs are ever exported.
-                </p>
-                <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
-                  <input type="checkbox" className="peer sr-only" checked={settings.enabled} onChange={e => handleToggleAnalytics(e.target.checked)} />
-                  <div className={`peer h-8 w-14 rounded-full border transition-all duration-300 after:absolute 
-                    after:left-[4px] after:top-[4px] after:size-6 after:rounded-full after:shadow-2xl 
-                    after:backdrop-blur-md after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-focus:outline-none
-                    ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-white/20 peer-checked:bg-indigo-500 shadow-indigo-500/20' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600 shadow-sm'} 
-                    peer-checked:after:bg-white`}>
-                  </div>
-                </label>
-              </div>
-
-              <div className={`rounded-2xl border p-6 ${isDarkMode ? 'border-white/5 bg-white/[0.01]' : 'border-slate-100 bg-slate-50/30'}`}>
-                <div className="flex items-center gap-3 opacity-40">
-                  <div className="size-1 rounded-full bg-emerald-500"></div>
-                  <span className="text-[10px] font-black uppercase tracking-widest">End-to-End Local Processing</span>
+          <DashboardSection
+            title="Data Privacy"
+            subtitle="Anonymous telemetry settings"
+            icon={<FiShield size={20} />}
+            isDarkMode={isDarkMode}
+            colorTheme="indigo"
+            contentClassName="p-6 space-y-6"
+          >
+            <div className="flex items-center justify-between gap-6">
+              <p className={`text-[13px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>
+                Securely share system-level diagnostics. No personal identifiers or data logs are ever exported from your device.
+              </p>
+              <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
+                <input type="checkbox" className="peer sr-only" checked={settings.enabled} onChange={e => handleToggleAnalytics(e.target.checked)} />
+                <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
+                  after:left-[3px] after:top-[3px] after:size-4 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-focus:outline-none
+                  ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-white/20 peer-checked:bg-indigo-600' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
+                  peer-checked:after:bg-white`}>
                 </div>
+              </label>
+            </div>
+
+            <div className={`rounded-xl border p-4 ${isDarkMode ? 'border-white/5 bg-white/[0.01]' : 'border-slate-100 bg-slate-50/30'}`}>
+              <div className="flex items-center gap-2 opacity-40">
+                <div className="size-1 rounded-full bg-teal-500"></div>
+                <span className="text-[9px] font-bold uppercase tracking-wider">End-to-End Local Processing</span>
               </div>
             </div>
-          </section>
+          </DashboardSection>
         )}
       </div>
     </div>
