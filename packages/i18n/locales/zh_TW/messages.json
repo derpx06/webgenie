@@ -139,7 +139,11 @@
   "chat_stt_recording_stop": {
     "message": "停止錄音"
   },
+  "chat_stt_notSupported": {
+    "message": "此瀏覽器不支援語音辨識功能。"
+  },
   "chat_stt_input_start": {
+
     "message": "開始語音輸入"
   },
   "chat_stt_processingFailed": {

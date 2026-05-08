@@ -139,7 +139,11 @@
   "chat_stt_recording_stop": {
     "message": "Stop recording"
   },
+  "chat_stt_notSupported": {
+    "message": "Speech recognition is not supported in this browser."
+  },
   "chat_stt_input_start": {
+
     "message": "Start voice input"
   },
   "chat_stt_processingFailed": {

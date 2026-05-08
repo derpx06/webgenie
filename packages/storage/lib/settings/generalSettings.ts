@@ -15,6 +15,9 @@ export interface GeneralSettingsConfig {
   replayHistoricalTasks: boolean;
   showAmbientBorder: boolean;
   showStatusCapsule: boolean;
+  enableTracing: boolean;
+  langsmithApiKey: string;
+  langsmithProject: string;
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
@@ -36,7 +39,11 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   replayHistoricalTasks: false,
   showAmbientBorder: true,
   showStatusCapsule: true,
+  enableTracing: false,
+  langsmithApiKey: '',
+  langsmithProject: 'web-surfer',
 };
+
 
 const storage = createStorage<GeneralSettingsConfig>('general-settings', DEFAULT_GENERAL_SETTINGS, {
   storageEnum: StorageEnum.Local,

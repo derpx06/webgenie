@@ -85,8 +85,7 @@ const SidePanel = () => {
   }, [hasConfiguredModels, handleSendMessage]);
 
   return (
-    <div className="ws-app-container">
-      <div className={`relative flex h-screen flex-col overflow-hidden ${isDarkMode ? 'theme-dark bg-slate-950' : 'theme-light bg-slate-50'}`}>
+    <div className={`relative flex h-screen flex-col overflow-hidden ${isDarkMode ? 'theme-dark bg-slate-950' : 'theme-light bg-slate-50'}`}>
         <NeuralBackground isDarkMode={isDarkMode} />
         <SidePanelHeader
           isDarkMode={isDarkMode}
@@ -127,6 +126,7 @@ const SidePanel = () => {
                 {messages.length === 0 ? (
                   <EmptyChat
                     isDarkMode={isDarkMode}
+                    recentSessions={chatSessions.slice(0, 3)}
                     onSelectPrompt={text => {
                       if (setInputTextRef.current) {
                         setInputTextRef.current(text);
@@ -186,7 +186,6 @@ const SidePanel = () => {
           </>
         )}
       </div>
-    </div>
   );
 };
 

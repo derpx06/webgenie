@@ -78,12 +78,20 @@ function injectBorder() {
   target.appendChild(border);
 }
 
+let borderVisibilityTimeout: ReturnType<typeof setTimeout> | null = null;
+
 function setBorderActive(active: boolean) {
   const border = document.getElementById(BORDER_ID);
+  
+  if (borderVisibilityTimeout) {
+    clearTimeout(borderVisibilityTimeout);
+    borderVisibilityTimeout = null;
+  }
+
   if (active) {
     injectBorder();
     // Use a small timeout to ensure transition works
-    setTimeout(() => {
+    borderVisibilityTimeout = setTimeout(() => {
       const el = document.getElementById(BORDER_ID);
       if (el) {
         el.classList.add('active');
@@ -360,15 +368,18 @@ function makeCapsuleDraggable(capsule: HTMLElement) {
   });
 }
 
-function updateStatusUI(active: boolean, text = 'Agent Active...') {
+let visibilityTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function updateStatusCapsule(text: string, active: boolean) {
   const target = document.body || document.documentElement;
   if (!target) return;
 
-  let capsule = document.getElementById('webgenie-agent-status-capsule');
+  let capsule = document.getElementById(CAPSULE_ID);
 
   if (!capsule) {
+    if (!active) return; // Don't create if not active
     capsule = document.createElement('div');
-    capsule.id = 'webgenie-agent-status-capsule';
+    capsule.id = CAPSULE_ID;
 
     const dot = document.createElement('div');
     dot.className = 'webgenie-agent-dot';
@@ -397,9 +408,14 @@ function updateStatusUI(active: boolean, text = 'Agent Active...') {
     label.innerText = text;
   }
 
+  if (visibilityTimeout) {
+    clearTimeout(visibilityTimeout);
+    visibilityTimeout = null;
+  }
+
   if (active) {
     // Small delay to allow element to be added to DOM before triggering transition
-    setTimeout(() => {
+    visibilityTimeout = setTimeout(() => {
       capsule?.classList.add('visible');
     }, 10);
   } else {
@@ -514,8 +530,16 @@ chrome.runtime.onMessage.addListener((message) => {
   if (window !== window.top) return;
 
   if (message.type === 'AGENT_STATUS') {
-    setBorderActive(message.active && message.showBorder);
-    updateStatusUI(message.active && message.showCapsule, message.status);
+    const isActive = Boolean(message.active);
+    const showBorder = message.showBorder ?? true;
+    const showCapsule = message.showCapsule ?? true;
+
+    setBorderActive(isActive && showBorder);
+    updateStatusCapsule(message.status || 'WebGenie is active...', isActive && showCapsule);
+
+    if (isActive) {
+      initCursor();
+    }
   } else if (message.type === 'AGENT_ACTION') {
     // This is fired when the background is about to click or type
     if (message.x != null && message.y != null) {

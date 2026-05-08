@@ -86,7 +86,7 @@ export default function ChatInput({
             disabled={disabled}
             rows={2}
             style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
-            className={`w-full resize-none border-0 bg-transparent px-5 pb-2 pt-4 font-outfit text-[14px] font-medium leading-relaxed tracking-tight transition-all focus:border-0 focus:outline-none focus:ring-0 ${
+            className={`w-full resize-none border-0 bg-transparent px-5 pb-2 pt-4 font-sans text-[14px] font-medium leading-relaxed tracking-tight transition-all focus:border-0 focus:outline-none focus:ring-0 ${
               isDarkMode
                 ? 'text-slate-100 placeholder:text-slate-600/80'
                 : 'text-slate-900 placeholder:text-slate-400'

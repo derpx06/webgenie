@@ -6,6 +6,8 @@ import type { BaseStorage } from '../base/types';
 export interface AnalyticsSettingsConfig {
   enabled: boolean;
   anonymousUserId: string;
+  totalInputTokens: number;
+  totalOutputTokens: number;
 }
 
 export type AnalyticsSettingsStorage = BaseStorage<AnalyticsSettingsConfig> & {
@@ -13,6 +15,7 @@ export type AnalyticsSettingsStorage = BaseStorage<AnalyticsSettingsConfig> & {
   getSettings: () => Promise<AnalyticsSettingsConfig>;
   resetToDefaults: () => Promise<void>;
   generateAnonymousUserId: () => string;
+  incrementTokens: (input: number, output: number) => Promise<void>;
 };
 
 // Generate a random anonymous user ID
@@ -24,6 +27,8 @@ function generateAnonymousUserId(): string {
 export const DEFAULT_ANALYTICS_SETTINGS: AnalyticsSettingsConfig = {
   enabled: true,
   anonymousUserId: '',
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
 };
 
 const storage = createStorage<AnalyticsSettingsConfig>('analytics-settings', DEFAULT_ANALYTICS_SETTINGS, {
@@ -71,4 +76,12 @@ export const analyticsSettingsStore: AnalyticsSettingsStorage = {
     await storage.set(resetSettings);
   },
   generateAnonymousUserId,
+  async incrementTokens(input: number, output: number) {
+    const current = (await storage.get()) || DEFAULT_ANALYTICS_SETTINGS;
+    await storage.set({
+      ...current,
+      totalInputTokens: (current.totalInputTokens || 0) + input,
+      totalOutputTokens: (current.totalOutputTokens || 0) + output,
+    });
+  },
 };
