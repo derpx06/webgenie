@@ -7,13 +7,23 @@
   const ns = (global.__DOM_TREE_BUILDER__ = global.__DOM_TREE_BUILDER__ || {});
 
   ns.INTERACTIVE_TAGS = new Set([
-    'a', 'button', 'input', 'select', 'textarea',
-    'details', 'summary', 'label', 'option',
-    'optgroup', 'fieldset', 'legend',
+    'a',
+    'button',
+    'input',
+    'select',
+    'textarea',
+    'details',
+    'summary',
+    'label',
+    'option',
+    'optgroup',
+    'fieldset',
+    'legend',
+    'form',
   ]);
 
   ns.INTERACTIVE_ROLES = new Set([
-    'button', 'menu', 'menubar', 'menuitem',
+    'button', 'link', 'menu', 'menubar', 'menuitem',
     'menuitemradio', 'menuitemcheckbox', 'radio',
     'checkbox', 'tab', 'switch', 'slider',
     'spinbutton', 'combobox', 'searchbox', 'textbox',
@@ -21,13 +31,7 @@
   ]);
 
   ns.INTERACTIVE_CURSORS = new Set([
-    'pointer', 'move', 'text', 'grab', 'grabbing',
-    'cell', 'copy', 'alias', 'all-scroll', 'col-resize',
-    'context-menu', 'crosshair', 'e-resize', 'ew-resize',
-    'help', 'n-resize', 'ne-resize', 'nesw-resize',
-    'ns-resize', 'nw-resize', 'nwse-resize', 'row-resize',
-    's-resize', 'se-resize', 'sw-resize', 'vertical-text',
-    'w-resize', 'zoom-in', 'zoom-out',
+    'pointer', 'move', 'text'
   ]);
 
   ns.NON_INTERACTIVE_CURSORS = new Set([
@@ -35,7 +39,7 @@
   ]);
 
   ns.ELEMENT_DENY_LIST = new Set([
-    'svg', 'script', 'style', 'link', 'meta', 'noscript', 'template',
+    'script', 'style', 'link', 'meta', 'noscript', 'template',
   ]);
 
   ns.DISABLE_ATTRIBUTES = new Set(['disabled', 'readonly']);

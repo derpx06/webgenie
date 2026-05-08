@@ -75,11 +75,15 @@
       if (!nodeData.isVisible) return false;
 
       nodeData.isTopElement = interactivity.isTopElement(node, viewportExpansion);
+      nodeData.isInteractive = interactivity.isInteractiveElement(node);
+
       const role = node.getAttribute('role');
       const isMenuContainer = role === 'menu' || role === 'menubar' || role === 'listbox';
-      if (!nodeData.isTopElement && !isMenuContainer) return false;
 
-      nodeData.isInteractive = interactivity.isInteractiveElement(node);
+      if (!nodeData.isTopElement && !isMenuContainer && !nodeData.isInteractive) {
+        return false;
+      }
+
       if (!interactivity.shouldHighlightElement(nodeData, node, parentIframe, isParentHighlighted)) {
         return false;
       }
@@ -107,7 +111,7 @@
         const iframeDoc = node.contentDocument || node.contentWindow?.document;
         if (iframeDoc?.childNodes) {
           for (const child of Array.from(iframeDoc.childNodes)) {
-            const domElement = buildDomTree(child, node, isParentHighlighted, depth + 1);
+            const domElement = traverse(child, node, isParentHighlighted, depth + 1);
             if (domElement) nodeData.children.push(domElement);
           }
         }
@@ -124,7 +128,7 @@
 
       if (node.isContentEditable || node.getAttribute('contenteditable') === 'true' || node.id === 'tinymce' || node.classList.contains('mce-content-body') || (tagName === 'body' && node.getAttribute('data-id')?.startsWith('mce_'))) {
         for (const child of Array.from(node.childNodes)) {
-          const domElement = buildDomTree(child, parentIframe, isParentHighlighted, depth + 1);
+          const domElement = traverse(child, parentIframe, isParentHighlighted, depth + 1);
           if (domElement) nodeData.children.push(domElement);
         }
         return;
@@ -133,14 +137,14 @@
       if (node.shadowRoot) {
         nodeData.shadowRoot = true;
         for (const child of Array.from(node.shadowRoot.childNodes)) {
-          const domElement = buildDomTree(child, parentIframe, isParentHighlighted, depth + 1);
+          const domElement = traverse(child, parentIframe, isParentHighlighted, depth + 1);
           if (domElement) nodeData.children.push(domElement);
         }
         return;
       }
 
       for (const child of Array.from(node.childNodes)) {
-        const domElement = buildDomTree(child, parentIframe, isParentHighlighted, depth + 1);
+        const domElement = traverse(child, parentIframe, isParentHighlighted, depth + 1);
         if (domElement) nodeData.children.push(domElement);
       }
     }
@@ -152,7 +156,7 @@
       return false;
     }
 
-    function buildDomTree(node, parentIframe = null, isParentHighlighted = false, depth = 0) {
+    function traverse(node, parentIframe = null, isParentHighlighted = false, depth = 0) {
       if (!visitedNodes) visitedNodes = new WeakSet();
       if (depth > constants.CONFIG.MAX_RECURSION_DEPTH || shouldSkipNode(node)) return null;
       if (node.nodeType === Node.ELEMENT_NODE) visitedNodes.add(node);
@@ -162,7 +166,7 @@
       if (node === document.body) {
         const nodeData = { tagName: 'body', attributes: {}, xpath: '/body', children: [] };
         for (const child of Array.from(node.childNodes)) {
-          const id = buildDomTree(child, parentIframe, false, depth + 1);
+          const id = traverse(child, parentIframe, false, depth + 1);
           if (id) nodeData.children.push(id);
         }
         const id = `${ID.current++}`;
@@ -199,13 +203,14 @@
 
     function execute() {
       visitedNodes = null;
-      const rootId = buildDomTree(document.body);
+      const rootNode = document.body || document.documentElement || document;
+      const rootId = traverse(rootNode);
       cache.clearCache();
       return { rootId, map: DOM_HASH_MAP };
     }
 
     return {
-      buildDomTree,
+      traverse,
       execute,
     };
   };

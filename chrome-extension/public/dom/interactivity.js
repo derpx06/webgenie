@@ -41,8 +41,7 @@
 
     function hasClickListeners(element) {
       try {
-        if (helpers.hasInteractionListeners(element, ['click', 'mousedown', 'mouseup', 'dblclick'])) return true;
-        return helpers.hasEventHandlers(element, ['onclick', 'onmousedown', 'onmouseup', 'ondblclick']);
+        return helpers.hasInteractionListeners(element, ['click', 'mousedown', 'mouseup']);
       } catch (e) {
         return false;
       }
@@ -54,8 +53,60 @@
       if (isEnabledFormElement(element)) return true;
       if (isEditableContent(element)) return true;
       if (hasInteractiveRole(element)) return true;
-      if (element.hasAttribute('onclick') || hasClickListeners(element)) return true;
+      
+      if (element.hasAttribute('onclick') || 
+          element.hasAttribute('tabindex') || 
+          element.hasAttribute('jsaction') || 
+          element.hasAttribute('jscontroller') || 
+          element.hasAttribute('jsname') ||
+          element.hasAttribute('jslog') || 
+          element.hasAttribute('data-action') || 
+          element.hasAttribute('data-value') || 
+          element.hasAttribute('data-index') || 
+          element.hasAttribute('data-toggle') || 
+          element.hasAttribute('aria-expanded') ||
+          element.hasAttribute('aria-controls') ||
+          element.hasAttribute('aria-haspopup') || 
+          typeof element.onclick === 'function' ||
+          (element.classList && (
+            element.classList.contains('button') || 
+            element.classList.contains('dropdown-toggle')
+          ))) return true;
+
+      if (hasClickListeners(element)) return true;
+      
       return false;
+    }
+
+    function isHeuristicallyInteractive(element) {
+      if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+      
+      // Check for common attributes that often indicate interactivity
+      const hasInteractiveAttributes =
+        element.hasAttribute('role') ||
+        element.hasAttribute('tabindex') ||
+        element.hasAttribute('onclick') ||
+        typeof element.onclick === 'function';
+
+      // Check for semantic class names suggesting interactivity
+      const className = typeof element.className === 'string' ? element.className : (element.className?.baseVal || '');
+      const hasInteractiveClass = /\b(btn|clickable|menu|item|entry|link)\b/i.test(className);
+
+      // Determine whether the element is inside a known interactive container
+      const isInKnownContainer = Boolean(element.closest('button,a,[role="button"],.menu,.dropdown,.list,.toolbar'));
+
+      // Ensure the element has at least one visible child (to avoid marking empty wrappers)
+      const hasVisibleChildren = [...element.children].some(child => helpers.isElementVisible(child));
+
+      // Avoid highlighting elements whose parent is <body> (top-level wrappers)
+      const isParentBody = element.parentElement && element.parentElement.tagName.toLowerCase() === 'body';
+
+      return (
+        (isInteractiveElement(element) || hasInteractiveAttributes || hasInteractiveClass) &&
+        hasVisibleChildren &&
+        isInKnownContainer &&
+        !isParentBody
+      );
     }
 
     function isDistinctInteraction(element) {
@@ -66,10 +117,29 @@
       if (constants.INTERACTIVE_TAGS.has(tagName)) return true;
       if (hasInteractiveRole(element)) return true;
       if (isEditableContent(element)) return true;
+      
       if (element.hasAttribute('data-testid') || element.hasAttribute('data-cy') || element.hasAttribute('data-test')) {
         return true;
       }
-      if (element.hasAttribute('onclick') || typeof element.onclick === 'function') return true;
+      
+      if (element.hasAttribute('onclick') || 
+        element.hasAttribute('tabindex') || 
+        element.hasAttribute('jsaction') || 
+        element.hasAttribute('jscontroller') || 
+        element.hasAttribute('jsname') ||
+        element.hasAttribute('jslog') || 
+        element.hasAttribute('data-action') || 
+        element.hasAttribute('data-value') || 
+        element.hasAttribute('data-index') || 
+        element.hasAttribute('data-toggle') || 
+        element.hasAttribute('aria-expanded') ||
+        element.hasAttribute('aria-controls') ||
+        element.hasAttribute('aria-haspopup') || 
+        typeof element.onclick === 'function' ||
+        (element.classList && (
+          element.classList.contains('button') || 
+          element.classList.contains('dropdown-toggle')
+        ))) return true;
 
       try {
         if (helpers.hasInteractionListeners(element, ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'])) {
@@ -82,28 +152,14 @@
         // ignore
       }
 
-      return false;
+      // Check heuristics as a fallback
+      return isHeuristicallyInteractive(element);
     }
 
     function shouldHighlightElement(nodeData, node, parentIframe, isParentHighlighted) {
       if (!nodeData.isInteractive) return false;
       if (!isParentHighlighted) return true;
       return isDistinctInteraction(node);
-    }
-
-    function analyzeElementProperties(node, nodeData, parentIframe, isParentHighlighted, viewportExpansion) {
-      if (node.nodeType !== Node.ELEMENT_NODE) return false;
-
-      nodeData.isVisible = helpers.isElementVisible(node);
-      if (!nodeData.isVisible) return false;
-
-      nodeData.isTopElement = isTopElement(node, viewportExpansion);
-      const role = node.getAttribute('role');
-      const isMenuContainer = role === 'menu' || role === 'menubar' || role === 'listbox';
-      if (!nodeData.isTopElement && !isMenuContainer) return false;
-
-      nodeData.isInteractive = isInteractiveElement(node);
-      return shouldHighlightElement(nodeData, node, parentIframe, isParentHighlighted);
     }
 
     function isTopElement(element, viewportExpansion) {
@@ -142,6 +198,12 @@
 
       const checkPoints = helpers.getRectCheckPoints(rects[Math.floor(rects.length / 2)]);
       return checkPoints.some(({ x, y }) => {
+        // If point is outside actual viewport, we can't use elementFromPoint.
+        // We assume it's on top if it's in the expanded viewport (already checked by caller).
+        if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) {
+          return true;
+        }
+
         try {
           const topEl = document.elementFromPoint(x, y);
           if (!topEl) return false;
@@ -167,7 +229,6 @@
       isInteractiveElement,
       isDistinctInteraction,
       shouldHighlightElement,
-      analyzeElementProperties,
       isTopElement,
     };
   };
