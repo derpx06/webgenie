@@ -12,8 +12,8 @@ import {
   getProviderTypeByProviderId,
   type ProviderConfig,
 } from '@extension/storage';
-import { t } from '@extension/i18n';
 import { isOpenAIReasoningModel, isAnthropicModel } from './ModelSettingsUtils';
+import { t } from '@extension/i18n';
 
 export const useModelSettings = (isDarkMode: boolean) => {
   const [providers, setProviders] = useState<Record<string, ProviderConfig>>({});
@@ -199,6 +199,28 @@ export const useModelSettings = (isDarkMode: boolean) => {
     }));
   };
 
+  const handleRegionChange = (provider: string, region: string) => {
+    setModifiedProviders(prev => new Set(prev).add(provider));
+    setProviders(prev => ({
+      ...prev,
+      [provider]: {
+        ...prev[provider],
+        region: region.trim(),
+      },
+    }));
+  };
+
+  const handleSecretKeyChange = (provider: string, secretKey: string) => {
+    setModifiedProviders(prev => new Set(prev).add(provider));
+    setProviders(prev => ({
+      ...prev,
+      [provider]: {
+        ...prev[provider],
+        bedrockSecretKey: secretKey.trim(),
+      },
+    }));
+  };
+
   const toggleApiKeyVisibility = (provider: string) => {
     setVisibleApiKeys(prev => ({
       ...prev,
@@ -289,6 +311,8 @@ export const useModelSettings = (isDarkMode: boolean) => {
       hasInput = Boolean(config?.apiKey?.trim()) && Boolean(config?.baseUrl?.trim()) && Boolean(config?.azureDeploymentNames?.length) && Boolean(config?.azureApiVersion?.trim());
     } else if (providerType === ProviderTypeEnum.OpenRouter || providerType === ProviderTypeEnum.Llama) {
       hasInput = Boolean(config?.apiKey?.trim()) && Boolean(config?.baseUrl?.trim());
+    } else if (providerType === ProviderTypeEnum.Bedrock) {
+      hasInput = Boolean(config?.apiKey?.trim()) && Boolean(config?.region?.trim()) && Boolean(config?.bedrockSecretKey?.trim());
     } else {
       hasInput = Boolean(config?.apiKey?.trim());
     }
@@ -473,6 +497,8 @@ export const useModelSettings = (isDarkMode: boolean) => {
     availableModels,
     selectedSpeechToTextModel,
     handleApiKeyChange,
+    handleRegionChange,
+    handleSecretKeyChange,
     toggleApiKeyVisibility,
     handleNameChange,
     handleModelsChange,

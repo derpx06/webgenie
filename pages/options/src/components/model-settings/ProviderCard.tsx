@@ -15,6 +15,8 @@ interface ProviderCardProps {
   handleSave: (provider: string) => void;
   handleNameChange: (provider: string, name: string) => void;
   handleApiKeyChange: (provider: string, apiKey: string, baseUrl?: string) => void;
+  handleRegionChange: (provider: string, region: string) => void;
+  handleSecretKeyChange: (provider: string, secretKey: string) => void;
   toggleApiKeyVisibility: (provider: string) => void;
   removeModel: (provider: string, model: string) => void;
   addModel: (provider: string, model: string) => void;
@@ -34,6 +36,8 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
   handleSave,
   handleNameChange,
   handleApiKeyChange,
+  handleRegionChange,
+  handleSecretKeyChange,
   toggleApiKeyVisibility,
   removeModel,
   addModel,
@@ -104,6 +108,40 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
             </button>
           </div>
         </div>
+
+        {providerConfig.type === ProviderTypeEnum.Bedrock && (
+          <div className="space-y-1.5">
+            <label className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">AWS Region</label>
+            <input
+              type="text"
+              className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-bold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
+              placeholder="us-east-1"
+              value={providerConfig.region || ''}
+              onChange={e => handleRegionChange(providerId, e.target.value)}
+            />
+          </div>
+        )}
+
+        {providerConfig.type === ProviderTypeEnum.Bedrock && (
+          <div className="space-y-1.5">
+            <label className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">AWS Secret Key</label>
+            <div className="group relative">
+              <input
+                type={visibleApiKeys[`${providerId}-secret`] ? 'text' : 'password'}
+                className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-bold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
+                placeholder="••••••••••••••••"
+                value={providerConfig.bedrockSecretKey || ''}
+                onChange={e => handleSecretKeyChange(providerId, e.target.value)}
+              />
+              <button
+                className="absolute right-3 top-1/2 -translate-y-1/2 opacity-30 transition-opacity hover:opacity-100"
+                onClick={() => toggleApiKeyVisibility(`${providerId}-secret`)}
+              >
+                {visibleApiKeys[`${providerId}-secret`] ? <FiEyeOff size={14} /> : <FiEye size={14} />}
+              </button>
+            </div>
+          </div>
+        )}
 
         {(providerConfig.type === ProviderTypeEnum.CustomOpenAI ||
           providerConfig.type === ProviderTypeEnum.Ollama ||
