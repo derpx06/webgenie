@@ -28,6 +28,8 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
     handleSave,
     handleNameChange,
     handleApiKeyChange,
+    handleRegionChange,
+    handleSecretKeyChange,
     toggleApiKeyVisibility,
     removeModel,
     addModel,
@@ -148,6 +150,8 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                 handleSave={handleSave}
                 handleNameChange={handleNameChange}
                 handleApiKeyChange={handleApiKeyChange}
+                handleRegionChange={handleRegionChange}
+                handleSecretKeyChange={handleSecretKeyChange}
                 toggleApiKeyVisibility={toggleApiKeyVisibility}
                 removeModel={removeModel}
                 addModel={addModel}

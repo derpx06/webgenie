@@ -248,6 +248,21 @@ export function createChatHistoryStorage(): ChatHistoryStorage {
         return null;
       return history;
     },
+    incrementTokens: async (sessionId: string, input: number, output: number): Promise<void> => {
+      await chatSessionsMetaStorage.set(prevSessions => {
+        return prevSessions.map(session => {
+          if (session.id === sessionId) {
+            return {
+              ...session,
+              inputTokens: (session.inputTokens || 0) + input,
+              outputTokens: (session.outputTokens || 0) + output,
+              updatedAt: getCurrentTimestamp(),
+            };
+          }
+          return session;
+        });
+      });
+    },
   };
 }
 

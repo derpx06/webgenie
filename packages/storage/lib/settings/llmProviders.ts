@@ -16,6 +16,9 @@ export interface ProviderConfig {
   // Azure Specific Fields:
   azureDeploymentNames?: string[]; // Azure deployment names array
   azureApiVersion?: string;
+  // Bedrock Specific Fields:
+  region?: string;
+  bedrockSecretKey?: string;
 }
 
 // Interface for storing multiple LLM provider configurations
@@ -67,7 +70,9 @@ export function getProviderTypeByProviderId(providerId: string): ProviderTypeEnu
     case ProviderTypeEnum.OpenRouter:
     case ProviderTypeEnum.Groq:
     case ProviderTypeEnum.Cerebras:
-      return providerId;
+    case ProviderTypeEnum.Llama:
+    case ProviderTypeEnum.Bedrock:
+      return providerId as ProviderTypeEnum;
     default:
       return ProviderTypeEnum.CustomOpenAI;
   }
@@ -99,6 +104,8 @@ export function getDefaultDisplayNameFromProviderId(providerId: string): string 
       return 'Cerebras';
     case ProviderTypeEnum.Llama:
       return 'Llama';
+    case ProviderTypeEnum.Bedrock:
+      return 'AWS Bedrock';
     default:
       return providerId; // Use the provider id as display name for custom providers by default
   }
@@ -116,6 +123,7 @@ export function getDefaultProviderConfig(providerId: string): ProviderConfig {
     case ProviderTypeEnum.Groq: // Groq uses modelNames
     case ProviderTypeEnum.Cerebras: // Cerebras uses modelNames
     case ProviderTypeEnum.Llama: // Llama uses modelNames
+    case ProviderTypeEnum.Bedrock: // Bedrock uses modelNames
       return {
         apiKey: '',
         name: getDefaultDisplayNameFromProviderId(providerId),
@@ -128,6 +136,7 @@ export function getDefaultProviderConfig(providerId: string): ProviderConfig {
               : undefined,
         modelNames: [...(llmProviderModelNames[providerId] || [])],
         createdAt: Date.now(),
+        ...(providerId === ProviderTypeEnum.Bedrock ? { region: 'us-east-1' } : {}),
       };
 
     case ProviderTypeEnum.Ollama:
@@ -274,6 +283,12 @@ export const llmProviderStore: LLMProviderStorage = {
         : {
             modelNames: config.modelNames || [],
           }),
+      ...(providerType === ProviderTypeEnum.Bedrock
+        ? {
+            region: config.region,
+            bedrockSecretKey: config.bedrockSecretKey,
+          }
+        : {}),
     };
 
     console.log(`[llmProviderStore.setProvider] Saving config for ${providerId}:`, JSON.stringify(completeConfig));

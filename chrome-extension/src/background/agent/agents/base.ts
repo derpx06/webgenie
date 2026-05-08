@@ -148,6 +148,23 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
 
         if (response.parsed) {
           logger.debug(`[${this.modelName}] Successfully parsed structured output`);
+
+          // Record token usage if available in raw response
+          const rawResponse = response.raw as any;
+          if (rawResponse?.usage_metadata) {
+            this.context.messageManager.recordTokenUsage(
+              rawResponse.usage_metadata.input_tokens || 0,
+              rawResponse.usage_metadata.output_tokens || 0
+            );
+          } else if (rawResponse?.additional_kwargs?.tokenUsage) {
+            // Fallback for some providers using additional_kwargs
+            const usage = rawResponse.additional_kwargs.tokenUsage as any;
+            this.context.messageManager.recordTokenUsage(
+              usage.promptTokens || usage.input_tokens || 0,
+              usage.completionTokens || usage.output_tokens || 0
+            );
+          }
+
           return response.parsed;
         }
         logger.error('Failed to parse response', response);
@@ -187,6 +204,14 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
       if (typeof response.content === 'string') {
         const parsed = this.manuallyParseResponse(response.content);
         if (parsed) {
+          // Record token usage for fallback response
+          const anyResponse = response as any;
+          if (anyResponse.usage_metadata) {
+            this.context.messageManager.recordTokenUsage(
+              anyResponse.usage_metadata.input_tokens || 0,
+              anyResponse.usage_metadata.output_tokens || 0
+            );
+          }
           return parsed;
         }
       }

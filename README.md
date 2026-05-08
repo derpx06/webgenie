@@ -137,6 +137,8 @@ graph TB
     style SEC fill:#fa709a,stroke:#333,stroke-width:2px,color:#fff
 ```
 
+If you want a very detailed walkthrough of the DOM engine, read [docs/dom-deep-dive.md](docs/dom-deep-dive.md).
+
 ### How It Works Together
 
 **User Interface Layer**: The side panel (_React + TypeScript_) allows users to interact with the system through a chat interface. The options page lets users configure LLM providers and preferences, which are stored locally via Chrome Storage API.

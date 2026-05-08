@@ -20,6 +20,8 @@ export default defineConfig(({ mode }) => {
       '@root': rootDir,
       '@src': srcDir,
       '@assets': resolve(srcDir, 'assets'),
+      '@smithy/shared-ini-file-loader': resolve(srcDir, 'background/agent/mocks/bedrock-fix.ts'),
+      '@aws-sdk/credential-provider-node': resolve(srcDir, 'background/agent/mocks/bedrock-fix.ts'),
     },
     conditions: ['browser', 'module', 'import', 'default'],
     mainFields: ['browser', 'module', 'main']

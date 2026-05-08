@@ -23,6 +23,8 @@ export interface ChatSessionMetadata {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface ChatSession extends ChatSessionMetadata {
@@ -69,4 +71,7 @@ export interface ChatHistoryStorage {
 
   // Load the history of the agent's state
   loadAgentStepHistory: (sessionId: string) => Promise<ChatAgentStepHistory | null>;
+
+  // Increment tokens for a session
+  incrementTokens: (sessionId: string, input: number, output: number) => Promise<void>;
 }

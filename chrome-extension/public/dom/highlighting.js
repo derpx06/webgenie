@@ -21,10 +21,10 @@
           height: '100%',
           zIndex: '2147483647',
           backgroundColor: 'transparent',
-          display: showHighlightElements ? 'block' : 'none',
         });
         document.body.appendChild(container);
       }
+      container.style.display = showHighlightElements ? 'block' : 'none';
       return container;
     }
 
@@ -145,6 +145,10 @@
 
     function highlightElement(element, index, parentIframe = null, showHighlightElements = true) {
       if (!element) return index;
+      if (!showHighlightElements) {
+        getHighlightContainer(false);
+        return index + 1;
+      }
 
       const rects = cache.getCachedClientRects(element);
       if (!rects || rects.length === 0) return index;

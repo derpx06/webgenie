@@ -139,7 +139,11 @@
   "chat_stt_recording_stop": {
     "message": "Parar gravação"
   },
+  "chat_stt_notSupported": {
+    "message": "O reconhecimento de fala não é suportado neste navegador."
+  },
   "chat_stt_input_start": {
+
     "message": "Iniciar entrada de voz"
   },
   "chat_stt_processingFailed": {

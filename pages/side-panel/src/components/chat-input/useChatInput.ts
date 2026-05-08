@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import type { Tab } from './chat-input/TabMentionsDropdown';
+import type { Tab } from './TabMentionsDropdown';
 
 interface Mention {
   id: number;
@@ -195,6 +195,21 @@ export const useChatInput = (
 
   const handleRemoveFile = (index: number) => setAttachedFiles(prev => prev.filter((_, i) => i !== index));
 
+  const handleRemoveMention = (index: number) => {
+    const mention = mentions[index];
+    setMentions(prev => prev.filter((_, i) => i !== index));
+    // Also remove the @Title from the text if it exists
+    setText(prev => prev.replace(`@${mention.title}`, ''));
+  };
+
+  const handleSwitchTab = (tabId: number) => {
+    chrome.tabs.update(tabId, { active: true }, (tab) => {
+      if (tab?.windowId) {
+        chrome.windows.update(tab.windowId, { focused: true });
+      }
+    });
+  };
+
   return {
     text,
     setText,
@@ -211,5 +226,8 @@ export const useChatInput = (
     handleKeyDown,
     handleFileChange,
     handleRemoveFile,
+    mentions,
+    handleRemoveMention,
+    handleSwitchTab,
   };
 };

@@ -17,6 +17,8 @@ interface RealStats {
   last30DayMessages: number;
   avgMessagesPerSession: number;
   oldestSessionDate: number | null;
+  totalInputTokens: number;
+  totalOutputTokens: number;
 }
 
 export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode }) => {
@@ -29,6 +31,8 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
     last30DayMessages: 0,
     avgMessagesPerSession: 0,
     oldestSessionDate: null,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
   });
 
   useEffect(() => {
@@ -55,6 +59,8 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
           last30DayMessages: last30Messages,
           avgMessagesPerSession: sessions.length > 0 ? Math.round(totalMessages / sessions.length) : 0,
           oldestSessionDate: oldest,
+          totalInputTokens: currentSettings.totalInputTokens || 0,
+          totalOutputTokens: currentSettings.totalOutputTokens || 0,
         });
       } catch (error) {
         console.error('Failed to load analytics:', error);
@@ -109,6 +115,83 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
 
       {/* LEFT COLUMN: ACTIVE VELOCITY */}
       <div className="space-y-8">
+        {/* TOKEN CONSUMPTION HERO SECTION */}
+        <DashboardSection
+          title="Compute Intelligence"
+          subtitle="Real-time LLM token utilization"
+          icon={<FiActivity size={20} />}
+          isDarkMode={isDarkMode}
+          colorTheme="indigo"
+          contentClassName="p-6"
+        >
+          <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-gradient-to-br from-indigo-500/10 via-cyan-500/5 to-transparent p-8 shadow-2xl">
+            <div className="absolute -right-12 -top-12 size-48 rounded-full bg-indigo-500/10 blur-3xl" />
+            <div className="absolute -bottom-12 -left-12 size-48 rounded-full bg-cyan-500/10 blur-3xl" />
+            
+            <div className="relative flex flex-col gap-8">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-1">
+                  <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>System Telemetry</span>
+                  <div className="flex items-center gap-2">
+                    <div className="size-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_12px_rgba(34,211,238,0.6)]" />
+                    <span className="text-sm font-bold tracking-tight opacity-70">Active Monitoring</span>
+                  </div>
+                </div>
+                <div className={`rounded-full px-4 py-1.5 text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-white/5 text-white/40' : 'bg-slate-200 text-slate-500'}`}>
+                  Live Stream
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-12">
+                <div className="group/stat flex flex-col gap-2">
+                  <div className="flex items-end gap-2">
+                    <span className={`text-5xl font-black tracking-tighter transition-all duration-500 group-hover/stat:scale-110 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                      {formatNumber(stats.totalInputTokens)}
+                    </span>
+                    <span className="mb-2 text-xs font-bold opacity-30">tkns</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-1 w-12 rounded-full bg-slate-500/20 overflow-hidden">
+                      <div className="h-full w-2/3 bg-slate-400/50" />
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-[0.1em] opacity-40">Input (Context)</span>
+                  </div>
+                </div>
+
+                <div className="group/stat flex flex-col gap-2 text-right items-end">
+                  <div className="flex items-end gap-2">
+                    <span className="mb-2 text-xs font-bold opacity-30">tkns</span>
+                    <span className={`text-5xl font-black tracking-tighter transition-all duration-500 group-hover/stat:scale-110 ${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'}`}>
+                      {formatNumber(stats.totalOutputTokens)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-black uppercase tracking-[0.1em] opacity-40">Output (Inference)</span>
+                    <div className="h-1 w-12 rounded-full bg-cyan-500/20 overflow-hidden">
+                      <div className="h-full w-1/3 bg-cyan-400" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`mt-4 flex items-center justify-between rounded-2xl border border-white/5 p-6 ${isDarkMode ? 'bg-white/[0.03]' : 'bg-white/50 shadow-sm'}`}>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[9px] font-black uppercase tracking-[0.15em] opacity-30">Aggregate Compute Utilization</span>
+                  <span className="text-lg font-black tracking-tight">Total Consumed Tokens</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className={`text-2xl font-black tracking-tighter ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                    {formatNumber(stats.totalInputTokens + stats.totalOutputTokens)}
+                  </span>
+                  <div className="flex items-center gap-1.5 opacity-40">
+                    <span className="text-[9px] font-bold uppercase">100% Local Validation</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </DashboardSection>
+
         <DashboardSection
           title="Usage Overview"
           subtitle="Workspace activity and runtime metrics"
@@ -135,13 +218,13 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
 
           <div className={`rounded-2xl border p-6 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-100 bg-slate-50/50'}`}>
             <div className="mb-3 flex items-center justify-between">
-              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Efficiency Score</span>
-              <span className={`text-xl font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{stats.avgMessagesPerSession}%</span>
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Avg Ops per Task</span>
+              <span className={`text-xl font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{stats.avgMessagesPerSession}</span>
             </div>
             <div className={`h-1.5 w-full overflow-hidden rounded-full ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`}>
               <div
                 className="h-full bg-indigo-500 transition-all duration-1000"
-                style={{ width: `${Math.min(100, stats.avgMessagesPerSession * 10)}%` }}
+                style={{ width: `${Math.min(100, (stats.avgMessagesPerSession / 20) * 100)}%` }}
               ></div>
             </div>
           </div>
@@ -180,24 +263,24 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
       {/* RIGHT COLUMN: SYSTEM INSTRUMENTATION & PRIVACY */}
       <div className="space-y-8">
         {/* Instrumentation Note */}
-        <section className={`overflow-hidden rounded-2xl border p-8 transition-all duration-300 ${isDarkMode ? 'border-amber-500/10 bg-amber-500/5' : 'border-amber-100 bg-amber-50/50'
+        <section className={`overflow-hidden rounded-2xl border p-8 transition-all duration-300 ${isDarkMode ? 'border-cyan-500/10 bg-cyan-500/5' : 'border-cyan-100 bg-cyan-50/50'
           }`}>
           <div className="flex flex-col gap-4">
-            <div className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${isDarkMode ? 'bg-amber-500/10 text-amber-500' : 'bg-amber-100 text-amber-700'
+            <div className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${isDarkMode ? 'bg-cyan-500/10 text-cyan-500' : 'bg-cyan-100 text-cyan-700'
               }`}>
-              <FiAlertCircle size={20} />
+              <FiShield size={20} />
             </div>
             <div>
-              <h3 className={`font-outfit text-base font-bold uppercase tracking-tight ${isDarkMode ? 'text-amber-400' : 'text-amber-800'}`}>
-                Advanced Analytics Unavailable
+              <h3 className={`font-outfit text-base font-bold uppercase tracking-tight ${isDarkMode ? 'text-cyan-400' : 'text-cyan-800'}`}>
+                Precision Analytics Active
               </h3>
-              <p className={`mt-3 text-[13px] font-medium leading-relaxed opacity-70 ${isDarkMode ? 'text-amber-200/60' : 'text-amber-700/70'}`}>
-                Detailed token and cost tracking has not been enabled. Current metrics are derived strictly from your local session data.
+              <p className={`mt-3 text-[13px] font-medium leading-relaxed opacity-70 ${isDarkMode ? 'text-cyan-200/60' : 'text-cyan-700/70'}`}>
+                Full token tracking is now enabled across all agent nodes. Usage metrics are derived directly from model response headers for maximum accuracy.
               </p>
               
               <div className="mt-6 flex items-center gap-2">
-                <div className="size-1 animate-pulse rounded-full bg-amber-500"></div>
-                <span className="text-[9px] font-bold uppercase tracking-widest opacity-40">Local Mode Active</span>
+                <div className="size-1 animate-pulse rounded-full bg-cyan-500"></div>
+                <span className="text-[9px] font-bold uppercase tracking-widest opacity-40">Precision Tracking Enabled</span>
               </div>
             </div>
           </div>

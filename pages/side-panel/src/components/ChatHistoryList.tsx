@@ -82,7 +82,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
       <div className="sticky top-0 z-10 px-5 pb-4 pt-8">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex flex-col">
-            <h2 className={`font-outfit text-xl font-bold tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+            <h2 className={`font-sans text-xl font-bold tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
               History
             </h2>
             <p className={`text-[10px] font-bold uppercase tracking-wider opacity-40 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -147,15 +147,17 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
 
                 <div className="grid grid-cols-1 gap-2">
                   {groupSessions.map((session, index) => (
-                    <div
+                    <button
                       key={session.id}
                       style={{ animationDelay: `${index * 50}ms` }}
-                      className={`animate-in fade-in slide-in-from-bottom-4 fill-mode-both group relative flex cursor-pointer items-center gap-3.5 rounded-xl border p-3.5 transition-all duration-300 ${
+                      type="button"
+                      className={`group relative flex w-full cursor-pointer items-center gap-3.5 rounded-xl border p-3.5 text-left transition-all duration-300 ${
                         isDarkMode 
                           ? 'border-white/10 bg-white/[0.04] backdrop-blur-md hover:-translate-y-px hover:border-indigo-500/30 hover:bg-white/[0.08] hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]' 
                           : 'border-slate-200/60 bg-white/70 backdrop-blur-md hover:-translate-y-px hover:border-indigo-200 hover:bg-white hover:shadow-[0_4px_20px_rgba(0,0,0,0.03)]'
                       }`}
                       onClick={() => onSessionSelect(session.id)}
+                      aria-label={`Open session ${session.title || 'Untitled Session'}`}
                     >
                       {/* Active Indicator Glow */}
                       <div className={`absolute -left-px top-1/2 h-8 w-[2px] -translate-y-1/2 rounded-full opacity-0 transition-all duration-300 group-hover:opacity-100 ${
@@ -171,7 +173,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                       </div>
 
                       <div className="grow overflow-hidden">
-                        <h3 className={`truncate font-outfit text-[13px] font-bold tracking-tight transition-colors duration-300 ${
+                        <h3 className={`truncate font-sans text-[13px] font-bold tracking-tight transition-colors duration-300 ${
                           isDarkMode ? 'text-slate-200' : 'text-slate-900'
                         } group-hover:text-white`}>
                           {session.title || 'Untitled Session'}
@@ -223,7 +225,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                           <FaTrash size={11} />
                         </button>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>

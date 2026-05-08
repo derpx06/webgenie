@@ -1,4 +1,4 @@
-import { type ProviderConfig, type ModelConfig, ProviderTypeEnum } from '@extension/storage';
+import { type ProviderConfig, type ModelConfig, ProviderTypeEnum, type GeneralSettingsConfig } from '@extension/storage';
 import { ChatOpenAI, AzureChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
@@ -8,6 +8,9 @@ import { ChatCerebras } from '@langchain/cerebras';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { ChatOllama } from '@langchain/ollama';
 import { ChatDeepSeek } from '@langchain/deepseek';
+import { LangChainTracer } from '@langchain/core/tracers/tracer_langchain';
+import { ChatBedrockConverse } from '@langchain/aws';
+
 
 const maxTokens = 1024 * 4;
 
@@ -112,6 +115,7 @@ function createOpenAIChatModel(
   modelConfig: ModelConfig,
   // Add optional extra fetch options for headers etc.
   extraFetchOptions: { headers?: Record<string, string> } | undefined,
+  callbacks?: any[],
 ): BaseChatModel {
   const args: {
     model: string;
@@ -164,7 +168,7 @@ function createOpenAIChatModel(
     args.temperature = (modelConfig.parameters?.temperature ?? 0.1) as number;
     args.maxTokens = maxTokens;
   }
-  return new ChatOpenAI(args);
+  return new ChatOpenAI({ ...args, callbacks });
 }
 
 // Function to extract instance name from Azure endpoint URL
@@ -188,7 +192,7 @@ function isAzureProvider(providerId: string): boolean {
 }
 
 // Function to create an Azure OpenAI chat model
-function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: ModelConfig): BaseChatModel {
+function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: ModelConfig, callbacks?: any[]): BaseChatModel {
   const temperature = (modelConfig.parameters?.temperature ?? 0.1) as number;
   const topP = (modelConfig.parameters?.topP ?? 0.1) as number;
 
@@ -253,11 +257,25 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
     // DO NOT pass baseUrl or configuration here
   };
   // console.log('[createChatModel] Azure args passed to AzureChatOpenAI:', args);
-  return new AzureChatOpenAI(args);
+  return new AzureChatOpenAI({ ...args, callbacks });
 }
 
 // create a chat model based on the agent name, the model name and provider
-export function createChatModel(providerConfig: ProviderConfig, modelConfig: ModelConfig): BaseChatModel {
+export function createChatModel(
+  providerConfig: ProviderConfig,
+  modelConfig: ModelConfig,
+  generalSettings?: GeneralSettingsConfig,
+): BaseChatModel {
+  const callbacks: any[] = [];
+  if (generalSettings?.enableTracing && generalSettings.langsmithApiKey) {
+    callbacks.push(
+      new LangChainTracer({
+        projectName: generalSettings.langsmithProject || 'web-surfer',
+        // @ts-ignore
+        apiKey: generalSettings.langsmithApiKey,
+      }),
+    );
+  }
   const temperature = (modelConfig.parameters?.temperature ?? 0.1) as number;
   const topP = (modelConfig.parameters?.topP ?? 0.1) as number;
 
@@ -266,13 +284,13 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
 
   // If this is any type of Azure provider, handle it with the dedicated function
   if (isAzure) {
-    return createAzureChatModel(providerConfig, modelConfig);
+    return createAzureChatModel(providerConfig, modelConfig, callbacks);
   }
 
   switch (modelConfig.provider) {
     case ProviderTypeEnum.OpenAI: {
       // Call helper without extra options
-      return createOpenAIChatModel(providerConfig, modelConfig, undefined);
+      return createOpenAIChatModel(providerConfig, modelConfig, undefined, callbacks);
     }
     case ProviderTypeEnum.Anthropic: {
       // For Opus models, only support temperature, not topP
@@ -283,6 +301,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         maxTokens,
         temperature,
         clientOptions: {},
+        callbacks,
       };
       return new ChatAnthropic(args);
     }
@@ -292,6 +311,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
+        callbacks,
       };
       return new ChatDeepSeek(args) as BaseChatModel;
     }
@@ -301,6 +321,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
+        callbacks,
       };
       return new ChatGoogleGenerativeAI(args);
     }
@@ -312,6 +333,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         topP,
         maxTokens,
         configuration: {},
+        callbacks,
       };
       return new ChatXAI(args) as BaseChatModel;
     }
@@ -322,6 +344,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         temperature,
         topP,
         maxTokens,
+        callbacks,
       };
       return new ChatGroq(args);
     }
@@ -332,6 +355,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         temperature,
         topP,
         maxTokens,
+        callbacks,
       };
       return new ChatCerebras(args);
     }
@@ -345,6 +369,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         temperature?: number;
         maxTokens?: number;
         numCtx: number;
+        callbacks: any[];
       } = {
         model: modelConfig.modelName,
         // required but ignored by ollama
@@ -358,18 +383,24 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         // not sure why, but setting it to 64000 seems to work fine
         // TODO: configure the context window size in model config
         numCtx: 64000,
+        callbacks,
       };
       return new ChatOllama(args);
     }
     case ProviderTypeEnum.OpenRouter: {
       // Call the helper function, passing OpenRouter headers via the third argument
       console.log('[createChatModel] Calling createOpenAIChatModel for OpenRouter');
-      return createOpenAIChatModel(providerConfig, modelConfig, {
-        headers: {
-          'HTTP-Referer': 'https://webgenie.ai',
-          'X-Title': 'WebGenie',
+      return createOpenAIChatModel(
+        providerConfig,
+        modelConfig,
+        {
+          headers: {
+            'HTTP-Referer': 'https://webgenie.ai',
+            'X-Title': 'WebGenie',
+          },
         },
-      });
+        callbacks,
+      );
     }
     case ProviderTypeEnum.Llama: {
       // Llama API has a different response format, use custom ChatLlama class
@@ -380,12 +411,14 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         topP?: number;
         temperature?: number;
         maxTokens?: number;
+        callbacks: any[];
       } = {
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,
         topP: (modelConfig.parameters?.topP ?? 0.1) as number,
         temperature: (modelConfig.parameters?.temperature ?? 0.1) as number,
         maxTokens,
+        callbacks,
       };
 
       const configuration: Record<string, unknown> = {};
@@ -396,10 +429,23 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
 
       return new ChatLlama(args);
     }
+    case ProviderTypeEnum.Bedrock: {
+      const args = {
+        region: providerConfig.region || 'us-east-1',
+        model: modelConfig.modelName,
+        bedrockApiKey: providerConfig.apiKey,
+        bedrockApiSecret: providerConfig.bedrockSecretKey,
+        temperature,
+        topP,
+        maxTokens,
+        callbacks,
+      };
+      return new ChatBedrockConverse(args) as unknown as BaseChatModel;
+    }
     default: {
       // by default, we think it's a openai-compatible provider
       // Pass undefined for extraFetchOptions for default/custom cases
-      return createOpenAIChatModel(providerConfig, modelConfig, undefined);
+      return createOpenAIChatModel(providerConfig, modelConfig, undefined, callbacks);
     }
   }
 }

@@ -11,6 +11,8 @@ out
 .parcel-cache
 .eslintcache
 .stylelintcache
+build_log.txt
+**/build_log.txt
 
 # Environment variables
 .env
@@ -48,5 +50,10 @@ _agent
 .augment
 .gemini
 skills-lock.json
+
+# Scratch / temporary test files
+scratch/test_*.ts
+scratch/test_*.js
+scratch/*.secrets.*
 *.agents.md
 .claude

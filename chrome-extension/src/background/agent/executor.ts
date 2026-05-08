@@ -51,7 +51,7 @@ export class Executor {
     navigatorLLM: BaseChatModel,
     extraArgs?: Partial<ExecutorExtraArgs>,
   ) {
-    const messageManager = new MessageManager();
+    const messageManager = new MessageManager(undefined, taskId);
 
     const plannerLLM = extraArgs?.plannerLLM ?? navigatorLLM;
     const extractorLLM = extraArgs?.extractorLLM ?? navigatorLLM;
@@ -181,7 +181,12 @@ export class Executor {
       // Determine task completion status
       const isCompleted = latestPlanOutput?.result?.done === true;
 
-      if (isCompleted) {
+      if (this.context.stopped) {
+        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
+
+        // Track task cancellation
+        void analytics.trackTaskCancelled(this.context.taskId);
+      } else if (isCompleted) {
         // Emit final answer if available, otherwise use task ID
         const finalMessage = this.context.finalAnswer || this.context.taskId;
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, finalMessage);
@@ -196,11 +201,6 @@ export class Executor {
         const maxStepsError = new MaxStepsReachedError(t('exec_errors_maxStepsReached'));
         const errorCategory = analytics.categorizeError(maxStepsError);
         void analytics.trackTaskFailed(this.context.taskId, errorCategory);
-      } else if (this.context.stopped) {
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
-
-        // Track task cancellation
-        void analytics.trackTaskCancelled(this.context.taskId);
       } else {
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_PAUSE, t('exec_task_pause'));
         // Note: We don't track pause as it's not a final state

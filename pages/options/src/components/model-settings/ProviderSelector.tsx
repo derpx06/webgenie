@@ -24,6 +24,7 @@ const PROVIDER_METADATA: Record<string, { category: string; type: string; icon: 
   [ProviderTypeEnum.Llama]: { category: 'Local & Open Source', type: 'Hosted API', icon: <FiActivity />, color: 'bg-blue-600' },
   [ProviderTypeEnum.AzureOpenAI]: { category: 'Enterprise & Compatible', type: 'Enterprise API', icon: <FiShield />, color: 'bg-blue-700' },
   [ProviderTypeEnum.OpenRouter]: { category: 'Enterprise & Compatible', type: 'API Aggregator', icon: <FiGlobe />, color: 'bg-violet-600' },
+  [ProviderTypeEnum.Bedrock]: { category: 'Enterprise & Compatible', type: 'Enterprise API', icon: <FiShield />, color: 'bg-orange-700' },
   [ProviderTypeEnum.CustomOpenAI]: { category: 'Enterprise & Compatible', type: 'Custom Endpoint', icon: <FiCpu />, color: 'bg-slate-500' },
 };
 

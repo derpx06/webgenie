@@ -26,6 +26,8 @@
     "update-version": "bash update_version.sh"
   },
   "dependencies": {
+    "@langchain/aws": "^0.1.15",
+    "@langchain/core": "^0.3.79",
     "eslint-plugin-tailwindcss": "^3.18.3",
     "react": "18.3.1",
     "react-dom": "18.3.1"
@@ -58,7 +60,8 @@
     "tslib": "^2.8.1",
     "turbo": "^2.9.9",
     "typescript": "5.5.4",
-    "vite": "^6.4.2"
+    "vite": "^6.4.2",
+    "vite-plugin-node-polyfills": "^0.26.0"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,json}": [

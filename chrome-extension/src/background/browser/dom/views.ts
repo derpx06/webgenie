@@ -502,6 +502,12 @@ export class DOMElementNode extends DOMBaseNode {
         // Custom stable attributes
         'href',
         'target',
+        // Common data attributes
+        'data-id',
+        'data-qa',
+        'data-cy',
+        'data-testid',
+        'data-test',
       ]);
 
       // Handle other attributes

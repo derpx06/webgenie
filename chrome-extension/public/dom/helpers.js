@@ -33,6 +33,8 @@
         { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
         { x: rect.left + margin, y: rect.top + margin },
         { x: rect.right - margin, y: rect.bottom - margin },
+        { x: rect.right - margin, y: rect.top + margin },
+        { x: rect.left + margin, y: rect.bottom - margin },
       ];
     }
 
@@ -75,9 +77,19 @@
 
     function getElementEventListeners(element) {
       try {
-        if (features.hasEventListenersAPI) {
+        // Support standard DevTools getEventListeners
+        if (typeof window.getEventListeners === 'function') {
           const listeners = window.getEventListeners(element);
           return Object.entries(listeners).flatMap(([type, list]) => list.map(() => ({ type })));
+        }
+        
+        // Support common injection pattern: getEventListenersForNode
+        const getEventListenersForNode = 
+          element?.ownerDocument?.defaultView?.getEventListenersForNode || window.getEventListenersForNode;
+        
+        if (typeof getEventListenersForNode === 'function') {
+          const listeners = getEventListenersForNode(element);
+          return Array.isArray(listeners) ? listeners : [];
         }
       } catch (e) {
         // ignore and fallback
@@ -110,11 +122,30 @@
       if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
       const tagName = element.tagName.toLowerCase();
       if (constants.INTERACTIVE_TAGS.has(tagName)) return true;
+
+      const style = cache.getCachedComputedStyle(element);
+      if (style?.cursor === 'pointer') return true;
+
       return (
         element.hasAttribute('onclick') ||
         element.hasAttribute('role') ||
         element.hasAttribute('tabindex') ||
-        element.getAttribute('contenteditable') === 'true'
+        element.hasAttribute('jsaction') ||
+        element.hasAttribute('jscontroller') ||
+        element.hasAttribute('jsname') ||
+        element.hasAttribute('jslog') ||
+        element.hasAttribute('data-action') ||
+        element.hasAttribute('data-value') ||
+        element.hasAttribute('data-index') ||
+        element.hasAttribute('data-toggle') ||
+        element.hasAttribute('aria-expanded') ||
+        element.hasAttribute('aria-controls') ||
+        element.hasAttribute('aria-haspopup') ||
+        element.getAttribute('contenteditable') === 'true' ||
+        (element.classList && (
+          element.classList.contains('button') || 
+          element.classList.contains('dropdown-toggle')
+        ))
       );
     }
 

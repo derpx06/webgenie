@@ -65,7 +65,8 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
   };
 
   return (
-    <div className={`animate-in fade-in zoom-in-95 my-4 overflow-hidden rounded-2xl border shadow-xl duration-500 ${isDarkMode
+    <div
+      className={`my-4 overflow-hidden rounded-2xl border shadow-xl duration-500 ${isDarkMode
       ? 'border-indigo-500/30 bg-indigo-500/10 backdrop-blur-md'
       : 'border-indigo-200 bg-indigo-50/80 backdrop-blur-sm'
       }`}>
@@ -89,7 +90,7 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
           </div>
         </div>
 
-        <div className={`font-inter text-[15px] font-semibold leading-relaxed ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+        <div className={`font-sans text-[15px] font-semibold leading-relaxed ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
           {question}
         </div>
 
@@ -174,7 +175,7 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
                 onChange={(e) => setDontAskAgain(e.target.checked)}
                 className="size-3.5 rounded border-indigo-300 bg-white/10 text-indigo-600 focus:ring-indigo-500"
               />
-              <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>Don't ask for confirmation for this again</span>
+              <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>Don&apos;t ask for confirmation for this again</span>
             </label>
           </div>
         )}
