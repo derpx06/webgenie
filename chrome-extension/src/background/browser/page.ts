@@ -20,7 +20,7 @@ import { DOMElementNode, type DOMState } from './dom/views';
 import { type BrowserContextConfig, DEFAULT_BROWSER_CONTEXT_CONFIG, type PageState, URLNotAllowedError } from './views';
 import { createLogger } from '@src/background/log';
 import { ClickableElementProcessor } from './dom/clickable/service';
-import { isUrlAllowed } from './util';
+import { isUrlAllowed, isNewTabPage } from './util';
 
 const logger = createLogger('Page');
 
@@ -1062,9 +1062,48 @@ export default class Page {
 
     const cssSelector = element.enhancedCssSelectorForElement(this._config.includeDynamicAttributes);
 
+    const isExpectedElement = async (elementHandle: ElementHandle<Element> | null): Promise<boolean> => {
+      if (!elementHandle) return false;
+
+      try {
+        if (element.xpath) {
+          const expectedXpath = element.xpath.startsWith('/') ? element.xpath : `/${element.xpath}`;
+          const actualXpath = await elementHandle.evaluate(el => {
+            const segments: string[] = [];
+            let current: Element | null = el;
+
+            while (current && current.nodeType === Node.ELEMENT_NODE) {
+              const tagName = current.nodeName.toLowerCase();
+              let index = 1;
+              let sibling = current.previousElementSibling;
+              while (sibling) {
+                if (sibling.nodeName.toLowerCase() === tagName) index++;
+                sibling = sibling.previousElementSibling;
+              }
+              segments.unshift(`${tagName}${index > 1 ? `[${index}]` : ''}`);
+              current = current.parentElement;
+            }
+
+            return `/${segments.join('/')}`;
+          });
+
+          if (actualXpath !== expectedXpath) {
+            return false;
+          }
+        }
+
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
     try {
       // Try CSS selector first
       let elementHandle: ElementHandle | null = await currentFrame.$(cssSelector);
+      if (!(await isExpectedElement(elementHandle))) {
+        elementHandle = null;
+      }
 
       // If CSS selector failed, try XPath
       if (!elementHandle) {
@@ -1075,10 +1114,19 @@ export default class Page {
             const fullXpath = xpath.startsWith('/') ? xpath : `/${xpath}`;
             const xpathSelector = `::-p-xpath(${fullXpath})`;
             elementHandle = await currentFrame.$(xpathSelector);
+            if (!(await isExpectedElement(elementHandle))) {
+              elementHandle = null;
+            }
           } catch (xpathError) {
             logger.error('Failed to locate element using XPath:', xpathError);
           }
         }
+      }
+
+      // If CSS and XPath failed, try Heuristic Matching
+      if (!elementHandle) {
+        logger.info('CSS and XPath failed, trying heuristic matching...');
+        elementHandle = await this._heuristicLocate(currentFrame, element);
       }
 
       // If element found, check visibility and scroll into view
@@ -1263,15 +1311,15 @@ export default class Page {
           return false;
         }
 
-        // Check if element is in viewport
-        const isInViewport =
-          rect.top >= 0 &&
-          rect.left >= 0 &&
-          rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-          rect.right <= (window.innerWidth || document.documentElement.clientWidth);
+        // Check if element is partially in viewport to avoid unnecessary scrolling which closes dropdowns
+        const isPartiallyInViewport =
+          rect.bottom > 0 &&
+          rect.right > 0 &&
+          rect.top < (window.innerHeight || document.documentElement.clientHeight) &&
+          rect.left < (window.innerWidth || document.documentElement.clientWidth);
 
-        if (!isInViewport) {
-          // Scroll into view if not visible
+        if (!isPartiallyInViewport) {
+          // Scroll into view if completely out of bounds
           el.scrollIntoView({
             behavior: 'auto',
             block: 'center',
@@ -1294,6 +1342,52 @@ export default class Page {
       // Small delay before next check
       await new Promise(resolve => setTimeout(resolve, 100));
     }
+  }
+
+  private async _heuristicLocate(
+    frame: PuppeteerPage | Frame,
+    elementNode: DOMElementNode,
+  ): Promise<ElementHandle<Element> | null> {
+    const tagName = elementNode.tagName?.toLowerCase();
+    if (!tagName) return null;
+
+    const attributes = elementNode.attributes || {};
+    const text = elementNode.getAllTextTillNextClickableElement(2) || '';
+
+    return await frame.evaluateHandle(
+      (tag, attrs, txt) => {
+        // Find all elements with the same tag name
+        const candidates = Array.from(document.querySelectorAll(tag));
+
+        // 1. Try matching by stable attributes
+        const stableAttrs = ['data-testid', 'data-cy', 'aria-label', 'placeholder', 'id', 'name'];
+        for (const attrName of stableAttrs) {
+          if (attrs[attrName]) {
+            const found = candidates.find(el => el.getAttribute(attrName) === attrs[attrName]);
+            if (found) return found;
+          }
+        }
+
+        // 2. Try matching by text content (if it's a leaf node or has short text)
+        if (txt && txt.length > 0 && txt.length < 100) {
+          const found = candidates.find(el => el.textContent?.trim() === txt);
+          if (found) return found;
+        }
+
+        // 3. Last resort: fuzzy match by role and first few chars of text
+        if (attrs['role']) {
+          const found = candidates.find(
+            el => el.getAttribute('role') === attrs['role'] && el.textContent?.trim().startsWith(txt.substring(0, 5)),
+          );
+          if (found) return found;
+        }
+
+        return null;
+      },
+      tagName,
+      attributes,
+      text,
+    ).then(handle => handle.asElement() as ElementHandle<Element> | null);
   }
 
   async clickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
@@ -1326,7 +1420,7 @@ export default class Page {
             action: 'click',
             x, y
           }).catch(() => { });
-          // Human-like cursor pipeline runs for ~700ms in the UI. We wait 800ms so the click aligns.
+          // Human-like cursor pipeline runs for ~700ms in the UI. We wait 800ms so the click aligns and UI animations settle.
           await new Promise(resolve => setTimeout(resolve, 800));
         }
       } catch (e) {
@@ -1346,10 +1440,19 @@ export default class Page {
         if (error instanceof URLNotAllowedError) {
           throw error;
         }
-        // Second attempt: Use evaluate to perform a direct click
-        logger.info('Failed to click element, trying again', error);
+        // Second attempt: Robust event simulation for SPAs (Google, React)
+        logger.info('Failed native click, triggering full MouseEvent sequence', error);
         try {
-          await element.evaluate(el => (el as HTMLElement).click());
+          await element.evaluate((el: Element) => {
+            ['mousedown', 'mouseup', 'click'].forEach(eventType => {
+              el.dispatchEvent(new MouseEvent(eventType, {
+                view: window,
+                bubbles: true,
+                cancelable: true,
+                buttons: 1
+              }));
+            });
+          });
         } catch (secondError) {
           // if URLNotAllowedError, throw it
           if (secondError instanceof URLNotAllowedError) {
@@ -1635,7 +1738,11 @@ export default class Page {
     }
 
     const currentUrl = this._puppeteerPage.url();
-    if (!isUrlAllowed(currentUrl, this._config.allowedUrls, this._config.deniedUrls)) {
+    this._validWebPage =
+      isUrlAllowed(currentUrl, this._config.allowedUrls, this._config.deniedUrls) &&
+      !isNewTabPage(currentUrl);
+
+    if (!this._validWebPage && !isNewTabPage(currentUrl)) {
       const errorMessage = `URL: ${currentUrl} is not allowed`;
       logger.error(errorMessage);
 

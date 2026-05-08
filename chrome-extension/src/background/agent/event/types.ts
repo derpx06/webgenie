@@ -58,6 +58,11 @@ export interface EventData {
   maxSteps: number;
   /** details is the content of the event */
   details: string;
+  /** usage is the token usage associated with the event */
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  };
 }
 
 export class AgentEvent {

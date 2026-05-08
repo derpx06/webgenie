@@ -6,7 +6,8 @@
 
 export { BaseAgent } from './base';
 export type { BaseAgentOptions, ExtraAgentOptions, CallOptions } from './base';
-export { NavigatorAgent, NavigatorActionRegistry } from './navigator';
+export { NavigatorAgent } from './navigator';
+export { NavigatorActionRegistry } from './navigator/registry';
 export { PlannerAgent } from './planner';
 export {
   ChatModelAuthError,

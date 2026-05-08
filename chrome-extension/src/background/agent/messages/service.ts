@@ -7,6 +7,7 @@ import {
   splitUserTextAndAttachments,
   wrapAttachments,
 } from '@src/background/agent/messages/utils';
+import { analyticsSettingsStore, chatHistoryStore } from '@extension/storage';
 
 const logger = createLogger('MessageManager');
 
@@ -45,11 +46,21 @@ export default class MessageManager {
   private history: MessageHistory;
   private toolId: number;
   private settings: MessageManagerSettings;
+  private sessionId: string | null;
 
-  constructor(settings: MessageManagerSettings = new MessageManagerSettings()) {
+  constructor(settings: MessageManagerSettings = new MessageManagerSettings(), sessionId: string | null = null) {
     this.settings = settings;
     this.history = new MessageHistory();
     this.toolId = 1;
+    this.sessionId = sessionId;
+  }
+
+  get cumulativeInputTokens(): number {
+    return this.history.cumulativeInputTokens;
+  }
+
+  get cumulativeOutputTokens(): number {
+    return this.history.cumulativeOutputTokens;
   }
 
   public initTaskMessages(systemMessage: SystemMessage, task: string, messageContext?: string): void {
@@ -438,5 +449,24 @@ export default class MessageManager {
     const id = toolCallId ?? this.nextToolId();
     const msg = new ToolMessage({ content, tool_call_id: String(id) });
     this.addMessageWithTokens(msg, messageType);
+  }
+
+  /**
+   * Records the actual token usage from the LLM
+   */
+  public recordTokenUsage(input: number, output: number): void {
+    this.history.updateCumulativeTokens(input, output);
+
+    // Persist usage globally
+    analyticsSettingsStore.incrementTokens(input, output).catch(err => {
+      logger.error('Failed to persist global token usage:', err);
+    });
+
+    // Persist usage per session if available
+    if (this.sessionId) {
+      chatHistoryStore.incrementTokens(this.sessionId, input, output).catch(err => {
+        logger.error(`Failed to persist token usage for session ${this.sessionId}:`, err);
+      });
+    }
   }
 }

@@ -85,6 +85,10 @@ export class AgentContext {
       step: this.nSteps,
       maxSteps: this.options.maxSteps,
       details: eventDetails,
+      usage: {
+        inputTokens: this.messageManager.cumulativeInputTokens,
+        outputTokens: this.messageManager.cumulativeOutputTokens,
+      },
     }, Date.now(), undefined, screenshot);
     await this.eventManager.emit(event);
   }

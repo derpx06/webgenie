@@ -23,6 +23,13 @@ export class ManagedMessage {
 export class MessageHistory {
   messages: ManagedMessage[] = [];
   totalTokens = 0;
+  cumulativeInputTokens = 0;
+  cumulativeOutputTokens = 0;
+
+  updateCumulativeTokens(input: number, output: number): void {
+    this.cumulativeInputTokens += input;
+    this.cumulativeOutputTokens += output;
+  }
 
   addMessage(message: BaseMessage, metadata: MessageMetadata, position?: number): void {
     const managedMessage: ManagedMessage = {

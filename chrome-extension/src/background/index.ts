@@ -349,21 +349,24 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
     }
   }
 
+  const generalSettings = await generalSettingsStore.getSettings();
+
   const navigatorModel = agentModels[AgentNameEnum.Navigator];
   if (!navigatorModel) {
     throw new Error(t('bg_setup_noNavigatorModel'));
   }
   // Log the provider config being used for the navigator
   const navigatorProviderConfig = providers[navigatorModel.provider];
-  const navigatorLLM = createChatModel(navigatorProviderConfig, navigatorModel);
+  const navigatorLLM = createChatModel(navigatorProviderConfig, navigatorModel, generalSettings);
 
   let plannerLLM: BaseChatModel | null = null;
   const plannerModel = agentModels[AgentNameEnum.Planner];
   if (plannerModel) {
     // Log the provider config being used for the planner
     const plannerProviderConfig = providers[plannerModel.provider];
-    plannerLLM = createChatModel(plannerProviderConfig, plannerModel);
+    plannerLLM = createChatModel(plannerProviderConfig, plannerModel, generalSettings);
   }
+
 
   // Apply firewall settings to browser context
   const firewall = await firewallStore.getFirewall();
@@ -379,11 +382,11 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
     });
   }
 
-  const generalSettings = await generalSettingsStore.getSettings();
   browserContext.updateConfig({
     minimumWaitPageLoadTime: generalSettings.minWaitPageLoad / 1000.0,
     displayHighlights: generalSettings.displayHighlights,
   });
+
 
   const executor = new Executor(task, taskId, browserContext, navigatorLLM, {
     plannerLLM: plannerLLM ?? navigatorLLM,

@@ -1,21 +1,11 @@
+import { z } from 'zod';
 import { BaseAgent, type BaseAgentOptions, type ExtraAgentOptions } from './base';
 import { createLogger } from '@src/background/log';
-import { z } from 'zod';
 import type { AgentOutput } from '../types';
-import { HumanMessage } from '@langchain/core/messages';
 import { Actors, ExecutionState } from '../event/types';
-import {
-  ChatModelAuthError,
-  ChatModelBadRequestError,
-  ChatModelForbiddenError,
-  isAbortedError,
-  isAuthenticationError,
-  isBadRequestError,
-  isForbiddenError,
-  LLM_FORBIDDEN_ERROR_MESSAGE,
-  RequestCancelledError,
-} from './errors';
-import { filterExternalContent } from '../messages/utils';
+import { handleAgentError } from './utils/error-handler';
+import { preparePlannerMessages, cleanPlannerOutput } from './planner/utils';
+
 const logger = createLogger('PlannerAgent');
 
 // Define Zod schema for planner output
@@ -25,8 +15,9 @@ export const plannerOutputSchema = z.object({
   done: z.union([
     z.boolean(),
     z.string().transform(val => {
-      if (val.toLowerCase() === 'true') return true;
-      if (val.toLowerCase() === 'false') return false;
+      const low = val.toLowerCase();
+      if (low === 'true') return true;
+      if (low === 'false') return false;
       throw new Error('Invalid boolean string');
     }),
   ]),
@@ -36,8 +27,9 @@ export const plannerOutputSchema = z.object({
   web_task: z.union([
     z.boolean(),
     z.string().transform(val => {
-      if (val.toLowerCase() === 'true') return true;
-      if (val.toLowerCase() === 'false') return false;
+      const low = val.toLowerCase();
+      if (low === 'true') return true;
+      if (low === 'false') return false;
       throw new Error('Invalid boolean string');
     }),
   ]),
@@ -53,54 +45,26 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
   async execute(): Promise<AgentOutput<PlannerOutput>> {
     try {
       this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_START, 'Planning...');
-      // get all messages from the message manager, state message should be the last one
+
       const messages = this.context.messageManager.getMessages();
-      // Use full message history except the first one
-      const plannerMessages = [this.prompt.getSystemMessage(), ...messages.slice(1)];
-
-      // Remove images from last message if vision is not enabled for planner but vision is enabled
-      if (!this.context.options.useVisionForPlanner && this.context.options.useVision) {
-        const lastStateMessage = plannerMessages[plannerMessages.length - 1];
-        let newMsg = '';
-
-        if (Array.isArray(lastStateMessage.content)) {
-          for (const msg of lastStateMessage.content) {
-            if (msg.type === 'text') {
-              newMsg += msg.text;
-            }
-            // Skip image_url messages
-          }
-        } else {
-          newMsg = lastStateMessage.content;
-        }
-
-        plannerMessages[plannerMessages.length - 1] = new HumanMessage(newMsg);
-      }
+      const plannerMessages = preparePlannerMessages(
+        this.prompt.getSystemMessage(),
+        messages,
+        this.context.options.useVision,
+        this.context.options.useVisionForPlanner
+      );
 
       const modelOutput = await this.invoke(plannerMessages);
       if (!modelOutput) {
         throw new Error('Failed to validate planner output');
       }
 
-      // clean the model output
-      const observation = filterExternalContent(modelOutput.observation, false);
-      const final_answer = filterExternalContent(modelOutput.final_answer, false);
-      const next_steps = filterExternalContent(modelOutput.next_steps, false);
-      const challenges = filterExternalContent(modelOutput.challenges, false);
-      const reasoning = filterExternalContent(modelOutput.reasoning, false);
+      const cleanedPlan = cleanPlannerOutput(modelOutput);
 
-      const cleanedPlan: PlannerOutput = {
-        ...modelOutput,
-        observation,
-        challenges,
-        reasoning,
-        final_answer,
-        next_steps,
-      };
-
-      // If task is done, emit the final answer; otherwise emit next steps
+      // UI update
       const eventMessage = cleanedPlan.done ? cleanedPlan.final_answer : cleanedPlan.next_steps;
       this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_OK, eventMessage);
+
       logger.info('Planner output', JSON.stringify(cleanedPlan, null, 2));
 
       return {
@@ -108,23 +72,20 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
         result: cleanedPlan,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      // Check if this is an authentication error
-      if (isAuthenticationError(error)) {
-        throw new ChatModelAuthError(errorMessage, error);
-      } else if (isBadRequestError(error)) {
-        throw new ChatModelBadRequestError(errorMessage, error);
-      } else if (isAbortedError(error)) {
-        throw new RequestCancelledError(errorMessage);
-      } else if (isForbiddenError(error)) {
-        throw new ChatModelForbiddenError(LLM_FORBIDDEN_ERROR_MESSAGE, error);
-      }
+      return this.handleExecutionError(error);
+    }
+  }
 
-      logger.error(`Planning failed: ${errorMessage}`);
-      this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_FAIL, `Planning failed: ${errorMessage}`);
+  private handleExecutionError(error: unknown): AgentOutput<PlannerOutput> {
+    try {
+      handleAgentError(error, 'Planning failed');
+    } catch (e) {
+      const msg = (e as Error).message;
+      logger.error(msg);
+      this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_FAIL, msg);
       return {
         id: this.id,
-        error: errorMessage,
+        error: msg,
       };
     }
   }

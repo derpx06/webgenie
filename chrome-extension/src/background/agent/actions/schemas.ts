@@ -19,7 +19,7 @@ export const doneActionSchema: ActionSchema = {
 export const searchGoogleActionSchema: ActionSchema = {
   name: 'search_google',
   description:
-    'Search the query in Google in the current tab, the query should be a search query like humans search in Google, concrete and not vague or super long. More the single most important items.',
+    'Search the query in Google in the current tab, the query should be a search query like humans search in Google, concrete and one that will help you in the task.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     query: z.string(),
@@ -93,14 +93,14 @@ export const closeTabActionSchema: ActionSchema = {
 };
 
 // Content Actions, not used currently
-// export const extractContentActionSchema: ActionSchema = {
-//   name: 'extract_content',
-//   description:
-//     'Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about, links with companies in structured format or simply links',
-//   schema: z.object({
-//     goal: z.string(),
-//   }),
-// };
+export const extractContentActionSchema: ActionSchema = {
+  name: 'extract_content',
+  description:
+    'Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about, links with companies in structured format or simply links',
+  schema: z.object({
+    goal: z.string(),
+  }),
+};
 
 // Cache Actions
 export const cacheContentActionSchema: ActionSchema = {
