@@ -80,7 +80,8 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
     try {
       handleAgentError(error, 'Planning failed');
     } catch (e) {
-      const msg = (e as Error).message;
+      // Safe string extraction — handleAgentError may re-throw non-Error objects
+      const msg = e instanceof Error ? e.message : String(e ?? 'Unknown planning error');
       logger.error(msg);
       this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_FAIL, msg);
       return {
@@ -88,5 +89,7 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
         error: msg,
       };
     }
+    // handleAgentError always throws, but TypeScript needs this
+    return { id: this.id, error: 'Planning failed: unknown error' };
   }
 }

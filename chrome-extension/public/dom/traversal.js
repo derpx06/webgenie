@@ -75,15 +75,20 @@
       if (!nodeData.isVisible) return false;
 
       nodeData.isTopElement = interactivity.isTopElement(node, viewportExpansion);
-      nodeData.isInteractive = interactivity.isInteractiveElement(node);
 
       const role = node.getAttribute('role');
       const isMenuContainer = role === 'menu' || role === 'menubar' || role === 'listbox';
 
-      if (!nodeData.isTopElement && !isMenuContainer && !nodeData.isInteractive) {
-        return false;
+      // Only check interactivity for elements that are on top or are menu containers
+      // (matches original logic - avoids expensive check for non-top elements)
+      if (nodeData.isTopElement || isMenuContainer) {
+        nodeData.isInteractive = interactivity.isInteractiveElement(node);
+      } else {
+        nodeData.isInteractive = false;
       }
 
+      // Even if not highlighted, we still need to return whether the node was highlighted
+      // so children can use isParentHighlighted correctly
       if (!interactivity.shouldHighlightElement(nodeData, node, parentIframe, isParentHighlighted)) {
         return false;
       }

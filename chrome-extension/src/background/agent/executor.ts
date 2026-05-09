@@ -16,6 +16,8 @@ import {
   ChatModelAuthError,
   ChatModelBadRequestError,
   ChatModelForbiddenError,
+  ChatModelRateLimitError,
+  ChatModelPaymentRequiredError,
   ExtensionConflictError,
   RequestCancelledError,
   MaxStepsReachedError,
@@ -251,6 +253,11 @@ export class Executor {
 
       // Execute planner
       const planOutput = await this.planner.execute();
+      // If planner returned an error (e.g., LLM API crash), treat it as an execution failure
+      // so it counts toward consecutiveFailures and eventually stops the loop.
+      if (planOutput.error) {
+        throw new Error(planOutput.error);
+      }
       if (planOutput.result) {
         this.context.messageManager.addPlan(JSON.stringify(planOutput.result), positionForPlan);
       }
@@ -261,6 +268,8 @@ export class Executor {
         error instanceof ChatModelAuthError ||
         error instanceof ChatModelBadRequestError ||
         error instanceof ChatModelForbiddenError ||
+        error instanceof ChatModelRateLimitError ||
+        error instanceof ChatModelPaymentRequiredError ||
         error instanceof URLNotAllowedError ||
         error instanceof RequestCancelledError ||
         error instanceof ExtensionConflictError
@@ -324,6 +333,8 @@ export class Executor {
         error instanceof ChatModelAuthError ||
         error instanceof ChatModelBadRequestError ||
         error instanceof ChatModelForbiddenError ||
+        error instanceof ChatModelRateLimitError ||
+        error instanceof ChatModelPaymentRequiredError ||
         error instanceof URLNotAllowedError ||
         error instanceof RequestCancelledError ||
         error instanceof ExtensionConflictError

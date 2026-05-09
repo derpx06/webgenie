@@ -2,6 +2,8 @@ import {
   ChatModelAuthError,
   ChatModelBadRequestError,
   ChatModelForbiddenError,
+  ChatModelRateLimitError,
+  ChatModelPaymentRequiredError,
   EXTENSION_CONFLICT_ERROR_MESSAGE,
   ExtensionConflictError,
   isAbortedError,
@@ -9,6 +11,8 @@ import {
   isBadRequestError,
   isExtensionConflictError,
   isForbiddenError,
+  isRateLimitError,
+  isPaymentRequiredError,
   LLM_FORBIDDEN_ERROR_MESSAGE,
   RequestCancelledError,
 } from '../errors';
@@ -26,6 +30,14 @@ export function handleAgentError(error: unknown, fallbackPrefix: string): never 
 
   if (isBadRequestError(error)) {
     throw new ChatModelBadRequestError(errorMessage, error);
+  }
+
+  if (isRateLimitError(error)) {
+    throw new ChatModelRateLimitError('API Rate Limit Exceeded (429). Please try again in a few moments.', error);
+  }
+
+  if (isPaymentRequiredError(error)) {
+    throw new ChatModelPaymentRequiredError(errorMessage, error);
   }
 
   if (isAbortedError(error)) {

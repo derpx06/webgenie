@@ -1074,13 +1074,28 @@ export default class Page {
 
             while (current && current.nodeType === Node.ELEMENT_NODE) {
               const tagName = current.nodeName.toLowerCase();
-              let index = 1;
-              let sibling = current.previousElementSibling;
-              while (sibling) {
-                if (sibling.nodeName.toLowerCase() === tagName) index++;
-                sibling = sibling.previousElementSibling;
+
+              // Count all same-tag siblings to determine if disambiguation is needed
+              const parent = current.parentElement;
+              if (!parent) {
+                segments.unshift(tagName);
+                current = current.parentElement;
+                continue;
               }
-              segments.unshift(`${tagName}${index > 1 ? `[${index}]` : ''}`);
+
+              const siblings = Array.from(parent.children).filter(
+                s => s.nodeName.toLowerCase() === tagName,
+              );
+
+              if (siblings.length === 1) {
+                // Only child of this tag type - no index needed
+                segments.unshift(tagName);
+              } else {
+                // Multiple siblings - use 1-based index
+                const idx = siblings.indexOf(current) + 1;
+                segments.unshift(`${tagName}[${idx}]`);
+              }
+
               current = current.parentElement;
             }
 
@@ -1738,11 +1753,15 @@ export default class Page {
     }
 
     const currentUrl = this._puppeteerPage.url();
-    this._validWebPage =
-      isUrlAllowed(currentUrl, this._config.allowedUrls, this._config.deniedUrls) &&
-      !isNewTabPage(currentUrl);
 
-    if (!this._validWebPage && !isNewTabPage(currentUrl)) {
+    // New tab pages (about:blank, chrome://new-tab-page) are a valid navigation state.
+    // Only mark as invalid for URLs that are explicitly blocked.
+    if (isNewTabPage(currentUrl)) {
+      // Silently allow — do not change _validWebPage, do not throw
+      return;
+    }
+
+    if (!isUrlAllowed(currentUrl, this._config.allowedUrls, this._config.deniedUrls)) {
       const errorMessage = `URL: ${currentUrl} is not allowed`;
       logger.error(errorMessage);
 

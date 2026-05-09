@@ -76,7 +76,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
       if (response.parsed) return response.parsed;
 
-      // Manual extraction fallback
+      // Manual extraction fallback for JSON-parse failures
       if (typeof response.raw?.content === 'string') {
         const parsed = this.manuallyParseResponse(response.raw.content);
         if (parsed) return parsed;
@@ -95,7 +95,19 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       throw new ResponseParseError('Could not parse navigator response');
     } catch (error) {
       if (isAbortedError(error)) throw error;
-      throw new Error(`Failed to invoke ${this.modelName} with structured output: \n${error instanceof Error ? error.message : error}`);
+      // Re-throw already-classified agent errors (auth, rate-limit, etc.) immediately
+      if (
+        error instanceof ResponseParseError ||
+        error instanceof Error && [
+          'ChatModelAuthError', 'ChatModelForbiddenError', 'ChatModelBadRequestError',
+          'ChatModelRateLimitError', 'ChatModelPaymentRequiredError',
+          'RequestCancelledError', 'URLNotAllowedError',
+        ].includes(error.constructor?.name ?? '')
+      ) {
+        throw error;
+      }
+      // Classify raw LLM/network errors into typed agent errors
+      handleAgentError(error, `Failed to invoke ${this.modelName} with structured output`);
     }
   }
 
@@ -162,7 +174,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     try {
       handleAgentError(error, 'Navigation failed');
     } catch (e) {
-      const msg = (e as Error).message;
+      const msg = e instanceof Error ? e.message : String(e ?? 'Unknown navigation error');
       logger.error(msg);
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_FAIL, msg);
       output.error = msg;
