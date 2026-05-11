@@ -433,8 +433,10 @@ export function createChatModel(
       const args = {
         region: providerConfig.region || 'us-east-1',
         model: modelConfig.modelName,
-        bedrockApiKey: providerConfig.apiKey,
-        bedrockApiSecret: providerConfig.bedrockSecretKey,
+        credentials: {
+          accessKeyId: providerConfig.apiKey,
+          secretAccessKey: providerConfig.bedrockSecretKey || '',
+        },
         temperature,
         topP,
         maxTokens,

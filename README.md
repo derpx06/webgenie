@@ -30,6 +30,8 @@ WebSurfer empowers developers and automation enthusiasts with a **free, open-sou
 - **OpenAI** — GPT-4, GPT-4 Turbo, GPT-3.5 Turbo for cutting-edge reasoning
 - **Anthropic** — Claude 3 (Opus, Sonnet, Haiku) for diverse capability tiers
 - **Google Gemini** — Gemini Pro and Gemini 1.5 for multimodal understanding
+- **AWS Bedrock** — Managed Claude/Llama/Titan family models on AWS
+- **Llama API** — Hosted Llama models via `api.llama.com`
 - **Ollama** — Local LLM support for self-hosted and privacy-conscious deployments
 - **Azure OpenAI** — Enterprise LLM deployments for organizational scale
 
@@ -92,7 +94,11 @@ graph TB
         OPENAI["OpenAI<br/>GPT-4 Family"]
         CLAUDE["Anthropic Claude<br/>Claude 3 Series"]
         GEMINI["Google Gemini<br/>Multimodal Intelligence"]
+        BEDROCK["AWS Bedrock<br/>Claude/Llama/Titan Models"]
+        LLAMA["Llama API<br/>Hosted Llama Models"]
         OLLAMA["Ollama Local<br/>Self-Hosted Models"]
+        AZURE["Azure OpenAI<br/>Enterprise Deployments"]
+        OPENROUTER["OpenRouter<br/>Unified Model Gateway"]
     end
 
     subgraph Storage["Data Persistence"]
@@ -120,7 +126,11 @@ graph TB
     OPENAI -.-> LLM
     CLAUDE -.-> LLM
     GEMINI -.-> LLM
+    BEDROCK -.-> LLM
+    LLAMA -.-> LLM
     OLLAMA -.-> LLM
+    AZURE -.-> LLM
+    OPENROUTER -.-> LLM
     
     SEC --> VOICE
     EX --> ANALYTICS
@@ -155,7 +165,38 @@ If you want a very detailed walkthrough of the DOM engine, read [docs/dom-deep-d
 
 **Browser Abstraction**: The browser layer isolates Chrome API interactions, making it easier to test agents and maintain code. DOM operations go through the Security module, which sanitizes content and prevents malicious injections.
 
-**LLM Integration**: All agents use the configured LLM provider for reasoning. The system supports multiple providers (OpenAI, Claude, Gemini, Ollama), allowing users to choose based on their needs and infrastructure.
+**LLM Integration**: All agents use the configured LLM provider for reasoning. The system supports OpenAI, Anthropic, Gemini, AWS Bedrock, Llama API, Ollama, Azure OpenAI, OpenRouter, and compatible custom OpenAI endpoints.
+
+### Provider Setup (Bedrock, Llama, Ollama)
+
+#### AWS Bedrock
+
+1. Open Options → Model Settings → add **AWS Bedrock**
+2. Fill:
+    - **Access Key** = AWS access key ID
+    - **AWS Secret Key** = AWS secret access key
+    - **AWS Region** (for example `us-east-1`)
+3. Keep model IDs in the Bedrock format (for example `us.anthropic.claude-sonnet-4-20250514-v1:0`)
+4. Save and assign Bedrock models to Planner/Navigator
+
+Bedrock credentials are passed as SigV4 AWS credentials and used directly by the Bedrock runtime client.
+
+#### Llama API (Hosted)
+
+1. Add **Llama** provider
+2. Set Base Endpoint to `https://api.llama.com/v1` (or your compatible endpoint)
+3. Add your Llama API key
+4. Save and select a Llama model for agents
+
+#### Ollama (Local Server)
+
+1. Start Ollama locally (default endpoint: `http://localhost:11434`)
+2. Add **Ollama** provider
+3. Set Base Endpoint to your Ollama server URL
+4. Add installed model names exactly as seen in Ollama (examples: `qwen3:14b`, `mistral-small:24b`)
+5. Save and select models for Planner/Navigator
+
+If Ollama runs on another machine, expose it on your network and use that full `http(s)://host:port` URL.
 
 ---
 

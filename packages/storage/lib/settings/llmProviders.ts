@@ -35,6 +35,28 @@ export type LLMProviderStorage = BaseStorage<LLMKeyRecord> & {
   getAllProviders: () => Promise<Record<string, ProviderConfig>>;
 };
 
+function normalizeAndValidateBaseUrl(baseUrl: string, providerLabel: string): string {
+  const trimmed = baseUrl.trim();
+  if (!trimmed) {
+    throw new Error(`${providerLabel} base URL is required`);
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`${providerLabel} base URL is invalid. Use a full URL like https://example.com/v1`);
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`${providerLabel} base URL must start with http:// or https://`);
+  }
+
+  const pathname = parsed.pathname.replace(/\/+$/, '');
+  parsed.pathname = pathname || '/';
+  return parsed.toString().replace(/\/$/, parsed.pathname === '/' ? '' : '/');
+}
+
 // Storage for LLM provider configurations
 // use "llm-api-keys" as the key for the storage, for backward compatibility
 const storage = createStorage<LLMKeyRecord>(
@@ -243,9 +265,22 @@ export const llmProviderStore: LLMProviderStorage = {
     }
 
     const providerType = config.type || getProviderTypeByProviderId(providerId);
+    const providerLabel = getDefaultDisplayNameFromProviderId(providerId);
+    const baseUrlRequiredProviders = new Set<ProviderTypeEnum>([
+      ProviderTypeEnum.CustomOpenAI,
+      ProviderTypeEnum.Ollama,
+      ProviderTypeEnum.AzureOpenAI,
+      ProviderTypeEnum.OpenRouter,
+      ProviderTypeEnum.Llama,
+    ]);
+
+    let normalizedBaseUrl = config.baseUrl;
+    if (baseUrlRequiredProviders.has(providerType)) {
+      normalizedBaseUrl = normalizeAndValidateBaseUrl(config.baseUrl || '', providerLabel);
+    }
 
     if (providerType === ProviderTypeEnum.AzureOpenAI) {
-      if (!config.baseUrl?.trim()) {
+      if (!normalizedBaseUrl?.trim()) {
         throw new Error('Azure Endpoint (baseUrl) is required');
       }
       if (!config.azureDeploymentNames || config.azureDeploymentNames.length === 0) {
@@ -257,9 +292,19 @@ export const llmProviderStore: LLMProviderStorage = {
       if (!config.apiKey?.trim()) {
         throw new Error('API Key is required for Azure OpenAI');
       }
+    } else if (providerType === ProviderTypeEnum.Bedrock) {
+      if (!config.region?.trim()) {
+        throw new Error('AWS Region is required for AWS Bedrock');
+      }
+      if (!config.apiKey?.trim()) {
+        throw new Error('AWS Access Key ID is required for AWS Bedrock');
+      }
+      if (!config.bedrockSecretKey?.trim()) {
+        throw new Error('AWS Secret Access Key is required for AWS Bedrock');
+      }
     } else if (providerType !== ProviderTypeEnum.CustomOpenAI && providerType !== ProviderTypeEnum.Ollama) {
       if (!config.apiKey?.trim()) {
-        throw new Error(`API Key is required for ${getDefaultDisplayNameFromProviderId(providerId)}`);
+        throw new Error(`API Key is required for ${providerLabel}`);
       }
     }
 
@@ -271,7 +316,7 @@ export const llmProviderStore: LLMProviderStorage = {
 
     const completeConfig: ProviderConfig = {
       apiKey: config.apiKey || '',
-      baseUrl: config.baseUrl,
+      baseUrl: normalizedBaseUrl,
       name: config.name || getDefaultDisplayNameFromProviderId(providerId),
       type: providerType,
       createdAt: config.createdAt || Date.now(),

@@ -19,7 +19,7 @@ export class TabHandler extends BaseHandler {
   async handleOpenTab(input: z.infer<typeof openTabActionSchema.schema>): Promise<ActionResult> {
     let url = input.url;
     if (!url || url.startsWith('chrome://')) {
-      url = 'https://www.google.com';
+      url = 'https://duckduckgo.com';
     }
     const intent = input.intent || t('act_openTab_start', [url]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

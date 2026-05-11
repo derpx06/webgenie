@@ -47,7 +47,7 @@ Common action sequences:
 
 - Form filling: [{"input_text": {"intent": "Fill title", "index": 1, "text": "username"}}, {"input_text": {"intent": "Fill title", "index": 2, "text": "password"}}, {"click_element": {"intent": "Click submit button", "index": 3}}]
 - Navigation: [{"go_to_url": {"intent": "Go to url", "url": "https://example.com"}}]
-- Search: [{"search_google": {"intent": "Search for...", "query": "gaming channel india non music"}}]
+- Search: [{"search_web": {"intent": "Search for...", "query": "gaming channel india non music", "engine": "duckduckgo"}}]
 - Actions are executed in the given order
 - If the page changes after an action, the sequence will be interrupted
 - Only provide the action sequence until an action which changes the page state significantly
@@ -74,7 +74,7 @@ Common action sequences:
 - If captcha pops up, try to solve it if a screenshot image is provided - else try a different approach
 - If the page is not fully loaded, use wait action
 - **TAB MANAGEMENT**: You can manage multiple tabs. Use open_tab to open new websites, switch_tab to move between them, and close_tab to clean up. 
-    - **RESTRICTION**: NEVER attempt to navigate to or open chrome:// URLs (like chrome://newtab/). This will fail. If you need a new tab for searching, open https://www.google.com directly.
+    - **RESTRICTION**: NEVER attempt to navigate to or open chrome:// URLs (like chrome://newtab/). This will fail. If you need to search, use the \`search_web\` action instead of opening a search engine home page manually.
 
 5. TASK COMPLETION:
 

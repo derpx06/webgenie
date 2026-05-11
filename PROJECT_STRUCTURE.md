@@ -44,7 +44,7 @@ The primary workspace for user-agent collaboration.
 
 ### **B. Dashboard & Settings (`pages/options/`)**
 Centralized management for the extension’s personality and constraints.
-- **`components/ModelSettings.tsx`**: Provider configuration (OpenAI, Anthropic, Google, etc.).
+- **`components/ModelSettings.tsx`**: Provider configuration (OpenAI, Anthropic, Gemini, Bedrock, Llama, Ollama, Azure OpenAI, OpenRouter, custom endpoints).
 - **`components/FirewallSettings.tsx`**: Logic for URL blacklisting and agent permissions.
 - **`components/GeneralSettings.tsx`**: App-wide behavior toggles and experimental features.
 

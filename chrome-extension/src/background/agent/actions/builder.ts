@@ -7,6 +7,7 @@ import {
   goToUrlActionSchema,
   inputTextActionSchema,
   openTabActionSchema,
+  searchWebActionSchema,
   searchGoogleActionSchema,
   switchTabActionSchema,
   type ActionSchema,
@@ -185,6 +186,7 @@ export class ActionBuilder {
 
   private buildNavigationActions(): Action[] {
     return [
+      new Action((input) => this.navigationHandler.handleSearchWeb(input), searchWebActionSchema),
       new Action((input) => this.navigationHandler.handleSearchGoogle(input), searchGoogleActionSchema),
       new Action((input) => this.navigationHandler.handleGoToUrl(input), goToUrlActionSchema),
       new Action((input) => this.navigationHandler.handleGoBack(input), goBackActionSchema),

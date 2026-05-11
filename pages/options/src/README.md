@@ -5,7 +5,7 @@ The options page provides centralized configuration and management for the WebSu
 ## Overview
 
 The options page enables users to:
-- **Configure LLM Providers**: OpenAI, Anthropic, Google, Ollama, etc.
+- **Configure LLM Providers**: OpenAI, Anthropic, Gemini, Bedrock, Llama, Ollama, Azure OpenAI, OpenRouter, etc.
 - **Set Firewall Rules**: URL allowlisting and blocking
 - **General Settings**: App behavior, experimental features
 - **Analytics**: Track and manage performance metrics
@@ -35,9 +35,21 @@ Configure language model providers and parameters:
 ```typescript
 // Access provider configuration
 interface ModelConfig {
-  provider: 'openai' | 'anthropic' | 'google' | 'ollama';
+  provider:
+    | 'openai'
+    | 'anthropic'
+    | 'gemini'
+    | 'bedrock'
+    | 'llama'
+    | 'ollama'
+    | 'azure_openai'
+    | 'openrouter'
+    | 'custom_openai';
   apiKey: string;
   model: string;
+  baseUrl?: string;
+  region?: string;
+  bedrockSecretKey?: string;
   temperature?: number;
   maxTokens?: number;
 }
@@ -46,8 +58,12 @@ interface ModelConfig {
 **Supported Providers:**
 - OpenAI (GPT-4, GPT-3.5)
 - Anthropic (Claude)
-- Google (Gemini)
+- Gemini
+- AWS Bedrock
+- Llama API
 - Ollama (Local models)
+- Azure OpenAI
+- OpenRouter
 
 ### Firewall Settings
 
@@ -153,6 +169,21 @@ configStore.on('change', (newConfig) => {
 4. **Feedback** - Show save confirmation/errors to user
 5. **Defaults** - Provide sensible defaults for all settings
 6. **Backwards compatibility** - Handle config migrations
+
+## Provider-Specific Notes
+
+- **AWS Bedrock**
+  - Required fields: Access Key, AWS Secret Key, AWS Region
+  - Model IDs must be Bedrock model IDs (for example `us.anthropic.claude-sonnet-4-20250514-v1:0`)
+
+- **Llama API**
+  - Required fields: API Key, Base Endpoint
+  - Default endpoint: `https://api.llama.com/v1`
+
+- **Ollama**
+  - Required fields: Base Endpoint
+  - Default endpoint: `http://localhost:11434`
+  - Model names should match installed Ollama tags exactly
 
 ## Security Considerations
 

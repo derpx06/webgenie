@@ -19,10 +19,24 @@ export const doneActionSchema: ActionSchema = {
 export const searchGoogleActionSchema: ActionSchema = {
   name: 'search_google',
   description:
-    'Search the query in Google in the current tab, the query should be a search query like humans search in Google, concrete and one that will help you in the task.',
+    'Compatibility alias for Google search in the current tab. Prefer search_web for fast provider-agnostic web search.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     query: z.string(),
+  }),
+};
+
+export const searchWebActionSchema: ActionSchema = {
+  name: 'search_web',
+  description:
+    'Search the web in one fast step using a search engine results page in the current tab. Prefer this over manually opening a search engine and typing.',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    query: z.string().describe('search query in natural language'),
+    engine: z
+      .enum(['duckduckgo', 'google'])
+      .default('duckduckgo')
+      .describe('search engine to use; default is duckduckgo'),
   }),
 };
 
@@ -76,10 +90,10 @@ export const switchTabActionSchema: ActionSchema = {
 
 export const openTabActionSchema: ActionSchema = {
   name: 'open_tab',
-  description: 'Open URL in a new tab. Do NOT use chrome:// URLs (like chrome://newtab/). Use a search engine or a specific website URL instead.',
+  description: 'Open URL in a new tab. Do NOT use chrome:// URLs (like chrome://newtab/). Use search_web or a specific website URL instead.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
-    url: z.string().describe('url to open. Use https://www.google.com if you just need a new empty tab to start searching.'),
+    url: z.string().describe('url to open. If you need to search, use search_web action instead of opening a search engine manually.'),
   }),
 };
 

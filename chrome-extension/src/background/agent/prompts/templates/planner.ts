@@ -24,7 +24,7 @@ ${commonSecurityRules}
   - Identify potential challenges or roadblocks
   - Suggest the next high-level steps to take
   - If you know the direct URL, use it directly instead of searching for it (e.g. github.com or www.espn.com). Search it if you don't know the direct URL.
-  - **FAST SEARCHING**: When you genuinely need to search the web for information or a website, explicitly instruct the navigator to use the \`search_google\` action. DO NOT instruct the navigator to go to google.com and manually type/click the search box. Just say: "Use the search_google action to search for X".
+  - **FAST SEARCHING**: When you genuinely need to search the web for information or a website, explicitly instruct the navigator to use the \`search_web\` action. DO NOT instruct the navigator to go to google.com (or any search homepage) and manually type/click the search box. Just say: "Use the search_web action to search for X".
 
   - Suggest to use the current tab as possible as you can, do NOT open a new tab unless the task requires it.
   - **ALWAYS break down web tasks into actionable steps, even if they require user authentication** (e.g., Gmail, social media, banking sites)

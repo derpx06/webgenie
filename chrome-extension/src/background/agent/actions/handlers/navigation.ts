@@ -1,22 +1,36 @@
 import { ActionResult } from '@src/background/agent/types';
-import { searchGoogleActionSchema, goToUrlActionSchema, goBackActionSchema, waitActionSchema } from '../schemas';
+import { searchGoogleActionSchema, searchWebActionSchema, goToUrlActionSchema, goBackActionSchema, waitActionSchema } from '../schemas';
 import { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
 
 export class NavigationHandler extends BaseHandler {
-  async handleSearchGoogle(input: z.infer<typeof searchGoogleActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_searchGoogle_start', [input.query]);
+  async handleSearchWeb(input: z.infer<typeof searchWebActionSchema.schema>): Promise<ActionResult> {
+    const intent = input.intent || `Searching the web for: ${input.query}`;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
-    await this.context.browserContext.navigateTo(`https://www.google.com/search?q=${input.query}`);
+    const encodedQuery = encodeURIComponent(input.query);
+    const engine = input.engine || 'duckduckgo';
+    const searchUrl = engine === 'google'
+      ? `https://www.google.com/search?q=${encodedQuery}`
+      : `https://duckduckgo.com/?q=${encodedQuery}`;
 
-    const msg = t('act_searchGoogle_ok', [input.query]);
+    await this.context.browserContext.navigateTo(searchUrl);
+
+    const msg = `Web search opened for: ${input.query}`;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     return new ActionResult({
       extractedContent: msg,
       includeInMemory: true,
+    });
+  }
+
+  async handleSearchGoogle(input: z.infer<typeof searchGoogleActionSchema.schema>): Promise<ActionResult> {
+    return this.handleSearchWeb({
+      intent: input.intent || t('act_searchGoogle_start', [input.query]),
+      query: input.query,
+      engine: 'google',
     });
   }
 

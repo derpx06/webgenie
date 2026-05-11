@@ -44,6 +44,16 @@ export const useModelSettings = (isDarkMode: boolean) => {
   >([]);
   const [selectedSpeechToTextModel, setSelectedSpeechToTextModel] = useState<string>('');
 
+  const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    if (typeof error === 'string' && error.trim()) {
+      return error;
+    }
+    return 'Failed to save provider configuration. Please verify your settings and try again.';
+  };
+
   useEffect(() => {
     const loadProviders = async () => {
       try {
@@ -362,6 +372,7 @@ export const useModelSettings = (isDarkMode: boolean) => {
       setAvailableModels(models);
     } catch (error) {
       console.error('Error saving API key:', error);
+      alert(getErrorMessage(error));
     }
   };
 
