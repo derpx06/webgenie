@@ -28,17 +28,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+          run_install: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 22.12.0
           cache: pnpm
-
-      - name: Enable corepack
-        run: corepack enable
-
-      - name: Prepare pnpm
-        run: corepack prepare pnpm@9.15.1 --activate
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
