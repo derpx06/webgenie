@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrandingSection, ActionSection } from './welcome/Sections';
+import { BackgroundGradientAnimation } from './ui/background-gradient-animation';
 
 interface WelcomeScreenProps {
     isDarkMode: boolean;
@@ -8,22 +9,26 @@ interface WelcomeScreenProps {
 
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ isDarkMode, onOpenSettings }) => {
     return (
-        <div
-            data-purpose="welcome-main-container"
-            className={`relative flex grow flex-col items-center justify-center overflow-hidden px-6 font-sans ${isDarkMode
+        <BackgroundGradientAnimation
+            containerClassName={`flex-1 w-full overflow-hidden font-sans ${isDarkMode
                     ? "bg-obsidian text-slate-50 selection:bg-obsidian-accent selection:text-obsidian"
                     : "bg-luminous text-slate-600 selection:bg-luminous-accent selection:text-white"
                 }`}
+            className="flex flex-col items-center justify-center h-full w-full px-8"
+            gradientBackgroundStart={isDarkMode ? "rgb(2, 6, 23)" : "rgb(248, 250, 252)"}
+            gradientBackgroundEnd={isDarkMode ? "rgb(12, 21, 37)" : "rgb(241, 245, 249)"}
+            firstColor={isDarkMode ? "139, 92, 246" : "79, 70, 229"}
+            secondColor={isDarkMode ? "56, 189, 248" : "99, 102, 241"}
+            thirdColor={isDarkMode ? "30, 41, 59" : "148, 163, 184"}
+            fourthColor={isDarkMode ? "12, 21, 37" : "226, 232, 240"}
+            fifthColor={isDarkMode ? "2, 6, 23" : "248, 250, 252"}
+            pointerColor={isDarkMode ? "139, 92, 246" : "79, 70, 229"}
         >
-            {/* Background Glow Effect */}
-            <div className={`pointer-events-none absolute inset-0 ${isDarkMode ? "bg-radial-glow-dark opacity-60" : "bg-radial-glow-light opacity-100"
-                }`}></div>
-
-            <div className="z-10 w-full max-w-md space-y-10 text-center">
+            <div className="z-10 w-full max-w-md space-y-12 text-center animate-rise">
                 <BrandingSection isDarkMode={isDarkMode} />
                 <ActionSection isDarkMode={isDarkMode} onOpenSettings={onOpenSettings} />
             </div>
-        </div>
+        </BackgroundGradientAnimation>
     );
 };
 

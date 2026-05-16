@@ -87,13 +87,15 @@ const SidePanel = () => {
   return (
     <div className={`relative flex h-screen flex-col overflow-hidden ${isDarkMode ? 'theme-dark bg-slate-950' : 'theme-light bg-slate-50'}`}>
         <NeuralBackground isDarkMode={isDarkMode} />
-        <SidePanelHeader
-          isDarkMode={isDarkMode}
-          showHistory={showHistory}
-          onBackToChat={() => handleBackToChat(false)}
-          onNewChat={handleNewChat}
-          onLoadHistory={handleLoadHistory}
-        />
+        {(hasConfiguredModels === true || showHistory) && (
+          <SidePanelHeader
+            isDarkMode={isDarkMode}
+            showHistory={showHistory}
+            onBackToChat={() => handleBackToChat(false)}
+            onNewChat={handleNewChat}
+            onLoadHistory={handleLoadHistory}
+          />
+        )}
 
         {showHistory ? (
           <div className="flex-1 overflow-hidden">

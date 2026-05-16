@@ -3,6 +3,8 @@ import { OrbVisual } from './welcome/OrbVisual';
 import { FaTerminal, FaSearch, FaShoppingBag, FaArrowRight, FaHistory } from 'react-icons/fa';
 import type { ChatSessionMetadata } from '@extension/storage';
 
+import { BackgroundGradientAnimation } from './ui/background-gradient-animation';
+
 interface EmptyChatProps {
     onSelectPrompt: (text: string) => void;
     isDarkMode: boolean;
@@ -36,14 +38,18 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
     ];
 
     return (
-        <div className={`relative w-full flex-1 overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
-            {/* Minimal Background Infrastructure */}
-            <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden opacity-50">
-                <div className={`absolute left-[-10%] top-[-10%] size-3/5 rounded-full blur-[120px] ${isDarkMode ? 'bg-indigo-500/5' : 'bg-indigo-500/[0.02]'}`}></div>
-                <div className={`absolute bottom-[-10%] right-[-10%] size-3/5 rounded-full blur-[120px] ${isDarkMode ? 'bg-slate-500/5' : 'bg-slate-500/[0.02]'}`}></div>
-            </div>
-
-            <div className={`relative z-10 flex h-full flex-col justify-start overflow-y-auto px-6 pb-8 pt-4 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+        <BackgroundGradientAnimation
+            containerClassName={`flex-1 w-full overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-slate-950' : 'bg-slate-50'}`}
+            className={`relative z-10 flex h-full flex-col justify-start overflow-y-auto px-6 pb-8 pt-4 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}
+            gradientBackgroundStart={isDarkMode ? "rgb(2, 6, 23)" : "rgb(248, 250, 252)"}
+            gradientBackgroundEnd={isDarkMode ? "rgb(15, 23, 42)" : "rgb(241, 245, 249)"}
+            firstColor={isDarkMode ? "79, 70, 229" : "99, 102, 241"}
+            secondColor={isDarkMode ? "56, 189, 248" : "129, 140, 248"}
+            thirdColor={isDarkMode ? "30, 41, 59" : "226, 232, 240"}
+            fourthColor={isDarkMode ? "12, 21, 37" : "248, 250, 252"}
+            fifthColor={isDarkMode ? "2, 6, 23" : "255, 255, 255"}
+            pointerColor={isDarkMode ? "79, 70, 229" : "99, 102, 241"}
+        >
                 <div className="mx-auto w-full max-w-xl">
                     <div className="relative mb-4 flex flex-col items-center text-center">
                         <div className="relative mb-3 opacity-95 transition-all duration-700">
@@ -164,8 +170,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
+        </BackgroundGradientAnimation>
     );
 };
 

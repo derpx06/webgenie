@@ -35,8 +35,8 @@ export const ActionSection: React.FC<ActionSectionProps> = ({ isDarkMode, onOpen
         <div className="space-y-8" data-purpose="actions">
             <button
                 onClick={onOpenSettings}
-                className={`btn-glow w-full rounded-2xl px-8 py-4 text-lg font-bold shadow-lg transition-all duration-300 hover:scale-[1.03] active:scale-[0.98]${isDarkMode
-                        ? "bg-gradient-to-r from-obsidian-accent to-obsidian-violet text-obsidian shadow-obsidian-accent/20"
+                className={`btn-glow w-full rounded-2xl px-8 py-4 text-lg font-bold shadow-lg transition-all duration-300 hover:scale-[1.03] active:scale-[0.98] ${isDarkMode
+                        ? "bg-gradient-to-r from-obsidian-accent to-obsidian-violet text-slate-50 shadow-obsidian-accent/20"
                         : "bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-indigo-200"
                     }`} data-purpose="settings-button">
                 {t('welcome_openSettings')}

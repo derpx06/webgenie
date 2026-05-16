@@ -1,3 +1,10 @@
+import { ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
 export function generateNewTaskId(): string {
   /**
    * Generate a new task id based on the current timestamp and a random number.
