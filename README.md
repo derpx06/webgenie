@@ -1,10 +1,10 @@
 
 
 
-# WebSurfer
+# WebGenie
 
 <div align="center">
-    <img src="chrome-extension/public/webgenie-logo.png" alt="WebSurfer Logo" width="160" style="margin-top: 8px; margin-bottom: 12px;">
+    <img src="chrome-extension/public/webgenie-logo.png" alt="WebGenie Logo" width="160" style="margin-top: 8px; margin-bottom: 12px;">
 </div>
 
 > **The Open-Source AI Web Automation Extension** — Run sophisticated multi-agent systems directly in your browser. Automate complex web tasks, do actions, and streamline workflows.
@@ -18,7 +18,7 @@ https://github.com/user-attachments/assets/f2a8e7eb-eeee-4b39-abce-5368a4facd80
 
 ## Vision
 
-WebSurfer empowers developers and automation enthusiasts with a **free, open-source alternative to AI web automation tools** like OpenAI Operator. By leveraging local multi-agent AI systems, WebSurfer enables intelligent web automation without vendor lock-in or cloud dependencies. Perfect for building custom workflows, testing automation logic, and experimenting with autonomous agents in a sandboxed browser environment.
+WebGenie empowers developers and automation enthusiasts with a **free, open-source alternative to AI web automation tools** like OpenAI Operator. By leveraging local multi-agent AI systems, WebGenie enables intelligent web automation without vendor lock-in or cloud dependencies. Perfect for building custom workflows, testing automation logic, and experimenting with autonomous agents in a sandboxed browser environment.
 
 ---
 
@@ -61,7 +61,7 @@ WebSurfer empowers developers and automation enthusiasts with a **free, open-sou
 
 ## Architecture Overview
 
-WebSurfer is built on a modular, layered architecture that separates concerns and enables clear communication between components. Here's how everything works together:
+WebGenie is built on a modular, layered architecture that separates concerns and enables clear communication between components. Here's how everything works together:
 
 ```mermaid
 graph TB
@@ -287,10 +287,10 @@ Your extension is now loaded and ready to use!
 
 ## Project Structure
 
-WebSurfer is organized as a monorepo with clear separation of concerns:
+WebGenie is organized as a monorepo with clear separation of concerns:
 
 ```
-webSurfer/
+WebGenie/
 ├── chrome-extension/              # Core extension & background worker
 │   ├── src/background/
 │   │   ├── agent/                 # Multi-agent system (Navigator, Planner, Validator)
@@ -365,7 +365,7 @@ For detailed development guidelines and best practices, see [BEST_PRACTICES.md](
 
 ## Security & Privacy
 
-WebSurfer puts **privacy and security at the core** of its design:
+WebGenie puts **privacy and security at the core** of its design:
 
 - All AI reasoning happens entirely in-browser with zero cloud dependencies
 - No automatic telemetry or data collection (unless explicitly enabled by users)
@@ -418,7 +418,7 @@ This repository does **not** endorse or support blockchain, cryptocurrency, NFT 
 
 ## Acknowledgments
 
-WebSurfer stands on the shoulders of exceptional open-source projects:
+WebGenie stands on the shoulders of exceptional open-source projects:
 
 - [Chrome Extension Manifest V3](https://developer.chrome.com/docs/extensions/mv3/) — Modern extension development
 - [React 18](https://react.dev) — Powerful UI framework
@@ -434,10 +434,10 @@ WebSurfer stands on the shoulders of exceptional open-source projects:
 
 Have questions or want to help?
 
-- **Report Bugs or Request Features** — Open an issue on [GitHub Issues](https://github.com/yourusername/WebSurfer/issues)
+- **Report Bugs or Request Features** — Open an issue on [GitHub Issues](https://github.com/yourusername/WebGenie/issues)
 - **Join Community Discussions** — Participate in our GitHub discussions
 - **Read the Documentation** — Check out the [comprehensive guides](./docs/)
 
 ---
 
-**Made with care by the WebSurfer community**
+**Made with care by the WebGenie community**
