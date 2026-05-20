@@ -1,6 +1,6 @@
 import { ActionResult } from '@src/background/agent/types';
-import { searchGoogleActionSchema, searchWebActionSchema, goToUrlActionSchema, goBackActionSchema, waitActionSchema } from '../schemas';
-import { z } from 'zod';
+import type { searchGoogleActionSchema, searchWebActionSchema, goToUrlActionSchema, goBackActionSchema, waitActionSchema } from '../schemas';
+import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
@@ -11,7 +11,7 @@ export class NavigationHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const encodedQuery = encodeURIComponent(input.query);
-    const engine = input.engine || 'duckduckgo';
+    const engine = input.engine || 'google';
     const searchUrl = engine === 'google'
       ? `https://www.google.com/search?q=${encodedQuery}`
       : `https://duckduckgo.com/?q=${encodedQuery}`;

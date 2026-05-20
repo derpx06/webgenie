@@ -1,6 +1,7 @@
 import { ActionResult } from '@src/background/agent/types';
-import { doneActionSchema, askHumanActionSchema } from '../schemas';
-import { z } from 'zod';
+import type { askHumanActionSchema } from '../schemas';
+import { doneActionSchema } from '../schemas';
+import type { z } from 'zod';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
 

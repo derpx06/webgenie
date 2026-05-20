@@ -19,6 +19,7 @@ export interface ProviderConfig {
   // Bedrock Specific Fields:
   region?: string;
   bedrockSecretKey?: string;
+  bedrockSessionToken?: string;
 }
 
 // Interface for storing multiple LLM provider configurations
@@ -332,6 +333,7 @@ export const llmProviderStore: LLMProviderStorage = {
         ? {
             region: config.region,
             bedrockSecretKey: config.bedrockSecretKey,
+            bedrockSessionToken: config.bedrockSessionToken,
           }
         : {}),
     };

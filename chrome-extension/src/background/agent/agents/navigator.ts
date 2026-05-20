@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import type { z } from 'zod';
 import { BaseAgent, type BaseAgentOptions, type ExtraAgentOptions } from './base';
 import { createLogger } from '@src/background/log';
 import { ActionResult, type AgentOutput } from '../types';
@@ -6,7 +6,6 @@ import { Actors, ExecutionState } from '../event/types';
 import {
   ResponseParseError,
   isAbortedError,
-  RequestCancelledError,
 } from './errors';
 import { calcBranchPathHashSet } from '@src/background/browser/dom/views';
 import { BrowserStateHistory, URLNotAllowedError } from '@src/background/browser/views';
@@ -25,6 +24,28 @@ const logger = createLogger('NavigatorAgent');
 
 export interface NavigatorResult {
   done: boolean;
+}
+
+interface TokenUsageLike {
+  input_tokens?: number;
+  output_tokens?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+}
+
+interface NavigatorToolCall {
+  args: {
+    currentState: unknown;
+    action: unknown[];
+  };
+}
+
+interface RawNavigatorResponse {
+  usage_metadata?: TokenUsageLike;
+  additional_kwargs?: {
+    tokenUsage?: TokenUsageLike;
+  };
+  tool_calls?: NavigatorToolCall[];
 }
 
 export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
@@ -60,14 +81,14 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       });
 
       // Record token usage if available
-      const rawResponse = response.raw as any;
+      const rawResponse = response.raw as RawNavigatorResponse;
       if (rawResponse?.usage_metadata) {
         this.context.messageManager.recordTokenUsage(
           rawResponse.usage_metadata.input_tokens || 0,
           rawResponse.usage_metadata.output_tokens || 0
         );
       } else if (rawResponse?.additional_kwargs?.tokenUsage) {
-        const usage = rawResponse.additional_kwargs.tokenUsage as any;
+        const usage = rawResponse.additional_kwargs.tokenUsage;
         this.context.messageManager.recordTokenUsage(
           usage.promptTokens || usage.input_tokens || 0,
           usage.completionTokens || usage.output_tokens || 0
@@ -83,7 +104,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       }
 
       // Tool call fallback
-      const toolCalls = (response.raw as any)?.tool_calls;
+      const toolCalls = (response.raw as RawNavigatorResponse)?.tool_calls;
       if (toolCalls?.length > 0) {
         const toolCall = toolCalls[0];
         return {
@@ -113,7 +134,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
   async execute(): Promise<AgentOutput<NavigatorResult>> {
     const agentOutput: AgentOutput<NavigatorResult> = { id: this.id };
-    let cancelled = false;
+    const cancelled = false;
     let browserStateHistory: BrowserStateHistory | null = null;
     let actionResults: ActionResult[] = [];
     let modelOutputString: string | null = null;

@@ -18,6 +18,7 @@ import { DEFAULT_AGENT_OPTIONS } from './agent/types';
 import { SpeechToTextService } from './services/speechToText';
 import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
+import { TabOrchestrator } from './core/tab-orchestrator/index';
 
 const logger = createLogger('background');
 
@@ -26,6 +27,10 @@ let currentExecutor: Executor | null = null;
 let currentPort: chrome.runtime.Port | null = null;
 const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');
 const PENDING_OMNIBOX_KEY = 'pendingOmniboxPrompt';
+
+// Initialize the Tab Orchestrator (single instance, event-driven, no polling)
+const tabOrchestrator = TabOrchestrator.getInstance();
+tabOrchestrator.init().catch(err => logger.error('TabOrchestrator init failed:', err));
 
 // Track the last focused window to avoid async queries during user-gesture events.
 let lastFocusedWindowId: number | undefined;
@@ -117,6 +122,15 @@ chrome.runtime.onConnect.addListener(port => {
             currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
             subscribeToExecutorEvents(currentExecutor);
 
+            // Begin task in orchestrator (creates tab group, registers tab)
+            const taskSettings = await generalSettingsStore.getSettings();
+            await tabOrchestrator.beginTask(
+              message.taskId,
+              message.task,
+              taskSettings,
+              message.tabId,
+            );
+
             const result = await currentExecutor.execute();
             logger.info('new_task execution result', message.tabId, result);
             break;
@@ -133,6 +147,16 @@ chrome.runtime.onConnect.addListener(port => {
               currentExecutor.addFollowUpTask(message.task);
               // Re-subscribe to events in case the previous subscription was cleaned up
               subscribeToExecutorEvents(currentExecutor);
+
+              // Notify orchestrator of new task context
+              const followUpSettings = await generalSettingsStore.getSettings();
+              await tabOrchestrator.beginTask(
+                message.taskId ?? (await currentExecutor.getCurrentTaskId()),
+                message.task,
+                followUpSettings,
+                message.tabId,
+              );
+
               const result = await currentExecutor.execute();
               logger.info('follow_up_task execution result', message.tabId, result);
             } else {
@@ -416,40 +440,15 @@ async function subscribeToExecutorEvents(executor: Executor) {
         currentPort.postMessage(event);
       }
 
-      // Broadcast agent status to ensure Capsule UI doesn't get stuck
-      chrome.tabs.query({}, async tabs => {
-        const isActive =
-          event.state !== ExecutionState.TASK_OK &&
-          event.state !== ExecutionState.TASK_FAIL &&
-          event.state !== ExecutionState.TASK_CANCEL;
+      // Sync the current active tab with the orchestrator
+      const agentTabId = executor.getCurrentTabId();
+      if (agentTabId !== null) {
+        await tabOrchestrator.updateActiveTab(agentTabId);
+      }
 
-        // Fetch fresh settings to ensure we respect Ghost Mode toggles
-        const currentSettings = await generalSettingsStore.getSettings();
-
-        // Source of truth: use the context's current tab ID
-        const agentTabId = executor.getCurrentTabId();
-
-        for (const tab of tabs) {
-          if (!tab.id) continue;
-
-          const isTargetTab = !agentTabId || tab.id === agentTabId;
-
-          if (isActive && isTargetTab) {
-            chrome.tabs.sendMessage(tab.id, {
-              type: 'AGENT_STATUS',
-              active: true,
-              status: event.data.details || 'WebGenie is active...',
-              showBorder: currentSettings.showAmbientBorder,
-              showCapsule: currentSettings.showStatusCapsule,
-            }).catch(() => { });
-          } else {
-            chrome.tabs.sendMessage(tab.id, {
-              type: 'AGENT_STATUS',
-              active: false,
-            }).catch(() => { });
-          }
-        }
-      });
+      // Delegate all AGENT_STATUS broadcasting to the ActivityEngine
+      // (replaces the old direct chrome.tabs.query + sendMessage loop)
+      await tabOrchestrator.onAgentEvent(event);
     } catch (error) {
       logger.error('Failed to send message to side panel:', error);
     }

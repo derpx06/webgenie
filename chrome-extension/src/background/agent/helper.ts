@@ -115,7 +115,7 @@ function createOpenAIChatModel(
   modelConfig: ModelConfig,
   // Add optional extra fetch options for headers etc.
   extraFetchOptions: { headers?: Record<string, string> } | undefined,
-  callbacks?: any[],
+  callbacks?: unknown[],
 ): BaseChatModel {
   const args: {
     model: string;
@@ -192,7 +192,7 @@ function isAzureProvider(providerId: string): boolean {
 }
 
 // Function to create an Azure OpenAI chat model
-function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: ModelConfig, callbacks?: any[]): BaseChatModel {
+function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: ModelConfig, callbacks?: unknown[]): BaseChatModel {
   const temperature = (modelConfig.parameters?.temperature ?? 0.1) as number;
   const topP = (modelConfig.parameters?.topP ?? 0.1) as number;
 
@@ -266,12 +266,12 @@ export function createChatModel(
   modelConfig: ModelConfig,
   generalSettings?: GeneralSettingsConfig,
 ): BaseChatModel {
-  const callbacks: any[] = [];
+  const callbacks: unknown[] = [];
   if (generalSettings?.enableTracing && generalSettings.langsmithApiKey) {
     callbacks.push(
       new LangChainTracer({
         projectName: generalSettings.langsmithProject || 'web-surfer',
-        // @ts-ignore
+        // @ts-expect-error LangChainTracer typings don't expose constructor apiKey, but runtime supports it.
         apiKey: generalSettings.langsmithApiKey,
       }),
     );
@@ -369,7 +369,7 @@ export function createChatModel(
         temperature?: number;
         maxTokens?: number;
         numCtx: number;
-        callbacks: any[];
+        callbacks: unknown[];
       } = {
         model: modelConfig.modelName,
         // required but ignored by ollama
@@ -411,7 +411,7 @@ export function createChatModel(
         topP?: number;
         temperature?: number;
         maxTokens?: number;
-        callbacks: any[];
+        callbacks: unknown[];
       } = {
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,
@@ -436,6 +436,7 @@ export function createChatModel(
         credentials: {
           accessKeyId: providerConfig.apiKey,
           secretAccessKey: providerConfig.bedrockSecretKey || '',
+          sessionToken: providerConfig.bedrockSessionToken,
         },
         temperature,
         topP,

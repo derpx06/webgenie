@@ -53,7 +53,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
         {/* Model Selection Field */}
         <div className={`group/field relative rounded-xl border p-4 transition-all duration-200 ${isDark ? 'border-white/5 bg-black/20 focus-within:border-indigo-500/30' : 'border-slate-200 bg-slate-50 focus-within:border-indigo-300'
           }`}>
-          <label className="mb-2 ml-1 block text-[9px] font-bold uppercase tracking-widest opacity-40">Selected Model</label>
+          <div className="mb-2 ml-1 block text-[9px] font-bold uppercase tracking-widest opacity-40">Selected Model</div>
           <div className="relative">
             <select
               className={`w-full cursor-pointer appearance-none bg-transparent pr-10 text-sm font-semibold outline-none focus:ring-0 ${isDark ? 'text-white' : 'text-slate-900'
@@ -78,7 +78,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
           {selectedModels[agentName] && !isOpenAIReasoningModel(selectedModels[agentName]) && (
             <div className={`rounded-xl border p-4 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
               <div className="mb-3 flex items-center justify-between">
-                <label className="text-[9px] font-bold uppercase tracking-widest opacity-40">Temperature</label>
+                <div className="text-[9px] font-bold uppercase tracking-widest opacity-40">Temperature</div>
                 <span className={`font-mono text-[11px] font-bold ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
                   {modelParameters[agentName].temperature.toFixed(2)}
                 </span>
@@ -100,7 +100,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
             !isAnthropicModel(selectedModels[agentName]) && (
               <div className={`rounded-xl border p-4 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
                 <div className="mb-3 flex items-center justify-between">
-                  <label className="text-[9px] font-bold uppercase tracking-widest opacity-40">Top P</label>
+                  <div className="text-[9px] font-bold uppercase tracking-widest opacity-40">Top P</div>
                   <span className={`font-mono text-[11px] font-bold ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
                     {modelParameters[agentName].topP.toFixed(3)}
                   </span>
@@ -120,7 +120,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
           {/* Reasoning Effort (O-series models) */}
           {selectedModels[agentName] && isOpenAIReasoningModel(selectedModels[agentName]) && (
             <div className={`col-span-1 rounded-xl border p-4 md:col-span-2 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
-              <label className="mb-3 block text-[9px] font-bold uppercase tracking-widest opacity-40">Reasoning Effort</label>
+              <div className="mb-3 block text-[9px] font-bold uppercase tracking-widest opacity-40">Reasoning Effort</div>
               <div className="flex gap-2">
                 {(['minimal', 'low', 'medium', 'high'] as const).map((level) => (
                   <button

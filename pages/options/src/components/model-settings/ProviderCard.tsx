@@ -17,6 +17,7 @@ interface ProviderCardProps {
   handleApiKeyChange: (provider: string, apiKey: string, baseUrl?: string) => void;
   handleRegionChange: (provider: string, region: string) => void;
   handleSecretKeyChange: (provider: string, secretKey: string) => void;
+  handleSessionTokenChange: (provider: string, sessionToken: string) => void;
   toggleApiKeyVisibility: (provider: string) => void;
   removeModel: (provider: string, model: string) => void;
   addModel: (provider: string, model: string) => void;
@@ -38,6 +39,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
   handleApiKeyChange,
   handleRegionChange,
   handleSecretKeyChange,
+  handleSessionTokenChange,
   toggleApiKeyVisibility,
   removeModel,
   addModel,
@@ -77,7 +79,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
       <div className="space-y-4">
         {providerConfig.type === ProviderTypeEnum.CustomOpenAI && (
           <div className="space-y-1.5">
-            <label className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Identity</label>
+            <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Identity</div>
             <input
               type="text"
               id={`${providerId}-name`}
@@ -90,7 +92,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
         )}
 
         <div className="space-y-1.5">
-          <label className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Access Key</label>
+          <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Access Key</div>
           <div className="group relative">
             <input
               type={visibleApiKeys[providerId] ? 'text' : 'password'}
@@ -111,7 +113,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
 
         {providerConfig.type === ProviderTypeEnum.Bedrock && (
           <div className="space-y-1.5">
-            <label className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">AWS Region</label>
+            <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">AWS Region</div>
             <input
               type="text"
               className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-bold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
@@ -124,7 +126,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
 
         {providerConfig.type === ProviderTypeEnum.Bedrock && (
           <div className="space-y-1.5">
-            <label className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">AWS Secret Key</label>
+            <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">AWS Secret Access Key</div>
             <div className="group relative">
               <input
                 type={visibleApiKeys[`${providerId}-secret`] ? 'text' : 'password'}
@@ -143,13 +145,34 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
           </div>
         )}
 
+        {providerConfig.type === ProviderTypeEnum.Bedrock && (
+          <div className="space-y-1.5">
+            <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">AWS Session Token (Optional)</div>
+            <div className="group relative">
+              <input
+                type={visibleApiKeys[`${providerId}-session`] ? 'text' : 'password'}
+                className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-bold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
+                placeholder="For temporary STS credentials only"
+                value={providerConfig.bedrockSessionToken || ''}
+                onChange={e => handleSessionTokenChange(providerId, e.target.value)}
+              />
+              <button
+                className="absolute right-3 top-1/2 -translate-y-1/2 opacity-30 transition-opacity hover:opacity-100"
+                onClick={() => toggleApiKeyVisibility(`${providerId}-session`)}
+              >
+                {visibleApiKeys[`${providerId}-session`] ? <FiEyeOff size={14} /> : <FiEye size={14} />}
+              </button>
+            </div>
+          </div>
+        )}
+
         {(providerConfig.type === ProviderTypeEnum.CustomOpenAI ||
           providerConfig.type === ProviderTypeEnum.Ollama ||
           providerConfig.type === ProviderTypeEnum.AzureOpenAI ||
           providerConfig.type === ProviderTypeEnum.OpenRouter ||
           providerConfig.type === ProviderTypeEnum.Llama) && (
             <div className="space-y-1.5">
-              <label className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Base Endpoint</label>
+              <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Base Endpoint</div>
               <input
                 type="text"
                 className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-bold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
@@ -163,7 +186,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
 
       {providerConfig.type !== ProviderTypeEnum.AzureOpenAI && (
         <div className="mt-6 space-y-3">
-          <label className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Intelligence Matrix</label>
+          <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Intelligence Matrix</div>
           <div className={`flex min-h-[40px] flex-wrap gap-1.5 rounded-xl border p-4 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-100 bg-slate-50'}`}>
             {(providerConfig.modelNames || llmProviderModelNames[providerId as keyof typeof llmProviderModelNames] || []).map(model => (
               <div key={model} className="group/tag flex items-center gap-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-tight text-indigo-400">

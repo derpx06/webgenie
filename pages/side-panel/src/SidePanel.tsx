@@ -9,6 +9,7 @@ import { AgentSight } from './components/AgentSight';
 import WelcomeScreen from './components/WelcomeScreen';
 import { useSidePanelController } from './hooks/useSidePanelController';
 import { NeuralBackground } from './components/shared/NeuralBackground';
+import { TabOrchestrator } from './components/TabOrchestrator';
 
 const SidePanel = () => {
   const {
@@ -154,6 +155,9 @@ const SidePanel = () => {
                   <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                     {/* AgentSight: floating circle, only in active chat */}
                     <AgentSight screenshot={lastScreenshot} isActive={showStopButton} />
+
+                    {/* TabOrchestrator: live workflow panel — only renders when tasks are active */}
+                    <TabOrchestrator isDarkMode={isDarkMode} />
 
                     <div className="ws-body relative z-10 min-h-0 flex-1 overflow-y-auto">
                       <MessageList messages={messages} isDarkMode={isDarkMode} onOptionSelect={handleSendMessage} />

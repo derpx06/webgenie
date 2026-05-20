@@ -1,6 +1,6 @@
 import { ActionResult } from '@src/background/agent/types';
-import { sendKeysActionSchema } from '../schemas';
-import { z } from 'zod';
+import type { sendKeysActionSchema } from '../schemas';
+import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';

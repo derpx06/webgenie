@@ -30,6 +30,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
     handleApiKeyChange,
     handleRegionChange,
     handleSecretKeyChange,
+    handleSessionTokenChange,
     toggleApiKeyVisibility,
     removeModel,
     addModel,
@@ -152,6 +153,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                 handleApiKeyChange={handleApiKeyChange}
                 handleRegionChange={handleRegionChange}
                 handleSecretKeyChange={handleSecretKeyChange}
+                handleSessionTokenChange={handleSessionTokenChange}
                 toggleApiKeyVisibility={toggleApiKeyVisibility}
                 removeModel={removeModel}
                 addModel={addModel}

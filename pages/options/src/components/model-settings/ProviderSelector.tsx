@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { FiCpu, FiCheck, FiX, FiSearch, FiGlobe, FiServer, FiActivity, FiShield } from 'react-icons/fi';
 import { SiOpenai, SiAnthropic, SiGoogle } from 'react-icons/si';
 import { ProviderTypeEnum, getDefaultDisplayNameFromProviderId } from '@extension/storage';

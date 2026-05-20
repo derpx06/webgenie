@@ -1,6 +1,26 @@
 const BORDER_ID = 'webgenie-agent-border';
 const BORDER_STYLE_ID = 'webgenie-agent-border-style';
 
+// ---------------------------------------------------------------------------
+// WorkflowStage → glow color mapping
+// Matches the WorkflowStage enum in packages/storage/lib/tab-orchestration/types.ts
+// ---------------------------------------------------------------------------
+type WorkflowStage = 'researching' | 'typing' | 'clicking' | 'waiting' | 'planning' | 'comparing' | 'completed' | 'error' | 'idle';
+
+const STAGE_COLORS: Record<WorkflowStage, { primary: string; secondary: string; speed: string }> = {
+  researching: { primary: '0, 178, 255',   secondary: '0, 242, 255',   speed: '4s' },
+  typing:      { primary: '100, 200, 255',  secondary: '0, 220, 255',   speed: '2s' },
+  clicking:    { primary: '120, 210, 255',  secondary: '0, 230, 255',   speed: '1.5s' },
+  waiting:     { primary: '255, 190, 50',   secondary: '255, 210, 100',  speed: '6s' },
+  planning:    { primary: '160, 80, 255',   secondary: '180, 110, 255',  speed: '4s' },
+  comparing:   { primary: '50, 200, 180',   secondary: '0, 230, 200',    speed: '3s' },
+  completed:   { primary: '60, 210, 100',   secondary: '80, 240, 120',   speed: '8s' },
+  error:       { primary: '255, 70, 70',    secondary: '255, 100, 100',  speed: '1s' },
+  idle:        { primary: '100, 120, 140',  secondary: '120, 140, 160',  speed: '8s' },
+};
+
+const DEFAULT_STAGE: WorkflowStage = 'researching';
+
 const BORDER_CSS = `
 #${BORDER_ID} {
     position: fixed;
@@ -25,15 +45,15 @@ const BORDER_CSS = `
     background: radial-gradient(
         circle at center,
         rgba(0, 0, 0, 0) 50%,
-        rgba(0, 242, 255, 0.03) 75%,
-        rgba(0, 242, 255, 0.15) 100%
+        rgba(var(--wg-glow-primary, 0, 242, 255), 0.03) 75%,
+        rgba(var(--wg-glow-primary, 0, 242, 255), 0.15) 100%
     );
     
     /* Huge blur to destroy any sharp lines */
     filter: blur(40px);
     
     /* Slow, living breathing animation */
-    animation: webgenie-ambient-breathe 4s ease-in-out infinite;
+    animation: webgenie-ambient-breathe var(--wg-glow-speed, 4s) ease-in-out infinite;
 }
 
 /* Layer 2: Subtle inset ring for depth */
@@ -41,9 +61,10 @@ const BORDER_CSS = `
     content: "";
     position: absolute;
     inset: 0;
-    box-shadow: inset 0 0 80px rgba(0, 242, 255, 0.08);
+    box-shadow: inset 0 0 80px rgba(var(--wg-glow-secondary, 0, 242, 255), 0.08);
     border-radius: 24px; /* Premium curved corners for the inner edge feeling */
-    animation: webgenie-ambient-breathe-subtle 4s ease-in-out infinite;
+    animation: webgenie-ambient-breathe-subtle var(--wg-glow-speed, 4s) ease-in-out infinite;
+    transition: box-shadow 1.2s ease-in-out;
 }
 
 @keyframes webgenie-ambient-breathe {
@@ -52,8 +73,8 @@ const BORDER_CSS = `
 }
 
 @keyframes webgenie-ambient-breathe-subtle {
-    0%, 100% { box-shadow: inset 0 0 60px rgba(0, 242, 255, 0.04); }
-    50%  { box-shadow: inset 0 0 100px rgba(0, 242, 255, 0.12); }
+    0%, 100% { box-shadow: inset 0 0 60px rgba(var(--wg-glow-secondary, 0, 242, 255), 0.04); }
+    50%  { box-shadow: inset 0 0 100px rgba(var(--wg-glow-secondary, 0, 242, 255), 0.12); }
 }
 `;
 
@@ -80,7 +101,12 @@ function injectBorder() {
 
 let borderVisibilityTimeout: ReturnType<typeof setTimeout> | null = null;
 
-function setBorderActive(active: boolean) {
+/**
+ * Activate or deactivate the ambient glow border.
+ * @param active - Whether the border should be visible
+ * @param stage - Optional WorkflowStage that controls glow color
+ */
+function setBorderActive(active: boolean, stage?: WorkflowStage) {
   const border = document.getElementById(BORDER_ID);
   
   if (borderVisibilityTimeout) {
@@ -90,21 +116,32 @@ function setBorderActive(active: boolean) {
 
   if (active) {
     injectBorder();
+    // Apply stage-aware CSS custom properties for color
+    const stageKey = stage ?? DEFAULT_STAGE;
+    const colors = STAGE_COLORS[stageKey] ?? STAGE_COLORS[DEFAULT_STAGE];
+    const el = document.getElementById(BORDER_ID);
+    if (el) {
+      el.style.setProperty('--wg-glow-primary', colors.primary);
+      el.style.setProperty('--wg-glow-secondary', colors.secondary);
+      el.style.setProperty('--wg-glow-speed', colors.speed);
+      el.setAttribute('data-wg-state', stageKey);
+    }
     // Use a small timeout to ensure transition works
     borderVisibilityTimeout = setTimeout(() => {
-      const el = document.getElementById(BORDER_ID);
-      if (el) {
-        el.classList.add('active');
+      const elNow = document.getElementById(BORDER_ID);
+      if (elNow) {
+        elNow.classList.add('active');
       }
     }, 10);
   } else if (border) {
     border.classList.remove('active');
+    border.removeAttribute('data-wg-state');
     // Hide after transition
     setTimeout(() => {
       if (!border.classList.contains('active')) {
         border.remove();
       }
-    }, 500);
+    }, 900);
   }
 }
 
@@ -438,8 +475,6 @@ function updateStatusCapsule(text: string, active: boolean) {
 // Cursor Controller
 // ----------------------------------------------------------------------------
 
-let cursorX = window.innerWidth / 2;
-let cursorY = window.innerHeight / 2;
 let isIdle = true;
 let cursorEl: HTMLElement | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -526,6 +561,29 @@ async function animateCursor(x: number, y: number, isClick: boolean) {
   startIdleDrift();
 }
 
+// ---------------------------------------------------------------------------
+// Cleanup on page unload — prevent memory leaks from stale state
+// ---------------------------------------------------------------------------
+
+window.addEventListener('beforeunload', () => {
+  if (borderVisibilityTimeout) {
+    clearTimeout(borderVisibilityTimeout);
+    borderVisibilityTimeout = null;
+  }
+  if (visibilityTimeout) {
+    clearTimeout(visibilityTimeout);
+    visibilityTimeout = null;
+  }
+  if (idleInterval) {
+    clearInterval(idleInterval);
+    idleInterval = null;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Message listener (main entry point from background)
+// ---------------------------------------------------------------------------
+
 chrome.runtime.onMessage.addListener((message) => {
   if (window !== window.top) return;
 
@@ -533,9 +591,13 @@ chrome.runtime.onMessage.addListener((message) => {
     const isActive = Boolean(message.active);
     const showBorder = message.showBorder ?? true;
     const showCapsule = message.showCapsule ?? true;
+    // New: workflow stage for state-aware glow color (backward-compatible — optional)
+    const stage = (message.workflowStage as WorkflowStage | undefined) ?? DEFAULT_STAGE;
+    // New: task name for enhanced capsule display
+    const statusText = message.status || 'WebGenie is active...';
 
-    setBorderActive(isActive && showBorder);
-    updateStatusCapsule(message.status || 'WebGenie is active...', isActive && showCapsule);
+    setBorderActive(isActive && showBorder, isActive ? stage : undefined);
+    updateStatusCapsule(statusText, isActive && showCapsule);
 
     if (isActive) {
       initCursor();

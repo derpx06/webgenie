@@ -35,8 +35,8 @@ export const searchWebActionSchema: ActionSchema = {
     query: z.string().describe('search query in natural language'),
     engine: z
       .enum(['duckduckgo', 'google'])
-      .default('duckduckgo')
-      .describe('search engine to use; default is duckduckgo'),
+      .default('google')
+      .describe('search engine to use; default is google'),
   }),
 };
 

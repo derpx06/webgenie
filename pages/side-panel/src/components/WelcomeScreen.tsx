@@ -14,7 +14,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ isDarkMode, onOpenSetting
                     ? "bg-obsidian text-slate-50 selection:bg-obsidian-accent selection:text-obsidian"
                     : "bg-luminous text-slate-600 selection:bg-luminous-accent selection:text-white"
                 }`}
-            className="flex flex-col items-center justify-center h-full w-full px-8"
+            className="flex size-full flex-col items-center justify-center px-8"
             gradientBackgroundStart={isDarkMode ? "rgb(2, 6, 23)" : "rgb(248, 250, 252)"}
             gradientBackgroundEnd={isDarkMode ? "rgb(12, 21, 37)" : "rgb(241, 245, 249)"}
             firstColor={isDarkMode ? "139, 92, 246" : "79, 70, 229"}
@@ -24,7 +24,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ isDarkMode, onOpenSetting
             fifthColor={isDarkMode ? "2, 6, 23" : "248, 250, 252"}
             pointerColor={isDarkMode ? "139, 92, 246" : "79, 70, 229"}
         >
-            <div className="z-10 w-full max-w-md space-y-12 text-center animate-rise">
+            <div className="z-10 w-full max-w-md animate-rise space-y-12 text-center">
                 <BrandingSection isDarkMode={isDarkMode} />
                 <ActionSection isDarkMode={isDarkMode} onOpenSettings={onOpenSettings} />
             </div>

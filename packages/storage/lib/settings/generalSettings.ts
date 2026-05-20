@@ -18,6 +18,10 @@ export interface GeneralSettingsConfig {
   enableTracing: boolean;
   langsmithApiKey: string;
   langsmithProject: string;
+  /** Whether to use chrome.tabGroups to visually group AI-managed tabs by task. */
+  enableTabGrouping: boolean;
+  /** Whether ephemeral (temporary) AI tabs are auto-closed when the task completes. */
+  autoCloseEphemeralTabs: boolean;
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
@@ -42,6 +46,8 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   enableTracing: false,
   langsmithApiKey: '',
   langsmithProject: 'web-surfer',
+  enableTabGrouping: true,
+  autoCloseEphemeralTabs: false,
 };
 
 

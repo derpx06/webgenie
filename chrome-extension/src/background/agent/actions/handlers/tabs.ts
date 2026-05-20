@@ -1,6 +1,6 @@
 import { ActionResult } from '@src/background/agent/types';
-import { switchTabActionSchema, openTabActionSchema, closeTabActionSchema } from '../schemas';
-import { z } from 'zod';
+import type { switchTabActionSchema, openTabActionSchema, closeTabActionSchema } from '../schemas';
+import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
@@ -19,7 +19,7 @@ export class TabHandler extends BaseHandler {
   async handleOpenTab(input: z.infer<typeof openTabActionSchema.schema>): Promise<ActionResult> {
     let url = input.url;
     if (!url || url.startsWith('chrome://')) {
-      url = 'https://duckduckgo.com';
+      url = 'https://www.google.com';
     }
     const intent = input.intent || t('act_openTab_start', [url]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

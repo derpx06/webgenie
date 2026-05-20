@@ -1,5 +1,4 @@
 import React from 'react';
-import { t } from '@extension/i18n';
 
 interface ToggleProps {
   title: string;
@@ -24,7 +23,7 @@ export const SettingToggle: React.FC<ToggleProps> = ({ title, desc, checked, isD
         {desc}
       </p>
     </div>
-    <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+    <div className="relative inline-flex shrink-0 cursor-pointer items-center">
       <input type="checkbox" className="peer sr-only" checked={checked} onChange={e => onChange(e.target.checked)} />
       <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
         after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full 
@@ -32,7 +31,7 @@ export const SettingToggle: React.FC<ToggleProps> = ({ title, desc, checked, isD
         ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#818cf8] peer-checked:bg-indigo-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
         peer-checked:after:border-white peer-checked:after:bg-white`}>
       </div>
-    </label>
+    </div>
   </div>
 );
 

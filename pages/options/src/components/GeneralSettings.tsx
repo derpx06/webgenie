@@ -1,15 +1,13 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 import { useState, useEffect } from 'react';
 import { type GeneralSettingsConfig, generalSettingsStore, DEFAULT_GENERAL_SETTINGS } from '@extension/storage';
-import { t } from '@extension/i18n';
-import { FiSettings, FiShield, FiActivity, FiZap } from 'react-icons/fi';
+import { FiActivity, FiZap, FiLayers } from 'react-icons/fi';
+import { DashboardSection } from './shared/DashboardSection';
+import { SettingToggle, SettingInput } from './GeneralSettingsComponents';
 
 interface GeneralSettingsProps {
   isDarkMode?: boolean;
 }
-
-import { DashboardSection } from './shared/DashboardSection';
-import { SettingToggle, SettingInput } from './GeneralSettingsComponents';
 
 export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) => {
   const [settings, setSettings] = useState<GeneralSettingsConfig>(DEFAULT_GENERAL_SETTINGS);
@@ -18,16 +16,22 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
     generalSettingsStore.getSettings().then(setSettings);
   }, []);
 
-  const updateSetting = async <K extends keyof GeneralSettingsConfig>(key: K, value: GeneralSettingsConfig[K]) => {
-    setSettings(prevSettings => ({ ...prevSettings, [key]: value }));
+  const updateSetting = async <K extends keyof GeneralSettingsConfig>(
+    key: K,
+    value: GeneralSettingsConfig[K],
+  ) => {
+    // Optimistic UI update — instant visual feedback
+    setSettings(prev => ({ ...prev, [key]: value }));
+    // Persist to storage
     await generalSettingsStore.updateSettings({ [key]: value } as Partial<GeneralSettingsConfig>);
-    const latestSettings = await generalSettingsStore.getSettings();
-    setSettings(latestSettings);
+    // Re-read to confirm persistence (handles edge cases like storage quota issues)
+    const confirmed = await generalSettingsStore.getSettings();
+    setSettings(confirmed);
   };
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 grid grid-cols-1 gap-8 duration-700 lg:grid-cols-2">
-      
+
       {/* 1. SYSTEM RUNTIME MODULE */}
       <DashboardSection
         title="Runtime"
@@ -58,6 +62,32 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
         <SettingToggle title="Visual Analysis" desc="Enable multi-modal environment analysis" checked={settings.useVision} isDarkMode={isDarkMode} onChange={val => updateSetting('useVision', val)} />
         <SettingToggle title="Interaction Highlights" desc="Visualize active focus areas during execution" checked={settings.displayHighlights} isDarkMode={isDarkMode} onChange={val => updateSetting('displayHighlights', val)} />
         <SettingToggle title="Session Replay" desc="Store and replay historical task logs" checked={settings.replayHistoricalTasks} isDarkMode={isDarkMode} onChange={val => updateSetting('replayHistoricalTasks', val)} />
+      </DashboardSection>
+
+      {/* 3. BROWSER INTELLIGENCE MODULE */}
+      <DashboardSection
+        title="Browser Intelligence"
+        subtitle="AI tab management and workflow grouping"
+        icon={<FiLayers size={20} />}
+        isDarkMode={isDarkMode}
+        colorTheme="indigo"
+        headerClassName="py-5 px-8"
+        contentClassName="flex flex-col"
+      >
+        <SettingToggle
+          title="Task Tab Grouping"
+          desc="Group AI-opened tabs by task using Chrome tab groups. Each task gets a color-coded group that collapses when inactive."
+          checked={settings.enableTabGrouping}
+          isDarkMode={isDarkMode}
+          onChange={val => updateSetting('enableTabGrouping', val)}
+        />
+        <SettingToggle
+          title="Auto-Close Ephemeral Tabs"
+          desc="Automatically close temporary AI tabs (searches, quick lookups) when a task completes. Keeps your browser clean."
+          checked={settings.autoCloseEphemeralTabs}
+          isDarkMode={isDarkMode}
+          onChange={val => updateSetting('autoCloseEphemeralTabs', val)}
+        />
       </DashboardSection>
 
       <style dangerouslySetInnerHTML={{ __html: `

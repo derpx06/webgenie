@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { analyticsSettingsStore, chatHistoryStore } from '@extension/storage';
 import type { AnalyticsSettingsConfig } from '@extension/storage';
-import { FiActivity, FiClock, FiShield, FiAlertCircle } from 'react-icons/fi';
+import { FiActivity, FiClock, FiShield } from 'react-icons/fi';
 
 import { DashboardSection } from './shared/DashboardSection';
 
@@ -133,7 +133,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
                 <div className="flex flex-col gap-1">
                   <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>System Telemetry</span>
                   <div className="flex items-center gap-2">
-                    <div className="size-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_12px_rgba(34,211,238,0.6)]" />
+                    <div className="size-2 animate-pulse rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.6)]" />
                     <span className="text-sm font-bold tracking-tight opacity-70">Active Monitoring</span>
                   </div>
                 </div>
@@ -151,14 +151,14 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
                     <span className="mb-2 text-xs font-bold opacity-30">tkns</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="h-1 w-12 rounded-full bg-slate-500/20 overflow-hidden">
+                    <div className="h-1 w-12 overflow-hidden rounded-full bg-slate-500/20">
                       <div className="h-full w-2/3 bg-slate-400/50" />
                     </div>
-                    <span className="text-[9px] font-black uppercase tracking-[0.1em] opacity-40">Input (Context)</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Input (Context)</span>
                   </div>
                 </div>
 
-                <div className="group/stat flex flex-col gap-2 text-right items-end">
+                <div className="group/stat flex flex-col items-end gap-2 text-right">
                   <div className="flex items-end gap-2">
                     <span className="mb-2 text-xs font-bold opacity-30">tkns</span>
                     <span className={`text-5xl font-black tracking-tighter transition-all duration-500 group-hover/stat:scale-110 ${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'}`}>
@@ -166,8 +166,8 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-black uppercase tracking-[0.1em] opacity-40">Output (Inference)</span>
-                    <div className="h-1 w-12 rounded-full bg-cyan-500/20 overflow-hidden">
+                    <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Output (Inference)</span>
+                    <div className="h-1 w-12 overflow-hidden rounded-full bg-cyan-500/20">
                       <div className="h-full w-1/3 bg-cyan-400" />
                     </div>
                   </div>

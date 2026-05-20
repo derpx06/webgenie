@@ -13,6 +13,19 @@ const logger = createLogger('agent');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CallOptions = Record<string, any>;
+interface TokenUsageLike {
+  input_tokens?: number;
+  output_tokens?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+}
+
+interface RawResponseWithUsage {
+  usage_metadata?: TokenUsageLike;
+  additional_kwargs?: {
+    tokenUsage?: TokenUsageLike;
+  };
+}
 
 // Update options to use Zod schema
 export interface BaseAgentOptions {
@@ -150,7 +163,7 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
           logger.debug(`[${this.modelName}] Successfully parsed structured output`);
 
           // Record token usage if available in raw response
-          const rawResponse = response.raw as any;
+          const rawResponse = response.raw as RawResponseWithUsage;
           if (rawResponse?.usage_metadata) {
             this.context.messageManager.recordTokenUsage(
               rawResponse.usage_metadata.input_tokens || 0,
@@ -158,7 +171,7 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
             );
           } else if (rawResponse?.additional_kwargs?.tokenUsage) {
             // Fallback for some providers using additional_kwargs
-            const usage = rawResponse.additional_kwargs.tokenUsage as any;
+            const usage = rawResponse.additional_kwargs.tokenUsage;
             this.context.messageManager.recordTokenUsage(
               usage.promptTokens || usage.input_tokens || 0,
               usage.completionTokens || usage.output_tokens || 0
@@ -205,11 +218,11 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
         const parsed = this.manuallyParseResponse(response.content);
         if (parsed) {
           // Record token usage for fallback response
-          const anyResponse = response as any;
-          if (anyResponse.usage_metadata) {
+          const typedResponse = response as RawResponseWithUsage;
+          if (typedResponse.usage_metadata) {
             this.context.messageManager.recordTokenUsage(
-              anyResponse.usage_metadata.input_tokens || 0,
-              anyResponse.usage_metadata.output_tokens || 0
+              typedResponse.usage_metadata.input_tokens || 0,
+              typedResponse.usage_metadata.output_tokens || 0
             );
           }
           return parsed;

@@ -1,5 +1,5 @@
 import { ActionResult, type AgentContext } from '@src/background/agent/types';
-import { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 

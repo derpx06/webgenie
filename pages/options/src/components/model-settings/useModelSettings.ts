@@ -15,7 +15,8 @@ import {
 import { isOpenAIReasoningModel, isAnthropicModel } from './ModelSettingsUtils';
 import { t } from '@extension/i18n';
 
-export const useModelSettings = (isDarkMode: boolean) => {
+export const useModelSettings = (_isDarkMode: boolean) => {
+  void _isDarkMode;
   const [providers, setProviders] = useState<Record<string, ProviderConfig>>({});
   const [modifiedProviders, setModifiedProviders] = useState<Set<string>>(new Set());
   const [providersFromStorage, setProvidersFromStorage] = useState<Set<string>>(new Set());
@@ -227,6 +228,17 @@ export const useModelSettings = (isDarkMode: boolean) => {
       [provider]: {
         ...prev[provider],
         bedrockSecretKey: secretKey.trim(),
+      },
+    }));
+  };
+
+  const handleSessionTokenChange = (provider: string, sessionToken: string) => {
+    setModifiedProviders(prev => new Set(prev).add(provider));
+    setProviders(prev => ({
+      ...prev,
+      [provider]: {
+        ...prev[provider],
+        bedrockSessionToken: sessionToken.trim(),
       },
     }));
   };
@@ -510,6 +522,7 @@ export const useModelSettings = (isDarkMode: boolean) => {
     handleApiKeyChange,
     handleRegionChange,
     handleSecretKeyChange,
+    handleSessionTokenChange,
     toggleApiKeyVisibility,
     handleNameChange,
     handleModelsChange,

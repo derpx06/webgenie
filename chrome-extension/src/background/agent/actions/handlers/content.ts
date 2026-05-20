@@ -1,5 +1,5 @@
 import { ActionResult } from '@src/background/agent/types';
-import {
+import type {
   cacheContentActionSchema,
   scrollToPercentActionSchema,
   scrollToTopActionSchema,
@@ -8,7 +8,7 @@ import {
   nextPageActionSchema,
   scrollToTextActionSchema,
 } from '../schemas';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';

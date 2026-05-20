@@ -1,5 +1,4 @@
-import { ActionResult, type AgentContext } from '@src/background/agent/types';
-import { t } from '@extension/i18n';
+import type { ActionResult, type AgentContext } from '@src/background/agent/types';
 import {
   clickElementActionSchema,
   doneActionSchema,

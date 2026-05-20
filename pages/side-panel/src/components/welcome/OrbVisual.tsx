@@ -9,7 +9,7 @@ export const OrbVisual: React.FC<OrbVisualProps> = ({ isDarkMode }) => {
     return (
         <div className="relative flex size-64 items-center justify-center">
             {/* ── Interactive WebGL Orb Background ── */}
-            <div className="absolute inset-0 z-0 overflow-hidden rounded-full scale-110">
+            <div className="absolute inset-0 z-0 scale-110 overflow-hidden rounded-full">
                 <Orb
                     hue={0}
                     hoverIntensity={1.0}

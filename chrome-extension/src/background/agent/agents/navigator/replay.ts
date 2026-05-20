@@ -1,11 +1,10 @@
 import { createLogger } from '@src/background/log';
-import { ActionResult } from '../../types';
-import { AgentStepRecord } from '../../history';
+import type { ActionResult , AgentContext } from '../../types';
+import type { AgentStepRecord } from '../../history';
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { type DOMHistoryElement } from '@src/background/browser/dom/history/view';
 import { type BrowserState } from '@src/background/browser/views';
-import type { AgentContext } from '../../types';
-import { NavigatorActionRegistry } from './registry';
+import type { NavigatorActionRegistry } from './registry';
 
 const logger = createLogger('NavigatorReplay');
 
