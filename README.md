@@ -13,6 +13,7 @@
 [![Chrome Extension](https://img.shields.io/badge/Platform-Chrome%20%7C%20Edge-informational?logo=google-chrome)](https://chrome.google.com)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-informational?logo=typescript)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/UI-React%2018-informational?logo=react)](https://react.dev)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/derpx06/webgenie)
 ---
 https://github.com/user-attachments/assets/f2a8e7eb-eeee-4b39-abce-5368a4facd80
 
