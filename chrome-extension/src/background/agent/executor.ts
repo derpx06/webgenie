@@ -46,6 +46,7 @@ export class Executor {
   private readonly navigatorPrompt: NavigatorPrompt;
   private readonly generalSettings: GeneralSettingsConfig | undefined;
   private tasks: string[] = [];
+  private lastPlanningStep = -1;
   constructor(
     task: string,
     taskId: string,
@@ -160,8 +161,8 @@ export class Executor {
           break;
         }
 
-        // Run planner periodically for guidance
-        if (this.planner && (context.nSteps % context.options.planningInterval === 0 || navigatorDone)) {
+        // Run planner on cadence, completion handoff, or stagnation
+        if (this.planner && this.shouldRunPlanning(step, navigatorDone)) {
           navigatorDone = false;
           latestPlanOutput = await this.runPlanner();
 
@@ -236,6 +237,33 @@ export class Executor {
     }
   }
 
+  private shouldRunPlanning(step: number, navigatorDone: boolean): boolean {
+    if (step === 0) return true;
+    if (navigatorDone) return true;
+
+    const stepsSinceLastPlan = step - this.lastPlanningStep;
+    if (stepsSinceLastPlan >= this.context.options.planningInterval) {
+      return true;
+    }
+
+    return this.hasRecentProgressStall();
+  }
+
+  /**
+   * Detect repeated planner/navigator outputs to break low-value loops early.
+   * This keeps planning responsive when the agent is stuck on the same strategy.
+   */
+  private hasRecentProgressStall(): boolean {
+    const records = this.context.history.history;
+    if (records.length < 3) return false;
+
+    const lastThree = records.slice(-3).map(r => (r.modelOutput || '').trim());
+    if (lastThree.some(v => v.length === 0)) return false;
+
+    // Exact output repetition is a strong signal of being stuck.
+    return lastThree[0] === lastThree[1] && lastThree[1] === lastThree[2];
+  }
+
   /**
    * Helper method to run planner and store its output
    */
@@ -253,6 +281,7 @@ export class Executor {
 
       // Execute planner
       const planOutput = await this.planner.execute();
+      this.lastPlanningStep = this.context.nSteps;
       // If planner returned an error (e.g., LLM API crash), treat it as an execution failure
       // so it counts toward consecutiveFailures and eventually stops the loop.
       if (planOutput.error) {
@@ -395,6 +424,8 @@ export class Executor {
 
   async cleanup(): Promise<void> {
     try {
+      // Flush any pending batched telemetry to DB
+      this.context.messageManager.flushTokenUsage();
       await this.context.browserContext.cleanup();
     } catch (error) {
       logger.error(`Failed to cleanup browser context: ${error}`);

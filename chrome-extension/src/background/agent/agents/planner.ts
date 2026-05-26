@@ -38,6 +38,8 @@ export const plannerOutputSchema = z.object({
 export type PlannerOutput = z.infer<typeof plannerOutputSchema>;
 
 export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerOutput> {
+  private lastBroadcastPlan = '';
+
   constructor(options: BaseAgentOptions, extraOptions?: Partial<ExtraAgentOptions>) {
     super(plannerOutputSchema, options, { ...extraOptions, id: 'planner' });
   }
@@ -63,7 +65,13 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
 
       // UI update
       const eventMessage = cleanedPlan.done ? cleanedPlan.final_answer : cleanedPlan.next_steps;
-      this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_OK, eventMessage);
+      const normalizedMessage = eventMessage.trim();
+
+      // Reduce noisy repeated planner chatter in UI when the plan hasn't changed.
+      if (cleanedPlan.done || normalizedMessage !== this.lastBroadcastPlan) {
+        this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_OK, eventMessage);
+        this.lastBroadcastPlan = normalizedMessage;
+      }
 
       logger.info('Planner output', JSON.stringify(cleanedPlan, null, 2));
 

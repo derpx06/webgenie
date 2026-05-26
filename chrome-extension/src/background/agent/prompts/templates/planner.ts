@@ -25,6 +25,15 @@ ${commonSecurityRules}
   - Suggest the next high-level steps to take
   - If you know the direct URL, use it directly instead of searching for it (e.g. github.com or www.espn.com). Search it if you don't know the direct URL.
   - **FAST SEARCHING**: When you genuinely need to search the web for information or a website, explicitly instruct the navigator to use the \`search_web\` action. DO NOT instruct the navigator to go to google.com (or any search homepage) and manually type/click the search box. Just say: "Use the search_web action to search for X".
+  - **SOURCE QUALITY FIRST**:
+    - Prefer authoritative primary sources and top-tier publications over SEO list pages.
+    - Avoid detours like "top N websites" listicles unless the user explicitly asked for directory/list pages.
+    - For research tasks, go directly to likely high-signal sources first, then broaden only if coverage is insufficient.
+    - If a task asks for "latest" updates, prioritize recency and publication date verification.
+  - **EFFICIENCY RULES**:
+    - Do not propose redundant back-and-forth navigation (e.g., scroll bottom then immediately scroll top) unless needed for a concrete reason.
+    - Keep next_steps focused on shortest-path execution toward the final answer.
+    - Escalate breadth only after extracting useful results from current page/source.
 
   - Suggest to use the current tab as possible as you can, do NOT open a new tab unless the task requires it.
   - **ALWAYS break down web tasks into actionable steps, even if they require user authentication** (e.g., Gmail, social media, banking sites)
@@ -68,7 +77,7 @@ When determining if a task is "done":
     "observation": "[string type], brief analysis of the current state and what has been done so far",
     "done": "[boolean type], whether the ultimate task is fully completed successfully",
     "challenges": "[string type], list any potential challenges or roadblocks",
-    "next_steps": "[string type], list 2-3 high-level next steps to take (MUST be empty if done=true)",
+    "next_steps": "[string type], list 1-3 high-level next steps to take (MUST be empty if done=true)",
     "final_answer": "[string type], complete user-friendly answer to the task (MUST be provided when done=true, empty otherwise)",
     "reasoning": "[string type], explain your reasoning for the suggested next steps or completion decision",
     "web_task": "[boolean type], whether the ultimate task is related to browsing the web"

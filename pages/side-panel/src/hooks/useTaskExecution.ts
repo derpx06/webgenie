@@ -256,14 +256,31 @@ export const useTaskExecution = ({
      * Sends a cancellation command to the background agent to stop the current task.
      */
     const handleStopTask = useCallback(async () => {
+        // Immediately reflect cancellation intent in UI instead of waiting for roundtrip events.
+        setShowStopButton(false);
+        setInputEnabled(true);
+        setIsWaitingForHuman(false);
+        setIsReplaying(false);
+        setIsFollowUpMode(false);
+
         try {
+            if (!portRef.current) setupConnection();
             sendMessage({ type: 'cancel_task' });
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
             appendMessage({ actor: Actors.SYSTEM, content: errorMessage, timestamp: Date.now() });
         }
-        setInputEnabled(true);
-    }, [appendMessage, sendMessage, setInputEnabled]);
+    }, [
+        appendMessage,
+        portRef,
+        sendMessage,
+        setInputEnabled,
+        setIsFollowUpMode,
+        setIsReplaying,
+        setIsWaitingForHuman,
+        setShowStopButton,
+        setupConnection,
+    ]);
 
     return { handleSendMessage, handleStopTask, handleReplay, handleCommand };
 };

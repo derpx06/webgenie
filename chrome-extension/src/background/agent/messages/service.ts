@@ -47,6 +47,10 @@ export default class MessageManager {
   private toolId: number;
   private settings: MessageManagerSettings;
   private sessionId: string | null;
+  // Batching tokens to prevent Chrome Storage blocking
+  private pendingInputTokens = 0;
+  private pendingOutputTokens = 0;
+  private flushTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(settings: MessageManagerSettings = new MessageManagerSettings(), sessionId: string | null = null) {
     this.settings = settings;
@@ -456,6 +460,32 @@ export default class MessageManager {
    */
   public recordTokenUsage(input: number, output: number): void {
     this.history.updateCumulativeTokens(input, output);
+
+    // Accumulate for batching to prevent Chrome Storage I/O stalls
+    this.pendingInputTokens += input;
+    this.pendingOutputTokens += output;
+
+    if (!this.flushTimeout) {
+      this.flushTimeout = setTimeout(() => this.flushTokenUsage(), 2000);
+    }
+  }
+
+  /**
+   * Flushes batched token usage to Chrome Storage
+   */
+  public flushTokenUsage(): void {
+    if (this.pendingInputTokens === 0 && this.pendingOutputTokens === 0) return;
+
+    const input = this.pendingInputTokens;
+    const output = this.pendingOutputTokens;
+    
+    // Reset counters
+    this.pendingInputTokens = 0;
+    this.pendingOutputTokens = 0;
+    if (this.flushTimeout) {
+      clearTimeout(this.flushTimeout);
+      this.flushTimeout = null;
+    }
 
     // Persist usage globally
     analyticsSettingsStore.incrementTokens(input, output).catch(err => {

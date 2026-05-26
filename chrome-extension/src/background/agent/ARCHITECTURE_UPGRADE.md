@@ -55,9 +55,6 @@ To achieve **Blazing Speed**, we minimize the token load on the LLM while maximi
 
 | Technique | Logic | Result |
 | :--- | :--- | :--- |
-| **A11y Pruning** | Remove nodes with no text, role, or ID. | -30% Tokens |
-| **Structural Folding** | Summarize repetitive list items (e.g., "15 similar search results"). | -20% Tokens |
-| **Visual Prioritization** | Truncate off-screen elements unless explicitly requested. | +50% Inference Speed |
 
 ---
 

@@ -50,6 +50,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
             fifthColor={isDarkMode ? "2, 6, 23" : "255, 255, 255"}
             pointerColor={isDarkMode ? "79, 70, 229" : "99, 102, 241"}
         >
+                <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-slate-950/48 via-slate-950/38 to-slate-950/62" />
                 <div className="mx-auto w-full max-w-xl">
                     <div className="relative mb-4 flex flex-col items-center text-center">
                         <div className="relative mb-3 opacity-95 transition-all duration-700">
@@ -63,9 +64,9 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                                 }`}>
                                 WebGenie
                             </h1>
-                            <p className={`mx-auto max-w-[340px] px-2 font-sans text-[14px] font-medium leading-relaxed tracking-tight ${isDarkMode ? 'text-slate-500/80' : 'text-slate-400'}`}>
+                            <p className={`mx-auto max-w-[340px] px-2 font-sans text-[14px] font-medium leading-relaxed tracking-tight ${isDarkMode ? 'text-slate-300/95' : 'text-slate-500'}`}>
                                 Professional-grade autonomous intelligence for <br />
-                                <span className={isDarkMode ? 'text-indigo-400/60' : 'text-indigo-600/60'}>web research and multi-step task execution.</span>
+                                <span className={isDarkMode ? 'text-indigo-300/95' : 'text-indigo-700/90'}>web research and multi-step task execution.</span>
                             </p>
                         </div>
                     </div>
@@ -77,7 +78,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                     {recentSessions.length > 0 ? (
                         <div className="w-full">
                             <div className="mb-4 flex items-center gap-3 px-1">
-                                <h3 className={`text-[9px] font-bold uppercase tracking-wider opacity-30 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                                <h3 className={`text-[9px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-indigo-300/85' : 'text-indigo-700/80'}`}>
                                     Recent Activity
                                 </h3>
                                 <div className={`h-px grow opacity-5 ${isDarkMode ? 'bg-white' : 'bg-slate-900'}`} />
@@ -104,7 +105,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                                             <h4 className={`mb-0.5 font-sans text-[14px] font-bold tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>
                                                 {session.title}
                                             </h4>
-                                            <p className={`text-[11px] font-normal leading-relaxed opacity-40 ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                                            <p className={`text-[11px] font-normal leading-relaxed ${isDarkMode ? 'text-slate-300/80' : 'text-slate-600/80'}`}>
                                                 {new Date(session.createdAt).toLocaleDateString()}
                                             </p>
                                         </div>
@@ -119,7 +120,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                     ) : (
                         <div className="w-full">
                             <div className="mb-4 flex items-center gap-3 px-1">
-                                <h3 className={`text-[9px] font-bold uppercase tracking-wider opacity-30 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                                <h3 className={`text-[9px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-indigo-300/85' : 'text-indigo-700/80'}`}>
                                     System Capabilities
                                 </h3>
                                 <div className={`h-px grow opacity-5 ${isDarkMode ? 'bg-white' : 'bg-slate-900'}`} />
@@ -146,7 +147,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                                             <h4 className={`mb-0.5 font-sans text-[14px] font-bold tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>
                                                 {item.title}
                                             </h4>
-                                            <p className={`text-[11px] font-normal leading-relaxed opacity-40 ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                                            <p className={`text-[11px] font-normal leading-relaxed ${isDarkMode ? 'text-slate-300/80' : 'text-slate-600/80'}`}>
                                                 {item.desc}
                                             </p>
                                         </div>
@@ -164,7 +165,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                     <div className="mt-6 flex flex-col items-center gap-3">
                         <div className="flex items-center gap-2">
                             <div className="size-1.5 animate-pulse rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>
-                            <span className={`text-[9px] font-bold uppercase tracking-widest opacity-30 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                            <span className={`text-[9px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-300/85' : 'text-slate-600/80'}`}>
                                 Runtime Operational
                             </span>
                         </div>
