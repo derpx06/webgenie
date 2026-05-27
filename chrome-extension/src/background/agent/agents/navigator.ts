@@ -157,6 +157,28 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       modelOutput.action = actions;
       modelOutputString = JSON.stringify(modelOutput);
 
+      // ── SELF-REFLECTION PROPAGATION ──────────────────────────────────────
+      const brain = modelOutput.current_state as { evaluation_previous_goal?: string; memory?: string } | undefined;
+      if (brain?.evaluation_previous_goal) {
+        this.context.lastEvaluation = brain.evaluation_previous_goal;
+      }
+      if (brain?.memory) {
+        this.context.lastMemory = brain.memory;
+      }
+      // Full brain state log (untruncated)
+      const brainDivider = '─'.repeat(60);
+      console.log(
+        `\n[Navigator:Brain] ${brainDivider}\n` +
+        `  evaluation_previous_goal:\n    ${brain?.evaluation_previous_goal || '(none)'}\n` +
+        `  memory:\n    ${brain?.memory || '(none)'}\n` +
+        `  actions requested: ${(modelOutput.action as unknown[]).length}\n` +
+        `  actions: ${JSON.stringify(modelOutput.action, null, 2)}\n` +
+        `[Navigator:Brain] ${brainDivider}`,
+      );
+      logger.info(`[Brain] evaluation: ${brain?.evaluation_previous_goal || '(none)'}`);
+      logger.info(`[Brain] memory: ${brain?.memory || '(none)'}`);
+      // ─────────────────────────────────────────────────────────────────────
+
       this.removeLastStateMessageFromMemory();
       this.context.messageManager.addModelOutput(modelOutput);
 
@@ -293,6 +315,15 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
             result.interactedElement = HistoryTreeProcessor.convertDomElementToHistoryElement(domElement);
           }
         }
+
+        // Complete per-action result log
+        console.log(
+          `\n[Action] [${i + 1}/${actions.length}] ${actionName}\n` +
+          `  args  : ${JSON.stringify(actionArgs)}\n` +
+          `  done  : ${result.isDone}\n` +
+          `  error : ${result.error || '(none)'}\n` +
+          `  extracted: ${result.extractedContent ? result.extractedContent.slice(0, 300) : '(none)'}`,
+        );
         results.push(result);
 
         if (this.isTaskInterrupted()) break;
@@ -301,6 +332,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       } catch (error) {
         if (error instanceof URLNotAllowedError) throw error;
         const msg = error instanceof Error ? error.message : String(error);
+        console.warn(`\n[Action] [${i + 1}/${actions.length}] ${actionName} FAILED\n  args : ${JSON.stringify(actionArgs)}\n  error: ${msg}`);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
 
         if (++errCount > 3) throw new Error('Too many errors in actions');

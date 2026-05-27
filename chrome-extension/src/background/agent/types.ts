@@ -51,6 +51,14 @@ export class AgentContext {
   finalAnswer: string | null;
   waitingForHuman: boolean;
   humanQuestion: string | null;
+  /**
+   * Self-reflection fields persisted across steps.
+   * The navigator LLM fills these in every response; we carry them forward
+   * so the agent knows what it just evaluated and what it remembered.
+   * Without these, the agent "forgets" completed sub-goals and loops.
+   */
+  lastEvaluation: string;  // evaluation_previous_goal from last navigator step
+  lastMemory: string;      // memory scratchpad from last navigator step
 
   constructor(
     taskId: string,
@@ -77,6 +85,8 @@ export class AgentContext {
     this.finalAnswer = null;
     this.waitingForHuman = false;
     this.humanQuestion = null;
+    this.lastEvaluation = '';
+    this.lastMemory = '';
   }
 
   async emitEvent(actor: Actors, state: ExecutionState, eventDetails: string, screenshot?: string) {

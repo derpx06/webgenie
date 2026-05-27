@@ -34,7 +34,12 @@ abstract class BasePrompt {
     if (rawElementsText !== '') {
       const scrollInfo = `[Scroll info of current page] window.scrollY: ${browserState.scrollY}, document.body.scrollHeight: ${browserState.scrollHeight}, window.visualViewport.height: ${browserState.visualViewportHeight}, visual viewport height as percentage of scrollable distance: ${Math.round((browserState.visualViewportHeight / (browserState.scrollHeight - browserState.visualViewportHeight)) * 100)}%\n`;
       logger.info(scrollInfo);
-      const elementsText = wrapUntrustedContent(rawElementsText);
+      // Use non-strict mode: strict would redact email addresses and credential-
+      // shaped text found in page content (e.g. Gmail To: field, WhatsApp chat).
+      // The `nano_untrusted_content` wrapper + system prompt already tell the LLM
+      // to ignore injections — strict pattern-matching here causes more harm than good.
+      const elementsText = wrapUntrustedContent(rawElementsText, /* filterFirst= */ false);
+
       formattedElementsText = `${scrollInfo}[Start of page]\n${elementsText}\n[End of page]\n`;
     } else {
       formattedElementsText = 'empty page';
@@ -67,8 +72,25 @@ abstract class BasePrompt {
     const otherTabs = browserState.tabs
       .filter(tab => tab.id !== browserState.tabId)
       .map(tab => `- {id: ${tab.id}, url: ${tab.url}, title: ${tab.title}}`);
+
+    // ── SELF-REFLECTION INJECTION ─────────────────────────────────────────
+    // Prepend the agent's own evaluation and memory from the previous step.
+    // Without this, the agent starts each step with no knowledge of what it
+    // just did, causing it to loop (e.g. re-open a chat it already opened).
+    let reflectionPrefix = '';
+    if (context.lastEvaluation) {
+      reflectionPrefix += `[Previous goal evaluation]: ${context.lastEvaluation}\n`;
+    }
+    if (context.lastMemory) {
+      reflectionPrefix += `[Agent memory]: ${context.lastMemory}\n`;
+    }
+    if (reflectionPrefix) {
+      reflectionPrefix += '\n';
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     const stateDescription = `
-[Task history memory ends]
+${reflectionPrefix}[Task history memory ends]
 [Current state starts here]
 The following is one-time information - if you need to remember it write it to memory:
 Current tab: ${currentTab}
