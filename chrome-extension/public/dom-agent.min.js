@@ -28,10 +28,17 @@
     'checkbox', 'tab', 'switch', 'slider',
     'spinbutton', 'combobox', 'searchbox', 'textbox',
     'listbox', 'option', 'scrollbar',
+    // Modal / dialog
+    'dialog', 'alertdialog',
+    // Tree / grid structures (common in dashboards, file explorers)
+    'treeitem', 'tree', 'row', 'gridcell', 'columnheader', 'rowheader',
+    'grid', 'treegrid',
+    // Status / info (so agent sees notification areas)
+    'tooltip', 'log', 'status', 'alert',
   ]);
 
   ns.INTERACTIVE_CURSORS = new Set([
-    'pointer', 'move', 'text'
+    'pointer', 'move', 'text', 'grab', 'grabbing', 'cell',
   ]);
 
   ns.NON_INTERACTIVE_CURSORS = new Set([
@@ -42,7 +49,7 @@
     'script', 'style', 'link', 'meta', 'noscript', 'template',
   ]);
 
-  ns.DISABLE_ATTRIBUTES = new Set(['disabled', 'readonly']);
+  ns.DISABLE_ATTRIBUTES = new Set(['disabled', 'readonly', 'inert', 'aria-disabled']);
 
   ns.ALWAYS_ACCEPT_TAGS = new Set([
     'body', 'div', 'main', 'article', 'section', 'nav', 'header', 'footer',
