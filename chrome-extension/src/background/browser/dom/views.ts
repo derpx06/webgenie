@@ -17,6 +17,14 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'aria-label',
   'aria-expanded',
   'href',
+  // Additional AX/semantic attributes for richer LLM context
+  'aria-description',
+  'aria-selected',
+  'aria-pressed',
+  'aria-current',
+  'aria-haspopup',
+  'data-testid',
+  'data-value',
 ];
 
 export abstract class DOMBaseNode {

@@ -94,6 +94,48 @@ export default class Page {
     return this._validWebPage && this._puppeteerPage !== null;
   }
 
+  /**
+   * Re-evaluate whether this page is a valid web page based on a new URL.
+   * Safe to call at any time; only promotes false→true, never demotes.
+   */
+  refreshValidWebPage(url: string): void {
+    if (!url) return;
+    const lower = url.trim().toLowerCase();
+    if (lower.startsWith('http') && !lower.startsWith('https://chromewebstore.google.com')) {
+      this._validWebPage = true;
+    }
+  }
+
+  /**
+   * Re-checks the live tab URL and promotes _validWebPage if the tab has
+   * navigated to a real page since construction. Called at the start of
+   * getState() so we never return an empty state just because the Page was
+   * constructed from a newtab URL.
+   * Also tries to attach puppeteer so click/input actions work immediately.
+   */
+  private async _revalidateFromTab(): Promise<void> {
+    if (this._validWebPage) return; // already valid, nothing to do
+    try {
+      const tab = await chrome.tabs.get(this._tabId);
+      this.refreshValidWebPage(tab.url ?? '');
+      if (this._validWebPage) {
+        // Update the cached state URL/title now that we know the real URL
+        this._state.url = tab.url ?? '';
+        this._state.title = tab.title ?? '';
+        logger.info('Page re-validated from tab', this._tabId, tab.url);
+        // Attempt puppeteer attachment so click/input actions can work.
+        // Failure is non-fatal; DOM reads via chrome.scripting will still work.
+        if (!this._puppeteerPage) {
+          await this.attachPuppeteer().catch(err =>
+            logger.warning('Re-validation puppeteer attach failed (non-fatal):', err),
+          );
+        }
+      }
+    } catch {
+      // Tab may have been closed; leave _validWebPage as-is
+    }
+  }
+
   async attachPuppeteer(): Promise<boolean> {
     if (!this._validWebPage) {
       return false;
@@ -117,8 +159,28 @@ export default class Page {
     // Add anti-detection scripts
     await this._addAntiDetectionScripts();
 
+    // ── DIALOG WATCHDOG ──────────────────────────────────────────────────────
+    // Auto-dismiss unexpected native dialogs (alert/confirm/prompt/beforeunload).
+    // Without this, any dialog will freeze the Puppeteer CDP session until the
+    // agent's step timeout fires, causing a full step failure.
+    this._puppeteerPage.on('dialog', async dialog => {
+      logger.warning(
+        `[DialogWatchdog] Auto-dismissing ${dialog.type()} dialog: "${dialog.message().slice(0, 120)}"`
+      );
+      try {
+        // For confirm/beforeunload, accept is usually the safer action
+        // (allows navigation/submission to proceed).
+        // For alert/prompt, accept or dismiss are equivalent for unblocking.
+        await dialog.accept();
+      } catch {
+        try { await dialog.dismiss(); } catch { /* ignore — dialog may have closed itself */ }
+      }
+    });
+    // ────────────────────────────────────────────────────────────────────────
+
     return true;
   }
+
 
   private async _addAntiDetectionScripts(): Promise<void> {
     if (!this._puppeteerPage) {
@@ -182,9 +244,20 @@ export default class Page {
     if (!this._validWebPage) {
       return null;
     }
+    // Always obtain the URL from chrome.tabs.get (authoritative).
+    // this.url() / puppeteer.url() can return 'about:blank' during frame
+    // initialization after cross-origin navigation, which would cause
+    // dom/service.ts to return an empty DOM tree via the isNewTabPage guard.
+    let tabUrl = this._state.url;
+    try {
+      const tab = await chrome.tabs.get(this._tabId);
+      tabUrl = tab.url ?? tabUrl;
+    } catch {
+      // Tab closed or inaccessible; fall back to cached state URL
+    }
     return _getClickableElements(
       this._tabId,
-      this.url(),
+      tabUrl,
       showHighlightElements,
       focusElement,
       this._config.viewportExpansion,
@@ -339,12 +412,39 @@ export default class Page {
   }
 
   async getState(useVision = false, cacheClickableElementsHashes = false): Promise<PageState> {
+    // Re-validate from the live tab URL in case the tab has navigated away from
+    // an initial chrome://newtab/ URL since this Page was constructed.
+    await this._revalidateFromTab();
+
     if (!this._validWebPage) {
       // return the initial state
       return build_initial_state(this._tabId);
     }
     await this.waitForPageAndFramesLoad();
-    const updatedState = await this._updateState(useVision);
+
+    // SPA-aware DOM extraction: retry up to 3 times if the page returns an empty
+    // selector map. Gmail and other SPAs paint the shell first then hydrate the
+    // inbox asynchronously — network-idle fires too early. Retrying with a short
+    // delay gives the JS framework time to finish rendering.
+    const MAX_DOM_RETRIES = 3;
+    const DOM_RETRY_DELAY_MS = 1500;
+    let updatedState = await this._updateState(useVision);
+
+    for (let attempt = 1; attempt < MAX_DOM_RETRIES; attempt++) {
+      if (updatedState.selectorMap.size > 0) break; // got elements — done
+      logger.warning(
+        `[getState] Empty DOM on attempt ${attempt}/${MAX_DOM_RETRIES} for ${updatedState.url} — retrying in ${DOM_RETRY_DELAY_MS}ms`,
+      );
+      await new Promise(resolve => setTimeout(resolve, DOM_RETRY_DELAY_MS));
+      updatedState = await this._updateState(useVision);
+    }
+
+    if (updatedState.selectorMap.size === 0) {
+      logger.warning(`[getState] DOM still empty after ${MAX_DOM_RETRIES} attempts — serving cached state if available`);
+      if (this._cachedState && this._cachedState.selectorMap.size > 0) {
+        return this._cachedState;
+      }
+    }
 
     // Find out which elements are new
     // Do this only if url has not changed
@@ -376,20 +476,38 @@ export default class Page {
   }
 
   async _updateState(useVision = false, focusElement = -1): Promise<PageState> {
-    try {
-      // Test if page is still accessible
-      // @ts-expect-error - puppeteerPage is not null, already checked before calling this function
-      await this._puppeteerPage.evaluate('1');
-    } catch (error) {
-      logger.warning('Current page is no longer accessible:', error);
-      if (this._browser) {
-        const pages = await this._browser.pages();
-        if (pages.length > 0) {
-          this._puppeteerPage = pages[0];
+    // ── Puppeteer liveness check ─────────────────────────────────────────────
+    // _puppeteerPage may be null when the page was constructed from a newtab URL
+    // and Puppeteer hasn't attached yet (e.g. Gmail is still loading). In that
+    // case we skip the CDP ping and fall through to the chrome.scripting DOM
+    // extraction which works without Puppeteer.
+    if (this._puppeteerPage) {
+      try {
+        await this._puppeteerPage.evaluate('1');
+      } catch (error) {
+        logger.warning('Current page is no longer accessible via CDP:', error);
+        // Try to recover by grabbing another page from the browser
+        if (this._browser) {
+          try {
+            const pages = await this._browser.pages();
+            if (pages.length > 0) {
+              this._puppeteerPage = pages[0];
+            }
+          } catch {
+            // Browser disconnected — clear references; chrome.scripting still works
+            this._puppeteerPage = null;
+            this._browser = null;
+          }
         } else {
-          throw new Error('Browser closed: no valid pages available');
+          // No browser reference — Puppeteer is gone, clear it
+          this._puppeteerPage = null;
         }
       }
+    } else {
+      // No CDP session yet — attempt a non-blocking re-attach so future interactions work
+      this.attachPuppeteer().catch(err =>
+        logger.debug('[_updateState] Background puppeteer re-attach failed (non-fatal):', err)
+      );
     }
 
     try {
@@ -424,14 +542,123 @@ export default class Page {
       // update the state
       this._state.elementTree = content.elementTree;
       this._state.selectorMap = content.selectorMap;
-      this._state.url = this._puppeteerPage?.url() || '';
-      this._state.title = (await this._puppeteerPage?.title()) || '';
+      // Use chrome.tabs.get as the authoritative URL/title source.
+      // puppeteer.url() can return 'about:blank' during/after cross-origin navigation,
+      // which would cause dom/service.ts to return an empty DOM tree.
+      try {
+        const tab = await chrome.tabs.get(this._tabId);
+        this._state.url = tab.url || this._puppeteerPage?.url() || '';
+        this._state.title = tab.title || (await this._puppeteerPage?.title()) || '';
+      } catch {
+        this._state.url = this._puppeteerPage?.url() || '';
+        this._state.title = (await this._puppeteerPage?.title()) || '';
+      }
       this._state.screenshot = screenshot;
       this._state.scrollY = scrollY;
       this._state.visualViewportHeight = visualViewportHeight;
       this._state.scrollHeight = scrollHeight;
+
+      // ── DOM → LLM COMPLETE LOG ───────────────────────────────────────────
+      // Full structured dump of every interactive element sent to the LLM.
+      // Open the background service worker DevTools to see this output.
+      // NO elements are trimmed — the agent sees exactly what is logged here.
+      {
+        const elementCount = this._state.selectorMap.size;
+        const logTime = new Date().toISOString();
+        const divider = '─'.repeat(60);
+
+        if (elementCount === 0) {
+          console.warn(
+            `\n╔══ [DOM→LLM] EMPTY PAGE ════════════════════════════════════╗\n` +
+            `║ ⚠  EMPTY selector map — LLM sees NO interactive elements!\n` +
+            `║ tab=${this._tabId}  url=${this._state.url}\n` +
+            `║ time=${logTime}\n` +
+            `╚════════════════════════════════════════════════════════════╝`,
+          );
+        } else {
+          // Build per-element lines — ALL elements, no cap
+          const allEntries = Array.from(this._state.selectorMap.entries());
+          const lines = allEntries.map(([idx, el]) => {
+            const tag         = el.tagName || '?';
+            const text        = el.getAllTextTillNextClickableElement(3)?.trim() || '';
+            const role        = el.attributes?.['role']          || '';
+            const label       = el.attributes?.['aria-label']    || '';
+            const href        = el.attributes?.['href']          || '';
+            const testid      = el.attributes?.['data-testid']   || '';
+            const ariasel     = el.attributes?.['aria-selected'] || '';
+            const placeholder = el.attributes?.['placeholder']   || '';
+            const eltype      = el.attributes?.['type']          || '';
+            const name        = el.attributes?.['name']          || '';
+            const elid        = el.attributes?.['id']            || '';
+            const cls         = (el.attributes?.['class'] || '').slice(0, 40);
+            const isNew       = (el as unknown as { isNew?: boolean }).isNew ? ' NEW' : '';
+
+            const extras = [
+              role        && `role=${role}`,
+              label       && `aria="${label}"`,
+              href        && `href=${href.slice(0, 60)}`,
+              testid      && `data-testid="${testid}"`,
+              ariasel     && `aria-selected=${ariasel}`,
+              placeholder && `placeholder="${placeholder}"`,
+              eltype      && `type=${eltype}`,
+              name        && `name="${name}"`,
+              elid        && `id="${elid}"`,
+              cls         && `class="${cls}"`,
+            ].filter(Boolean).join(' | ');
+
+            const textPart   = text   ? ` "${text}"`  : '';
+            const extrasPart = extras ? `\n       ${extras}` : '';
+            return `  [${idx}]${isNew} <${tag}>${textPart}${extrasPart}`;
+          });
+
+          // Tag-type frequency summary
+          const tagCounts: Record<string, number> = {};
+          for (const [, el] of allEntries) {
+            const t = el.tagName || 'unknown';
+            tagCounts[t] = (tagCounts[t] || 0) + 1;
+          }
+          const tagSummary = Object.entries(tagCounts)
+            .sort((a, b) => b[1] - a[1])
+            .map(([t, n]) => `${t}x${n}`)
+            .join('  ');
+
+          console.log(
+            `\n[DOM→LLM] ` + divider + `\n` +
+            `  tab     : ${this._tabId}\n` +
+            `  url     : ${this._state.url}\n` +
+            `  time    : ${logTime}\n` +
+            `  scroll  : scrollY=${this._state.scrollY}px  bodyH=${this._state.scrollHeight}px  vpH=${Math.round(this._state.visualViewportHeight)}px\n` +
+            `  elements: ${elementCount} total  [${tagSummary}]\n` +
+            divider + `\n` +
+            `${lines.join('\n')}\n` +
+            divider,
+          );
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────
+
+
       return this._state;
     } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      // When Chrome transitions to a new frame (e.g. navigateTo gmail.com), the
+      // old frame is briefly marked as an "error page" before the new frame is
+      // ready. If we silently return this._state here, the stale selectorMap
+      // (e.g. 200 Google elements) makes getState's SPA retry loop think the DOM
+      // is fine — so it never waits for Gmail to load, and the agent keeps
+      // re-navigating to Gmail in a loop.
+      //
+      // Fix: on frame-transition errors, wipe the selectorMap so getState DOES
+      // retry (up to 3×1500ms), giving the new frame time to become ready.
+      if (
+        errMsg.includes('showing error page') ||
+        errMsg.includes('Cannot find context') ||
+        errMsg.includes('Frame was detached')
+      ) {
+        logger.warning(`[_updateState] Frame transitioning (${errMsg.split(':')[0]}) — clearing selectorMap to force SPA retry`);
+        this._state.selectorMap = new Map();
+        return this._state;
+      }
       logger.error('Failed to update state:', error);
       // Return last known good state if available
       return this._state;
@@ -484,8 +711,18 @@ export default class Page {
   }
 
   url(): string {
+    // Note: this._puppeteerPage.url() can return 'about:blank' or an intermediate URL
+    // during frame initialization after attach, even when the tab is on Gmail/Calendar.
+    // Always prefer _state.url which is populated from chrome.tabs.get (authoritative).
+    // Fall back to puppeteer only if state URL is empty.
+    if (this._state.url && !isNewTabPage(this._state.url) && !this._state.url.startsWith('chrome://')) {
+      return this._state.url;
+    }
     if (this._puppeteerPage) {
-      return this._puppeteerPage.url();
+      const puppeteerUrl = this._puppeteerPage.url();
+      if (puppeteerUrl && !isNewTabPage(puppeteerUrl) && !puppeteerUrl.startsWith('chrome://')) {
+        return puppeteerUrl;
+      }
     }
     return this._state.url;
   }
@@ -1062,89 +1299,32 @@ export default class Page {
 
     const cssSelector = element.enhancedCssSelectorForElement(this._config.includeDynamicAttributes);
 
-    const isExpectedElement = async (elementHandle: ElementHandle<Element> | null): Promise<boolean> => {
-      if (!elementHandle) return false;
-
-      try {
-        if (element.xpath) {
-          const expectedXpath = element.xpath.startsWith('/') ? element.xpath : `/${element.xpath}`;
-          const actualXpath = await elementHandle.evaluate(el => {
-            const segments: string[] = [];
-            let current: Element | null = el;
-
-            while (current && current.nodeType === Node.ELEMENT_NODE) {
-              const tagName = current.nodeName.toLowerCase();
-
-              // Count all same-tag siblings to determine if disambiguation is needed
-              const parent = current.parentElement;
-              if (!parent) {
-                segments.unshift(tagName);
-                current = current.parentElement;
-                continue;
-              }
-
-              const siblings = Array.from(parent.children).filter(
-                s => s.nodeName.toLowerCase() === tagName,
-              );
-
-              if (siblings.length === 1) {
-                // Only child of this tag type - no index needed
-                segments.unshift(tagName);
-              } else {
-                // Multiple siblings - use 1-based index
-                const idx = siblings.indexOf(current) + 1;
-                segments.unshift(`${tagName}[${idx}]`);
-              }
-
-              current = current.parentElement;
-            }
-
-            return `/${segments.join('/')}`;
-          });
-
-          if (actualXpath !== expectedXpath) {
-            return false;
-          }
-        }
-
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
     try {
-      // Try CSS selector first
+      // 1. Try CSS selector first — trust it; SPAs change DOM structure between snapshot
+      //    and action time so XPath re-validation causes false negatives on valid elements.
       let elementHandle: ElementHandle | null = await currentFrame.$(cssSelector);
-      if (!(await isExpectedElement(elementHandle))) {
-        elementHandle = null;
-      }
 
-      // If CSS selector failed, try XPath
+      // 2. CSS failed — try raw XPath as a structural fallback
       if (!elementHandle) {
         const xpath = element.xpath;
         if (xpath) {
           try {
-            logger.info('Trying XPath selector:', xpath);
+            logger.info('CSS selector failed, trying XPath:', xpath);
             const fullXpath = xpath.startsWith('/') ? xpath : `/${xpath}`;
-            const xpathSelector = `::-p-xpath(${fullXpath})`;
-            elementHandle = await currentFrame.$(xpathSelector);
-            if (!(await isExpectedElement(elementHandle))) {
-              elementHandle = null;
-            }
+            elementHandle = await currentFrame.$(`::-p-xpath(${fullXpath})`);
           } catch (xpathError) {
-            logger.error('Failed to locate element using XPath:', xpathError);
+            logger.debug('XPath selector failed:', xpathError);
           }
         }
       }
 
-      // If CSS and XPath failed, try Heuristic Matching
+      // 3. Both selectors failed — try semantic heuristic (stable attributes + text + role)
       if (!elementHandle) {
         logger.info('CSS and XPath failed, trying heuristic matching...');
         elementHandle = await this._heuristicLocate(currentFrame, element);
       }
 
-      // If element found, check visibility and scroll into view
+      // Scroll into view if found and visible
       if (elementHandle) {
         const isHidden = await elementHandle.isHidden();
         if (!isHidden) {
@@ -1153,7 +1333,7 @@ export default class Page {
         return elementHandle;
       }
 
-      logger.info('elementHandle not located');
+      logger.info('locateElement: element not found by any strategy');
     } catch (error) {
       logger.error('Failed to locate element:', error);
     }
@@ -1187,19 +1367,19 @@ export default class Page {
         if (!isHidden) {
           await this._scrollIntoViewIfNeeded(element, 1500);
 
-          // --- CURSOR ANIMATION BROADCAST ---
-          const box = await element.boundingBox();
-          if (box) {
-            const x = box.x + box.width / 2;
-            const y = box.y + box.height / 2;
-            chrome.tabs.sendMessage(this._tabId, {
-              type: 'AGENT_ACTION',
-              action: 'type',
-              x, y
-            }).catch(() => { });
-            // Give UI human-like timing sequence before typing
-            await new Promise(resolve => setTimeout(resolve, 800));
-          }
+          // --- CURSOR ANIMATION BROADCAST (non-blocking) ---
+          // Fire-and-forget: broadcast cursor coords without blocking the type action.
+          element.boundingBox().then(box => {
+            if (box) {
+              const x = box.x + box.width / 2;
+              const y = box.y + box.height / 2;
+              chrome.tabs.sendMessage(this._tabId, {
+                type: 'AGENT_ACTION',
+                action: 'type',
+                x, y
+              }).catch(() => { });
+            }
+          }).catch(() => { });
         }
       } catch (e) {
         // Continue even if these operations fail
@@ -1222,37 +1402,86 @@ export default class Page {
       });
       const isDisabled = await element.evaluate(el => {
         if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-          return el.disabled;
+          if (el.disabled) return true;
         }
+        // aria-disabled="true" is used by many component libraries (MUI, Radix, etc.)
+        if (el.getAttribute('aria-disabled') === 'true') return true;
+        // inert attribute makes element non-interactive
+        if (el.hasAttribute('inert') || el.closest('[inert]')) return true;
         return false;
       });
 
       // Choose appropriate input method based on element properties
-      if ((isContentEditable || tagName === 'input') && !isReadOnly && !isDisabled) {
-        // Clear content and set value directly
+      if (isContentEditable || tagName === 'input' || tagName === 'textarea') {
+        if (isReadOnly || isDisabled) {
+          throw new Error(`Cannot type into a readonly or disabled element`);
+        }
+
+        // Clear the field first
         await element.evaluate(el => {
           if (el instanceof HTMLElement) {
             el.textContent = '';
           }
           if ('value' in el) {
-            (el as HTMLInputElement).value = '';
+            // React / Angular / Vue use a synthetic input event system.
+            // Directly setting .value= bypasses their internal state tracking.
+            // We must use the native property descriptor setter so the framework
+            // sees the change as if the user typed it.
+            const nativeInputProto = Object.getPrototypeOf(el);
+            const nativeDescriptor =
+              Object.getOwnPropertyDescriptor(nativeInputProto, 'value') ||
+              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
+              Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+            if (nativeDescriptor?.set) {
+              nativeDescriptor.set.call(el, '');
+            } else {
+              (el as HTMLInputElement).value = '';
+            }
           }
-          // Dispatch events
+          // Dispatch input + change so framework state updates
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
         });
 
-        // Type the text with a small delay between keypresses
+        // Type the text with a small delay to mimic natural typing
         await element.type(text, { delay: 50 });
+
+        // Verify the typed text actually appeared (detect silent failures)
+        const actualValue = await element.evaluate(el => {
+          if ('value' in el) return (el as HTMLInputElement).value;
+          if (el instanceof HTMLElement) return el.textContent || '';
+          return '';
+        });
+        if (actualValue !== text) {
+          logger.warning(
+            `[InputVerify] Expected "${text.slice(0, 40)}" but got "${actualValue.slice(0, 40)}" — retrying with direct value set`
+          );
+          // Fallback: set directly and trigger React synthetic event
+          await element.evaluate((el, value) => {
+            const nativeInputProto = Object.getPrototypeOf(el);
+            const nativeDescriptor =
+              Object.getOwnPropertyDescriptor(nativeInputProto, 'value') ||
+              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
+              Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+            if (nativeDescriptor?.set) {
+              nativeDescriptor.set.call(el, value);
+            } else if ('value' in el) {
+              (el as HTMLInputElement).value = value;
+            } else if (el instanceof HTMLElement) {
+              el.textContent = value;
+            }
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, data: value }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          }, text);
+        }
       } else {
-        // Use direct value setting for other types of elements
+        // Non-editable element: use direct value setting
         await element.evaluate((el, value) => {
           if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
             el.value = value;
           } else if (el instanceof HTMLElement && el.isContentEditable) {
             el.textContent = value;
           }
-          // Dispatch events
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
         }, text);
@@ -1369,40 +1598,75 @@ export default class Page {
     const attributes = elementNode.attributes || {};
     const text = elementNode.getAllTextTillNextClickableElement(2) || '';
 
-    return await frame.evaluateHandle(
-      (tag, attrs, txt) => {
-        // Find all elements with the same tag name
-        const candidates = Array.from(document.querySelectorAll(tag));
+    try {
+      const handle = await frame.evaluateHandle(
+        (tag, attrs, txt) => {
+          // Pierce shadow DOM by collecting candidates from all shadow roots
+          function queryShadow(root: Document | ShadowRoot, selector: string): Element[] {
+            const results: Element[] = [];
+            const direct = Array.from(root.querySelectorAll(selector));
+            results.push(...direct);
+            // Walk all elements to find shadow roots
+            Array.from(root.querySelectorAll('*')).forEach(el => {
+              if (el.shadowRoot) {
+                results.push(...queryShadow(el.shadowRoot, selector));
+              }
+            });
+            return results;
+          }
 
-        // 1. Try matching by stable attributes
-        const stableAttrs = ['data-testid', 'data-cy', 'aria-label', 'placeholder', 'id', 'name'];
-        for (const attrName of stableAttrs) {
-          if (attrs[attrName]) {
-            const found = candidates.find(el => el.getAttribute(attrName) === attrs[attrName]);
+          const candidates = queryShadow(document, tag);
+
+          // 1. Try matching by stable attributes (most reliable)
+          const stableAttrs = [
+            'data-testid', 'data-cy', 'data-test',
+            'aria-label', 'aria-description',
+            'placeholder', 'id', 'name',
+          ];
+          for (const attrName of stableAttrs) {
+            const attrVal = (attrs as Record<string, string>)[attrName];
+            if (attrVal) {
+              const found = candidates.find(el => el.getAttribute(attrName) === attrVal);
+              if (found) return found;
+            }
+          }
+
+          // 2. Try matching by exact text content (short labels)
+          if (txt && txt.length > 0 && txt.length < 80) {
+            const found = candidates.find(el => el.textContent?.trim() === txt);
             if (found) return found;
           }
-        }
 
-        // 2. Try matching by text content (if it's a leaf node or has short text)
-        if (txt && txt.length > 0 && txt.length < 100) {
-          const found = candidates.find(el => el.textContent?.trim() === txt);
-          if (found) return found;
-        }
+          // 3. Fuzzy match by role + text prefix
+          const roleVal = (attrs as Record<string, string>)['role'];
+          if (roleVal && txt.length > 0) {
+            const found = candidates.find(
+              el =>
+                el.getAttribute('role') === roleVal &&
+                el.textContent?.trim().startsWith(txt.substring(0, 8)),
+            );
+            if (found) return found;
+          }
 
-        // 3. Last resort: fuzzy match by role and first few chars of text
-        if (attrs['role']) {
-          const found = candidates.find(
-            el => el.getAttribute('role') === attrs['role'] && el.textContent?.trim().startsWith(txt.substring(0, 5)),
-          );
-          if (found) return found;
-        }
+          return null;
+        },
+        tagName,
+        attributes,
+        text,
+      );
 
+      // evaluateHandle returns a JSHandle wrapping null when the in-page function returns null.
+      // We must check asElement() before using it.
+      const asEl = handle.asElement() as ElementHandle<Element> | null;
+      if (!asEl) {
+        await handle.dispose();
         return null;
-      },
-      tagName,
-      attributes,
-      text,
-    ).then(handle => handle.asElement() as ElementHandle<Element> | null);
+      }
+      return asEl;
+    } catch (err) {
+      logger.debug('[HeuristicLocate] error:', err);
+      return null;
+    }
   }
 
   async clickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
@@ -1411,11 +1675,6 @@ export default class Page {
     }
 
     try {
-      // Highlight before clicking
-      // if (elementNode.highlightIndex !== null) {
-      //   await this._updateState(useVision, elementNode.highlightIndex);
-      // }
-
       const element = await this.locateElement(elementNode);
       if (!element) {
         throw new Error(`Element: ${elementNode} not found`);
@@ -1424,52 +1683,29 @@ export default class Page {
       // Scroll element into view if needed
       await this._scrollIntoViewIfNeeded(element);
 
-      // --- CURSOR ANIMATION BROADCAST ---
       try {
-        const box = await element.boundingBox();
-        if (box) {
-          const x = box.x + box.width / 2;
-          const y = box.y + box.height / 2;
-          chrome.tabs.sendMessage(this._tabId, {
-            type: 'AGENT_ACTION',
-            action: 'click',
-            x, y
-          }).catch(() => { });
-          // Human-like cursor pipeline runs for ~700ms in the UI. We wait 800ms so the click aligns and UI animations settle.
-          await new Promise(resolve => setTimeout(resolve, 800));
-        }
-      } catch (e) {
-        logger.debug('Failed to broadcast cursor animation coords', e);
-      }
-      // ----------------------------------
-
-      try {
-        // First attempt: Use Puppeteer's click method with timeout
+        // Primary attempt: Use Puppeteer's native click with a generous timeout for SPAs
         await Promise.race([
           element.click(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Click timeout')), 2000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Click timeout')), 5000)),
         ]);
         await this._checkAndHandleNavigation();
       } catch (error) {
-        // if URLNotAllowedError, throw it
         if (error instanceof URLNotAllowedError) {
           throw error;
         }
-        // Second attempt: Robust event simulation for SPAs (Google, React)
-        logger.info('Failed native click, triggering full MouseEvent sequence', error);
+        // Fallback: Re-locate a fresh element and use evaluate().click().
+        // This avoids the stale-handle problem (element may have been detached
+        // by SPA re-renders during the 5s wait) and is more reliable than
+        // dispatching raw MouseEvents for React/Angular SPAs.
+        logger.info('Native click failed, trying evaluate().click() on fresh handle', error);
         try {
-          await element.evaluate((el: Element) => {
-            ['mousedown', 'mouseup', 'click'].forEach(eventType => {
-              el.dispatchEvent(new MouseEvent(eventType, {
-                view: window,
-                bubbles: true,
-                cancelable: true,
-                buttons: 1
-              }));
-            });
-          });
+          const freshElement = await this.locateElement(elementNode);
+          if (!freshElement) {
+            throw new Error('Element no longer found for fallback click');
+          }
+          await freshElement.evaluate((el: Element) => (el as HTMLElement).click());
         } catch (secondError) {
-          // if URLNotAllowedError, throw it
           if (secondError instanceof URLNotAllowedError) {
             throw secondError;
           }
@@ -1478,6 +1714,22 @@ export default class Page {
           );
         }
       }
+
+      // Broadcast cursor animation after click (fire-and-forget, non-blocking)
+      try {
+        const box = await element.boundingBox();
+        if (box) {
+          chrome.tabs.sendMessage(this._tabId, {
+            type: 'AGENT_ACTION',
+            action: 'click',
+            x: box.x + box.width / 2,
+            y: box.y + box.height / 2,
+          }).catch(() => { });
+        }
+      } catch {
+        // Non-critical; ignore
+      }
+
     } catch (error) {
       throw new Error(
         `Failed to click element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`,
