@@ -39,6 +39,10 @@ export default class BrowserContext {
     return this._currentTabId;
   }
 
+  // Per-tab in-flight promise: prevents multiple concurrent callers from each
+  // spawning a new Page for the same tabId (the source of "creating new page ×7" logs).
+  private _creatingPages: Map<number, Promise<Page>> = new Map();
+
   private async _getOrCreatePage(tab: chrome.tabs.Tab, forceUpdate = false): Promise<Page> {
     if (!tab.id) {
       throw new Error('Tab ID is not available');
@@ -54,9 +58,23 @@ export default class BrowserContext {
       await existingPage.detachPuppeteer();
       this._attachedPages.delete(tab.id);
     }
+
+    // If a creation is already in-flight for this tab, wait for it instead of
+    // creating yet another Page object for the same tab.
+    const inFlight = this._creatingPages.get(tab.id);
+    if (inFlight && !forceUpdate) {
+      logger.info('getOrCreatePage', tab.id, 'waiting for in-flight creation');
+      return inFlight;
+    }
+
     logger.info('getOrCreatePage', tab.id, 'creating new page');
-    return new Page(tab.id, tab.url || '', tab.title || '', this._config);
+    const creation = Promise.resolve(new Page(tab.id, tab.url || '', tab.title || '', this._config));
+    this._creatingPages.set(tab.id, creation);
+    const page = await creation;
+    this._creatingPages.delete(tab.id);
+    return page;
   }
+
 
   public async cleanup(): Promise<void> {
     const currentPage = await this.getCurrentPage();
@@ -104,7 +122,6 @@ export default class BrowserContext {
         // open a new tab with blank page
         const newTab = await chrome.tabs.create({ url: this._config.homePageUrl });
         if (!newTab.id) {
-          // this should rarely happen
           throw new Error('No tab ID available');
         }
         activeTab = newTab;
@@ -113,17 +130,21 @@ export default class BrowserContext {
       }
       logger.info('active tab', activeTab.id, activeTab.url, activeTab.title);
       const page = await this._getOrCreatePage(activeTab);
-      await this.attachPage(page);
       this._currentTabId = activeTab.id || null;
+      // Attempt puppeteer attach but don't block if it fails (e.g. newtab).
+      // _revalidateFromTab() inside getState() will re-try when the tab navigates.
+      await this.attachPage(page);
       return page;
     }
 
-    // 2. If _currentTabId is set but not in attachedPages, attach the tab
+    // 2. If _currentTabId is set but not in attachedPages, try to attach
     const existingPage = this._attachedPages.get(this._currentTabId);
     if (!existingPage) {
       const tab = await chrome.tabs.get(this._currentTabId);
       const page = await this._getOrCreatePage(tab);
-      // set current tab id to null if the page is not attached successfully
+      // Attempt attach; if it fails (e.g. still on newtab) we still return the
+      // page so getState() can call _revalidateFromTab() and promote it once
+      // the real URL is available.
       await this.attachPage(page);
       return page;
     }
@@ -153,44 +174,44 @@ export default class BrowserContext {
       waitForUpdate?: boolean;
       waitForActivation?: boolean;
       timeoutMs?: number;
+      /** When true, skip the pre-check of current tab status and only listen
+       *  for the next onUpdated event. Use for chrome.tabs.update navigations
+       *  where the tab may still be 'complete' at the OLD URL. */
+      skipCurrentStateCheck?: boolean;
     } = {},
   ): Promise<void> {
-    const { waitForUpdate = true, waitForActivation = true, timeoutMs = 5000 } = options;
+    const { waitForUpdate = true, waitForActivation = true, timeoutMs = 3000, skipCurrentStateCheck = false } = options;
 
     const promises: Promise<void>[] = [];
 
     if (waitForUpdate) {
+      // Resolve as soon as the tab reaches 'complete' status — url/title may
+      // arrive in separate events (especially on SPA navigations like Gmail).
       const updatePromise = new Promise<void>(resolve => {
-        let hasUrl = false;
-        let hasTitle = false;
-        let isComplete = false;
-
         const onUpdatedHandler = (updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
           if (updatedTabId !== tabId) return;
-
-          if (changeInfo.url) hasUrl = true;
-          if (changeInfo.title) hasTitle = true;
-          if (changeInfo.status === 'complete') isComplete = true;
-
-          // Resolve when we have all the information we need
-          if (hasUrl && hasTitle && isComplete) {
+          if (changeInfo.status === 'complete') {
             chrome.tabs.onUpdated.removeListener(onUpdatedHandler);
             resolve();
           }
         };
         chrome.tabs.onUpdated.addListener(onUpdatedHandler);
 
-        // Check current state
-        chrome.tabs.get(tabId).then(tab => {
-          if (tab.url) hasUrl = true;
-          if (tab.title) hasTitle = true;
-          if (tab.status === 'complete') isComplete = true;
-
-          if (hasUrl && hasTitle && isComplete) {
+        // Only pre-check current state for cases like openTab where the tab
+        // is freshly created and already at the final URL. For navigateTo via
+        // chrome.tabs.update, skip this to avoid resolving on the OLD URL's
+        // 'complete' state before the navigation even starts.
+        if (!skipCurrentStateCheck) {
+          chrome.tabs.get(tabId).then(tab => {
+            if (tab.status === 'complete') {
+              chrome.tabs.onUpdated.removeListener(onUpdatedHandler);
+              resolve();
+            }
+          }).catch(() => {
             chrome.tabs.onUpdated.removeListener(onUpdatedHandler);
-            resolve();
-          }
-        });
+            resolve(); // Tab closed; resolve gracefully
+          });
+        }
       });
       promises.push(updatePromise);
     }
@@ -205,12 +226,15 @@ export default class BrowserContext {
         };
         chrome.tabs.onActivated.addListener(onActivatedHandler);
 
-        // Check current state
+        // Always pre-check activation state — it can only transition one way.
         chrome.tabs.get(tabId).then(tab => {
           if (tab.active) {
             chrome.tabs.onActivated.removeListener(onActivatedHandler);
             resolve();
           }
+        }).catch(() => {
+          chrome.tabs.onActivated.removeListener(onActivatedHandler);
+          resolve();
         });
       });
       promises.push(activatedPromise);
@@ -229,7 +253,9 @@ export default class BrowserContext {
     await chrome.tabs.update(tabId, { active: true });
     await this.waitForTabEvents(tabId, { waitForUpdate: false });
 
-    const page = await this._getOrCreatePage(await chrome.tabs.get(tabId));
+    // Force-recreate the page so we always get the current URL/title, not a
+    // stale cached one from when the tab was first opened.
+    const page = await this._getOrCreatePage(await chrome.tabs.get(tabId), true);
     await this.attachPage(page);
     this._currentTabId = tabId;
     return page;
@@ -248,18 +274,25 @@ export default class BrowserContext {
       await this.openTab(url);
       return;
     }
-    // if page is attached, use puppeteer to navigate to the url
+    // If page is already puppeteer-attached, use puppeteer's navigation which
+    // handles its own internal wait — no need for tab-event polling.
     if (page.attached) {
       await page.navigateTo(url);
+      // Refresh the Page object so _validWebPage reflects the new URL.
+      const tabId = page.tabId;
+      const updatedTab = await chrome.tabs.get(tabId).catch(() => null);
+      if (updatedTab) {
+        await page.refreshValidWebPage(updatedTab.url ?? '');
+      }
       return;
     }
-    //  Use chrome.tabs.update only if the page is not attached
+    // Use chrome.tabs.update only if the page is not yet puppeteer-attached
     const tabId = page.tabId;
-    // Update tab and wait for events
     await chrome.tabs.update(tabId, { url, active: true });
-    await this.waitForTabEvents(tabId);
+    // skipCurrentStateCheck=true: avoid false-resolve on old URL's 'complete' state
+    await this.waitForTabEvents(tabId, { skipCurrentStateCheck: true }).catch(() => { /* timeout is non-fatal */ });
 
-    // Reattach the page after navigation completes
+    // Reattach the page after navigation completes so the new URL is picked up.
     const updatedPage = await this._getOrCreatePage(await chrome.tabs.get(tabId), true);
     await this.attachPage(updatedPage);
     this._currentTabId = tabId;
@@ -275,10 +308,14 @@ export default class BrowserContext {
     if (!tab.id) {
       throw new Error('No tab ID available');
     }
-    // Wait for tab events
-    await this.waitForTabEvents(tab.id);
+    // Wait for the tab to finish loading. Non-fatal: even if the timeout fires
+    // (e.g. Gmail takes >3 s), we still proceed and get whatever state the tab
+    // is in — the agent will re-read the DOM on the next step.
+    await this.waitForTabEvents(tab.id).catch(() => {
+      logger.warning('openTab: waitForTabEvents timed out, continuing anyway');
+    });
 
-    // Get updated tab information
+    // Get updated tab information (may still be loading, that's OK)
     const updatedTab = await chrome.tabs.get(tab.id);
     // Create and attach the page after tab is fully loaded and activated
     const page = await this._getOrCreatePage(updatedTab);
