@@ -134,7 +134,18 @@ export class Executor {
    * @returns {Promise<void>}
    */
   async execute(): Promise<void> {
-    logger.info(`🚀 Executing task: ${this.tasks[this.tasks.length - 1]}`);
+    const taskText = this.tasks[this.tasks.length - 1];
+    const execDivider = '═'.repeat(60);
+    console.log(
+      `\n[Executor] ${execDivider}\n` +
+      `  TASK START\n` +
+      `  taskId  : ${this.context.taskId}\n` +
+      `  task    : ${taskText}\n` +
+      `  maxSteps: ${this.context.options.maxSteps}\n` +
+      `  time    : ${new Date().toISOString()}\n` +
+      `[Executor] ${execDivider}`,
+    );
+    logger.info(`🚀 Executing task: ${taskText}`);
     // reset the step counter
     const context = this.context;
     context.nSteps = 0;
@@ -156,6 +167,16 @@ export class Executor {
           maxSteps: context.options.maxSteps,
         };
 
+        const stepDivider = '─'.repeat(60);
+        console.log(
+          `\n[Executor] ${stepDivider}\n` +
+          `  STEP ${step + 1} / ${allowedMaxSteps}  |  taskId: ${context.taskId}\n` +
+          `  time: ${new Date().toISOString()}\n` +
+          `  consecutiveFailures: ${context.consecutiveFailures}\n` +
+          `  memory: ${(context.lastMemory || '(none)').slice(0, 200)}\n` +
+          `  lastEval: ${(context.lastEvaluation || '(none)').slice(0, 200)}\n` +
+          `[Executor] ${stepDivider}`,
+        );
         logger.info(`🔄 Step ${step + 1} / ${allowedMaxSteps}`);
         if (await this.shouldStop()) {
           break;
@@ -280,14 +301,29 @@ export class Executor {
       }
 
       // Execute planner
+      console.log(`\n[Planner] ── invoking LLM ── ${new Date().toISOString()}`);
       const planOutput = await this.planner.execute();
       this.lastPlanningStep = this.context.nSteps;
       // If planner returned an error (e.g., LLM API crash), treat it as an execution failure
       // so it counts toward consecutiveFailures and eventually stops the loop.
       if (planOutput.error) {
+        console.warn(`[Planner] ERROR: ${planOutput.error}`);
         throw new Error(planOutput.error);
       }
       if (planOutput.result) {
+        const p = planOutput.result;
+        const planDivider = '─'.repeat(60);
+        console.log(
+          `\n[Planner] ${planDivider}\n` +
+          `  done        : ${p.done}\n` +
+          `  web_task    : ${p.web_task}\n` +
+          `  observation : ${p.observation}\n` +
+          `  challenges  : ${p.challenges}\n` +
+          `  reasoning   : ${p.reasoning}\n` +
+          `  next_steps  : ${p.next_steps}\n` +
+          `  final_answer: ${p.final_answer}\n` +
+          `[Planner] ${planDivider}`,
+        );
         this.context.messageManager.addPlan(JSON.stringify(planOutput.result), positionForPlan);
       }
       return planOutput;
@@ -322,6 +358,7 @@ export class Executor {
       if (context.paused || context.stopped) {
         return false;
       }
+      console.log(`\n[Navigator] ── invoking LLM ── step=${context.nSteps + 1}  ${new Date().toISOString()}`);
       const navOutput = await this.navigator.execute();
       // check if the task is paused or stopped
       if (context.paused || context.stopped) {
