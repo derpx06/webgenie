@@ -36,15 +36,14 @@ export function preparePlannerMessages(
 }
 
 /**
- * Cleans the model output by filtering out sensitive or external content.
+ * Cleans the model output — passthrough only.
+ *
+ * The planner is a trusted LLM. Running its own observation/reasoning/next_steps
+ * text through filterExternalContent caused false-positive `task_override` and
+ * `prompt_injection` detections every step (e.g. "Your new task is to summarize
+ * unread messages" trips the regex). These fields are internal agent reasoning,
+ * NOT untrusted web content — sanitizing them is both wrong and noisy.
  */
 export function cleanPlannerOutput(output: PlannerOutput): PlannerOutput {
-  return {
-    ...output,
-    observation: filterExternalContent(output.observation, false),
-    final_answer: filterExternalContent(output.final_answer, false),
-    next_steps: filterExternalContent(output.next_steps, false),
-    challenges: filterExternalContent(output.challenges, false),
-    reasoning: filterExternalContent(output.reasoning, false),
-  };
+  return { ...output };
 }
