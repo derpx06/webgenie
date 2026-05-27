@@ -479,6 +479,8 @@ let isIdle = true;
 let cursorEl: HTMLElement | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let idleInterval: any = null;
+let cursorX: number = 0;
+let cursorY: number = 0;
 
 function initCursor() {
   const target = document.body || document.documentElement;

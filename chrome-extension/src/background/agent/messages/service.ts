@@ -51,12 +51,14 @@ export default class MessageManager {
   private pendingInputTokens = 0;
   private pendingOutputTokens = 0;
   private flushTimeout: ReturnType<typeof setTimeout> | null = null;
+  private flushIntervalMs = 2000;
 
-  constructor(settings: MessageManagerSettings = new MessageManagerSettings(), sessionId: string | null = null) {
+  constructor(settings: MessageManagerSettings = new MessageManagerSettings(), sessionId: string | null = null, flushIntervalMs = 2000) {
     this.settings = settings;
     this.history = new MessageHistory();
     this.toolId = 1;
     this.sessionId = sessionId;
+    this.flushIntervalMs = flushIntervalMs;
   }
 
   get cumulativeInputTokens(): number {
@@ -466,7 +468,7 @@ export default class MessageManager {
     this.pendingOutputTokens += output;
 
     if (!this.flushTimeout) {
-      this.flushTimeout = setTimeout(() => this.flushTokenUsage(), 2000);
+      this.flushTimeout = setTimeout(() => this.flushTokenUsage(), this.flushIntervalMs);
     }
   }
 

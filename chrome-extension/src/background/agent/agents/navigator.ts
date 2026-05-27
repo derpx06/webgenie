@@ -105,7 +105,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
       // Tool call fallback
       const toolCalls = (response.raw as RawNavigatorResponse)?.tool_calls;
-      if (toolCalls?.length > 0) {
+      if (toolCalls && toolCalls.length > 0) {
         const toolCall = toolCalls[0];
         return {
           current_state: toolCall.args.currentState,

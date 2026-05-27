@@ -1,4 +1,4 @@
-import type { ActionResult, type AgentContext } from '@src/background/agent/types';
+import type { ActionResult, AgentContext } from '@src/background/agent/types';
 import {
   clickElementActionSchema,
   doneActionSchema,
