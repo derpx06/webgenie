@@ -221,10 +221,18 @@ export class ActivityEngine {
       }
     }
 
-    // Update group color to grey (completed)
-    const groupId = taskTabs[0]?.groupId;
-    if (groupId) {
-      await this._groupManager.markGroupComplete(String(groupId));
+    // Dissolve the chrome tab group for this task.
+    // The group UUID is always tg-${taskId} — we cannot use taskTabs[0]?.groupId
+    // because that field stores the *chrome native numeric ID*, not the UUID.
+    const groupUuid = `tg-${taskId}`;
+    try {
+      // First mark it grey/collapsed so there's brief visual feedback before it disappears
+      await this._groupManager.markGroupComplete(groupUuid);
+      // Then fully ungroup the tabs and remove the group record
+      await this._groupManager.dissolveGroup(groupUuid);
+      logger.info(`ActivityEngine: dissolved tab group ${groupUuid}`);
+    } catch (err) {
+      logger.warning(`ActivityEngine: failed to dissolve group ${groupUuid}:`, err);
     }
 
     // Flush registry changes immediately
