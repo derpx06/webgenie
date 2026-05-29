@@ -326,6 +326,38 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         );
         results.push(result);
 
+        // ── FAILURE REGISTRY ───────────────────────────────────────────────
+        // After executing the action, re-check the DOM path hash. If the page
+        // state has NOT changed AND the action targeted a specific element,
+        // register a failure so the element gets flagged as BLOCKED after
+        // FAILURE_THRESHOLD repeated no-op interactions on the same URL.
+        if (result && !result.isDone && !result.error && indexArg !== null) {
+          const postActionState = await browserContext.getState(false);
+          const postPathHashes = await calcBranchPathHashSet(postActionState);
+          const pageChanged = !postPathHashes.isSubsetOf(cachedPathHashes) ||
+                              postActionState.url !== browserState.url;
+
+          if (!pageChanged) {
+            const domElement = browserState.selectorMap.get(indexArg);
+            const selector = domElement?.attributes?.['data-webgenie-id'] ??
+                             domElement?.tagName ??
+                             String(indexArg);
+            this.context.registerFailure(selector, browserState.url, actionName);
+
+            const failRecord = this.context.failureRegistry.get(`${browserState.url}|${selector}`);
+            if (failRecord && failRecord.failCount >= 2) {
+              console.warn(
+                `[FailureRegistry] ⛔ selector="${selector}" is now BLOCKED ` +
+                `(${failRecord.failCount} no-op interactions on ${browserState.url})`,
+              );
+            }
+          } else if (postActionState.url !== browserState.url) {
+            // Navigated to a new URL — clear stale failures from the old page
+            this.context.clearFailuresForUrl(browserState.url);
+          }
+        }
+        // ──────────────────────────────────────────────────────────────────
+
         if (this.isTaskInterrupted()) break;
         await this.delayBetweenActions();
 

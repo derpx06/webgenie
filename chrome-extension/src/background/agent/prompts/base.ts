@@ -34,11 +34,40 @@ abstract class BasePrompt {
     if (rawElementsText !== '') {
       const scrollInfo = `[Scroll info of current page] window.scrollY: ${browserState.scrollY}, document.body.scrollHeight: ${browserState.scrollHeight}, window.visualViewport.height: ${browserState.visualViewportHeight}, visual viewport height as percentage of scrollable distance: ${Math.round((browserState.visualViewportHeight / (browserState.scrollHeight - browserState.visualViewportHeight)) * 100)}%\n`;
       logger.info(scrollInfo);
+
+      // ── FAILURE REGISTRY — annotate blocked elements ─────────────────────────
+      // Walk each line of the serialised element tree. Lines that start with
+      // an index marker like "[42]" are checked against the FailureRegistry.
+      // Blocked elements (failCount ≥ FAILURE_THRESHOLD) receive a visible
+      // ⛔ [BLOCKED] prefix so the LLM knows to avoid them and find another path.
+      const currentUrl = browserState.url;
+      const annotatedLines = rawElementsText.split('\n').map(line => {
+        // Match lines that begin with an element index, e.g. "[42] button ..."
+        const indexMatch = line.match(/^\[(\d+)\]/);
+        if (!indexMatch) return line;
+
+        const index = parseInt(indexMatch[1], 10);
+        const domElement = browserState.selectorMap.get(index);
+        if (!domElement) return line;
+
+        // Build the same selector key the registry uses
+        const selector = domElement.attributes?.['data-webgenie-id'] ??
+                         domElement.tagName ??
+                         String(index);
+
+        if (context.isSelectorBlocked(selector, currentUrl)) {
+          return `⛔ [BLOCKED - repeated no-op] ${line}`;
+        }
+        return line;
+      });
+      const annotatedText = annotatedLines.join('\n');
+      // ─────────────────────────────────────────────────────────────────
+
       // Use non-strict mode: strict would redact email addresses and credential-
       // shaped text found in page content (e.g. Gmail To: field, WhatsApp chat).
       // The `nano_untrusted_content` wrapper + system prompt already tell the LLM
       // to ignore injections — strict pattern-matching here causes more harm than good.
-      const elementsText = wrapUntrustedContent(rawElementsText, /* filterFirst= */ false);
+      const elementsText = wrapUntrustedContent(annotatedText, /* filterFirst= */ false);
 
       formattedElementsText = `${scrollInfo}[Start of page]\n${elementsText}\n[End of page]\n`;
     } else {

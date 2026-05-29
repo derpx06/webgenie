@@ -7,6 +7,22 @@ import type { EventManager } from './event/manager';
 import { type Actors, type ExecutionState, AgentEvent } from './event/types';
 import { AgentStepHistory } from './history';
 
+/**
+ * Records a single failed element interaction.
+ * A selector is considered blocked once failCount reaches FAILURE_THRESHOLD (2).
+ * Scoped to the URL where the failure occurred so that a page navigation
+ * automatically gives all elements a clean slate.
+ */
+export interface FailureRecord {
+  selector: string;    // CSS selector or XPath of the element
+  url: string;         // page URL where the failure happened
+  actionType: string;  // e.g. 'click_element' | 'input_text'
+  failCount: number;   // incremented each time the page state does not change
+}
+
+/** Number of failures before a selector is considered blocked. */
+export const FAILURE_THRESHOLD = 2;
+
 export interface AgentOptions {
   maxSteps: number;
   maxActionsPerStep: number;
@@ -60,6 +76,54 @@ export class AgentContext {
   lastEvaluation: string;  // evaluation_previous_goal from last navigator step
   lastMemory: string;      // memory scratchpad from last navigator step
 
+  /**
+   * Phase 1 Memory — Failure Registry
+   * Maps a composite key ("url|selector") → FailureRecord so failures are
+   * scoped to the exact page they occurred on. Selectors with failCount ≥
+   * FAILURE_THRESHOLD are flagged as blocked in the DOM prompt, forcing the
+   * LLM to find an alternative interaction path.
+   */
+  failureRegistry: Map<string, FailureRecord>;
+
+  /**
+   * Register a failed interaction. Call this when an action produces no
+   * visible page-state change (i.e. nothing happened).
+   */
+  registerFailure(selector: string, url: string, actionType: string): void {
+    const key = `${url}|${selector}`;
+    const existing = this.failureRegistry.get(key);
+    if (existing) {
+      existing.failCount++;
+    } else {
+      this.failureRegistry.set(key, { selector, url, actionType, failCount: 1 });
+    }
+    const count = this.failureRegistry.get(key)!.failCount;
+    console.log(`[FailureRegistry] selector="${selector}" failCount=${count} url=${url}`);
+  }
+
+  /**
+   * Returns true when a selector has accumulated ≥ FAILURE_THRESHOLD failures
+   * on the given URL. Safe to call with any string — returns false when unknown.
+   */
+  isSelectorBlocked(selector: string, url: string): boolean {
+    const key = `${url}|${selector}`;
+    const record = this.failureRegistry.get(key);
+    return (record?.failCount ?? 0) >= FAILURE_THRESHOLD;
+  }
+
+  /**
+   * Clear all failure records for a given URL.
+   * Called automatically when the browser navigates to a new page so that
+   * fresh layouts are never penalised by failures from a prior page state.
+   */
+  clearFailuresForUrl(url: string): void {
+    for (const [key, record] of this.failureRegistry.entries()) {
+      if (record.url === url) {
+        this.failureRegistry.delete(key);
+      }
+    }
+  }
+
   constructor(
     taskId: string,
     browserContext: BrowserContext,
@@ -87,6 +151,7 @@ export class AgentContext {
     this.humanQuestion = null;
     this.lastEvaluation = '';
     this.lastMemory = '';
+    this.failureRegistry = new Map<string, FailureRecord>();
   }
 
   async emitEvent(actor: Actors, state: ExecutionState, eventDetails: string, screenshot?: string) {
