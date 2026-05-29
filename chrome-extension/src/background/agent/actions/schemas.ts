@@ -246,3 +246,13 @@ export const askHumanActionSchema: ActionSchema = {
     actionType: z.string().optional().describe('The class of action being confirmed (e.g., "send_message", "delete_item") for "don\'t ask again" tracking'),
   }),
 };
+
+export const getCompletePageContentActionSchema: ActionSchema = {
+  name: 'get_complete_page_content',
+  description:
+    'Extract the complete text content of the current webpage at once. Use this to read long articles, posts, or page data without having to scroll or navigate.',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+  }),
+};
+

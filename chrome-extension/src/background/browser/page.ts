@@ -1996,6 +1996,27 @@ export default class Page {
   }
 
   /**
+   * Get the complete textual content of the current page.
+   * This extracts the full innerText of the document body or main content area,
+   * bypassing any need to scroll or stitch elements.
+   */
+  async getCompletePageContent(): Promise<string> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer page is not connected');
+    }
+    try {
+      const content = await this._puppeteerPage.evaluate(() => {
+        const main = document.querySelector('article') || document.querySelector('main') || document.body;
+        return main ? (main.innerText || main.textContent || '') : '';
+      });
+      return content.trim();
+    } catch (error) {
+      logger.error('Failed to get complete page content:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Check the current page URL and handle if it's not allowed
    * @throws URLNotAllowedError if the current URL is not allowed
    */

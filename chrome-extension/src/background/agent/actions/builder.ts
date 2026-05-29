@@ -23,6 +23,7 @@ import {
   scrollToTopActionSchema,
   scrollToBottomActionSchema,
   askHumanActionSchema,
+  getCompletePageContentActionSchema,
 } from './schemas';
 import { z } from 'zod';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -227,6 +228,7 @@ export class ActionBuilder {
       new Action((input) => this.contentHandler.handlePreviousPage(input), previousPageActionSchema),
       new Action((input) => this.contentHandler.handleNextPage(input), nextPageActionSchema),
       new Action((input) => this.contentHandler.handleScrollToText(input), scrollToTextActionSchema),
+      new Action((input) => this.contentHandler.handleGetCompletePageContent(input), getCompletePageContentActionSchema),
     ];
   }
 

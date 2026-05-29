@@ -108,10 +108,11 @@ Common action sequences:
 10. Extraction:
 
 - Extraction process for research tasks or searching for information:
+  - **FAST EXTRACTION**: If you need to read the complete text content of the page (e.g. reading an article, post, or documentation), use the \`get_complete_page_content\` action. This extracts the entire page's textual content at once without the need to scroll or stitch elements.
   1. ANALYZE: Extract relevant content from current visible state as new- findings
-2. EVALUATE: Check if information is sufficient taking into account the new- findings and the cached - findings in memory all together
+  2. EVALUATE: Check if information is sufficient taking into account the new- findings and the cached - findings in memory all together
   - If SUFFICIENT → Complete task using all findings
-- If INSUFFICIENT → Follow these steps in order:
+  - If INSUFFICIENT → Follow these steps in order:
        a) CACHE: First of all, use cache_content action to store new- findings from current visible state
        b) SCROLL: Scroll the content by ONE page with next_page action per step, do not scroll to bottom directly
        c) REPEAT: Continue analyze - evaluate loop until either:

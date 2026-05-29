@@ -7,6 +7,7 @@ import type {
   previousPageActionSchema,
   nextPageActionSchema,
   scrollToTextActionSchema,
+  getCompletePageContentActionSchema,
 } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
@@ -189,4 +190,23 @@ export class ContentHandler extends BaseHandler {
       return new ActionResult({ error: msg, includeInMemory: true });
     }
   }
+
+  async handleGetCompletePageContent(input: z.infer<typeof getCompletePageContentActionSchema.schema>): Promise<ActionResult> {
+    const intent = input.intent || 'Extracting complete page content...';
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+    const page = await this.context.browserContext.getCurrentPage();
+    try {
+      const content = await page.getCompletePageContent();
+      const sanitized = wrapUntrustedContent(content, false);
+      const msg = `Successfully extracted ${content.length} characters of page content.`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+      return new ActionResult({ extractedContent: sanitized, includeInMemory: true });
+    } catch (error) {
+      const msg = `Failed to extract page content: ${error instanceof Error ? error.message : String(error)}`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({ error: msg, includeInMemory: true });
+    }
+  }
 }
+
