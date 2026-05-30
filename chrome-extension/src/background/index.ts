@@ -19,6 +19,8 @@ import { SpeechToTextService } from './services/speechToText';
 import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
 import { TabOrchestrator } from './core/tab-orchestrator/index';
+import * as allSchemas from './agent/actions/schemas';
+import type { ActionSchema } from './agent/actions/schemas';
 
 const logger = createLogger('background');
 
@@ -54,6 +56,27 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
+chrome.webNavigation.onHistoryStateUpdated.addListener(details => {
+  if (details.frameId === 0) {
+    const tabId = details.tabId;
+    const url = details.url;
+    logger.info(`History state updated for tab ${tabId}: ${url}`);
+
+    // Update URL of the attached page if it exists
+    const page = browserContext.getPageForTab(tabId);
+    if (page) {
+      page.updateUrl(url);
+    }
+
+    // Clear failure registry if this tab is the active executor's tab
+    if (currentExecutor) {
+      if (currentExecutor.getCurrentTabId() === tabId) {
+        currentExecutor.getContext().clearFailuresForUrl(url);
+      }
+    }
+  }
+});
+
 // Listen for debugger detached event
 // if canceled_by_user, remove the tab from the browser context
 chrome.debugger.onDetach.addListener(async (source, reason) => {
@@ -86,10 +109,175 @@ analyticsSettingsStore.subscribe(() => {
 });
 
 // Listen for simple messages (e.g., from options page)
-chrome.runtime.onMessage.addListener(() => {
-  // Handle other message types if needed in the future
-  // Return false if response is not sent asynchronously
-  // return false;
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // TEST LOGGING HANDLERS - START
+  if (message.type === 'TEST_GET_LLM_PAGE_STATE') {
+    (async () => {
+      try {
+        let state = await browserContext.getState(false);
+
+        // If the current tab has a blank or system URL (non-http), try to fall back
+        // to the first valid http/https tab in the active window
+        if (!state.url || (!state.url.startsWith('http') && !state.url.startsWith('https'))) {
+          const tabs = await chrome.tabs.query({ currentWindow: true });
+          const firstValidTab = tabs.find(t => t.id && t.url && (t.url.startsWith('http') || t.url.startsWith('https')));
+          if (firstValidTab && firstValidTab.id) {
+            logger.info(`TEST_GET_LLM_PAGE_STATE: Fallback from invalid/empty tab to valid tabId=${firstValidTab.id} (${firstValidTab.url})`);
+            browserContext.updateCurrentTabId(firstValidTab.id);
+            state = await browserContext.getState(false);
+          } else {
+            // No valid tab found in the current window
+            const currentTab = `{id: ${state.tabId}, url: "${state.url || ''}", title: "${state.title || ''}"}`;
+            const otherTabs = state.tabs
+              .filter(tab => tab.id !== state.tabId)
+              .map(tab => `- {id: ${tab.id}, url: "${tab.url || ''}", title: "${tab.title || ''}"}`);
+            const stateDescription = `
+[Current state starts here]
+Current tab: ${currentTab}
+Other available tabs:
+  ${otherTabs.join('\n')}
+
+[Notice: The active tab and all other open tabs are internal or blank. Playwright cannot inspect DOM elements of non-HTTP pages.]
+            `.trim();
+            const rawStateSummary = {
+              tabId: state.tabId,
+              url: state.url,
+              title: state.title,
+              scrollY: state.scrollY,
+              scrollHeight: state.scrollHeight,
+              visualViewportHeight: state.visualViewportHeight,
+              clickableElementsCount: 0
+            };
+            sendResponse({ success: true, stateDescription, rawState: rawStateSummary });
+            return;
+          }
+        }
+
+        const rawElementsText = state.elementTree
+          ? state.elementTree.clickableElementsToString(DEFAULT_AGENT_OPTIONS.includeAttributes)
+          : '(No interactive elements found / page error)';
+        const scrollInfo = `[Scroll info of current page] window.scrollY: ${state.scrollY}, document.body.scrollHeight: ${state.scrollHeight}, window.visualViewport.height: ${state.visualViewportHeight}, visual viewport height as percentage of scrollable distance: ${Math.round((state.visualViewportHeight / (state.scrollHeight - state.visualViewportHeight)) * 100)}%\n`;
+        const currentTab = `{id: ${state.tabId}, url: ${state.url}, title: ${state.title}}`;
+        const otherTabs = state.tabs
+          .filter(tab => tab.id !== state.tabId)
+          .map(tab => `- {id: ${tab.id}, url: ${tab.url}, title: ${tab.title}}`);
+        const stateDescription = `
+[Current state starts here]
+The following is one-time information - if you need to remember it write it to memory:
+Current tab: ${currentTab}
+Other available tabs:
+  ${otherTabs.join('\n')}
+Interactive elements from top layer of the current page inside the viewport:
+${scrollInfo}[Start of page]
+${rawElementsText}
+[End of page]
+        `.trim();
+        const rawStateSummary = {
+          tabId: state.tabId,
+          url: state.url,
+          title: state.title,
+          scrollY: state.scrollY,
+          scrollHeight: state.scrollHeight,
+          visualViewportHeight: state.visualViewportHeight,
+          clickableElementsCount: state.selectorMap ? state.selectorMap.size : 0
+        };
+        sendResponse({ success: true, stateDescription, rawState: rawStateSummary });
+      } catch (err) {
+        sendResponse({ success: false, error: String(err) });
+      }
+    })();
+    return true; // asynchronous response
+  }
+
+  if (message.type === 'TEST_GET_ALL_TOOLS') {
+    try {
+      const tools = Object.values(allSchemas)
+        .filter((val): val is ActionSchema =>
+          Boolean(val && typeof val === 'object' && 'name' in val && 'description' in val)
+        )
+        .map((val) => ({
+          name: val.name,
+          description: val.description,
+          schema: val.schema
+        }));
+      sendResponse({ success: true, tools });
+    } catch (err) {
+      sendResponse({ success: false, error: String(err) });
+    }
+    return true;
+  }
+
+  if (message.type === 'TEST_GET_FAILURE_REGISTRY') {
+    try {
+      interface FailureRecordSummary {
+        key: string;
+        selector: string;
+        url: string;
+        actionType: string;
+        failCount: number;
+      }
+      const records: FailureRecordSummary[] = [];
+      if (currentExecutor) {
+        const ctx = currentExecutor.getContext();
+        for (const [key, record] of ctx.failureRegistry.entries()) {
+          records.push({
+            key,
+            selector: record.selector,
+            url: record.url,
+            actionType: record.actionType,
+            failCount: record.failCount
+          });
+        }
+      }
+      sendResponse({ success: true, records });
+    } catch (err) {
+      sendResponse({ success: false, error: String(err) });
+    }
+    return true;
+  }
+
+  if (message.type === 'TEST_GET_SESSION_STATS') {
+    try {
+      if (currentExecutor) {
+        const ctx = currentExecutor.getContext();
+        const stats = {
+          taskId: ctx.taskId,
+          nSteps: ctx.nSteps,
+          consecutiveFailures: ctx.consecutiveFailures,
+          lastEvaluation: ctx.lastEvaluation || '(none)',
+          lastMemory: ctx.lastMemory || '(none)',
+          messageCount: ctx.messageManager.length(),
+          paused: ctx.paused,
+          stopped: ctx.stopped
+        };
+        sendResponse({ success: true, stats });
+      } else {
+        sendResponse({ success: true, stats: null, message: "No active executor task running." });
+      }
+    } catch (err) {
+      sendResponse({ success: false, error: String(err) });
+    }
+    return true;
+  }
+
+  if (message.type === 'TEST_CLEAR_FAILURE_REGISTRY') {
+    try {
+      if (currentExecutor) {
+        const ctx = currentExecutor.getContext();
+        ctx.failureRegistry.clear();
+        logger.info("TEST_CLEAR_FAILURE_REGISTRY: Failure registry cleared manually.");
+        sendResponse({ success: true, message: "Failure registry cleared." });
+      } else {
+        sendResponse({ success: true, message: "No active task executor found to clear registry." });
+      }
+    } catch (err) {
+      sendResponse({ success: false, error: String(err) });
+    }
+    return true;
+  }
+  // TEST LOGGING HANDLERS - END
+
+  return false;
 });
 
 // Setup connection listener for long-lived connections (e.g., side panel)
@@ -459,6 +647,7 @@ async function subscribeToExecutorEvents(executor: Executor) {
       event.state === ExecutionState.TASK_CANCEL
     ) {
       await currentExecutor?.cleanup();
+      currentExecutor = null;
     }
   });
 }

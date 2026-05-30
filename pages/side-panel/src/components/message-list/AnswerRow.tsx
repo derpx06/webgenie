@@ -38,7 +38,7 @@ export const AnswerRow: React.FC<AnswerRowProps> = ({ messages, isDarkMode }) =>
         </div>
 
         <div className="mt-3 flex items-center gap-3">
-          {messages.some(m => m.content.includes('❌') || m.content.toLowerCase().includes('fail') || m.content.includes('⚠️')) ? (
+          {messages.some(m => m.isFailed || (m.isFailed === undefined && (m.content.includes('❌') || m.content.toLowerCase().includes('failed') || m.content.includes('⚠️')))) ? (
             <div className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight ${isDarkMode ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
               <FaCheckCircle size={10} className="rotate-45" />
               <span>Failed</span>

@@ -10,6 +10,7 @@ import { ChatOllama } from '@langchain/ollama';
 import { ChatDeepSeek } from '@langchain/deepseek';
 import { LangChainTracer } from '@langchain/core/tracers/tracer_langchain';
 import { ChatBedrockConverse } from '@langchain/aws';
+import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 
 
 const maxTokens = 1024 * 4;
@@ -115,7 +116,7 @@ function createOpenAIChatModel(
   modelConfig: ModelConfig,
   // Add optional extra fetch options for headers etc.
   extraFetchOptions: { headers?: Record<string, string> } | undefined,
-  callbacks?: any[],
+  callbacks?: BaseCallbackHandler[],
 ): BaseChatModel {
   const args: {
     model: string;
@@ -192,7 +193,7 @@ function isAzureProvider(providerId: string): boolean {
 }
 
 // Function to create an Azure OpenAI chat model
-function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: ModelConfig, callbacks?: any[]): BaseChatModel {
+function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: ModelConfig, callbacks?: BaseCallbackHandler[]): BaseChatModel {
   const temperature = (modelConfig.parameters?.temperature ?? 0.1) as number;
   const topP = (modelConfig.parameters?.topP ?? 0.1) as number;
 
@@ -266,7 +267,7 @@ export function createChatModel(
   modelConfig: ModelConfig,
   generalSettings?: GeneralSettingsConfig,
 ): BaseChatModel {
-  const callbacks: any[] = [];
+  const callbacks: BaseCallbackHandler[] = [];
   if (generalSettings?.enableTracing && generalSettings.langsmithApiKey) {
     callbacks.push(
       new LangChainTracer({
@@ -369,7 +370,7 @@ export function createChatModel(
         temperature?: number;
         maxTokens?: number;
         numCtx: number;
-        callbacks: any[];
+        callbacks: BaseCallbackHandler[];
       } = {
         model: modelConfig.modelName,
         // required but ignored by ollama
@@ -411,7 +412,7 @@ export function createChatModel(
         topP?: number;
         temperature?: number;
         maxTokens?: number;
-        callbacks: any[];
+        callbacks: BaseCallbackHandler[];
       } = {
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,

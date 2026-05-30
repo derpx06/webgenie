@@ -526,7 +526,16 @@ export async function removeHighlights(tabId: number): Promise<void> {
       },
     });
   } catch (error) {
-    logger.error('Failed to remove highlights:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    if (
+      msg.includes('showing error page') ||
+      msg.includes('Cannot find context') ||
+      msg.includes('Frame was detached')
+    ) {
+      logger.debug('Failed to remove highlights (frame transition):', msg);
+    } else {
+      logger.error('Failed to remove highlights:', error);
+    }
   }
 }
 
@@ -587,7 +596,16 @@ async function scriptInjectedFrames(tabId: number): Promise<Map<number, boolean>
     });
     return new Map(results.map(result => [result.frameId, result.result || false]));
   } catch (err) {
-    console.error('Failed to check script injection status:', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes('showing error page') ||
+      msg.includes('Cannot find context') ||
+      msg.includes('Frame was detached')
+    ) {
+      logger.debug('Failed to check script injection status (frame transition):', msg);
+    } else {
+      console.error('Failed to check script injection status:', err);
+    }
     return new Map();
   }
 }

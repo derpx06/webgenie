@@ -1,5 +1,5 @@
 import { type BaseMessage, AIMessage, HumanMessage, type SystemMessage, ToolMessage } from '@langchain/core/messages';
-import { MessageHistory, MessageMetadata } from '@src/background/agent/messages/views';
+import { MessageHistory, MessageMetadata, serializeHistory, deserializeHistory } from '@src/background/agent/messages/views';
 import { createLogger } from '@src/background/log';
 import {
   filterExternalContent,
@@ -59,6 +59,55 @@ export default class MessageManager {
     this.toolId = 1;
     this.sessionId = sessionId;
     this.flushIntervalMs = flushIntervalMs;
+  }
+
+  /**
+   * Loads history from chrome.storage.session for this sessionId/taskId.
+   */
+  public async loadFromSession(): Promise<void> {
+    if (!this.sessionId) return;
+    try {
+      const data = await chrome.storage.session.get(this.sessionId);
+      if (data && data[this.sessionId]) {
+        logger.info(`Loaded message history from session storage for key: ${this.sessionId}`);
+        this.history = deserializeHistory(data[this.sessionId]);
+        
+        // Restore toolId count based on existing messages
+        let maxId = 0;
+        for (const m of this.history.messages) {
+          if (m.message instanceof AIMessage && m.message.tool_calls) {
+            for (const call of m.message.tool_calls) {
+              const num = call.id ? parseInt(call.id, 10) : NaN;
+              if (!isNaN(num) && num > maxId) {
+                maxId = num;
+              }
+            }
+          } else if (m.message instanceof ToolMessage && m.message.tool_call_id) {
+            const num = parseInt(m.message.tool_call_id, 10);
+            if (!isNaN(num) && num > maxId) {
+              maxId = num;
+            }
+          }
+        }
+        this.toolId = maxId + 1;
+      }
+    } catch (err) {
+      logger.error(`Failed to load history from session storage:`, err);
+    }
+  }
+
+  /**
+   * Saves history to chrome.storage.session for this sessionId/taskId.
+   */
+  public async saveToSession(): Promise<void> {
+    if (!this.sessionId) return;
+    try {
+      const serialized = serializeHistory(this.history);
+      await chrome.storage.session.set({ [this.sessionId]: serialized });
+      logger.debug(`Saved message history to session storage for key: ${this.sessionId}`);
+    } catch (err) {
+      logger.error(`Failed to save history to session storage:`, err);
+    }
   }
 
   get cumulativeInputTokens(): number {
@@ -262,6 +311,7 @@ export default class MessageManager {
    */
   public removeLastStateMessage(): void {
     this.history.removeLastStateMessage();
+    void this.saveToSession();
   }
 
   public getMessages(): BaseMessage[] {
@@ -308,6 +358,7 @@ export default class MessageManager {
     const tokenCount = this._countTokens(filteredMessage);
     const metadata: MessageMetadata = new MessageMetadata(tokenCount, messageType);
     this.history.addMessage(filteredMessage, metadata, position);
+    void this.saveToSession();
   }
 
   /**
@@ -414,7 +465,10 @@ export default class MessageManager {
       this.history.messages[this.history.messages.length - 1] = lastMsg;
     }
 
-    if (diff <= 0) return;
+    if (diff <= 0) {
+      void this.saveToSession();
+      return;
+    }
 
     // if still over, remove text from state message proportionally to the number of tokens needed with buffer
     // Calculate the proportion of content to remove
@@ -462,6 +516,7 @@ export default class MessageManager {
    */
   public recordTokenUsage(input: number, output: number): void {
     this.history.updateCumulativeTokens(input, output);
+    void this.saveToSession();
 
     // Accumulate for batching to prevent Chrome Storage I/O stalls
     this.pendingInputTokens += input;

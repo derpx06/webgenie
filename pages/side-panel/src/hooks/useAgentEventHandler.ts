@@ -106,7 +106,14 @@ export const useAgentEventHandler = ({
                 break;
         }
 
-        if (!skip) appendMessage({ actor, content: content || '', timestamp });
+        if (!skip) {
+            appendMessage({
+                actor,
+                content: content || '',
+                timestamp,
+                isFailed: actor === Actors.SYSTEM && state === ExecutionState.TASK_FAIL,
+            });
+        }
         if (displayProgress) appendMessage({ actor, content: progressMessage, timestamp });
     }, [appendMessage, setIsFollowUpMode, setInputEnabled, setShowStopButton, setIsReplaying, setIsHistoricalSession, setIsWaitingForHuman, setLastScreenshot, isReplayingRef]);
 

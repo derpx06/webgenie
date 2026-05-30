@@ -1,4 +1,4 @@
-import { IStorageProvider } from './IStorageProvider';
+import type { IStorageProvider } from './IStorageProvider';
 
 export class ChromeStorageProvider implements IStorageProvider {
   async get<T>(key: string): Promise<T | null> {

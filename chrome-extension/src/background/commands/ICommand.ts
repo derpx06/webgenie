@@ -13,5 +13,5 @@ export interface ICommandContext {
 }
 
 export interface ICommand {
-  execute(message: any, context: ICommandContext): Promise<void>;
+  execute(message: unknown, context: ICommandContext): Promise<void>;
 }

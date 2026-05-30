@@ -106,6 +106,12 @@ export default class Page {
     }
   }
 
+  updateUrl(url: string): void {
+    if (!url) return;
+    this._state.url = url;
+    this.refreshValidWebPage(url);
+  }
+
   /**
    * Re-checks the live tab URL and promotes _validWebPage if the tab has
    * navigated to a real page since construction. Called at the start of
@@ -146,6 +152,13 @@ export default class Page {
     }
 
     logger.info('attaching puppeteer', this._tabId);
+    try {
+      await chrome.debugger.detach({ tabId: this._tabId });
+      logger.info('Detached existing debugger session on tab', this._tabId);
+    } catch (err) {
+      // Ignore if debugger was not attached
+    }
+
     const browser = await connect({
       transport: await ExtensionTransport.connectTab(this._tabId),
       defaultViewport: null,
@@ -179,6 +192,53 @@ export default class Page {
     // ────────────────────────────────────────────────────────────────────────
 
     return true;
+  }
+
+  public async sendCDPCommand(method: string, params?: object): Promise<unknown> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer is not attached to this page');
+    }
+    return chrome.debugger.sendCommand({ tabId: this._tabId }, method, params);
+  }
+
+  /**
+   * Performs an OS-level click on the element via CDP Input.dispatchMouseEvent.
+   * Viewport-relative coordinates are fetched using the element's boundingBox.
+   */
+  public async cdpClick(element: ElementHandle<Element>): Promise<void> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer is not attached to this page');
+    }
+    const box = await element.boundingBox();
+    if (!box) {
+      throw new Error('Element has no bounding box (not visible or detached)');
+    }
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+
+    await this._puppeteerPage.bringToFront();
+    await this._puppeteerPage.mouse.move(x, y);
+    await this._puppeteerPage.mouse.click(x, y, { delay: 50 });
+  }
+
+  public async cdpType(element: ElementHandle<Element>, text: string): Promise<void> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer is not attached to this page');
+    }
+    await this._puppeteerPage.bringToFront();
+    
+    // Natively focus and position the cursor by clicking the element first
+    try {
+      await this.cdpClick(element);
+    } catch (clickErr) {
+      logger.warning('Failed to click element before typing in cdpType, focusing programmatically', clickErr);
+      await element.focus();
+    }
+    
+    // Brief delay to allow click/focus handlers to process
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    await this._puppeteerPage.keyboard.type(text, { delay: 35 });
   }
 
 
@@ -1420,43 +1480,95 @@ export default class Page {
         // Clear the field first
         await element.evaluate(el => {
           if (el instanceof HTMLElement) {
-            el.textContent = '';
-          }
-          if ('value' in el) {
-            // React / Angular / Vue use a synthetic input event system.
-            // Directly setting .value= bypasses their internal state tracking.
-            // We must use the native property descriptor setter so the framework
-            // sees the change as if the user typed it.
-            const nativeInputProto = Object.getPrototypeOf(el);
-            const nativeDescriptor =
-              Object.getOwnPropertyDescriptor(nativeInputProto, 'value') ||
-              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
-              Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
-            if (nativeDescriptor?.set) {
-              nativeDescriptor.set.call(el, '');
-            } else {
-              (el as HTMLInputElement).value = '';
+            el.focus();
+            // Try framework-safe document.execCommand first to preserve React/Draft.js editor states
+            try {
+              document.execCommand('selectAll', false, null);
+              document.execCommand('delete', false, null);
+            } catch (err) {
+              // Ignore and let fallback handle it
             }
           }
-          // Dispatch input + change so framework state updates
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
         });
 
-        // Type the text with a small delay to mimic natural typing
-        await element.type(text, { delay: 50 });
+        // Check if clearing with execCommand was successful. If not, use descriptor mutation fallback.
+        const isEmptyAfterExec = await element.evaluate(el => {
+          if ('value' in el) return (el as HTMLInputElement).value === '';
+          if (el instanceof HTMLElement) return el.textContent === '';
+          return true;
+        });
+
+        if (!isEmptyAfterExec) {
+          logger.warning('execCommand clear failed or incomplete, falling back to direct value/textContent assignment');
+          await element.evaluate(el => {
+            if (el instanceof HTMLElement) {
+              el.textContent = '';
+            }
+            if ('value' in el) {
+              // React / Angular / Vue use a synthetic input event system.
+              // Directly setting .value= bypasses their internal state tracking.
+              // We must use the native property descriptor setter so the framework
+              // sees the change as if the user typed it.
+              const nativeInputProto = Object.getPrototypeOf(el);
+              const nativeDescriptor =
+                Object.getOwnPropertyDescriptor(nativeInputProto, 'value') ||
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
+                Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+              if (nativeDescriptor?.set) {
+                nativeDescriptor.set.call(el, '');
+              } else {
+                (el as HTMLInputElement).value = '';
+              }
+            }
+            // Dispatch input + change so framework state updates
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+        }
+
+        // Type the text with OS-level inputs via CDP
+        try {
+          logger.info(`Attempting CDP OS-level type on element: ${elementNode}`);
+          await this.cdpType(element, text);
+        } catch (error) {
+          logger.warning('CDP typing failed, trying legacy element.type() fallback:', error);
+          await element.type(text, { delay: 50 });
+        }
 
         // Verify the typed text actually appeared (detect silent failures)
-        const actualValue = await element.evaluate(el => {
+        let actualValue = await element.evaluate(el => {
           if ('value' in el) return (el as HTMLInputElement).value;
           if (el instanceof HTMLElement) return el.textContent || '';
           return '';
         });
+
+        // First fallback: If CDP typing didn't result in the correct text, try legacy element.type()
         if (actualValue !== text) {
           logger.warning(
-            `[InputVerify] Expected "${text.slice(0, 40)}" but got "${actualValue.slice(0, 40)}" — retrying with direct value set`
+            `[InputVerify] CDP type mismatch (expected "${text.slice(0, 40)}", got "${actualValue.slice(0, 40)}"). Retrying with legacy element.type()`
           );
-          // Fallback: set directly and trigger React synthetic event
+          try {
+            // Clear value first before retrying
+            await element.evaluate(el => {
+              if (el instanceof HTMLElement) el.textContent = '';
+              if ('value' in el) (el as HTMLInputElement).value = '';
+            });
+            await element.type(text, { delay: 50 });
+            actualValue = await element.evaluate(el => {
+              if ('value' in el) return (el as HTMLInputElement).value;
+              if (el instanceof HTMLElement) return el.textContent || '';
+              return '';
+            });
+          } catch (err) {
+            logger.error('Legacy element.type() fallback failed:', err);
+          }
+        }
+
+        // Second fallback: If still not matching, set value directly and trigger framework events
+        if (actualValue !== text) {
+          logger.warning(
+            `[InputVerify] Legacy type also mismatch. Retrying with direct property descriptor injection`
+          );
           await element.evaluate((el, value) => {
             const nativeInputProto = Object.getPrototypeOf(el);
             const nativeDescriptor =
@@ -1684,10 +1796,11 @@ export default class Page {
       await this._scrollIntoViewIfNeeded(element);
 
       try {
-        // Primary attempt: Use Puppeteer's native click with a generous timeout for SPAs
+        // Primary attempt: Use OS-level click via CDP Input.dispatchMouseEvent
+        logger.info(`Attempting CDP OS-level click on element: ${elementNode}`);
         await Promise.race([
-          element.click(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Click timeout')), 5000)),
+          this.cdpClick(element),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('CDP Click timeout')), 5000)),
         ]);
         await this._checkAndHandleNavigation();
       } catch (error) {
@@ -1698,13 +1811,14 @@ export default class Page {
         // This avoids the stale-handle problem (element may have been detached
         // by SPA re-renders during the 5s wait) and is more reliable than
         // dispatching raw MouseEvents for React/Angular SPAs.
-        logger.info('Native click failed, trying evaluate().click() on fresh handle', error);
+        logger.warning('CDP click failed, trying legacy evaluate().click() on fresh handle', error);
         try {
           const freshElement = await this.locateElement(elementNode);
           if (!freshElement) {
             throw new Error('Element no longer found for fallback click');
           }
           await freshElement.evaluate((el: Element) => (el as HTMLElement).click());
+          await this._checkAndHandleNavigation();
         } catch (secondError) {
           if (secondError instanceof URLNotAllowedError) {
             throw secondError;

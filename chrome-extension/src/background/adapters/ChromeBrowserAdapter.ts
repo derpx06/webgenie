@@ -1,4 +1,4 @@
-import { IBrowserAdapter } from './IBrowserAdapter';
+import type { IBrowserAdapter } from './IBrowserAdapter';
 
 export class ChromeBrowserAdapter implements IBrowserAdapter {
   async getCurrentUrl(): Promise<string | undefined> {
@@ -14,15 +14,19 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
     }
   }
 
-  addMessageListener(listener: (message: any, sender: any, sendResponse: (response?: any) => void) => void): void {
-    chrome.runtime.onMessage.addListener(listener);
+  addMessageListener(
+    listener: (message: unknown, sender: unknown, sendResponse: (response?: unknown) => void) => void | boolean
+  ): void {
+    chrome.runtime.onMessage.addListener(listener as Parameters<typeof chrome.runtime.onMessage.addListener>[0]);
   }
 
-  removeMessageListener(listener: any): void {
-    chrome.runtime.onMessage.removeListener(listener);
+  removeMessageListener(
+    listener: (message: unknown, sender: unknown, sendResponse: (response?: unknown) => void) => void | boolean
+  ): void {
+    chrome.runtime.onMessage.removeListener(listener as Parameters<typeof chrome.runtime.onMessage.removeListener>[0]);
   }
 
-  async sendMessage(message: any): Promise<any> {
+  async sendMessage(message: unknown): Promise<unknown> {
     return chrome.runtime.sendMessage(message);
   }
 }

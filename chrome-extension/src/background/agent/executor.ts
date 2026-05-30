@@ -22,6 +22,7 @@ import {
   RequestCancelledError,
   MaxStepsReachedError,
   MaxFailuresReachedError,
+  isAbortedError,
 } from './agents/errors';
 import { URLNotAllowedError } from '../browser/views';
 import { chatHistoryStore } from '@extension/storage/lib/chat';
@@ -102,6 +103,10 @@ export class Executor {
     this.context.eventManager.clearSubscribers(EventType.EXECUTION);
   }
 
+  getContext(): AgentContext {
+    return this.context;
+  }
+
   getCurrentTabId(): number | null {
     return this.context.browserContext.getCurrentTabId();
   }
@@ -134,6 +139,7 @@ export class Executor {
    * @returns {Promise<void>}
    */
   async execute(): Promise<void> {
+    await this.context.messageManager.loadFromSession();
     const taskText = this.tasks[this.tasks.length - 1];
     const execDivider = '═'.repeat(60);
     console.log(
@@ -230,7 +236,7 @@ export class Executor {
         // Note: We don't track pause as it's not a final state
       }
     } catch (error) {
-      if (error instanceof RequestCancelledError) {
+      if (this.context.stopped || error instanceof RequestCancelledError || isAbortedError(error)) {
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
 
         // Track task cancellation

@@ -1,4 +1,11 @@
-import { type BaseMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { type BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
+
+export interface ToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  id?: string;
+  type?: 'tool_call';
+}
 
 export class MessageMetadata {
   tokens: number;
@@ -91,4 +98,128 @@ export class MessageHistory {
       }
     }
   }
+}
+
+export interface SerializedMessage {
+  type: string;
+  content: string | unknown;
+  id?: string;
+  name?: string;
+  additional_kwargs?: Record<string, unknown>;
+  response_metadata?: Record<string, unknown>;
+  tool_calls?: unknown[];
+  tool_call_id?: string;
+  _type?: string;
+}
+
+export interface SerializedManagedMessage {
+  message: SerializedMessage;
+  metadata: {
+    tokens: number;
+    message_type: string | null;
+  };
+}
+
+export interface SerializedHistoryData {
+  messages: SerializedManagedMessage[];
+  totalTokens: number;
+  cumulativeInputTokens: number;
+  cumulativeOutputTokens: number;
+}
+
+export function serializeHistory(history: MessageHistory): SerializedHistoryData {
+  return {
+    messages: history.messages.map(m => {
+      const message = m.message;
+      const serializedMessage: SerializedMessage = {
+        type: message._getType(),
+        content: message.content,
+        id: message.id,
+        name: message.name,
+        additional_kwargs: message.additional_kwargs as Record<string, unknown> | undefined,
+        response_metadata: message.response_metadata as Record<string, unknown> | undefined,
+      };
+
+      if (message instanceof AIMessage) {
+        serializedMessage.tool_calls = message.tool_calls;
+      } else if (message instanceof ToolMessage) {
+        serializedMessage.tool_call_id = message.tool_call_id;
+      }
+
+      return {
+        message: serializedMessage,
+        metadata: {
+          tokens: m.metadata.tokens,
+          message_type: m.metadata.message_type,
+        },
+      };
+    }),
+    totalTokens: history.totalTokens,
+    cumulativeInputTokens: history.cumulativeInputTokens,
+    cumulativeOutputTokens: history.cumulativeOutputTokens,
+  };
+}
+
+export function deserializeHistory(data: unknown): MessageHistory {
+  const history = new MessageHistory();
+  if (!data || typeof data !== 'object') return history;
+
+  const dataObj = data as Record<string, unknown>;
+
+  history.totalTokens = (dataObj.totalTokens as number) || 0;
+  history.cumulativeInputTokens = (dataObj.cumulativeInputTokens as number) || 0;
+  history.cumulativeOutputTokens = (dataObj.cumulativeOutputTokens as number) || 0;
+
+  if (Array.isArray(dataObj.messages)) {
+    history.messages = dataObj.messages.map((mObj: unknown) => {
+      const m = mObj as SerializedManagedMessage;
+      const msgData = m.message || {};
+      const type = msgData.type || msgData._type;
+      
+      let content: string;
+      if (typeof msgData.content === 'string') {
+        content = msgData.content;
+      } else {
+        content = '';
+      }
+
+      const kwargs = {
+        id: msgData.id,
+        name: msgData.name,
+        additional_kwargs: msgData.additional_kwargs,
+        response_metadata: msgData.response_metadata,
+      };
+
+      let message: BaseMessage;
+      switch (type) {
+        case 'human':
+          message = new HumanMessage({ content, ...kwargs });
+          break;
+        case 'ai':
+          message = new AIMessage({
+            content,
+            tool_calls: msgData.tool_calls as ToolCall[] | undefined,
+            ...kwargs,
+          });
+          break;
+        case 'system':
+          message = new SystemMessage({ content, ...kwargs });
+          break;
+        case 'tool':
+          message = new ToolMessage({
+            content,
+            tool_call_id: msgData.tool_call_id || '',
+            ...kwargs,
+          });
+          break;
+        default:
+          message = new HumanMessage({ content, ...kwargs });
+      }
+
+      const metadata = new MessageMetadata(m.metadata?.tokens || 0, m.metadata?.message_type);
+      return new ManagedMessage(message, metadata);
+    });
+  }
+
+  return history;
 }

@@ -113,6 +113,10 @@ export default class BrowserContext {
     }
   }
 
+  public getPageForTab(tabId: number): Page | undefined {
+    return this._attachedPages.get(tabId);
+  }
+
   public async getCurrentPage(): Promise<Page> {
     // 1. If _currentTabId not set, query the active tab and attach it
     if (!this._currentTabId) {

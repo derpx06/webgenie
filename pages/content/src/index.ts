@@ -477,10 +477,7 @@ function updateStatusCapsule(text: string, active: boolean) {
 
 let isIdle = true;
 let cursorEl: HTMLElement | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let idleInterval: any = null;
-let cursorX: number = 0;
-let cursorY: number = 0;
+let idleInterval: ReturnType<typeof setInterval> | null = null;
 
 function initCursor() {
   const target = document.body || document.documentElement;
@@ -556,9 +553,6 @@ async function animateCursor(x: number, y: number, isClick: boolean) {
   }
 
   // Return to idle baseline
-  cursorX = x;
-  cursorY = y;
-
   isIdle = true;
   startIdleDrift();
 }

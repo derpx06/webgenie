@@ -1,5 +1,4 @@
 import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
-import { filterExternalContent } from '../../messages/utils';
 import type { PlannerOutput } from '../planner';
 
 /**

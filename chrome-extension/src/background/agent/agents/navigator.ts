@@ -317,13 +317,15 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         }
 
         // Complete per-action result log
-        console.log(
-          `\n[Action] [${i + 1}/${actions.length}] ${actionName}\n` +
+        const actionLogMsg = `[Action] [${i + 1}/${actions.length}] ${actionName}\n` +
           `  args  : ${JSON.stringify(actionArgs)}\n` +
           `  done  : ${result.isDone}\n` +
           `  error : ${result.error || '(none)'}\n` +
-          `  extracted: ${result.extractedContent ? result.extractedContent.slice(0, 300) : '(none)'}`,
-        );
+          `  interactedElement: ${result.interactedElement ? JSON.stringify(result.interactedElement) : '(none)'}\n` +
+          `  extracted: ${result.extractedContent ? result.extractedContent.slice(0, 500) : '(none)'}`;
+
+        console.log(`\n${actionLogMsg}`);
+        logger.info(actionLogMsg);
         results.push(result);
 
         // ── FAILURE REGISTRY ───────────────────────────────────────────────
@@ -335,21 +337,21 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           const postActionState = await browserContext.getState(false);
           const postPathHashes = await calcBranchPathHashSet(postActionState);
           const pageChanged = !postPathHashes.isSubsetOf(cachedPathHashes) ||
-                              postActionState.url !== browserState.url;
+            postActionState.url !== browserState.url;
 
           if (!pageChanged) {
             const domElement = browserState.selectorMap.get(indexArg);
             const selector = domElement?.attributes?.['data-webgenie-id'] ??
-                             domElement?.tagName ??
-                             String(indexArg);
+              domElement?.tagName ??
+              String(indexArg);
             this.context.registerFailure(selector, browserState.url, actionName);
 
             const failRecord = this.context.failureRegistry.get(`${browserState.url}|${selector}`);
             if (failRecord && failRecord.failCount >= 2) {
-              console.warn(
-                `[FailureRegistry] ⛔ selector="${selector}" is now BLOCKED ` +
-                `(${failRecord.failCount} no-op interactions on ${browserState.url})`,
-              );
+              const blockMsg = `[FailureRegistry] ⛔ selector="${selector}" is now BLOCKED ` +
+                `(${failRecord.failCount} no-op interactions on ${browserState.url})`;
+              console.warn(blockMsg);
+              logger.warning(blockMsg);
             }
           } else if (postActionState.url !== browserState.url) {
             // Navigated to a new URL — clear stale failures from the old page
@@ -364,7 +366,9 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       } catch (error) {
         if (error instanceof URLNotAllowedError) throw error;
         const msg = error instanceof Error ? error.message : String(error);
-        console.warn(`\n[Action] [${i + 1}/${actions.length}] ${actionName} FAILED\n  args : ${JSON.stringify(actionArgs)}\n  error: ${msg}`);
+        const failMsg = `[Action] [${i + 1}/${actions.length}] ${actionName} FAILED\n  args : ${JSON.stringify(actionArgs)}\n  error: ${msg}`;
+        console.warn(`\n${failMsg}`);
+        logger.error(failMsg);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
 
         if (++errCount > 3) throw new Error('Too many errors in actions');
@@ -376,7 +380,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
   private async delayBetweenActions() {
     await new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, 1000);
+      const timeout = setTimeout(resolve, 500);
       this.context.controller.signal.addEventListener('abort', () => {
         clearTimeout(timeout);
         resolve();
@@ -389,7 +393,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     stepIndex: number,
     totalSteps: number,
     maxRetries = 3,
-    delay = 1000,
+    delay = 800,
     skipFailures = true,
   ): Promise<ActionResult[]> {
     const replayLogger = createLogger('NavigatorAgent:executeHistoryStep');

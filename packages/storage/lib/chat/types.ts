@@ -11,6 +11,7 @@ export interface Message {
   actor: Actors;
   content: string;
   timestamp: number; // Unix timestamp in milliseconds
+  isFailed?: boolean;
 }
 
 export interface ChatMessage extends Message {
