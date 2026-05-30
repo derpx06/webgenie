@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { type AdvancedSettingsConfig, advancedSettingsStore, DEFAULT_ADVANCED_SETTINGS } from '@extension/storage';
-import { FiSliders, FiTerminal } from 'react-icons/fi';
+import { type AdvancedSettingsConfig, advancedSettingsStore, DEFAULT_ADVANCED_SETTINGS, type GeneralSettingsConfig, generalSettingsStore, DEFAULT_GENERAL_SETTINGS } from '@extension/storage';
+import { FiSliders, FiTerminal, FiActivity, FiMonitor } from 'react-icons/fi';
 import { DashboardSection } from './shared/DashboardSection';
-import { SettingToggle, SettingInput } from './GeneralSettingsComponents';
+import { SettingToggle, SettingInput, SettingTextInput } from './GeneralSettingsComponents';
 
 interface AdvancedSettingsProps {
   isDarkMode?: boolean;
@@ -49,9 +49,11 @@ const SettingSelect: React.FC<SelectProps> = ({ title, desc, value, options, isD
 
 export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) => {
   const [settings, setSettings] = useState<AdvancedSettingsConfig>(DEFAULT_ADVANCED_SETTINGS);
+  const [generalSettings, setGeneralSettings] = useState<GeneralSettingsConfig>(DEFAULT_GENERAL_SETTINGS);
 
   useEffect(() => {
     advancedSettingsStore.getSettings().then(setSettings);
+    generalSettingsStore.getSettings().then(setGeneralSettings);
   }, []);
 
   const updateSetting = async <K extends keyof AdvancedSettingsConfig>(
@@ -65,6 +67,16 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
     // Confirm write
     const confirmed = await advancedSettingsStore.getSettings();
     setSettings(confirmed);
+  };
+
+  const updateGeneralSetting = async <K extends keyof GeneralSettingsConfig>(
+    key: K,
+    value: GeneralSettingsConfig[K],
+  ) => {
+    setGeneralSettings(prev => ({ ...prev, [key]: value }));
+    await generalSettingsStore.updateSettings({ [key]: value } as Partial<GeneralSettingsConfig>);
+    const confirmed = await generalSettingsStore.getSettings();
+    setGeneralSettings(confirmed);
   };
 
   return (
@@ -172,6 +184,78 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
           ]}
           isDarkMode={isDarkMode}
           onChange={val => updateSetting('inputEmulationMode', val)}
+        />
+      </DashboardSection>
+      {/* 3. LANGSMITH OBSERVABILITY MODULE */}
+      <DashboardSection
+        title="Langsmith Tracing"
+        subtitle="LLM observability and execution profiling"
+        icon={<FiActivity size={20} />}
+        isDarkMode={isDarkMode}
+        colorTheme="rose"
+        headerClassName="py-5 px-8"
+        contentClassName="flex flex-col"
+      >
+        <SettingToggle
+          title="Enable Langsmith Tracing"
+          desc="Stream LLM prompts, generations, and token metrics to Langsmith"
+          checked={generalSettings.enableTracing}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('enableTracing', val)}
+        />
+        {generalSettings.enableTracing && (
+          <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+            <SettingTextInput
+              title="Langsmith API Key"
+              desc="Your authentication token for the Langsmith platform"
+              value={generalSettings.langsmithApiKey}
+              placeholder="ls__..."
+              isSecret={true}
+              isDarkMode={isDarkMode}
+              onChange={val => updateGeneralSetting('langsmithApiKey', val)}
+            />
+            <SettingTextInput
+              title="Langsmith Project"
+              desc="The project name to group these traces under"
+              value={generalSettings.langsmithProject}
+              placeholder="default"
+              isDarkMode={isDarkMode}
+              onChange={val => updateGeneralSetting('langsmithProject', val)}
+            />
+          </div>
+        )}
+      </DashboardSection>
+
+      {/* 4. EXPERIMENTAL CAPABILITIES MODULE */}
+      <DashboardSection
+        title="Experimental UI & Capabilities"
+        subtitle="Beta features and ambient overlays"
+        icon={<FiMonitor size={20} />}
+        isDarkMode={isDarkMode}
+        colorTheme="slate"
+        headerClassName="py-5 px-8"
+        contentClassName="flex flex-col"
+      >
+        <SettingToggle
+          title="Vision for Planner Agent"
+          desc="Allow the high-level Planner agent to process raw browser screenshots"
+          checked={generalSettings.useVisionForPlanner}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('useVisionForPlanner', val)}
+        />
+        <SettingToggle
+          title="Show Ambient Border"
+          desc="Render the glowing screen-edge border when the agent is actively executing"
+          checked={generalSettings.showAmbientBorder}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('showAmbientBorder', val)}
+        />
+        <SettingToggle
+          title="Show Status Capsule"
+          desc="Render the floating execution state indicator on the current web page"
+          checked={generalSettings.showStatusCapsule}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('showStatusCapsule', val)}
         />
       </DashboardSection>
     </div>

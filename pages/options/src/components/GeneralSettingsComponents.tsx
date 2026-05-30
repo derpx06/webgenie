@@ -73,3 +73,39 @@ export const SettingInput: React.FC<InputProps> = ({ title, desc, value, isDarkM
     </div>
   </div>
 );
+
+export interface TextInputProps {
+  title: string;
+  desc: string;
+  value: string;
+  placeholder?: string;
+  isDarkMode: boolean;
+  onChange: (val: string) => void;
+  isSecret?: boolean;
+}
+
+export const SettingTextInput: React.FC<TextInputProps> = ({ title, desc, value, placeholder = '', isDarkMode, onChange, isSecret = false }) => (
+  <div className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
+    isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
+  }`}>
+    <div className="flex-1">
+      <h3 className={`font-outfit text-[14px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+        {title}
+      </h3>
+      <p className={`mt-1 text-[12px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+        {desc}
+      </p>
+    </div>
+    <div className="flex w-64 items-center gap-3">
+      <input
+        type={isSecret ? "password" : "text"}
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className={`w-full rounded-xl border px-3 py-2 font-mono text-[13px] font-medium transition-all duration-300 focus:outline-none
+          ${isDarkMode ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20'
+            : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-300 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/10'}`}
+      />
+    </div>
+  </div>
+);
