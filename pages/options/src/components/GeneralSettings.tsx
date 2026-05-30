@@ -32,10 +32,10 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 grid grid-cols-1 gap-8 duration-700 lg:grid-cols-2">
 
-      {/* 1. SYSTEM RUNTIME MODULE */}
+      {/* 1. SAFETY & LIMITS MODULE */}
       <DashboardSection
-        title="Runtime"
-        subtitle="Safety and execution thresholds"
+        title="Safety & Limits"
+        subtitle="Mission bounds and threshold constraints"
         icon={<FiZap size={20} />}
         isDarkMode={isDarkMode}
         colorTheme="indigo"
@@ -45,48 +45,61 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
         <SettingInput title="Maximum Mission Steps" desc="Safety limit for sequential reasoning" value={settings.maxSteps} isDarkMode={isDarkMode} onChange={val => updateSetting('maxSteps', val)} min={1} max={50} />
         <SettingInput title="Actions Per Step" desc="Maximum sub-tasks per mission step" value={settings.maxActionsPerStep} isDarkMode={isDarkMode} onChange={val => updateSetting('maxActionsPerStep', val)} min={1} max={50} />
         <SettingInput title="Retry Limit" desc="Maximum failure tolerance for complex operations" value={settings.maxFailures} isDarkMode={isDarkMode} onChange={val => updateSetting('maxFailures', val)} min={1} max={10} />
-        <SettingInput title="Planning Interval" desc="Model refresh rate in seconds" value={settings.planningInterval} isDarkMode={isDarkMode} onChange={val => updateSetting('planningInterval', val)} min={1} max={20} />
-        <SettingInput title="Page Load Buffer" desc="Network latency compensation in milliseconds" value={settings.minWaitPageLoad} isDarkMode={isDarkMode} onChange={val => updateSetting('minWaitPageLoad', val)} min={250} max={5000} step={50} />
       </DashboardSection>
 
-      {/* 2. COGNITIVE FEEDBACK MODULE */}
+      {/* 2. EXECUTION TUNING MODULE */}
       <DashboardSection
-        title="Telemetry"
-        subtitle="System monitoring and analysis"
+        title="Execution Tuning"
+        subtitle="Network latency and capability options"
         icon={<FiActivity size={20} />}
         isDarkMode={isDarkMode}
         colorTheme="indigo"
         headerClassName="py-5 px-8"
         contentClassName="flex flex-col"
       >
-        <SettingToggle title="Visual Analysis" desc="Enable multi-modal environment analysis" checked={settings.useVision} isDarkMode={isDarkMode} onChange={val => updateSetting('useVision', val)} />
-        <SettingToggle title="Interaction Highlights" desc="Visualize active focus areas during execution" checked={settings.displayHighlights} isDarkMode={isDarkMode} onChange={val => updateSetting('displayHighlights', val)} />
-        <SettingToggle title="Session Replay" desc="Store and replay historical task logs" checked={settings.replayHistoricalTasks} isDarkMode={isDarkMode} onChange={val => updateSetting('replayHistoricalTasks', val)} />
+        <SettingInput title="Planning Interval" desc="Model refresh rate in seconds" value={settings.planningInterval} isDarkMode={isDarkMode} onChange={val => updateSetting('planningInterval', val)} min={1} max={20} />
+        <SettingInput title="Page Load Buffer" desc="Network latency compensation in milliseconds" value={settings.minWaitPageLoad} isDarkMode={isDarkMode} onChange={val => updateSetting('minWaitPageLoad', val)} min={250} max={5000} step={50} />
+        <SettingToggle title="Visual Analysis" desc="Enable multi-modal environment analysis (Vision)" checked={settings.useVision} isDarkMode={isDarkMode} onChange={val => updateSetting('useVision', val)} />
       </DashboardSection>
 
-      {/* 3. BROWSER INTELLIGENCE MODULE */}
+      {/* 3. BROWSER INTERFACE MODULE */}
       <DashboardSection
-        title="Browser Intelligence"
-        subtitle="AI tab management and workflow grouping"
+        title="Browser Interface"
+        subtitle="UI overlays and tab management"
         icon={<FiLayers size={20} />}
         isDarkMode={isDarkMode}
         colorTheme="indigo"
         headerClassName="py-5 px-8"
         contentClassName="flex flex-col"
       >
+        <SettingToggle title="Interaction Highlights" desc="Visualize active focus areas during execution" checked={settings.displayHighlights} isDarkMode={isDarkMode} onChange={val => updateSetting('displayHighlights', val)} />
         <SettingToggle
           title="Task Tab Grouping"
-          desc="Group AI-opened tabs by task using Chrome tab groups. Each task gets a color-coded group that collapses when inactive."
+          desc="Group AI-opened tabs by task using Chrome tab groups. Each task gets a color-coded group."
           checked={settings.enableTabGrouping}
           isDarkMode={isDarkMode}
           onChange={val => updateSetting('enableTabGrouping', val)}
         />
         <SettingToggle
           title="Auto-Close Ephemeral Tabs"
-          desc="Automatically close temporary AI tabs (searches, quick lookups) when a task completes. Keeps your browser clean."
+          desc="Automatically close temporary AI tabs when a task completes to keep the browser clean."
           checked={settings.autoCloseEphemeralTabs}
           isDarkMode={isDarkMode}
           onChange={val => updateSetting('autoCloseEphemeralTabs', val)}
+        />
+        <SettingToggle
+          title="Show Ambient Border"
+          desc="Render the glowing screen-edge border when the agent is actively executing"
+          checked={settings.showAmbientBorder}
+          isDarkMode={isDarkMode}
+          onChange={val => updateSetting('showAmbientBorder', val)}
+        />
+        <SettingToggle
+          title="Show Status Capsule"
+          desc="Render the floating execution state indicator on the current web page"
+          checked={settings.showStatusCapsule}
+          isDarkMode={isDarkMode}
+          onChange={val => updateSetting('showStatusCapsule', val)}
         />
       </DashboardSection>
 

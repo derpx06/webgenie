@@ -82,39 +82,31 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 grid grid-cols-1 gap-8 duration-700 lg:grid-cols-2">
       
-      {/* 1. DEVELOPER OPTIONS MODULE */}
+      {/* 1. DEVELOPER DIAGNOSTICS MODULE */}
       <DashboardSection
-        title="Developer Options"
-        subtitle="Internal diagnostics, sandbox controls, and trace overrides"
+        title="Developer Diagnostics"
+        subtitle="Low-level telemetry and console overrides"
         icon={<FiTerminal size={20} />}
         isDarkMode={isDarkMode}
-        colorTheme="teal"
+        colorTheme="indigo"
         headerClassName="py-5 px-8"
         contentClassName="flex flex-col"
       >
         <SettingToggle
           title="Enable Developer Options"
-          desc="Unlock advanced debugging, diagnostics, and protocol overrides"
+          desc="Master toggle to unlock aggressive logging and security bypasses"
           checked={settings.enableDeveloperOptions}
           isDarkMode={isDarkMode}
           onChange={val => updateSetting('enableDeveloperOptions', val)}
         />
-        
         {settings.enableDeveloperOptions && (
-          <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="animate-in fade-in slide-in-from-top-2 flex flex-col duration-300">
             <SettingToggle
               title="Verbose CDP Event Logs"
-              desc="Enable detailed Chrome DevTools Protocol logging in the system background console"
+              desc="Output all Chrome DevTools Protocol socket frames to the background service worker console"
               checked={settings.enableVerboseCDPDebug}
               isDarkMode={isDarkMode}
               onChange={val => updateSetting('enableVerboseCDPDebug', val)}
-            />
-            <SettingToggle
-              title="Bypass Security Sandbox"
-              desc="Disable URL filters, navigation checks, and safety rules during task execution (Warning: Use only in local dev)"
-              checked={settings.bypassSecuritySandbox}
-              isDarkMode={isDarkMode}
-              onChange={val => updateSetting('bypassSecuritySandbox', val)}
             />
             <SettingToggle
               title="Trace DOM Mutation Cycles"
@@ -130,14 +122,28 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
               isDarkMode={isDarkMode}
               onChange={val => updateSetting('logLLMContextBeforeSteps', val)}
             />
+            <SettingToggle 
+              title="Session Replay" 
+              desc="Store and replay historical task logs for post-mortem debugging" 
+              checked={generalSettings.replayHistoricalTasks} 
+              isDarkMode={isDarkMode} 
+              onChange={val => updateGeneralSetting('replayHistoricalTasks', val)} 
+            />
+            <SettingToggle
+              title="Bypass Security Sandbox"
+              desc="DANGEROUS: Disables navigation guardrails, domain allowlists, and execution timeout safety nets"
+              checked={settings.bypassSecuritySandbox}
+              isDarkMode={isDarkMode}
+              onChange={val => updateSetting('bypassSecuritySandbox', val)}
+            />
           </div>
         )}
       </DashboardSection>
 
-      {/* 2. ADVANCED CONFIGURATION MODULE */}
+      {/* 2. LOW-LEVEL PROTOCOL LIMITS MODULE */}
       <DashboardSection
-        title="Advanced Configuration"
-        subtitle="Low-level protocol thresholds and input configurations"
+        title="Low-Level Protocol Limits"
+        subtitle="Hardware latencies and socket configurations"
         icon={<FiSliders size={20} />}
         isDarkMode={isDarkMode}
         colorTheme="indigo"
@@ -228,8 +234,8 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
 
       {/* 4. EXPERIMENTAL CAPABILITIES MODULE */}
       <DashboardSection
-        title="Experimental UI & Capabilities"
-        subtitle="Beta features and ambient overlays"
+        title="Experimental AI Capabilities"
+        subtitle="Beta multi-modal and reasoning features"
         icon={<FiMonitor size={20} />}
         isDarkMode={isDarkMode}
         colorTheme="slate"
@@ -242,20 +248,6 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
           checked={generalSettings.useVisionForPlanner}
           isDarkMode={isDarkMode}
           onChange={val => updateGeneralSetting('useVisionForPlanner', val)}
-        />
-        <SettingToggle
-          title="Show Ambient Border"
-          desc="Render the glowing screen-edge border when the agent is actively executing"
-          checked={generalSettings.showAmbientBorder}
-          isDarkMode={isDarkMode}
-          onChange={val => updateGeneralSetting('showAmbientBorder', val)}
-        />
-        <SettingToggle
-          title="Show Status Capsule"
-          desc="Render the floating execution state indicator on the current web page"
-          checked={generalSettings.showStatusCapsule}
-          isDarkMode={isDarkMode}
-          onChange={val => updateGeneralSetting('showStatusCapsule', val)}
         />
       </DashboardSection>
     </div>
