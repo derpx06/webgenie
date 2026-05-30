@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { type AdvancedSettingsConfig, advancedSettingsStore, DEFAULT_ADVANCED_SETTINGS, type GeneralSettingsConfig, generalSettingsStore, DEFAULT_GENERAL_SETTINGS } from '@extension/storage';
-import { FiSliders, FiTerminal, FiActivity, FiMonitor } from 'react-icons/fi';
+import { FiSliders, FiTerminal, FiActivity, FiMonitor, FiLayers } from 'react-icons/fi';
 import { DashboardSection } from './shared/DashboardSection';
 import { SettingToggle, SettingInput, SettingTextInput } from './GeneralSettingsComponents';
 
@@ -248,6 +248,53 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
           checked={generalSettings.useVisionForPlanner}
           isDarkMode={isDarkMode}
           onChange={val => updateGeneralSetting('useVisionForPlanner', val)}
+        />
+      </DashboardSection>
+
+      {/* 5. BROWSER INTERFACE MODULE */}
+      <DashboardSection
+        title="Browser Interface"
+        subtitle="UI overlays and tab management"
+        icon={<FiLayers size={20} />}
+        isDarkMode={isDarkMode}
+        colorTheme="teal"
+        headerClassName="py-5 px-8"
+        contentClassName="flex flex-col"
+      >
+        <SettingToggle
+          title="Interaction Highlights"
+          desc="Visualize active focus areas during execution"
+          checked={generalSettings.displayHighlights}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('displayHighlights', val)}
+        />
+        <SettingToggle
+          title="Task Tab Grouping"
+          desc="Group AI-opened tabs by task using Chrome tab groups. Each task gets a color-coded group."
+          checked={generalSettings.enableTabGrouping}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('enableTabGrouping', val)}
+        />
+        <SettingToggle
+          title="Auto-Close Ephemeral Tabs"
+          desc="Automatically close temporary AI tabs when a task completes to keep the browser clean."
+          checked={generalSettings.autoCloseEphemeralTabs}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('autoCloseEphemeralTabs', val)}
+        />
+        <SettingToggle
+          title="Show Ambient Border"
+          desc="Render the glowing screen-edge border when the agent is actively executing"
+          checked={generalSettings.showAmbientBorder}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('showAmbientBorder', val)}
+        />
+        <SettingToggle
+          title="Show Status Capsule"
+          desc="Render the floating execution state indicator on the current web page"
+          checked={generalSettings.showStatusCapsule}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('showStatusCapsule', val)}
         />
       </DashboardSection>
     </div>
