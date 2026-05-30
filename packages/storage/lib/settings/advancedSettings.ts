@@ -5,6 +5,7 @@ import type { BaseStorage } from '../base/types';
 // Interface for advanced settings configuration
 export interface AdvancedSettingsConfig {
   // Developer Options
+  enableDeveloperOptions: boolean;
   enableVerboseCDPDebug: boolean;
   bypassSecuritySandbox: boolean;
   traceDOMMutationCycles: boolean;
@@ -25,6 +26,7 @@ export type AdvancedSettingsStorage = BaseStorage<AdvancedSettingsConfig> & {
 
 // Default settings
 export const DEFAULT_ADVANCED_SETTINGS: AdvancedSettingsConfig = {
+  enableDeveloperOptions: false,
   enableVerboseCDPDebug: false,
   bypassSecuritySandbox: false,
   traceDOMMutationCycles: false,

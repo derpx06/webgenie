@@ -81,33 +81,45 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
         contentClassName="flex flex-col"
       >
         <SettingToggle
-          title="Verbose CDP Event Logs"
-          desc="Enable detailed Chrome DevTools Protocol logging in the system background console"
-          checked={settings.enableVerboseCDPDebug}
+          title="Enable Developer Options"
+          desc="Unlock advanced debugging, diagnostics, and protocol overrides"
+          checked={settings.enableDeveloperOptions}
           isDarkMode={isDarkMode}
-          onChange={val => updateSetting('enableVerboseCDPDebug', val)}
+          onChange={val => updateSetting('enableDeveloperOptions', val)}
         />
-        <SettingToggle
-          title="Bypass Security Sandbox"
-          desc="Disable URL filters, navigation checks, and safety rules during task execution (Warning: Use only in local dev)"
-          checked={settings.bypassSecuritySandbox}
-          isDarkMode={isDarkMode}
-          onChange={val => updateSetting('bypassSecuritySandbox', val)}
-        />
-        <SettingToggle
-          title="Trace DOM Mutation Cycles"
-          desc="Actively output MutationObserver cycles and structural updates to the developer logs"
-          checked={settings.traceDOMMutationCycles}
-          isDarkMode={isDarkMode}
-          onChange={val => updateSetting('traceDOMMutationCycles', val)}
-        />
-        <SettingToggle
-          title="Log LLM Context Frames"
-          desc="Log the complete frame system context and raw payload files before launching any agent reasoning step"
-          checked={settings.logLLMContextBeforeSteps}
-          isDarkMode={isDarkMode}
-          onChange={val => updateSetting('logLLMContextBeforeSteps', val)}
-        />
+        
+        {settings.enableDeveloperOptions && (
+          <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+            <SettingToggle
+              title="Verbose CDP Event Logs"
+              desc="Enable detailed Chrome DevTools Protocol logging in the system background console"
+              checked={settings.enableVerboseCDPDebug}
+              isDarkMode={isDarkMode}
+              onChange={val => updateSetting('enableVerboseCDPDebug', val)}
+            />
+            <SettingToggle
+              title="Bypass Security Sandbox"
+              desc="Disable URL filters, navigation checks, and safety rules during task execution (Warning: Use only in local dev)"
+              checked={settings.bypassSecuritySandbox}
+              isDarkMode={isDarkMode}
+              onChange={val => updateSetting('bypassSecuritySandbox', val)}
+            />
+            <SettingToggle
+              title="Trace DOM Mutation Cycles"
+              desc="Actively output MutationObserver cycles and structural updates to the developer logs"
+              checked={settings.traceDOMMutationCycles}
+              isDarkMode={isDarkMode}
+              onChange={val => updateSetting('traceDOMMutationCycles', val)}
+            />
+            <SettingToggle
+              title="Log LLM Context Frames"
+              desc="Log the complete frame system context and raw payload files before launching any agent reasoning step"
+              checked={settings.logLLMContextBeforeSteps}
+              isDarkMode={isDarkMode}
+              onChange={val => updateSetting('logLLMContextBeforeSteps', val)}
+            />
+          </div>
+        )}
       </DashboardSection>
 
       {/* 2. ADVANCED CONFIGURATION MODULE */}
