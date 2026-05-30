@@ -47,7 +47,7 @@ interface InputProps {
 }
 
 export const SettingInput: React.FC<InputProps> = ({ title, desc, value, isDarkMode, onChange, min, max, step = 1 }) => (
-  <div className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
+  <label className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 cursor-pointer ${
     isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
   }`}>
     <div className="flex-1">
@@ -71,7 +71,7 @@ export const SettingInput: React.FC<InputProps> = ({ title, desc, value, isDarkM
             : 'border-slate-200 bg-white text-slate-900 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/10'}`}
       />
     </div>
-  </div>
+  </label>
 );
 
 export interface TextInputProps {
@@ -85,7 +85,7 @@ export interface TextInputProps {
 }
 
 export const SettingTextInput: React.FC<TextInputProps> = ({ title, desc, value, placeholder = '', isDarkMode, onChange, isSecret = false }) => (
-  <div className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
+  <label className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 cursor-pointer ${
     isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
   }`}>
     <div className="flex-1">
@@ -107,5 +107,5 @@ export const SettingTextInput: React.FC<TextInputProps> = ({ title, desc, value,
             : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-300 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/10'}`}
       />
     </div>
-  </div>
+  </label>
 );

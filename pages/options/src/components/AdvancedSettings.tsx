@@ -18,7 +18,7 @@ interface SelectProps {
 }
 
 const SettingSelect: React.FC<SelectProps> = ({ title, desc, value, options, isDarkMode, onChange }) => (
-  <div className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
+  <label className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 cursor-pointer ${
     isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
   }`}>
     <div className="flex-1">
@@ -44,7 +44,7 @@ const SettingSelect: React.FC<SelectProps> = ({ title, desc, value, options, isD
         ))}
       </select>
     </div>
-  </div>
+  </label>
 );
 
 export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) => {
