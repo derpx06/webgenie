@@ -194,7 +194,7 @@ export default class Page {
     return true;
   }
 
-  public async sendCDPCommand(method: string, params?: object): Promise<unknown> {
+  public async sendCDPCommand(method: string, params?: Record<string, unknown>): Promise<unknown> {
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not attached to this page');
     }
@@ -1483,8 +1483,8 @@ export default class Page {
             el.focus();
             // Try framework-safe document.execCommand first to preserve React/Draft.js editor states
             try {
-              document.execCommand('selectAll', false, null);
-              document.execCommand('delete', false, null);
+              document.execCommand('selectAll', false, undefined);
+              document.execCommand('delete', false, undefined);
             } catch (err) {
               // Ignore and let fallback handle it
             }

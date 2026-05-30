@@ -16,6 +16,7 @@ export * from './ModelSettings';
 export * from './FirewallSettings';
 export * from './GeneralSettings';
 export * from './AnalyticsSettings';
+export * from './AdvancedSettings';
 
 // Layout
 export * from './Layout';
