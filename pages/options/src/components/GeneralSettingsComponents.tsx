@@ -9,7 +9,7 @@ interface ToggleProps {
 }
 
 export const SettingToggle: React.FC<ToggleProps> = ({ title, desc, checked, isDarkMode, onChange }) => (
-  <div className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
+  <label className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 cursor-pointer ${
     isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
   }`}>
     <div className="flex-1">
@@ -32,7 +32,7 @@ export const SettingToggle: React.FC<ToggleProps> = ({ title, desc, checked, isD
         peer-checked:after:border-white peer-checked:after:bg-white`}>
       </div>
     </div>
-  </div>
+  </label>
 );
 
 interface InputProps {
