@@ -4,6 +4,7 @@ import {
   AgentNameEnum,
   firewallStore,
   generalSettingsStore,
+  advancedSettingsStore,
   llmProviderStore,
   analyticsSettingsStore,
 } from '@extension/storage';
@@ -562,6 +563,7 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
   }
 
   const generalSettings = await generalSettingsStore.getSettings();
+  const advancedSettings = await advancedSettingsStore.getSettings();
 
   const navigatorModel = agentModels[AgentNameEnum.Navigator];
   if (!navigatorModel) {
@@ -609,6 +611,7 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
       useVision: generalSettings.useVision,
       useVisionForPlanner: true,
       planningInterval: generalSettings.planningInterval,
+      logDOMSnapshot: advancedSettings.enableDeveloperOptions && advancedSettings.logDOMSnapshot,
     },
     generalSettings: generalSettings,
   });

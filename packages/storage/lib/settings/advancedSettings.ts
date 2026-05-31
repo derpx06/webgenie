@@ -7,9 +7,11 @@ export interface AdvancedSettingsConfig {
   // Developer Options
   enableDeveloperOptions: boolean;
   enableVerboseCDPDebug: boolean;
+  verboseCDPLogging: boolean;         // alias kept in sync with UI
   bypassSecuritySandbox: boolean;
   traceDOMMutationCycles: boolean;
   logLLMContextBeforeSteps: boolean;
+  logDOMSnapshot: boolean;            // log the full DOM the LLM sees each step
 
   // Advanced Configuration
   cdpCommandTimeout: number; // in ms
@@ -28,9 +30,11 @@ export type AdvancedSettingsStorage = BaseStorage<AdvancedSettingsConfig> & {
 export const DEFAULT_ADVANCED_SETTINGS: AdvancedSettingsConfig = {
   enableDeveloperOptions: false,
   enableVerboseCDPDebug: false,
+  verboseCDPLogging: false,
   bypassSecuritySandbox: false,
   traceDOMMutationCycles: false,
   logLLMContextBeforeSteps: false,
+  logDOMSnapshot: false,
   cdpCommandTimeout: 30000,
   hardwareActionLatency: 50,
   concurrentTaskCap: 3,

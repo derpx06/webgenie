@@ -108,8 +108,24 @@ export default class Page {
 
   updateUrl(url: string): void {
     if (!url) return;
+    const previousUrl = this._state.url;
     this._state.url = url;
     this.refreshValidWebPage(url);
+
+    // ── SPA Cache Invalidation ────────────────────────────────────────────────
+    // When a SPA performs a client-side navigation (pushState / replaceState),
+    // chrome.webNavigation.onHistoryStateUpdated fires and calls updateUrl().
+    // The old _cachedState holds element indices from the PREVIOUS view — any
+    // LLM action referencing those indices will fail with
+    // "Element with index X does not exist".
+    // Clearing the cache here forces a fresh DOM extraction on the next getState()
+    // call, ensuring indices always match the currently rendered view.
+    if (previousUrl && previousUrl !== url) {
+      logger.info(`[SPA Nav] URL changed ${previousUrl} → ${url} — invalidating DOM cache`);
+      this._cachedState = null;
+      this._cachedStateClickableElementsHashes = null;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
   }
 
   /**

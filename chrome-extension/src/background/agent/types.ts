@@ -34,6 +34,7 @@ export interface AgentOptions {
   useVisionForPlanner: boolean;
   includeAttributes: string[];
   planningInterval: number;
+  logDOMSnapshot: boolean; // log full DOM sent to LLM each step (dev option)
 }
 
 export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
@@ -47,6 +48,7 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   useVisionForPlanner: true,
   includeAttributes: DEFAULT_INCLUDE_ATTRIBUTES,
   planningInterval: 3,
+  logDOMSnapshot: false,
 };
 
 export class AgentContext {

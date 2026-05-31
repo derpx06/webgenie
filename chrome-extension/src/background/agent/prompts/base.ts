@@ -30,6 +30,21 @@ abstract class BasePrompt {
     const browserState = await context.browserContext.getState(context.options.useVision);
     const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
 
+    // ── DOM SNAPSHOT LOGGING ──────────────────────────────────────────────────
+    // When the "Log DOM Snapshot" developer option is enabled, dump the full
+    // serialised DOM the LLM is about to receive to the background console.
+    // Open chrome://extensions → Service Worker → Inspect to view the output.
+    if (context.options.logDOMSnapshot) {
+      const ts = new Date().toISOString();
+      console.group(`%c[DOM Snapshot @ ${ts}] URL: ${browserState.url}`, 'color: #818cf8; font-weight: bold;');
+      console.log('%c--- Interactive elements sent to LLM ---', 'color: #34d399;');
+      console.log(rawElementsText || '(empty page — no interactive elements)');
+      console.log('%c--- selectorMap keys (highlight indices) ---', 'color: #fbbf24;');
+      console.log([...browserState.selectorMap.keys()].join(', ') || '(none)');
+      console.groupEnd();
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     let formattedElementsText = '';
     if (rawElementsText !== '') {
       const scrollInfo = `[Scroll info of current page] window.scrollY: ${browserState.scrollY}, document.body.scrollHeight: ${browserState.scrollHeight}, window.visualViewport.height: ${browserState.visualViewportHeight}, visual viewport height as percentage of scrollable distance: ${Math.round((browserState.visualViewportHeight / (browserState.scrollHeight - browserState.visualViewportHeight)) * 100)}%\n`;

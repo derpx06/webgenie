@@ -122,6 +122,13 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
               isDarkMode={isDarkMode}
               onChange={val => updateSetting('logLLMContextBeforeSteps', val)}
             />
+            <SettingToggle
+              title="Log DOM Snapshot (What LLM Sees)"
+              desc="Log the complete serialized DOM — all indexed interactive elements — that the LLM receives each step. Inspect in the background service worker console."
+              checked={settings.logDOMSnapshot}
+              isDarkMode={isDarkMode}
+              onChange={val => updateSetting('logDOMSnapshot', val)}
+            />
             <SettingToggle 
               title="Session Replay" 
               desc="Store and replay historical task logs for post-mortem debugging" 
