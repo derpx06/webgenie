@@ -61,11 +61,12 @@
  * Phase 7 — Built-in AI →  agent/messages/service.ts  (local step compaction)
  */
 
-// ── CDP Bridge + AXTree ───────────────────────────────────────────────────────
+// ── CDP Bridge + AXTree + DOMSnapshot ─────────────────────────────────────────
 export { cdpBridge, CDPBridge } from './cdp-bridge';
 export type { AXNode, BoxModel } from './cdp-bridge';
 
 export { getClickableElementsViaCDP } from './ax-tree-extractor';
+export { getDOMStateViaSnapshot } from './dom-snapshot-extractor';
 
 // ── Tab Tools ─────────────────────────────────────────────────────────────────
 export {
