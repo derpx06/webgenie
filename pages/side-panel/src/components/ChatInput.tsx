@@ -74,7 +74,7 @@ export default function ChatInput({
           isDarkMode
             ? 'border-white/[0.07] bg-slate-900/60 focus-within:border-indigo-500/30'
             : 'border-slate-200/80 bg-white/95 focus-within:border-indigo-300'
-          } ${disabled ? 'pointer-events-none opacity-40' : ''}`}>
+          } ${disabled && !showStopButton ? 'pointer-events-none opacity-40' : ''}`}>
 
           <AttachmentBar attachedFiles={attachedFiles} onRemoveFile={handleRemoveFile} isDarkMode={isDarkMode} />
 
