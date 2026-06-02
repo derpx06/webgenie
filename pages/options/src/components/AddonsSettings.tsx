@@ -48,6 +48,8 @@ export const AddonsSettings = ({ isDarkMode = false }: AddonsSettingsProps) => {
     generalSettingsStore.getSettings().then(setSettings);
   }, []);
 
+
+
   const getEngineLabel = (engineId: string) => {
     return ENGINES.find(e => e.id === engineId)?.label || engineId.toUpperCase();
   };
@@ -179,7 +181,7 @@ export const AddonsSettings = ({ isDarkMode = false }: AddonsSettingsProps) => {
     <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 max-w-2xl mx-auto pb-10">
       
       {/* 1. HEADER SECTION */}
-      <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-2">
+      <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-2 relative">
         <div>
           <h1 className={`font-outfit text-[22px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
             Search Connectivity
@@ -190,140 +192,152 @@ export const AddonsSettings = ({ isDarkMode = false }: AddonsSettingsProps) => {
         </div>
         <button
           type="button"
-          onClick={() => setIsAddingNew(!isAddingNew)}
-          className={`flex h-12 w-12 items-center justify-center rounded-full transition-all duration-300 hover:scale-[1.05] active:scale-[0.95] shadow-lg shadow-indigo-600/15
-            ${isAddingNew 
-              ? 'bg-[#e11d48] text-white hover:bg-rose-500' 
-              : 'bg-indigo-600 text-white hover:bg-indigo-500'
-            }`}
+          onClick={() => setIsAddingNew(true)}
+          className="flex h-12 w-12 items-center justify-center rounded-full transition-all duration-300 hover:scale-[1.05] active:scale-[0.95] shadow-lg shadow-indigo-600/15 bg-indigo-600 text-white hover:bg-indigo-500"
         >
-          {isAddingNew ? <FiX size={20} /> : <FiPlus size={20} />}
+          <FiPlus size={20} />
         </button>
       </div>
 
-      {/* 2. ADD NEW PROVIDER PANEL */}
+      {/* 2. ADD NEW PROVIDER DIALOG MODAL */}
       {isAddingNew && (
-        <div className={`animate-in fade-in slide-in-from-top-4 duration-300 p-6 rounded-2xl border flex flex-col gap-4 shadow-xl
-          ${isDarkMode ? 'border-white/10 bg-[#161821] text-white' : 'border-slate-200 bg-white text-slate-900'}`}
+        <div 
+          onClick={() => setIsAddingNew(false)}
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/25 backdrop-blur-[2px] p-4 animate-in fade-in duration-200"
         >
-          <div className="border-b border-white/5 pb-3">
-            <h3 className="font-outfit text-[14px] font-black uppercase tracking-wider">
-              Add Search Provider
-            </h3>
-            <p className="text-[11px] opacity-50 mt-1">Configure credentials for a grounding node</p>
-          </div>
-
-          <div className="flex flex-col gap-4">
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider mb-2.5 opacity-60">
-                Choose Search Engine
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {ENGINES.map(e => {
-                  const isAdded = configured.includes(e.id);
-                  const isSelected = selectedNewEngine === e.id;
-                  
-                  return (
-                    <button
-                      key={e.id}
-                      type="button"
-                      onClick={() => setSelectedEngine(e.id)}
-                      className={`group/item flex items-center gap-3.5 rounded-xl border p-3.5 text-left transition-all duration-200 active:scale-[0.98] ${
-                        isSelected
-                          ? isDarkMode 
-                            ? 'border-indigo-500 bg-indigo-500/10 text-white ring-2 ring-indigo-500/20' 
-                            : 'border-indigo-600 bg-indigo-50/50 text-slate-900 ring-2 ring-indigo-600/10'
-                          : isDarkMode 
-                            ? 'border-white/5 bg-white/[0.02] hover:border-white/10 hover:bg-[#1f212d]' 
-                            : 'border-slate-100 bg-slate-50/50 hover:border-indigo-200 hover:bg-white hover:shadow-sm'
-                      }`}
-                    >
-                      <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg border text-sm transition-transform duration-300 group-hover/item:scale-105 ${
-                        isSelected
-                          ? isDarkMode
-                            ? 'border-indigo-500/30 bg-indigo-500/20 text-indigo-400'
-                            : 'border-indigo-200 bg-indigo-100/50 text-indigo-600'
-                          : isDarkMode
-                            ? 'border-white/5 bg-white/5 text-slate-400'
-                            : 'border-slate-200 bg-white text-slate-600'
-                      }`}>
-                        <e.icon size={15} />
-                      </div>
-                      <div className="flex-1 overflow-hidden">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`truncate text-[12px] font-bold tracking-tight ${
-                            isSelected
-                              ? isDarkMode ? 'text-white' : 'text-slate-900'
-                              : isDarkMode ? 'text-slate-200' : 'text-slate-700'
-                          }`}>
-                            {e.label}
-                          </span>
-                          {isAdded && (
-                            <span className="flex items-center justify-center rounded-full bg-emerald-500/10 p-0.5" title="Configured">
-                              <FiCheck size={9} className="text-emerald-500" />
-                            </span>
-                          )}
-                        </div>
-                        <span className={`block text-[9px] font-medium leading-normal mt-0.5 truncate opacity-50 ${
-                          isDarkMode ? 'text-slate-400' : 'text-slate-500'
-                        }`}>
-                          {e.desc}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className={`search-provider-modal-content w-full max-w-xl rounded-3xl border p-6 shadow-2xl flex flex-col gap-5 animate-in zoom-in-95 duration-200
+              ${isDarkMode ? 'border-white/10 bg-[#161821] text-white' : 'border-slate-200 bg-white text-slate-900'}`}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-white/5 pb-4">
+              <div>
+                <h3 className="font-outfit text-[16px] font-black uppercase tracking-wider">
+                  Connect Search Provider
+                </h3>
+                <p className="text-[11px] opacity-50 mt-1">Configure credentials for a search grounding node</p>
               </div>
+              <button 
+                type="button"
+                onClick={() => setIsAddingNew(false)}
+                className={`flex size-9 items-center justify-center rounded-xl transition-all ${
+                  isDarkMode ? 'text-slate-400 hover:bg-white/5 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <FiX size={18} />
+              </button>
             </div>
 
-            {selectedNewEngine !== 'duckduckgo' && (
-              <div className="flex flex-col gap-3 animate-in fade-in duration-200">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Access Key (API Key)</label>
-                  <input
-                    type="password"
-                    value={newApiKey}
-                    onChange={e => setNewApiKey(e.target.value)}
-                    placeholder={`Enter ${getEngineLabel(selectedNewEngine)} Key`}
-                    className={`w-full rounded-xl border px-3 py-2.5 font-mono text-[12px] focus:outline-none
-                      ${isDarkMode 
-                        ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50' 
-                        : 'border-slate-200 bg-white text-slate-955 placeholder:text-slate-300 focus:border-indigo-500/50'}`}
-                  />
+            {/* Scrollable Content Container */}
+            <div className="scrollbar-thin max-h-[420px] overflow-y-auto pr-1 flex flex-col gap-5">
+              {/* Grid Selector */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider mb-2.5 opacity-60">
+                  Choose Search Engine
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {ENGINES.map(e => {
+                    const isAdded = configured.includes(e.id);
+                    const isSelected = selectedNewEngine === e.id;
+                    
+                    return (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => setSelectedEngine(e.id)}
+                        className={`group/item flex items-center gap-3.5 rounded-xl border p-3 text-left transition-all duration-200 active:scale-[0.98] ${
+                          isSelected
+                            ? isDarkMode 
+                              ? 'border-indigo-500 bg-indigo-500/10 text-white ring-2 ring-indigo-500/20' 
+                              : 'border-indigo-600 bg-indigo-50/55 text-slate-900 ring-2 ring-indigo-600/10'
+                            : isDarkMode 
+                              ? 'border-white/5 bg-white/[0.02] hover:border-white/10 hover:bg-[#1f212d]' 
+                              : 'border-slate-100 bg-slate-50/50 hover:border-indigo-200 hover:bg-white hover:shadow-sm'
+                        }`}
+                      >
+                        <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg border text-sm transition-transform duration-300 group-hover/item:scale-105 ${
+                          isSelected
+                            ? isDarkMode
+                              ? 'border-indigo-500/30 bg-indigo-500/20 text-indigo-400'
+                              : 'border-indigo-200 bg-indigo-100/50 text-indigo-600'
+                            : isDarkMode
+                              ? 'border-white/5 bg-white/5 text-slate-400'
+                              : 'border-slate-200 bg-white text-slate-600'
+                        }`}>
+                          <e.icon size={15} />
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`truncate text-[12px] font-bold tracking-tight ${
+                              isSelected
+                                ? isDarkMode ? 'text-white' : 'text-slate-900'
+                                : isDarkMode ? 'text-slate-200' : 'text-slate-700'
+                            }`}>
+                              {e.label}
+                            </span>
+                            {isAdded && (
+                              <span className="flex items-center justify-center rounded-full bg-emerald-500/10 p-0.5" title="Configured">
+                                <FiCheck size={9} className="text-emerald-500" />
+                              </span>
+                            )}
+                          </div>
+                          <span className={`block text-[9px] font-medium leading-normal mt-0.5 truncate opacity-50 ${
+                            isDarkMode ? 'text-slate-400' : 'text-slate-500'
+                          }`}>
+                            {e.desc}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
+              </div>
 
-                {selectedNewEngine === 'google' && (
+              {/* API Key Inputs */}
+              {selectedNewEngine !== 'duckduckgo' && (
+                <div className="flex flex-col gap-4 border-t border-white/5 pt-4 animate-in fade-in duration-200">
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Search Engine ID (CX ID)</label>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Access Key (API Key)</label>
                     <input
-                      type="text"
-                      value={newSearchEngineId}
-                      onChange={e => setNewSearchEngineId(e.target.value)}
-                      placeholder="Enter custom CX ID"
-                      className={`w-full rounded-xl border px-3 py-2.5 font-mono text-[12px] focus:outline-none
+                      type="password"
+                      value={newApiKey}
+                      onChange={e => setNewApiKey(e.target.value)}
+                      placeholder={`Enter ${getEngineLabel(selectedNewEngine)} Key`}
+                      className={`w-full rounded-xl border px-3.5 py-2.5 font-mono text-[12px] focus:outline-none
                         ${isDarkMode 
-                          ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50' 
-                          : 'border-slate-200 bg-white text-slate-955 placeholder:text-slate-300 focus:border-indigo-500/50'}`}
+                          ? 'border-white/10 bg-[#0e0f14] text-white placeholder:text-white/20 focus:border-indigo-500/50' 
+                          : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-300 focus:border-indigo-500/50'}`}
                     />
                   </div>
-                )}
-              </div>
-            )}
 
-            {selectedNewEngine === 'duckduckgo' && (
-              <div className="text-[12px] opacity-60 p-3 rounded-lg border border-white/5 bg-white/5">
-                DuckDuckGo queries organic pages directly and requires no developer credentials.
-              </div>
-            )}
+                  {selectedNewEngine === 'google' && (
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Search Engine ID (CX ID)</label>
+                      <input
+                        type="text"
+                        value={newSearchEngineId}
+                        onChange={e => setNewSearchEngineId(e.target.value)}
+                        placeholder="Enter custom CX ID"
+                        className={`w-full rounded-xl border px-3.5 py-2.5 font-mono text-[12px] focus:outline-none
+                          ${isDarkMode 
+                            ? 'border-white/10 bg-[#0e0f14] text-white placeholder:text-white/20 focus:border-indigo-500/50' 
+                            : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-300 focus:border-indigo-500/50'}`}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
-            <div className="flex items-center gap-3 mt-2">
-              <button
-                type="button"
-                onClick={handleAddProvider}
-                className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 font-outfit text-[12px] font-black uppercase tracking-wider text-white hover:bg-indigo-500 transition-all duration-300 hover:scale-[1.02]"
-              >
-                <FiCheck size={14} /> Add Provider
-              </button>
+              {selectedNewEngine === 'duckduckgo' && (
+                <div className="text-[12px] opacity-60 p-3.5 rounded-xl border border-white/5 bg-white/5 border-t mt-2">
+                  DuckDuckGo queries organic pages directly and requires no developer credentials.
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="flex items-center justify-end gap-3 border-t border-white/5 pt-4 mt-2">
               <button
                 type="button"
                 onClick={() => setIsAddingNew(false)}
@@ -333,6 +347,13 @@ export const AddonsSettings = ({ isDarkMode = false }: AddonsSettingsProps) => {
                     : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
               >
                 Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAddProvider}
+                className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-2.5 font-outfit text-[12px] font-black uppercase tracking-wider text-white hover:bg-indigo-500 transition-all duration-300 hover:scale-[1.02]"
+              >
+                <FiCheck size={14} /> Connect Engine
               </button>
             </div>
           </div>
