@@ -15,12 +15,14 @@ import {
   getClickableElements as _getClickableElements,
   removeHighlights as _removeHighlights,
   getScrollInfo as _getScrollInfo,
+  drawHighlightOverlaysViaCoordinates,
 } from './dom/service';
 import { DOMElementNode, type DOMState } from './dom/views';
 import { type BrowserContextConfig, DEFAULT_BROWSER_CONTEXT_CONFIG, type PageState, URLNotAllowedError } from './views';
 import { createLogger } from '@src/background/log';
 import { ClickableElementProcessor } from './dom/clickable/service';
 import { isUrlAllowed, isNewTabPage } from './util';
+import { getDOMStateViaSnapshot } from './chromium-apis/dom-snapshot-extractor';
 
 const logger = createLogger('Page');
 
@@ -320,10 +322,34 @@ export default class Page {
     if (!this._validWebPage) {
       return null;
     }
-    // Always obtain the URL from chrome.tabs.get (authoritative).
-    // this.url() / puppeteer.url() can return 'about:blank' during frame
-    // initialization after cross-origin navigation, which would cause
-    // dom/service.ts to return an empty DOM tree via the isNewTabPage guard.
+
+    try {
+      const state = await getDOMStateViaSnapshot(this._tabId);
+      if (state && state.selectorMap.size > 0) {
+        if (showHighlightElements) {
+          const rects = [];
+          for (const [idx, el] of state.selectorMap.entries()) {
+            if (el.pageCoordinates) {
+              rects.push({
+                index: idx,
+                x: el.pageCoordinates.x,
+                y: el.pageCoordinates.y,
+                w: parseInt(el.attributes['computedWidth'] || '0'),
+                h: parseInt(el.attributes['computedHeight'] || '0'),
+              });
+            }
+          }
+          if (rects.length > 0) {
+            await drawHighlightOverlaysViaCoordinates(this._tabId, rects);
+          }
+        }
+        return state;
+      }
+    } catch (error) {
+      logger.error('[Page] DOMSnapshot extraction failed, falling back to legacy DOM service:', error);
+    }
+
+    // Fallback to legacy script-injection DOM builder if snapshot is unavailable or empty
     let tabUrl = this._state.url;
     try {
       const tab = await chrome.tabs.get(this._tabId);

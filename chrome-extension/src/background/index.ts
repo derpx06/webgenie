@@ -17,7 +17,6 @@ import { createChatModel } from './agent/helper';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { DEFAULT_AGENT_OPTIONS } from './agent/types';
 import { SpeechToTextService } from './services/speechToText';
-import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
 import { TabOrchestrator } from './core/tab-orchestrator/index';
 import * as allSchemas from './agent/actions/schemas';
@@ -50,12 +49,6 @@ chrome.windows.getLastFocused({ populate: false }, window => {
 
 // Setup side panel behavior
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(error => console.error(error));
-
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (tabId && changeInfo.status === 'complete' && tab.url?.startsWith('http')) {
-    await injectBuildDomTreeScripts(tabId);
-  }
-});
 
 chrome.webNavigation.onHistoryStateUpdated.addListener(details => {
   if (details.frameId === 0) {

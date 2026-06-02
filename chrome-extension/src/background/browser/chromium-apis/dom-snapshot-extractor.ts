@@ -11,7 +11,7 @@
  * STATUS: Standalone tool — not yet wired into the agent pipeline.
  */
 
-import { DOMElementNode, DOMTextNode, type DOMState } from '../dom/views';
+import { DOMElementNode, DOMTextNode, type DOMState, type DOMBaseNode } from '../dom/views';
 import { createLogger } from '@src/background/log';
 import { cdpBridge } from './cdp-bridge';
 
@@ -30,6 +30,8 @@ const COMPUTED_STYLES = [
 interface CDPDocument {
   documentURL: number;
   title: number;
+  scrollOffsetX?: number;
+  scrollOffsetY?: number;
   nodes: {
     nodeName: number[];
     nodeType: number[];
@@ -44,7 +46,7 @@ interface CDPDocument {
   layout: {
     nodeIndex: number[];
     styles?: number[][];
-    bounds: number[][]; // [x, y, w, h] for each layout node
+    bounds: number[][]; // [x, y, w, h] relative to parent document frame
   };
 }
 
@@ -92,167 +94,222 @@ function parseSnapshot(
   const selectorMap = new Map<number, DOMElementNode>();
   let highlightCounter = 0;
 
-  // Map to resolve strings by index safely
+  // Resolve string table indexes safely
   const getString = (idx: number): string => strings[idx] ?? '';
 
-  // Root document is always index 0
+  // Get scroll offsets of root document (index 0)
   const rootDoc = documents[0];
-  const totalNodes = rootDoc.nodes.nodeName.length;
+  const rootScrollX = rootDoc.scrollOffsetX ?? 0;
+  const rootScrollY = rootDoc.scrollOffsetY ?? 0;
 
-  // Build a mapping of nodeIndex to layout bounds and styles
-  const nodeLayoutMap = new Map<number, { bounds: number[]; styles: Record<string, string> }>();
-  if (rootDoc.layout) {
-    const { nodeIndex, bounds, styles } = rootDoc.layout;
-    for (let i = 0; i < nodeIndex.length; i++) {
-      const nIdx = nodeIndex[i];
-      const b = bounds[i] ?? [0, 0, 0, 0];
-      
-      const computedStyles: Record<string, string> = {};
-      if (styles && styles[i]) {
-        const styleVals = styles[i];
-        for (let sIdx = 0; sIdx < COMPUTED_STYLES.length; sIdx++) {
-          const valStrIdx = styleVals[sIdx];
-          if (valStrIdx !== undefined && valStrIdx !== -1) {
-            computedStyles[COMPUTED_STYLES[sIdx]] = getString(valStrIdx);
+  // Recursive document parser to build DOMBaseNode tree piercing frames
+  function parseDocument(
+    docIndex: number,
+    parentOffsetPageX: number,
+    parentOffsetPageY: number
+  ): DOMElementNode | null {
+    const doc = documents[docIndex];
+    if (!doc) return null;
+
+    const totalNodes = doc.nodes.nodeName.length;
+
+    // Map nodeIndex to layout bounds and computed styles
+    const nodeLayoutMap = new Map<number, { bounds: number[]; styles: Record<string, string> }>();
+    if (doc.layout) {
+      const { nodeIndex, bounds, styles } = doc.layout;
+      for (let i = 0; i < nodeIndex.length; i++) {
+        const nIdx = nodeIndex[i];
+        const b = bounds[i] ?? [0, 0, 0, 0];
+
+        const computedStyles: Record<string, string> = {};
+        if (styles && styles[i]) {
+          const styleVals = styles[i];
+          for (let sIdx = 0; sIdx < COMPUTED_STYLES.length; sIdx++) {
+            const valStrIdx = styleVals[sIdx];
+            if (valStrIdx !== undefined && valStrIdx !== -1) {
+              computedStyles[COMPUTED_STYLES[sIdx]] = getString(valStrIdx);
+            }
+          }
+        }
+
+        nodeLayoutMap.set(nIdx, { bounds: b, styles: computedStyles });
+      }
+    }
+
+    // Pre-calculate parent relationships inside this document
+    const parentMap = new Map<number, number>();
+    if (doc.nodes.parentIndex) {
+      const parents = doc.nodes.parentIndex;
+      for (let i = 0; i < parents.length; i++) {
+        parentMap.set(i, parents[i]);
+      }
+    }
+
+    // Instantiated nodes inside this document
+    const docNodes: (DOMElementNode | DOMTextNode | null)[] = new Array(totalNodes).fill(null);
+
+    // 1. Create nodes
+    for (let i = 0; i < totalNodes; i++) {
+      const nodeType = doc.nodes.nodeType[i];
+      const rawName = getString(doc.nodes.nodeName[i]);
+
+      // Text Node
+      if (nodeType === 3) {
+        const textValIdx = doc.nodes.textValue?.[i];
+        const text = textValIdx !== undefined && textValIdx !== -1 ? getString(textValIdx).trim() : '';
+        if (text) {
+          docNodes[i] = new DOMTextNode(text, true);
+        }
+        continue;
+      }
+
+      // Element Node
+      if (nodeType === 1) {
+        const tagName = rawName.toLowerCase();
+
+        // Read attributes
+        const attributes: Record<string, string> = {};
+        const attrs = doc.nodes.attributes?.[i] ?? [];
+        for (let aIdx = 0; aIdx < attrs.length; aIdx += 2) {
+          const key = getString(attrs[aIdx]);
+          const val = getString(attrs[aIdx + 1]);
+          attributes[key] = val;
+        }
+
+        // Input field values & options
+        if (doc.nodes.inputValue?.[i] !== undefined) {
+          const valIdx = doc.nodes.inputValue[i];
+          if (valIdx !== -1) {
+            attributes['value'] = getString(valIdx);
+          }
+        }
+        if (doc.nodes.inputChecked?.[i]) {
+          attributes['checked'] = 'true';
+        }
+        if (doc.nodes.optionSelected?.[i]) {
+          attributes['selected'] = 'true';
+        }
+
+        // Layout bounds (relative to parent frame document)
+        const layoutData = nodeLayoutMap.get(i);
+        const bounds = layoutData?.bounds ?? [0, 0, 0, 0];
+        const styles = layoutData?.styles ?? {};
+
+        const [rx, ry, width, height] = bounds;
+
+        // Read dimensions
+        attributes['computedWidth'] = String(Math.round(width));
+        attributes['computedHeight'] = String(Math.round(height));
+
+        // Calculate absolute page coordinates (recursive)
+        const pageX = Math.round(parentOffsetPageX + rx + width / 2);
+        const pageY = Math.round(parentOffsetPageY + ry + height / 2);
+
+        // Viewport coordinates
+        const viewportX = Math.round(pageX - rootScrollX);
+        const viewportY = Math.round(pageY - rootScrollY);
+
+        // Visibility criteria
+        const isVisible =
+          styles.display !== 'none' &&
+          styles.visibility !== 'hidden' &&
+          styles.opacity !== '0' &&
+          width > 0 &&
+          height > 0;
+
+        const inViewport =
+          viewportX < viewportWidth &&
+          viewportY < viewportHeight &&
+          viewportX + width > 0 &&
+          viewportY + height > 0;
+
+        const isInteractive = isElementInteractive(tagName, attributes);
+
+        let highlightIndex: number | null = null;
+        if (isVisible && isInteractive) {
+          highlightIndex = highlightCounter;
+          highlightCounter++;
+        }
+
+        const elementNode = new DOMElementNode({
+          tagName,
+          xpath: null,
+          attributes,
+          children: [],
+          isVisible,
+          isInteractive,
+          isTopElement: docIndex === 0 && i === 0,
+          isInViewport: inViewport,
+          highlightIndex,
+          viewportCoordinates: { x: viewportX, y: viewportY },
+          pageCoordinates: { x: pageX, y: pageY }
+        });
+
+        if (highlightIndex !== null) {
+          selectorMap.set(highlightIndex, elementNode);
+        }
+
+        docNodes[i] = elementNode;
+      }
+    }
+
+    // 2. Stitch children and handle subdocuments (iframes / shadow roots)
+    let docRoot: DOMElementNode | null = null;
+
+    for (let i = 0; i < totalNodes; i++) {
+      const node = docNodes[i];
+      if (!node) continue;
+
+      const parentIdx = parentMap.get(i);
+      if (parentIdx === undefined || parentIdx === -1) {
+        if (node instanceof DOMElementNode && !docRoot) {
+          docRoot = node;
+        }
+        continue;
+      }
+
+      const parentNode = docNodes[parentIdx];
+      if (parentNode && parentNode instanceof DOMElementNode) {
+        node.parent = parentNode;
+        parentNode.children.push(node);
+      }
+    }
+
+    // 3. Recursively parse and stitch subdocuments (cross-origin frames / shadow roots)
+    for (let i = 0; i < totalNodes; i++) {
+      const node = docNodes[i];
+      if (node && node instanceof DOMElementNode) {
+        const subDocIndex = doc.nodes.contentDocumentIndex?.[i];
+        if (subDocIndex !== undefined && subDocIndex !== -1) {
+          // Calculate absolute coordinates offset for child frame
+          const layoutData = nodeLayoutMap.get(i);
+          const bounds = layoutData?.bounds ?? [0, 0, 0, 0];
+          const [rx, ry] = bounds;
+
+          const childOffsetPageX = parentOffsetPageX + rx;
+          const childOffsetPageY = parentOffsetPageY + ry;
+
+          const subDocRoot = parseDocument(subDocIndex, childOffsetPageX, childOffsetPageY);
+          if (subDocRoot) {
+            subDocRoot.parent = node;
+            node.children.push(subDocRoot);
           }
         }
       }
-
-      nodeLayoutMap.set(nIdx, { bounds: b, styles: computedStyles });
     }
+
+    return docRoot;
   }
 
-  // Pre-calculate parents to build tree hierarchy
-  const parentMap = new Map<number, number>();
-  if (rootDoc.nodes.parentIndex) {
-    const parents = rootDoc.nodes.parentIndex;
-    for (let i = 0; i < parents.length; i++) {
-      parentMap.set(i, parents[i]);
-    }
-  }
+  // Parse starting at root document (index 0)
+  const rootElement = parseDocument(0, 0, 0);
 
-  // Temporary list to map node index to instantiated DOMBaseNodes
-  const instNodes: (DOMElementNode | DOMTextNode | null)[] = new Array(totalNodes).fill(null);
-
-  // First pass: Instantiate elements and read attributes
-  for (let i = 0; i < totalNodes; i++) {
-    const nodeType = rootDoc.nodes.nodeType[i];
-    const rawName = getString(rootDoc.nodes.nodeName[i]);
-
-    // Handle Text Nodes
-    if (nodeType === 3) {
-      const textValIdx = rootDoc.nodes.textValue?.[i];
-      const text = textValIdx !== undefined && textValIdx !== -1 ? getString(textValIdx).trim() : '';
-      if (text) {
-        instNodes[i] = new DOMTextNode(text, true);
-      }
-      continue;
-    }
-
-    // Handle Element Nodes
-    if (nodeType === 1) {
-      const tagName = rawName.toLowerCase();
-
-      // Read attributes
-      const attributes: Record<string, string> = {};
-      const attrs = rootDoc.nodes.attributes?.[i] ?? [];
-      for (let aIdx = 0; aIdx < attrs.length; aIdx += 2) {
-        const key = getString(attrs[aIdx]);
-        const val = getString(attrs[aIdx + 1]);
-        attributes[key] = val;
-      }
-
-      // Check input elements values & state
-      if (rootDoc.nodes.inputValue?.[i] !== undefined) {
-        const valIdx = rootDoc.nodes.inputValue[i];
-        if (valIdx !== -1) {
-          attributes['value'] = getString(valIdx);
-        }
-      }
-      if (rootDoc.nodes.inputChecked?.[i]) {
-        attributes['checked'] = 'true';
-      }
-      if (rootDoc.nodes.optionSelected?.[i]) {
-        attributes['selected'] = 'true';
-      }
-
-      // Resolve layout bounds and visibility
-      const layoutData = nodeLayoutMap.get(i);
-      const bounds = layoutData?.bounds ?? [0, 0, 0, 0];
-      const styles = layoutData?.styles ?? {};
-
-      const [x, y, width, height] = bounds;
-
-      // Visibility criteria
-      const isVisible =
-        styles.display !== 'none' &&
-        styles.visibility !== 'hidden' &&
-        styles.opacity !== '0' &&
-        width > 0 &&
-        height > 0;
-
-      const inViewport =
-        x < viewportWidth &&
-        y < viewportHeight &&
-        x + width > 0 &&
-        y + height > 0;
-
-      const isInteractive = isElementInteractive(tagName, attributes);
-
-      let highlightIndex: number | null = null;
-      if (isVisible && isInteractive) {
-        highlightIndex = highlightCounter;
-        highlightCounter++;
-      }
-
-      const elementNode = new DOMElementNode({
-        tagName,
-        xpath: null, // Computed on demand/fallback
-        attributes,
-        children: [],
-        isVisible,
-        isInteractive,
-        isTopElement: i === 0,
-        isInViewport: inViewport,
-        highlightIndex,
-        viewportCoordinates: { x: Math.round(x + width / 2), y: Math.round(y + height / 2) },
-        pageCoordinates: { x: Math.round(x + width / 2), y: Math.round(y + height / 2) }
-      });
-
-      if (highlightIndex !== null) {
-        selectorMap.set(highlightIndex, elementNode);
-      }
-
-      instNodes[i] = elementNode;
-    }
-  }
-
-  // Second pass: Build parent-child hierarchy
-  let rootElement: DOMElementNode | null = null;
-
-  for (let i = 0; i < totalNodes; i++) {
-    const node = instNodes[i];
-    if (!node) continue;
-
-    const parentIdx = parentMap.get(i);
-    if (parentIdx === undefined || parentIdx === -1) {
-      if (node instanceof DOMElementNode && !rootElement) {
-        rootElement = node;
-      }
-      continue;
-    }
-
-    const parentNode = instNodes[parentIdx];
-    if (parentNode && parentNode instanceof DOMElementNode) {
-      node.parent = parentNode;
-      parentNode.children.push(node);
-    }
-  }
-
-  // Fallback to empty if no root element resolved
   if (!rootElement) {
     return buildEmptyDOMState();
   }
+
+  // 4. Assign XPath values deterministically to all elements
+  assignXPaths(rootElement, '');
 
   logger.info(`[DOMSnapshot] Successfully built DOM tree with ${highlightCounter} interactive elements`);
   return { elementTree: rootElement, selectorMap };
@@ -269,12 +326,37 @@ function isElementInteractive(tagName: string, attributes: Record<string, string
   const interactiveRoles = new Set(['button', 'link', 'checkbox', 'radio', 'tab', 'menuitem', 'combobox']);
   if (interactiveRoles.has(role)) return true;
 
-  // Event handlers / attributes
+  // Click handlers
   if (attributes.onclick || attributes.cursor === 'pointer' || attributes['data-clickable'] === 'true') {
     return true;
   }
 
   return false;
+}
+
+function assignXPaths(node: DOMBaseNode, parentXPath: string) {
+  if (node instanceof DOMElementNode) {
+    const tag = node.tagName || 'div';
+    const siblings = node.parent ? node.parent.children : [];
+    let sameTagCount = 0;
+    let myIndex = 1;
+
+    for (const sibling of siblings) {
+      if (sibling instanceof DOMElementNode && sibling.tagName === tag) {
+        sameTagCount++;
+        if (sibling === node) {
+          myIndex = sameTagCount;
+        }
+      }
+    }
+
+    const currentXPath = parentXPath ? `${parentXPath}/${tag}[${myIndex}]` : `/${tag}[${myIndex}]`;
+    node.xpath = currentXPath;
+
+    for (const child of node.children) {
+      assignXPaths(child, currentXPath);
+    }
+  }
 }
 
 function buildEmptyDOMState(): DOMState {
