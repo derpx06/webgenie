@@ -176,32 +176,147 @@ export const AddonsSettings = ({ isDarkMode = false }: AddonsSettingsProps) => {
   const configured = getConfiguredProviders();
 
   return (
-    <div className={`animate-in fade-in slide-in-from-bottom-4 grid grid-cols-1 gap-8 duration-700 xl:grid-cols-12 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 max-w-2xl mx-auto pb-10">
       
-      {/* LEFT COLUMN: SEARCH PROVIDERS LIST (7 COLUMNS) */}
-      <div className="space-y-8 xl:col-span-7">
-        <div className={`rounded-2xl border overflow-hidden
-          ${isDarkMode ? 'border-white/5 bg-[#161821]' : 'border-slate-100 bg-white'}`}
+      {/* 1. HEADER SECTION */}
+      <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-2">
+        <div>
+          <h1 className={`font-outfit text-[22px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
+            Search Connectivity
+          </h1>
+          <p className={`text-[11px] font-bold tracking-widest uppercase opacity-55 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+            API & Integration Status
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsAddingNew(!isAddingNew)}
+          className={`flex h-12 w-12 items-center justify-center rounded-full transition-all duration-300 hover:scale-[1.05] active:scale-[0.95] shadow-lg shadow-indigo-600/15
+            ${isAddingNew 
+              ? 'bg-[#e11d48] text-white hover:bg-rose-500' 
+              : 'bg-indigo-600 text-white hover:bg-indigo-500'
+            }`}
         >
-          {/* Card Header */}
-          <div className={`flex items-center gap-3.5 px-6 py-5 border-b
-            ${isDarkMode ? 'border-white/5 bg-[#1a1c27]' : 'border-slate-100 bg-slate-50/50'}`}
-          >
-            <div className={`p-2 rounded-xl ${isDarkMode ? 'bg-indigo-600/10 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
-              <FiSearch size={18} />
-            </div>
-            <div>
-              <h2 className={`font-outfit text-[15px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
-                Search Providers
-              </h2>
-              <p className={`text-[11px] font-medium opacity-50 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                Connection and credential management
-              </p>
-            </div>
+          {isAddingNew ? <FiX size={20} /> : <FiPlus size={20} />}
+        </button>
+      </div>
+
+      {/* 2. ADD NEW PROVIDER PANEL */}
+      {isAddingNew && (
+        <div className={`animate-in fade-in slide-in-from-top-4 duration-300 p-6 rounded-2xl border flex flex-col gap-4 shadow-xl
+          ${isDarkMode ? 'border-white/10 bg-[#161821] text-white' : 'border-slate-200 bg-white text-slate-900'}`}
+        >
+          <div className="border-b border-white/5 pb-3">
+            <h3 className="font-outfit text-[14px] font-black uppercase tracking-wider">
+              Add Search Provider
+            </h3>
+            <p className="text-[11px] opacity-50 mt-1">Configure credentials for a grounding node</p>
           </div>
 
-          {/* Card Content (Provider Nodes List) */}
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Provider Engine</label>
+              <select
+                value={selectedNewEngine}
+                onChange={e => setSelectedEngine(e.target.value)}
+                className={`font-outfit w-full cursor-pointer rounded-xl border px-3 py-2.5 text-[13px] font-bold focus:outline-none
+                  ${isDarkMode 
+                    ? 'border-white/10 bg-[#0e0f14] text-white focus:border-indigo-500/50' 
+                    : 'border-slate-200 bg-white text-slate-900 focus:border-indigo-500/50'}`}
+              >
+                {ENGINES.map(e => (
+                  <option key={e.id} value={e.id}>{e.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {selectedNewEngine !== 'duckduckgo' && (
+              <div className="flex flex-col gap-3 animate-in fade-in duration-200">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Access Key (API Key)</label>
+                  <input
+                    type="password"
+                    value={newApiKey}
+                    onChange={e => setNewApiKey(e.target.value)}
+                    placeholder={`Enter ${getEngineLabel(selectedNewEngine)} Key`}
+                    className={`w-full rounded-xl border px-3 py-2.5 font-mono text-[12px] focus:outline-none
+                      ${isDarkMode 
+                        ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50' 
+                        : 'border-slate-200 bg-white text-slate-955 placeholder:text-slate-300 focus:border-indigo-500/50'}`}
+                  />
+                </div>
+
+                {selectedNewEngine === 'google' && (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Search Engine ID (CX ID)</label>
+                    <input
+                      type="text"
+                      value={newSearchEngineId}
+                      onChange={e => setNewSearchEngineId(e.target.value)}
+                      placeholder="Enter custom CX ID"
+                      className={`w-full rounded-xl border px-3 py-2.5 font-mono text-[12px] focus:outline-none
+                        ${isDarkMode 
+                          ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50' 
+                          : 'border-slate-200 bg-white text-slate-955 placeholder:text-slate-300 focus:border-indigo-500/50'}`}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selectedNewEngine === 'duckduckgo' && (
+              <div className="text-[12px] opacity-60 p-3 rounded-lg border border-white/5 bg-white/5">
+                DuckDuckGo queries organic pages directly and requires no developer credentials.
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 mt-2">
+              <button
+                type="button"
+                onClick={handleAddProvider}
+                className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 font-outfit text-[12px] font-black uppercase tracking-wider text-white hover:bg-indigo-500 transition-all duration-300 hover:scale-[1.02]"
+              >
+                <FiCheck size={14} /> Add Provider
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsAddingNew(false)}
+                className={`rounded-xl border px-5 py-2.5 font-outfit text-[12px] font-black uppercase tracking-wider transition-all duration-300
+                  ${isDarkMode 
+                    ? 'border-white/10 text-white hover:bg-white/5' 
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. SEARCH PROVIDERS & ROUTING CONSOLIDATED CARD */}
+      <div className={`rounded-2xl border overflow-hidden
+        ${isDarkMode ? 'border-white/5 bg-[#161821]' : 'border-slate-100 bg-white'}`}
+      >
+        {/* Card Header */}
+        <div className={`flex items-center gap-3.5 px-6 py-5 border-b
+          ${isDarkMode ? 'border-white/5 bg-[#1a1c27]' : 'border-slate-100 bg-slate-50/50'}`}
+        >
+          <div className={`p-2 rounded-xl ${isDarkMode ? 'bg-indigo-600/10 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
+            <FiSearch size={18} />
+          </div>
+          <div>
+            <h2 className={`font-outfit text-[15px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
+              Search Grounding
+            </h2>
+            <p className={`text-[11px] font-medium opacity-50 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              Connection credentials and primary engine routing
+            </p>
+          </div>
+        </div>
+
+        {/* Card Content (Provider Nodes List) */}
+        <div className="flex flex-col">
+          <div className="divide-y divide-white/5">
             {configured.map((engineId) => {
               const isLive = settings.primarySearchEngine === engineId;
               const engineLabel = getEngineLabel(engineId);
@@ -221,7 +336,7 @@ export const AddonsSettings = ({ isDarkMode = false }: AddonsSettingsProps) => {
               return (
                 <div 
                   key={engineId} 
-                  className={`p-6 border-b last:border-0 flex flex-col gap-4 transition-all duration-300
+                  className={`p-6 flex flex-col gap-4 transition-all duration-300
                     ${isDarkMode ? 'border-white/5' : 'border-slate-100'}`}
                 >
                   {/* Node Title + Status Badge + Delete */}
@@ -308,166 +423,31 @@ export const AddonsSettings = ({ isDarkMode = false }: AddonsSettingsProps) => {
               );
             })}
           </div>
+
+          {/* Unified Primary Selector Bottom Row */}
+          <div className={`p-6 border-t ${isDarkMode ? 'border-white/5 bg-[#14151d]/50' : 'border-slate-100 bg-slate-50/20'}`}>
+            <div className="flex flex-col gap-2">
+              <label className={`text-[10px] font-black uppercase tracking-widest opacity-45 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                Primary Search Engine
+              </label>
+              <select
+                value={settings.primarySearchEngine || 'duckduckgo'}
+                onChange={e => handleSelectPrimary(e.target.value)}
+                className={`font-outfit w-full cursor-pointer rounded-xl border px-4 py-3.5 text-[13px] font-bold focus:outline-none transition-all duration-300
+                  ${isDarkMode 
+                    ? 'border-white/10 bg-[#0e0f14] text-white focus:border-indigo-500/50' 
+                    : 'border-slate-200 bg-white text-slate-900 focus:border-indigo-500/50'}`}
+              >
+                {configured.map((id) => (
+                  <option key={id} value={id}>
+                    {getEngineLabel(id)} {id === 'duckduckgo' ? '(No Key)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
         </div>
-      </div>
-
-      {/* RIGHT COLUMN: CONNECTIVITY HEADER, FORM AND PROCESSING (5 COLUMNS) */}
-      <div className="space-y-8 xl:col-span-5">
-        
-        {/* Connectivity Title & Actions */}
-        <div className="flex items-center justify-between px-2">
-          <div>
-            <h2 className="font-outfit text-xl font-bold tracking-tight">Search Connectivity</h2>
-            <p className={`mt-0.5 text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
-              API & Integration Status
-            </p>
-          </div>
-
-          <button
-            onClick={() => setIsAddingNew(!isAddingNew)}
-            className={`flex size-9 items-center justify-center rounded-xl shadow-lg transition-all duration-300 hover:scale-105 active:scale-95
-              ${isAddingNew 
-                ? 'bg-[#e11d48] text-white hover:bg-rose-500' 
-                : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}
-            title="Add New Provider"
-          >
-            {isAddingNew ? <FiX size={18} /> : <FiPlus size={18} strokeWidth={3} />}
-          </button>
-        </div>
-
-        {/* Dynamic Add Form */}
-        {isAddingNew && (
-          <div className={`animate-in fade-in slide-in-from-top-4 duration-300 p-6 rounded-2xl border flex flex-col gap-4 shadow-xl
-            ${isDarkMode ? 'border-white/10 bg-[#161821] text-white' : 'border-slate-200 bg-white text-slate-900'}`}
-          >
-            <div className="border-b border-white/5 pb-3">
-              <h3 className="font-outfit text-[14px] font-black uppercase tracking-wider">
-                Add Search Provider
-              </h3>
-              <p className="text-[11px] opacity-50 mt-1">Configure credentials for a grounding node</p>
-            </div>
-
-            <div className="flex flex-col gap-4">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Provider Engine</label>
-                <select
-                  value={selectedNewEngine}
-                  onChange={e => setSelectedEngine(e.target.value)}
-                  className={`font-outfit w-full cursor-pointer rounded-xl border px-3 py-2.5 text-[13px] font-bold focus:outline-none
-                    ${isDarkMode 
-                      ? 'border-white/10 bg-[#0e0f14] text-white focus:border-indigo-500/50' 
-                      : 'border-slate-200 bg-white text-slate-900 focus:border-indigo-500/50'}`}
-                >
-                  {ENGINES.map(e => (
-                    <option key={e.id} value={e.id}>{e.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {selectedNewEngine !== 'duckduckgo' && (
-                <div className="flex flex-col gap-3 animate-in fade-in duration-200">
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Access Key (API Key)</label>
-                    <input
-                      type="password"
-                      value={newApiKey}
-                      onChange={e => setNewApiKey(e.target.value)}
-                      placeholder={`Enter ${getEngineLabel(selectedNewEngine)} Key`}
-                      className={`w-full rounded-xl border px-3 py-2.5 font-mono text-[12px] focus:outline-none
-                        ${isDarkMode 
-                          ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50' 
-                          : 'border-slate-200 bg-white text-slate-950 placeholder:text-slate-300 focus:border-indigo-500/50'}`}
-                    />
-                  </div>
-
-                  {selectedNewEngine === 'google' && (
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Search Engine ID (CX ID)</label>
-                      <input
-                        type="text"
-                        value={newSearchEngineId}
-                        onChange={e => setNewSearchEngineId(e.target.value)}
-                        placeholder="Enter custom CX ID"
-                        className={`w-full rounded-xl border px-3 py-2.5 font-mono text-[12px] focus:outline-none
-                          ${isDarkMode 
-                            ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50' 
-                            : 'border-slate-200 bg-white text-slate-950 placeholder:text-slate-300 focus:border-indigo-500/50'}`}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {selectedNewEngine === 'duckduckgo' && (
-                <div className="text-[12px] opacity-60 p-3 rounded-lg border border-white/5 bg-white/5">
-                  DuckDuckGo queries organic pages directly and requires no developer credentials.
-                </div>
-              )}
-
-              <div className="flex items-center gap-3 mt-2">
-                <button
-                  type="button"
-                  onClick={handleAddProvider}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 font-outfit text-[12px] font-black uppercase tracking-wider text-white hover:bg-indigo-500 transition-all duration-300 hover:scale-[1.02]"
-                >
-                  <FiCheck size={14} /> Add Provider
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsAddingNew(false)}
-                  className={`rounded-xl border px-5 py-2.5 font-outfit text-[12px] font-black uppercase tracking-wider transition-all duration-300
-                    ${isDarkMode 
-                      ? 'border-white/10 text-white hover:bg-white/5' 
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Search Routing / Primary Engine Card */}
-        <div className={`rounded-2xl border overflow-hidden
-          ${isDarkMode ? 'border-white/5 bg-[#161821]' : 'border-slate-100 bg-white'}`}
-        >
-          <div className={`flex items-center gap-3.5 px-6 py-5 border-b
-            ${isDarkMode ? 'border-white/5 bg-[#1a1c27]' : 'border-slate-100 bg-slate-50/50'}`}
-          >
-            <div className={`p-2 rounded-xl ${isDarkMode ? 'bg-indigo-600/10 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
-              <FiCompass size={18} />
-            </div>
-            <div>
-              <h2 className={`font-outfit text-[15px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
-                Search Processing
-              </h2>
-              <p className={`text-[11px] font-medium opacity-50 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                Primary routing and fallback engine
-              </p>
-            </div>
-          </div>
-
-          <div className="p-6 flex flex-col gap-2">
-            <label className={`text-[10px] font-black uppercase tracking-widest opacity-45 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-              Primary Search Engine
-            </label>
-            <select
-              value={settings.primarySearchEngine || 'duckduckgo'}
-              onChange={e => handleSelectPrimary(e.target.value)}
-              className={`font-outfit w-full cursor-pointer rounded-xl border px-4 py-3.5 text-[13px] font-bold focus:outline-none transition-all duration-300
-                ${isDarkMode 
-                  ? 'border-white/10 bg-[#0e0f14] text-white focus:border-indigo-500/50' 
-                  : 'border-slate-200 bg-white text-slate-900 focus:border-indigo-500/50'}`}
-            >
-              {configured.map((id) => (
-                <option key={id} value={id}>
-                  {getEngineLabel(id)} {id === 'duckduckgo' ? '(No Key)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
       </div>
 
     </div>
