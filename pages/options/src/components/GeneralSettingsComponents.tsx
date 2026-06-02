@@ -9,7 +9,7 @@ interface ToggleProps {
 }
 
 export const SettingToggle: React.FC<ToggleProps> = ({ title, desc, checked, isDarkMode, onChange }) => (
-  <label className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 cursor-pointer ${
+  <label className={`group relative flex cursor-pointer items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
     isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
   }`}>
     <div className="flex-1">
@@ -47,7 +47,7 @@ interface InputProps {
 }
 
 export const SettingInput: React.FC<InputProps> = ({ title, desc, value, isDarkMode, onChange, min, max, step = 1 }) => (
-  <label className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 cursor-pointer ${
+  <label className={`group relative flex cursor-pointer items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
     isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
   }`}>
     <div className="flex-1">
@@ -85,7 +85,7 @@ export interface TextInputProps {
 }
 
 export const SettingTextInput: React.FC<TextInputProps> = ({ title, desc, value, placeholder = '', isDarkMode, onChange, isSecret = false }) => (
-  <label className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 cursor-pointer ${
+  <label className={`group relative flex cursor-pointer items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
     isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
   }`}>
     <div className="flex-1">

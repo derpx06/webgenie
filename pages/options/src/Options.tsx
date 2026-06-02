@@ -2,20 +2,22 @@ import { useState, useEffect } from 'react';
 import '@src/Options.css';
 import { withErrorBoundary, withSuspense } from '@extension/shared';
 import { t } from '@extension/i18n';
-import { FiSettings, FiCpu, FiShield, FiTrendingUp, FiHelpCircle, FiSliders } from 'react-icons/fi';
+import { FiSettings, FiCpu, FiShield, FiTrendingUp, FiHelpCircle, FiSliders, FiBox } from 'react-icons/fi';
 import { GeneralSettings } from './components/GeneralSettings';
 import { ModelSettings } from './components/ModelSettings';
 import { FirewallSettings } from './components/FirewallSettings';
 import { AnalyticsSettings } from './components/AnalyticsSettings';
 import { AdvancedSettings } from './components/AdvancedSettings';
+import { AddonsSettings } from './components/AddonsSettings';
 import { OptionsSidebar, OptionsBackground, OptionsHeader } from './components/Layout';
 
-export type TabTypes = 'general' | 'models' | 'firewall' | 'analytics' | 'advanced' | 'help';
+export type TabTypes = 'general' | 'models' | 'firewall' | 'addons' | 'analytics' | 'advanced' | 'help';
 
 export const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: string; size?: number }>; label: string }[] = [
   { id: 'general', icon: FiSettings, label: t('options_tabs_general') },
   { id: 'models', icon: FiCpu, label: t('options_tabs_models') },
   { id: 'firewall', icon: FiShield, label: t('options_tabs_firewall') },
+  { id: 'addons', icon: FiBox, label: 'Add-ons' },
   { id: 'analytics', icon: FiTrendingUp, label: 'Analytics' },
   { id: 'advanced', icon: FiSliders, label: 'Advanced' },
   { id: 'help', icon: FiHelpCircle, label: t('options_tabs_help') },
@@ -67,6 +69,7 @@ const Options = () => {
       case 'general': return <GeneralSettings isDarkMode={isDarkMode} />;
       case 'models': return <ModelSettings isDarkMode={isDarkMode} />;
       case 'firewall': return <FirewallSettings isDarkMode={isDarkMode} />;
+      case 'addons': return <AddonsSettings isDarkMode={isDarkMode} />;
       case 'analytics': return <AnalyticsSettings isDarkMode={isDarkMode} />;
       case 'advanced': return <AdvancedSettings isDarkMode={isDarkMode} />;
       default: return null;

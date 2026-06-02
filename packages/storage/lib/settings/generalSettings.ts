@@ -22,6 +22,31 @@ export interface GeneralSettingsConfig {
   enableTabGrouping: boolean;
   /** Whether ephemeral (temporary) AI tabs are auto-closed when the task completes. */
   autoCloseEphemeralTabs: boolean;
+  
+  // Add-on configurations
+  primarySearchEngine: string;
+  enableTavilySearch: boolean;
+  tavilyApiKey: string;
+  enablePerplexitySearch: boolean;
+  perplexityApiKey: string;
+  enableExaSearch: boolean;
+  exaApiKey: string;
+  enableSerperSearch: boolean;
+  serperApiKey: string;
+  enableBraveSearch: boolean;
+  braveApiKey: string;
+  enableJinaSearch: boolean;
+  jinaApiKey: string;
+  enableGoogleSearch: boolean;
+  googleApiKey: string;
+  googleSearchEngineId: string;
+  enableDuckDuckGo: boolean;
+  enableBrowserbase: boolean;
+  browserbaseApiKey: string;
+  browserbaseProjectId: string;
+  enableCapsolver: boolean;
+  capsolverApiKey: string;
+  enableSelfHealing: boolean;
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
@@ -48,6 +73,31 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   langsmithProject: 'web-surfer',
   enableTabGrouping: true,
   autoCloseEphemeralTabs: false,
+  
+  // Addon defaults
+  primarySearchEngine: 'tavily',
+  enableTavilySearch: false,
+  tavilyApiKey: '',
+  enablePerplexitySearch: false,
+  perplexityApiKey: '',
+  enableExaSearch: false,
+  exaApiKey: '',
+  enableSerperSearch: false,
+  serperApiKey: '',
+  enableBraveSearch: false,
+  braveApiKey: '',
+  enableJinaSearch: false,
+  jinaApiKey: '',
+  enableGoogleSearch: false,
+  googleApiKey: '',
+  googleSearchEngineId: '',
+  enableDuckDuckGo: false,
+  enableBrowserbase: false,
+  browserbaseApiKey: '',
+  browserbaseProjectId: '',
+  enableCapsolver: false,
+  capsolverApiKey: '',
+  enableSelfHealing: false,
 };
 
 
