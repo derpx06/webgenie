@@ -215,19 +215,65 @@ export const AddonsSettings = ({ isDarkMode = false }: AddonsSettingsProps) => {
 
           <div className="flex flex-col gap-4">
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Provider Engine</label>
-              <select
-                value={selectedNewEngine}
-                onChange={e => setSelectedEngine(e.target.value)}
-                className={`font-outfit w-full cursor-pointer rounded-xl border px-3 py-2.5 text-[13px] font-bold focus:outline-none
-                  ${isDarkMode 
-                    ? 'border-white/10 bg-[#0e0f14] text-white focus:border-indigo-500/50' 
-                    : 'border-slate-200 bg-white text-slate-900 focus:border-indigo-500/50'}`}
-              >
-                {ENGINES.map(e => (
-                  <option key={e.id} value={e.id}>{e.label}</option>
-                ))}
-              </select>
+              <label className="block text-[10px] font-bold uppercase tracking-wider mb-2.5 opacity-60">
+                Choose Search Engine
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {ENGINES.map(e => {
+                  const isAdded = configured.includes(e.id);
+                  const isSelected = selectedNewEngine === e.id;
+                  
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => setSelectedEngine(e.id)}
+                      className={`group/item flex items-center gap-3.5 rounded-xl border p-3.5 text-left transition-all duration-200 active:scale-[0.98] ${
+                        isSelected
+                          ? isDarkMode 
+                            ? 'border-indigo-500 bg-indigo-500/10 text-white ring-2 ring-indigo-500/20' 
+                            : 'border-indigo-600 bg-indigo-50/50 text-slate-900 ring-2 ring-indigo-600/10'
+                          : isDarkMode 
+                            ? 'border-white/5 bg-white/[0.02] hover:border-white/10 hover:bg-[#1f212d]' 
+                            : 'border-slate-100 bg-slate-50/50 hover:border-indigo-200 hover:bg-white hover:shadow-sm'
+                      }`}
+                    >
+                      <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg border text-sm transition-transform duration-300 group-hover/item:scale-105 ${
+                        isSelected
+                          ? isDarkMode
+                            ? 'border-indigo-500/30 bg-indigo-500/20 text-indigo-400'
+                            : 'border-indigo-200 bg-indigo-100/50 text-indigo-600'
+                          : isDarkMode
+                            ? 'border-white/5 bg-white/5 text-slate-400'
+                            : 'border-slate-200 bg-white text-slate-600'
+                      }`}>
+                        <e.icon size={15} />
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`truncate text-[12px] font-bold tracking-tight ${
+                            isSelected
+                              ? isDarkMode ? 'text-white' : 'text-slate-900'
+                              : isDarkMode ? 'text-slate-200' : 'text-slate-700'
+                          }`}>
+                            {e.label}
+                          </span>
+                          {isAdded && (
+                            <span className="flex items-center justify-center rounded-full bg-emerald-500/10 p-0.5" title="Configured">
+                              <FiCheck size={9} className="text-emerald-500" />
+                            </span>
+                          )}
+                        </div>
+                        <span className={`block text-[9px] font-medium leading-normal mt-0.5 truncate opacity-50 ${
+                          isDarkMode ? 'text-slate-400' : 'text-slate-500'
+                        }`}>
+                          {e.desc}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {selectedNewEngine !== 'duckduckgo' && (
