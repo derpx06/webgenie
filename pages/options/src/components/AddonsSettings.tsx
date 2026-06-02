@@ -1,287 +1,470 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 import { useState, useEffect } from 'react';
 import { type GeneralSettingsConfig, generalSettingsStore, DEFAULT_GENERAL_SETTINGS } from '@extension/storage';
-import { FiSearch, FiGlobe, FiKey, FiCpu, FiCheck, FiPlus, FiAlertCircle } from 'react-icons/fi';
-import { DashboardSection } from './shared/DashboardSection';
-import { SettingToggle, SettingTextInput } from './GeneralSettingsComponents';
+import { 
+  FiSearch, 
+  FiCpu, 
+  FiActivity, 
+  FiGlobe, 
+  FiShield, 
+  FiLayers, 
+  FiTerminal, 
+  FiCompass, 
+  FiPlus, 
+  FiEye, 
+  FiEyeOff, 
+  FiTrash2, 
+  FiCheck,
+  FiX
+} from 'react-icons/fi';
 
 interface AddonsSettingsProps {
   isDarkMode?: boolean;
 }
 
+const ENGINES = [
+  { id: 'tavily', label: 'Tavily Search', desc: 'AI-First grounding', icon: FiSearch },
+  { id: 'perplexity', label: 'Perplexity AI', desc: 'Conversational reasoning summaries', icon: FiCpu },
+  { id: 'exa', label: 'Exa Search', desc: 'Neural semantic link discovery', icon: FiActivity },
+  { id: 'serper', label: 'Serper.dev', desc: 'High-speed Google wrapper', icon: FiGlobe },
+  { id: 'brave', label: 'Brave Search', desc: 'Independent index index', icon: FiShield },
+  { id: 'jina', label: 'Jina Reader', desc: 'URL page scraper to markdown', icon: FiLayers },
+  { id: 'google', label: 'Google Search', desc: 'Official Custom Search Engine (CSE)', icon: FiTerminal },
+  { id: 'duckduckgo', label: 'DuckDuckGo', desc: 'Free organic Lite scraper', icon: FiCompass },
+];
+
 export const AddonsSettings = ({ isDarkMode = false }: AddonsSettingsProps) => {
   const [settings, setSettings] = useState<GeneralSettingsConfig>(DEFAULT_GENERAL_SETTINGS);
+  
+  // Dynamic UI Form states
+  const [isAddingNew, setIsAddingNew] = useState(false);
   const [selectedEngine, setSelectedEngine] = useState<string>('tavily');
-  const [tempApiKey, setTempApiKey] = useState<string>('');
-  const [tempSearchEngineId, setTempSearchEngineId] = useState<string>('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [newApiKey, setNewApiKey] = useState<string>('');
+  const [newSearchEngineId, setNewSearchEngineId] = useState<string>('');
+  
+  // Password Visibility toggles
+  const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    generalSettingsStore.getSettings().then(s => {
-      setSettings(s);
-      setSelectedEngine(s.primarySearchEngine || 'tavily');
-    });
+    generalSettingsStore.getSettings().then(setSettings);
   }, []);
 
-  // Sync temp input values when settings are loaded or when the selected search engine changes
-  useEffect(() => {
-    if (!settings) return;
+  const getEngineLabel = (engineId: string) => {
+    return ENGINES.find(e => e.id === engineId)?.label || engineId.toUpperCase();
+  };
+
+  // Helper to determine if a provider is configured
+  const getConfiguredProviders = () => {
+    const list: string[] = [];
+    if (settings.tavilyApiKey) list.push('tavily');
+    if (settings.perplexityApiKey) list.push('perplexity');
+    if (settings.exaApiKey) list.push('exa');
+    if (settings.serperApiKey) list.push('serper');
+    if (settings.braveApiKey) list.push('brave');
+    if (settings.jinaApiKey) list.push('jina');
+    if (settings.googleApiKey && settings.googleSearchEngineId) list.push('google');
     
-    switch (selectedEngine) {
-      case 'tavily':
-        setTempApiKey(settings.tavilyApiKey || '');
-        break;
-      case 'perplexity':
-        setTempApiKey(settings.perplexityApiKey || '');
-        break;
-      case 'exa':
-        setTempApiKey(settings.exaApiKey || '');
-        break;
-      case 'serper':
-        setTempApiKey(settings.serperApiKey || '');
-        break;
-      case 'brave':
-        setTempApiKey(settings.braveApiKey || '');
-        break;
-      case 'jina':
-        setTempApiKey(settings.jinaApiKey || '');
-        break;
-      case 'google':
-        setTempApiKey(settings.googleApiKey || '');
-        setTempSearchEngineId(settings.googleSearchEngineId || '');
-        break;
-      default:
-        setTempApiKey('');
-    }
-  }, [selectedEngine, settings]);
+    // DuckDuckGo is always configured as a fallback (no credentials needed)
+    list.push('duckduckgo');
+    return list;
+  };
 
-  const handleAddEngine = async () => {
-    setIsSaving(true);
-    setSaveSuccess(false);
-
-    // Prepare updates
-    const updates: Partial<GeneralSettingsConfig> = {
-      primarySearchEngine: selectedEngine,
-    };
-
-    // Disable all search engines, and only enable the active one
-    updates.enableTavilySearch = selectedEngine === 'tavily';
-    updates.enablePerplexitySearch = selectedEngine === 'perplexity';
-    updates.enableExaSearch = selectedEngine === 'exa';
-    updates.enableSerperSearch = selectedEngine === 'serper';
-    updates.enableBraveSearch = selectedEngine === 'brave';
-    updates.enableJinaSearch = selectedEngine === 'jina';
-    updates.enableGoogleSearch = selectedEngine === 'google';
-    updates.enableDuckDuckGo = selectedEngine === 'duckduckgo';
-
-    // Store credentials for the currently selected engine
-    if (selectedEngine === 'tavily') updates.tavilyApiKey = tempApiKey;
-    if (selectedEngine === 'perplexity') updates.perplexityApiKey = tempApiKey;
-    if (selectedEngine === 'exa') updates.exaApiKey = tempApiKey;
-    if (selectedEngine === 'serper') updates.serperApiKey = tempApiKey;
-    if (selectedEngine === 'brave') updates.braveApiKey = tempApiKey;
-    if (selectedEngine === 'jina') updates.jinaApiKey = tempApiKey;
-    if (selectedEngine === 'google') {
-      updates.googleApiKey = tempApiKey;
-      updates.googleSearchEngineId = tempSearchEngineId;
+  const handleAddProvider = async () => {
+    if (selectedEngine === 'duckduckgo') {
+      // DuckDuckGo has no credentials, just enable it
+      await generalSettingsStore.updateSettings({
+        enableDuckDuckGo: true
+      });
+      setIsAddingNew(false);
+      const updated = await generalSettingsStore.getSettings();
+      setSettings(updated);
+      return;
     }
 
-    // Persist to store
+    const updates: Partial<GeneralSettingsConfig> = {};
+    if (selectedEngine === 'tavily') {
+      updates.tavilyApiKey = newApiKey;
+      updates.enableTavilySearch = true;
+    } else if (selectedEngine === 'perplexity') {
+      updates.perplexityApiKey = newApiKey;
+      updates.enablePerplexitySearch = true;
+    } else if (selectedEngine === 'exa') {
+      updates.exaApiKey = newApiKey;
+      updates.enableExaSearch = true;
+    } else if (selectedEngine === 'serper') {
+      updates.serperApiKey = newApiKey;
+      updates.enableSerperSearch = true;
+    } else if (selectedEngine === 'brave') {
+      updates.braveApiKey = newApiKey;
+      updates.enableBraveSearch = true;
+    } else if (selectedEngine === 'jina') {
+      updates.jinaApiKey = newApiKey;
+      updates.enableJinaSearch = true;
+    } else if (selectedEngine === 'google') {
+      updates.googleApiKey = newApiKey;
+      updates.googleSearchEngineId = newSearchEngineId;
+      updates.enableGoogleSearch = true;
+    }
+
+    // Set as primary engine automatically on add if it's the first provider
+    const activeBefore = getConfiguredProviders().filter(p => p !== 'duckduckgo');
+    if (activeBefore.length === 0) {
+      updates.primarySearchEngine = selectedEngine;
+    }
+
     await generalSettingsStore.updateSettings(updates);
     const updated = await generalSettingsStore.getSettings();
     setSettings(updated);
-
-    // Simulate network save latency for beautiful premium UX
-    setTimeout(() => {
-      setIsSaving(false);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    }, 800);
+    
+    // Reset form fields
+    setNewApiKey('');
+    setNewSearchEngineId('');
+    setIsAddingNew(false);
   };
 
-  const getEngineLabel = (engine: string) => {
-    switch (engine) {
-      case 'tavily': return 'Tavily Search API';
-      case 'perplexity': return 'Perplexity AI';
-      case 'exa': return 'Exa Semantic Search';
-      case 'serper': return 'Serper.dev (Google SERP)';
-      case 'brave': return 'Brave Search API';
-      case 'jina': return 'Jina Reader API';
-      case 'google': return 'Google Custom Search';
-      case 'duckduckgo': return 'DuckDuckGo (Free / No Key)';
-      default: return 'Search Engine';
+  const handleDeleteProvider = async (engineId: string) => {
+    const updates: Partial<GeneralSettingsConfig> = {};
+    
+    if (engineId === 'tavily') {
+      updates.tavilyApiKey = '';
+      updates.enableTavilySearch = false;
+    } else if (engineId === 'perplexity') {
+      updates.perplexityApiKey = '';
+      updates.enablePerplexitySearch = false;
+    } else if (engineId === 'exa') {
+      updates.exaApiKey = '';
+      updates.enableExaSearch = false;
+    } else if (engineId === 'serper') {
+      updates.serperApiKey = '';
+      updates.enableSerperSearch = false;
+    } else if (engineId === 'brave') {
+      updates.braveApiKey = '';
+      updates.enableBraveSearch = false;
+    } else if (engineId === 'jina') {
+      updates.jinaApiKey = '';
+      updates.enableJinaSearch = false;
+    } else if (engineId === 'google') {
+      updates.googleApiKey = '';
+      updates.googleSearchEngineId = '';
+      updates.enableGoogleSearch = false;
     }
+
+    // If the deleted engine was the primary one, fallback to duckduckgo
+    if (settings.primarySearchEngine === engineId) {
+      updates.primarySearchEngine = 'duckduckgo';
+    }
+
+    await generalSettingsStore.updateSettings(updates);
+    const updated = await generalSettingsStore.getSettings();
+    setSettings(updated);
   };
 
-  const updateSetting = async <K extends keyof GeneralSettingsConfig>(
-    key: K,
-    value: GeneralSettingsConfig[K],
-  ) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-    await generalSettingsStore.updateSettings({ [key]: value } as Partial<GeneralSettingsConfig>);
-    const confirmed = await generalSettingsStore.getSettings();
-    setSettings(confirmed);
+  const handleSelectPrimary = async (engineId: string) => {
+    await generalSettingsStore.updateSettings({
+      primarySearchEngine: engineId
+    });
+    const updated = await generalSettingsStore.getSettings();
+    setSettings(updated);
   };
+
+  const toggleVisibility = (engineId: string) => {
+    setVisibleKeys(prev => ({
+      ...prev,
+      [engineId]: !prev[engineId]
+    }));
+  };
+
+  const configured = getConfiguredProviders();
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 grid grid-cols-1 gap-8 duration-700 lg:grid-cols-2">
+    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 duration-700 max-w-2xl mx-auto pb-10">
+      
+      {/* 1. SECTION HEADER WITH ADD PLUS BUTTON */}
+      <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-2">
+        <div>
+          <h1 className={`font-outfit text-[22px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
+            Search Connectivity
+          </h1>
+          <p className={`text-[11px] font-bold tracking-widest uppercase opacity-55 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+            API & Integration Status
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsAddingNew(!isAddingNew)}
+          className={`flex h-12 w-12 items-center justify-center rounded-full transition-all duration-300 hover:scale-[1.05] active:scale-[0.95] shadow-lg shadow-indigo-600/15
+            ${isAddingNew 
+              ? 'bg-rose-600 text-white hover:bg-rose-500' 
+              : 'bg-indigo-600 text-white hover:bg-indigo-500'
+            }`}
+        >
+          {isAddingNew ? <FiX size={20} /> : <FiPlus size={20} />}
+        </button>
+      </div>
 
-      {/* SEARCH INTEGRATION MANAGER */}
-      <DashboardSection
-        title="Search Engine Integration"
-        subtitle="Manage and register search grounding integrations for the AI agent"
-        icon={<FiSearch size={20} />}
-        isDarkMode={isDarkMode}
-        colorTheme="indigo"
-        headerClassName="py-5 px-8"
-        contentClassName="flex flex-col p-8"
-      >
-        <div className="flex flex-col gap-6">
-          {/* Dropdown Selector */}
-          <div>
-            <label className={`block text-[11px] font-black uppercase tracking-wider mb-2 opacity-70 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-              Choose Search Engine
-            </label>
-            <select
-              value={selectedEngine}
-              onChange={e => setSelectedEngine(e.target.value)}
-              className={`font-outfit w-full cursor-pointer rounded-xl border px-4 py-3 text-[14px] font-bold transition-all duration-300 focus:outline-none
-                ${isDarkMode ? 'border-white/10 bg-[#161821] text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20'
-                  : 'border-slate-200 bg-white text-slate-900 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/10'}`}
-            >
-              <option value="tavily">Tavily Search (AI-First)</option>
-              <option value="perplexity">Perplexity AI (Conversational)</option>
-              <option value="exa">Exa Search (Neural Links)</option>
-              <option value="serper">Serper.dev (High-speed Google Wrapper)</option>
-              <option value="brave">Brave Search API (Independent Index)</option>
-              <option value="jina">Jina Reader API (Markdown scraper)</option>
-              <option value="google">Google Custom Search (CSE Container)</option>
-              <option value="duckduckgo">DuckDuckGo Search (Free scraper)</option>
-            </select>
+      {/* 2. ADD NEW PROVIDER INTERACTIVE OVERLAY PANEL */}
+      {isAddingNew && (
+        <div className={`animate-in fade-in slide-in-from-top-4 duration-300 p-6 rounded-2xl border flex flex-col gap-4 shadow-xl
+          ${isDarkMode ? 'border-white/10 bg-[#161821] text-white' : 'border-slate-200 bg-white text-slate-900'}`}
+        >
+          <div className="border-b border-white/5 pb-3">
+            <h3 className="font-outfit text-[14px] font-black uppercase tracking-wider">
+              Add Search Provider
+            </h3>
+            <p className="text-[11px] opacity-50 mt-1">Configure credentials for a grounding node</p>
           </div>
 
-          {/* Dynamic Credentials Inputs */}
-          {selectedEngine !== 'duckduckgo' && (
-            <div className="animate-in fade-in slide-in-from-top-2 duration-300 flex flex-col gap-4">
-              <div>
-                <label className={`block text-[11px] font-black uppercase tracking-wider mb-2 opacity-70 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-                  API Key / Credentials
-                </label>
-                <input
-                  type="password"
-                  value={tempApiKey}
-                  onChange={e => setTempApiKey(e.target.value)}
-                  placeholder={`Enter ${getEngineLabel(selectedEngine)} API Key`}
-                  className={`w-full rounded-xl border px-4 py-3 font-mono text-[13px] font-medium transition-all duration-300 focus:outline-none
-                    ${isDarkMode ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20'
-                      : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-300 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/10'}`}
-                />
-              </div>
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Provider Engine</label>
+              <select
+                value={selectedNewEngine}
+                onChange={e => setSelectedEngine(e.target.value)}
+                className={`font-outfit w-full cursor-pointer rounded-xl border px-3 py-2.5 text-[13px] font-bold focus:outline-none
+                  ${isDarkMode 
+                    ? 'border-white/10 bg-[#0e0f14] text-white focus:border-indigo-500/50' 
+                    : 'border-slate-200 bg-white text-slate-900 focus:border-indigo-500/50'}`}
+              >
+                {ENGINES.map(e => (
+                  <option key={e.id} value={e.id}>{e.label}</option>
+                ))}
+              </select>
+            </div>
 
-              {selectedEngine === 'google' && (
-                <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                  <label className={`block text-[11px] font-black uppercase tracking-wider mb-2 opacity-70 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-                    Search Engine ID (CX ID)
-                  </label>
+            {selectedNewEngine !== 'duckduckgo' && (
+              <div className="flex flex-col gap-3 animate-in fade-in duration-200">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Access Key (API Key)</label>
                   <input
-                    type="text"
-                    value={tempSearchEngineId}
-                    onChange={e => setTempSearchEngineId(e.target.value)}
-                    placeholder="Enter Custom Search Engine ID"
-                    className={`w-full rounded-xl border px-4 py-3 font-mono text-[13px] font-medium transition-all duration-300 focus:outline-none
-                      ${isDarkMode ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20'
-                        : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-300 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/10'}`}
+                    type="password"
+                    value={newApiKey}
+                    onChange={e => setNewApiKey(e.target.value)}
+                    placeholder={`Enter ${getEngineLabel(selectedNewEngine)} Key`}
+                    className={`w-full rounded-xl border px-3 py-2.5 font-mono text-[12px] focus:outline-none
+                      ${isDarkMode 
+                        ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50' 
+                        : 'border-slate-200 bg-white text-slate-950 placeholder:text-slate-300 focus:border-indigo-500/50'}`}
                   />
                 </div>
-              )}
-            </div>
-          )}
 
-          {selectedEngine === 'duckduckgo' && (
-            <div className={`p-4 rounded-xl border flex items-start gap-3 transition-colors duration-300 ${
-              isDarkMode ? 'border-indigo-500/10 bg-indigo-500/5' : 'border-indigo-100 bg-indigo-50/50'
-            }`}>
-              <FiAlertCircle className={`mt-0.5 shrink-0 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`} size={16} />
-              <div className="text-[12px] font-medium leading-relaxed opacity-85">
-                No credentials are required for DuckDuckGo. WebGenie will scrape and parse the search results through DuckDuckGo Lite.
-              </div>
-            </div>
-          )}
-
-          {/* Action Save/Add Button */}
-          <div className="flex items-center gap-4 mt-2">
-            <button
-              onClick={handleAddEngine}
-              disabled={isSaving}
-              className={`flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-outfit text-[13px] font-black uppercase tracking-wider transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] shadow-md disabled:opacity-50
-                ${isDarkMode ? 'bg-indigo-600 text-white hover:bg-indigo-500 hover:shadow-indigo-500/20'
-                  : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-indigo-600/10'}`}
-            >
-              {isSaving ? (
-                <div className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              ) : saveSuccess ? (
-                <FiCheck size={16} className="text-emerald-400" />
-              ) : (
-                <FiPlus size={16} />
-              )}
-              {isSaving ? 'Registering...' : saveSuccess ? 'Saved!' : 'Add Search Engine'}
-            </button>
-
-            {/* Currently Configured Badge */}
-            {settings.primarySearchEngine && (
-              <div className="flex items-center gap-2">
-                <div className="size-2 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-                <span className={`text-[11px] font-bold uppercase tracking-wider opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-                  Active: {getEngineLabel(settings.primarySearchEngine)}
-                </span>
+                {selectedNewEngine === 'google' && (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5 opacity-60">Search Engine ID (CX ID)</label>
+                    <input
+                      type="text"
+                      value={newSearchEngineId}
+                      onChange={e => setNewSearchEngineId(e.target.value)}
+                      placeholder="Enter custom CX ID"
+                      className={`w-full rounded-xl border px-3 py-2.5 font-mono text-[12px] focus:outline-none
+                        ${isDarkMode 
+                          ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50' 
+                          : 'border-slate-200 bg-white text-slate-950 placeholder:text-slate-300 focus:border-indigo-500/50'}`}
+                    />
+                  </div>
+                )}
               </div>
             )}
+
+            {selectedNewEngine === 'duckduckgo' && (
+              <div className="text-[12px] opacity-60 p-3 rounded-lg border border-white/5 bg-white/5">
+                DuckDuckGo queries organic pages directly and requires no developer credentials.
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 mt-2">
+              <button
+                type="button"
+                onClick={handleAddProvider}
+                className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 font-outfit text-[12px] font-black uppercase tracking-wider text-white hover:bg-indigo-500 transition-all duration-300 hover:scale-[1.02]"
+              >
+                <FiCheck size={14} /> Add Provider
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsAddingNew(false)}
+                className={`rounded-xl border px-5 py-2.5 font-outfit text-[12px] font-black uppercase tracking-wider transition-all duration-300
+                  ${isDarkMode 
+                    ? 'border-white/10 text-white hover:bg-white/5' 
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
-      </DashboardSection>
+      )}
 
-      {/* CLOUD BROWSER SANDBOX */}
-      <DashboardSection
-        title="Cloud Browser Hosting"
-        subtitle="Offload execution to remote sandbox browsers"
-        icon={<FiGlobe size={20} />}
-        isDarkMode={isDarkMode}
-        colorTheme="indigo"
-        headerClassName="py-5 px-8"
-        contentClassName="flex flex-col"
+      {/* 3. SEARCH PROVIDERS LIST CARD */}
+      <div className={`rounded-2xl border overflow-hidden
+        ${isDarkMode ? 'border-white/5 bg-[#161821]' : 'border-slate-100 bg-white'}`}
       >
-        <SettingToggle title="Enable Browserbase" desc="Run browser automation Headless in the cloud" checked={settings.enableBrowserbase} isDarkMode={isDarkMode} onChange={val => updateSetting('enableBrowserbase', val)} />
-        <SettingTextInput title="Browserbase API Key" desc="Authentication API key for remote browser launch" value={settings.browserbaseApiKey} isSecret={true} placeholder="bb-..." isDarkMode={isDarkMode} onChange={val => updateSetting('browserbaseApiKey', val)} />
-        <SettingTextInput title="Browserbase Project ID" desc="Project sandbox scope identifier" value={settings.browserbaseProjectId} placeholder="project-id" isDarkMode={isDarkMode} onChange={val => updateSetting('browserbaseProjectId', val)} />
-      </DashboardSection>
+        {/* Card Header */}
+        <div className={`flex items-center gap-3.5 px-6 py-5 border-b
+          ${isDarkMode ? 'border-white/5 bg-[#1a1c27]' : 'border-slate-100 bg-slate-50/50'}`}
+        >
+          <div className={`p-2 rounded-xl ${isDarkMode ? 'bg-indigo-600/10 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
+            <FiSearch size={18} />
+          </div>
+          <div>
+            <h2 className={`font-outfit text-[15px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
+              Search Providers
+            </h2>
+            <p className={`text-[11px] font-medium opacity-50 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              Connection and credential management
+            </p>
+          </div>
+        </div>
 
-      {/* CAPTCHA & AUTO-BYPASS */}
-      <DashboardSection
-        title="CAPTCHA Auto-Bypass"
-        subtitle="Third-party automated challenge solving APIs"
-        icon={<FiKey size={20} />}
-        isDarkMode={isDarkMode}
-        colorTheme="indigo"
-        headerClassName="py-5 px-8"
-        contentClassName="flex flex-col"
-      >
-        <SettingToggle title="Enable Capsolver" desc="Automatically solve Turnstile and hCaptcha checks" checked={settings.enableCapsolver} isDarkMode={isDarkMode} onChange={val => updateSetting('enableCapsolver', val)} />
-        <SettingTextInput title="Capsolver API Key" desc="Capsolver developer secret key" value={settings.capsolverApiKey} isSecret={true} placeholder="CAP-..." isDarkMode={isDarkMode} onChange={val => updateSetting('capsolverApiKey', val)} />
-      </DashboardSection>
+        {/* Card Content (Provider Nodes List) */}
+        <div className="flex flex-col">
+          {configured.map((engineId) => {
+            const isLive = settings.primarySearchEngine === engineId;
+            const engineLabel = getEngineLabel(engineId);
+            
+            // Access credentials safely for listing
+            let keyDisplay = '••••••••••••••••••••••••••••••••';
+            if (engineId === 'tavily') keyDisplay = settings.tavilyApiKey || '';
+            else if (engineId === 'perplexity') keyDisplay = settings.perplexityApiKey || '';
+            else if (engineId === 'exa') keyDisplay = settings.exaApiKey || '';
+            else if (engineId === 'serper') keyDisplay = settings.serperApiKey || '';
+            else if (engineId === 'brave') keyDisplay = settings.braveApiKey || '';
+            else if (engineId === 'jina') keyDisplay = settings.jinaApiKey || '';
+            else if (engineId === 'google') keyDisplay = settings.googleApiKey || '';
+            
+            const isVisible = visibleKeys[engineId] || false;
 
-      {/* DOM RECOVERY & RESILIENCE */}
-      <DashboardSection
-        title="DOM Resilience"
-        subtitle="Self-healing selectors and fuzzy target matching"
-        icon={<FiCpu size={20} />}
-        isDarkMode={isDarkMode}
-        colorTheme="indigo"
-        headerClassName="py-5 px-8"
-        contentClassName="flex flex-col"
+            return (
+              <div 
+                key={engineId} 
+                className={`p-6 border-b last:border-0 flex flex-col gap-4 transition-all duration-300
+                  ${isDarkMode ? 'border-white/5' : 'border-slate-100'}`}
+              >
+                {/* Node Title + Status Badge + Delete */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className={`font-outfit text-[13px] font-black uppercase tracking-wider ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
+                      {engineLabel}
+                    </span>
+                    {isLive ? (
+                      <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Live Node
+                      </span>
+                    ) : (
+                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider
+                        ${isDarkMode ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
+                        Configured
+                      </span>
+                    )}
+                  </div>
+                  
+                  {engineId !== 'duckduckgo' && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteProvider(engineId)}
+                      className="text-[10px] font-black uppercase tracking-wider text-rose-500 hover:text-rose-400 active:scale-[0.98] transition-all"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+
+                {/* Input Fields */}
+                {engineId !== 'duckduckgo' ? (
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <span className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 opacity-40 ${isDarkMode ? 'text-slate-300' : 'text-slate-800'}`}>
+                        Access Key
+                      </span>
+                      <div className="relative">
+                        <input
+                          type={isVisible ? 'text' : 'password'}
+                          value={keyDisplay}
+                          readOnly
+                          className={`w-full rounded-xl border px-4 py-3 font-mono text-[12px] tracking-wider pr-10 focus:outline-none
+                            ${isDarkMode 
+                              ? 'border-white/5 bg-[#0e0f14]/50 text-white' 
+                              : 'border-slate-100 bg-slate-50/50 text-slate-800'}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => toggleVisibility(engineId)}
+                          className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-200 transition-colors"
+                        >
+                          {isVisible ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {engineId === 'google' && (
+                      <div>
+                        <span className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 opacity-40 ${isDarkMode ? 'text-slate-300' : 'text-slate-800'}`}>
+                          Search Engine ID (CX ID)
+                        </span>
+                        <input
+                          type="text"
+                          value={settings.googleSearchEngineId || ''}
+                          readOnly
+                          className={`w-full rounded-xl border px-4 py-3 font-mono text-[12px] focus:outline-none
+                            ${isDarkMode 
+                              ? 'border-white/5 bg-[#0e0f14]/50 text-white' 
+                              : 'border-slate-100 bg-slate-50/50 text-slate-800'}`}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className={`p-3.5 rounded-xl border text-[11px] leading-relaxed opacity-60
+                    ${isDarkMode ? 'border-white/5 bg-[#0e0f14]/40' : 'border-slate-100 bg-slate-50/30'}`}>
+                    DuckDuckGo provides organic search scraping via HTML Lite. No authentication credentials are required.
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 4. PRIMARY SEARCH CONFIGURATION CARD */}
+      <div className={`rounded-2xl border overflow-hidden
+        ${isDarkMode ? 'border-white/5 bg-[#161821]' : 'border-slate-100 bg-white'}`}
       >
-        <SettingToggle title="Self-Healing Selectors" desc="Fuzzy matching for element identification when primary locator fails" checked={settings.enableSelfHealing} isDarkMode={isDarkMode} onChange={val => updateSetting('enableSelfHealing', val)} />
-      </DashboardSection>
+        <div className={`flex items-center gap-3.5 px-6 py-5 border-b
+          ${isDarkMode ? 'border-white/5 bg-[#1a1c27]' : 'border-slate-100 bg-slate-50/50'}`}
+        >
+          <div className={`p-2 rounded-xl ${isDarkMode ? 'bg-indigo-600/10 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
+            <FiCompass size={18} />
+          </div>
+          <div>
+            <h2 className={`font-outfit text-[15px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
+              Search Processing
+            </h2>
+            <p className={`text-[11px] font-medium opacity-50 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              Primary audio and routing engine
+            </p>
+          </div>
+        </div>
+
+        <div className="p-6 flex flex-col gap-2">
+          <label className={`text-[10px] font-black uppercase tracking-widest opacity-45 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+            Primary Search Engine
+          </label>
+          <select
+            value={settings.primarySearchEngine || 'duckduckgo'}
+            onChange={e => handleSelectPrimary(e.target.value)}
+            className={`font-outfit w-full cursor-pointer rounded-xl border px-4 py-3.5 text-[13px] font-bold focus:outline-none transition-all duration-300
+              ${isDarkMode 
+                ? 'border-white/10 bg-[#0e0f14] text-white focus:border-indigo-500/50' 
+                : 'border-slate-200 bg-white text-slate-900 focus:border-indigo-500/50'}`}
+          >
+            {configured.map((id) => (
+              <option key={id} value={id}>
+                {getEngineLabel(id)} {id === 'duckduckgo' ? '(No Key)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
     </div>
   );
