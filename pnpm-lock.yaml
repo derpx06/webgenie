@@ -160,6 +160,9 @@ importers:
       jsonrepair:
         specifier: ^3.13.1
         version: 3.13.1
+      langsmith:
+        specifier: ^0.6.3
+        version: 0.6.3(openai@5.12.2(ws@8.18.3)(zod@3.25.76))(ws@8.18.3)
       posthog-js:
         specifier: ^1.271.0
         version: 1.297.2
@@ -3206,6 +3209,26 @@ packages:
       '@opentelemetry/sdk-trace-base':
         optional: true
       openai:
+        optional: true
+
+  langsmith@0.6.3:
+    resolution: {integrity: sha512-pXrQ4/4myQvjFFOAUmt5pWRrLEZR20gzIJD7MNdUH+5/S5nLI4ZRBo/SYKC6coaYj9pYTfQdBIzcs+3kfJ5uDA==}
+    peerDependencies:
+      '@opentelemetry/api': '*'
+      '@opentelemetry/exporter-trace-otlp-proto': '*'
+      '@opentelemetry/sdk-trace-base': '*'
+      openai: '*'
+      ws: '>=7'
+    peerDependenciesMeta:
+      '@opentelemetry/api':
+        optional: true
+      '@opentelemetry/exporter-trace-otlp-proto':
+        optional: true
+      '@opentelemetry/sdk-trace-base':
+        optional: true
+      openai:
+        optional: true
+      ws:
         optional: true
 
   language-subtag-registry@0.3.23:
@@ -8192,6 +8215,13 @@ snapshots:
       uuid: 10.0.0
     optionalDependencies:
       openai: 5.12.2(ws@8.18.3)(zod@3.25.76)
+
+  langsmith@0.6.3(openai@5.12.2(ws@8.18.3)(zod@3.25.76))(ws@8.18.3):
+    dependencies:
+      p-queue: 6.6.2
+    optionalDependencies:
+      openai: 5.12.2(ws@8.18.3)(zod@3.25.76)
+      ws: 8.18.3
 
   language-subtag-registry@0.3.23: {}
 

@@ -1,4 +1,11 @@
 import 'webextension-polyfill';
+
+if (typeof globalThis.process === 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).process = {
+    env: {}
+  };
+}
 import {
   agentModelStore,
   AgentNameEnum,

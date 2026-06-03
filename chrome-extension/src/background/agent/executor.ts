@@ -29,6 +29,8 @@ import { chatHistoryStore } from '@extension/storage/lib/chat';
 import type { AgentStepHistory } from './history';
 import type { GeneralSettingsConfig } from '@extension/storage';
 import { analytics } from '../services/analytics';
+import { Client, RunTree } from 'langsmith';
+import { getLangchainCallbacks } from 'langsmith/langchain';
 
 const logger = createLogger('Executor');
 
@@ -157,6 +159,36 @@ export class Executor {
     context.nSteps = 0;
     const allowedMaxSteps = this.context.options.maxSteps;
 
+    if (this.generalSettings?.enableTracing && this.generalSettings.langsmithApiKey) {
+      try {
+        const client = new Client({
+          apiKey: this.generalSettings.langsmithApiKey,
+        });
+
+        if (typeof globalThis.process !== 'undefined' && globalThis.process.env) {
+          globalThis.process.env.LANGCHAIN_TRACING_V2 = 'true';
+          globalThis.process.env.LANGCHAIN_API_KEY = this.generalSettings.langsmithApiKey;
+          globalThis.process.env.LANGCHAIN_PROJECT = this.generalSettings.langsmithProject || 'web-surfer';
+          globalThis.process.env.LANGCHAIN_CALLBACKS_BACKGROUND = 'false';
+        }
+
+        const runName = "WebGenie Task: " + (taskText.slice(0, 100) + (taskText.length > 100 ? '...' : ''));
+        const parentRun = new RunTree({
+          name: runName,
+          run_type: "chain",
+          inputs: { task: taskText },
+          projectName: this.generalSettings.langsmithProject || 'web-surfer',
+          client,
+        });
+
+        await parentRun.postRun();
+        this.context.parentRun = parentRun;
+        this.context.traceCallbacks = await getLangchainCallbacks(parentRun);
+      } catch (err) {
+        logger.error('Failed to initialize LangSmith parent run:', err);
+      }
+    }
+
     try {
       this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_START, this.context.taskId);
 
@@ -235,7 +267,44 @@ export class Executor {
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_PAUSE, t('exec_task_pause'));
         // Note: We don't track pause as it's not a final state
       }
+
+      if (this.context.parentRun) {
+        try {
+          let finalStatus = 'failed';
+          let finalOutput: Record<string, any> = {};
+          if (this.context.stopped) {
+            finalStatus = 'cancelled';
+            finalOutput = { status: 'cancelled' };
+          } else if (isCompleted) {
+            finalStatus = 'success';
+            finalOutput = { status: 'completed', final_answer: this.context.finalAnswer || '' };
+          } else if (step >= allowedMaxSteps) {
+            finalOutput = { status: 'failed', error: 'Max steps reached' };
+          } else {
+            finalStatus = 'paused';
+            finalOutput = { status: 'paused' };
+          }
+          await this.context.parentRun.end(finalOutput, undefined, undefined, finalStatus);
+          await this.context.parentRun.patchRun();
+        } catch (err) {
+          logger.error('Failed to end parent run:', err);
+        }
+      }
     } catch (error) {
+      if (this.context.parentRun) {
+        try {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          await this.context.parentRun.end(
+            { error: errorMsg },
+            error instanceof Error ? error : new Error(errorMsg),
+            undefined,
+            'failed'
+          );
+          await this.context.parentRun.patchRun();
+        } catch (err) {
+          logger.error('Failed to end parent run in catch block:', err);
+        }
+      }
       if (this.context.stopped || error instanceof RequestCancelledError || isAbortedError(error)) {
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
 

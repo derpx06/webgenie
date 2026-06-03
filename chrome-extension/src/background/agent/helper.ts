@@ -11,6 +11,14 @@ import { ChatDeepSeek } from '@langchain/deepseek';
 import { LangChainTracer } from '@langchain/core/tracers/tracer_langchain';
 import { ChatBedrockConverse } from '@langchain/aws';
 import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
+import { Client } from 'langsmith';
+
+if (typeof globalThis.process === 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).process = {
+    env: {}
+  };
+}
 
 
 const maxTokens = 1024 * 4;
@@ -269,13 +277,27 @@ export function createChatModel(
 ): BaseChatModel {
   const callbacks: BaseCallbackHandler[] = [];
   if (generalSettings?.enableTracing && generalSettings.langsmithApiKey) {
-    callbacks.push(
-      new LangChainTracer({
-        projectName: generalSettings.langsmithProject || 'web-surfer',
-        // @ts-expect-error LangChainTracer typings don't expose constructor apiKey, but runtime supports it.
+    try {
+      const client = new Client({
         apiKey: generalSettings.langsmithApiKey,
-      }),
-    );
+      });
+
+      if (typeof globalThis.process !== 'undefined' && globalThis.process.env) {
+        globalThis.process.env.LANGCHAIN_TRACING_V2 = 'true';
+        globalThis.process.env.LANGCHAIN_API_KEY = generalSettings.langsmithApiKey;
+        globalThis.process.env.LANGCHAIN_PROJECT = generalSettings.langsmithProject || 'web-surfer';
+        globalThis.process.env.LANGCHAIN_CALLBACKS_BACKGROUND = 'false';
+      }
+
+      callbacks.push(
+        new LangChainTracer({
+          projectName: generalSettings.langsmithProject || 'web-surfer',
+          client,
+        }),
+      );
+    } catch (err) {
+      console.error('[createChatModel] Failed to initialize LangChainTracer:', err);
+    }
   }
   const temperature = (modelConfig.parameters?.temperature ?? 0.1) as number;
   const topP = (modelConfig.parameters?.topP ?? 0.1) as number;

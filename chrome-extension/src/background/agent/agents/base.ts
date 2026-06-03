@@ -150,6 +150,7 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
         logger.debug(`[${this.modelName}] Invoking LLM with structured output...`);
         response = await structuredLlm.invoke(inputMessages, {
           signal: this.context.controller.signal,
+          callbacks: this.context.traceCallbacks || [],
           ...this.callOptions,
         });
 
@@ -211,6 +212,7 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
     try {
       const response = await this.chatLLM.invoke(convertedInputMessages, {
         signal: this.context.controller.signal,
+        callbacks: this.context.traceCallbacks || [],
         ...this.callOptions,
       });
 

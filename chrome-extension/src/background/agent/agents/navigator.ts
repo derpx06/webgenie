@@ -77,6 +77,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     try {
       const response = await structuredLlm.invoke(inputMessages, {
         signal: this.context.controller.signal,
+        callbacks: this.context.traceCallbacks || [],
         ...this.callOptions,
       });
 

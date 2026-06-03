@@ -77,6 +77,8 @@ export class AgentContext {
    */
   lastEvaluation: string;  // evaluation_previous_goal from last navigator step
   lastMemory: string;      // memory scratchpad from last navigator step
+  parentRun?: any;
+  traceCallbacks?: any;
 
   /**
    * Phase 1 Memory — Failure Registry

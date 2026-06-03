@@ -22,6 +22,8 @@ export default defineConfig(({ mode }) => {
       '@assets': resolve(srcDir, 'assets'),
       '@smithy/shared-ini-file-loader': resolve(srcDir, 'background/agent/mocks/bedrock-fix.ts'),
       '@aws-sdk/credential-provider-node': resolve(srcDir, 'background/agent/mocks/bedrock-fix.ts'),
+      'node:async_hooks': resolve(srcDir, 'background/agent/mocks/async-hooks-mock.ts'),
+      'async_hooks': resolve(srcDir, 'background/agent/mocks/async-hooks-mock.ts'),
     },
     conditions: ['browser', 'module', 'import', 'default'],
     mainFields: ['browser', 'module', 'main']
