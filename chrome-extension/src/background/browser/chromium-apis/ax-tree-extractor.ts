@@ -1,193 +1,245 @@
 /**
- * AXTree Extractor — Phase 2 Chromium API Integration
+ * AXTreeExtractor — Native CDP Accessibility Tree DOM Extraction
  *
- * Replaces the injected DOM script (`buildDomTree`) with the browser's own
- * Accessibility tree via CDP `Accessibility.getFullAXTree`.
+ * Two-layer perception pipeline:
+ *   Layer 1 (Semantic):     Accessibility.getFullAXTree  → role-indexed interactive node list
+ *   Layer 2 (Coordinates):  DOM.getBoxModel (parallel)   → bounding boxes for click dispatch only
  *
- * Benefits over current approach:
- *   - Pierces Shadow DOM (YouTube controls, Web Components)
- *   - Resolves cross-origin iframes (Stripe, PayPal) when not sandboxed
- *   - ~10x fewer tokens: semantic roles vs. raw HTML attributes
- *   - No injection needed — works on all pages including CSP-locked ones
+ * Properties:
+ *   - Fully CSP-proof: zero script injection, operates entirely via chrome.debugger CDP
+ *   - Accessibility domain is ALWAYS disabled in a finally block (avoids persistent overhead)
+ *   - Bounding boxes fetched in parallel for interactive nodes only (not sent to LLM)
+ *   - Falls back to empty DOMState on any unrecoverable error (caller handles fallback)
  *
- * STATUS: Ready for integration — not yet wired into the main agent pipeline.
- * To integrate:
- *   1. Import getClickableElementsViaCDP
- *   2. Replace getClickableElements() call in browser/page.ts _updateState()
- *      with getClickableElementsViaCDP(this._tabId, cdpBridge)
- *
- * @see cdp-bridge.ts for the CDP session manager
+ * Integration point:
+ *   page.ts → getClickableElements() when domPerceptionMode === 'axtree'
  */
 
-import { DOMElementNode } from '../dom/views';
-import type { DOMState } from '../dom/views';
+import { DOMElementNode, type DOMState } from '../dom/views';
+import { type CoordinateSet } from '../dom/history/view';
+import { cdpBridge, type AXNode } from './cdp-bridge';
 import { createLogger } from '@src/background/log';
-import { cdpBridge, type AXNode, type BoxModel } from './cdp-bridge';
 
 const logger = createLogger('AXTreeExtractor');
 
-/** AX roles that map to interactive elements the agent should reason about */
-const INTERACTIVE_ROLES = new Set([
-  'button',
-  'link',
-  'textbox',
-  'searchbox',
-  'combobox',
-  'checkbox',
-  'radio',
-  'listbox',
-  'option',
-  'menuitem',
-  'menuitemcheckbox',
-  'menuitemradio',
-  'tab',
-  'treeitem',
-  'spinbutton',
-  'slider',
-  'switch',
-]);
+// ── Interactive role sets ─────────────────────────────────────────────────────
 
 /**
- * Extract clickable elements from the Accessibility tree via CDP.
- * Returns a DOMState-compatible structure (elementTree + selectorMap).
+ * ARIA roles that represent actionable UI elements.
+ * Only these receive a highlightIndex and appear in the selectorMap.
  */
-export async function getClickableElementsViaCDP(
-  tabId: number,
-  showHighlightElements = true,
-): Promise<DOMState> {
-  const selectorMap = new Map<number, DOMElementNode>();
-  let highlightCounter = 0;
+const INTERACTIVE_ROLES = new Set([
+  'button', 'link', 'textbox', 'checkbox', 'radio', 'combobox',
+  'menuitem', 'menuitemcheckbox', 'menuitemradio', 'tab', 'listbox',
+  'option', 'spinbutton', 'slider', 'searchbox', 'switch', 'treeitem',
+  'gridcell', 'columnheader', 'rowheader', 'scrollbar',
+]);
 
-  let nodes: AXNode[];
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Extract page DOMState using the CDP Accessibility tree as the primary source.
+ *
+ * The returned DOMState:
+ *  - selectorMap  → only interactive nodes, each with a numeric highlightIndex
+ *  - elementTree  → full semantic tree (for context/text serialization)
+ *  - Interactive nodes have pageCoordinates enriched from DOM.getBoxModel
+ *    (used by cdpClick in page.ts — NOT sent to the LLM prompt)
+ */
+export async function getAXTreeState(
+  tabId: number,
+  viewportWidth = 1280,
+  viewportHeight = 900,
+): Promise<DOMState> {
+  logger.info(`[AXTreeExtractor] Starting extraction for tab ${tabId}`);
+
+  // ── Step 1: Fetch the full Accessibility tree ────────────────────────────
+  let axNodes: AXNode[] = [];
   try {
-    nodes = await cdpBridge.getFullAXTree(tabId);
-  } catch (err) {
-    logger.error('[AXTree] Failed to fetch AX tree — falling back to empty state:', err);
+    await cdpBridge.send(tabId, 'Accessibility.enable');
+    const result = await cdpBridge.send<{ nodes: AXNode[] }>(
+      tabId,
+      'Accessibility.getFullAXTree',
+    );
+    axNodes = result.nodes ?? [];
+    logger.debug(`[AXTreeExtractor] Raw AXTree: ${axNodes.length} nodes`);
+  } finally {
+    // Always disable immediately — keeps browser rendering overhead minimal
+    try { await cdpBridge.send(tabId, 'Accessibility.disable'); } catch { /* non-fatal */ }
+  }
+
+  if (axNodes.length === 0) {
+    logger.warning('[AXTreeExtractor] Empty AXTree received');
     return buildEmptyDOMState();
   }
 
-  const buildElements: DOMElementNode[] = [];
+  // ── Step 2: Build DOMElementNode instances (first pass) ─────────────────
+  const selectorMap = new Map<number, DOMElementNode>();
+  let highlightCounter = 0;
+  const domNodeMap = new Map<string, DOMElementNode>();
 
-  for (const node of nodes) {
-    if (node.ignored) continue;
-    const role = node.role?.value ?? '';
-    if (!INTERACTIVE_ROLES.has(role)) continue;
+  for (const axNode of axNodes) {
+    // Ignored nodes are intentionally hidden from assistive technology
+    if (axNode.ignored) continue;
 
-    // Get bounding box for coordinate-based interaction
-    let box: BoxModel | null = null;
-    if (node.backendDOMNodeId != null) {
-      box = await cdpBridge.getBoxModel(tabId, node.backendDOMNodeId);
+    const role = axNode.role?.value ?? 'generic';
+    const name = axNode.name?.value ?? '';
+    const description = axNode.description?.value ?? '';
+    const isDisabled = axNode.disabled?.value === true;
+
+    // Build the attributes map from AX properties
+    const attributes: Record<string, string> = {};
+    if (role)        attributes['role']             = role;
+    if (name)        attributes['aria-label']        = name;
+    if (description) attributes['aria-description'] = description;
+    if (isDisabled)  attributes['aria-disabled']    = 'true';
+    if (axNode.value?.value != null) attributes['value'] = String(axNode.value.value);
+
+    // Map remaining AX properties (checked, expanded, selected, haspopup, …)
+    for (const prop of axNode.properties ?? []) {
+      if (prop.value?.value != null) {
+        attributes[`aria-${prop.name}`] = String(prop.value.value);
+      }
     }
 
-    // Skip off-screen / zero-size elements
-    if (!box || box.width === 0 || box.height === 0) continue;
+    // Only non-disabled interactive roles receive a highlight index
+    const isInteractive = INTERACTIVE_ROLES.has(role) && !isDisabled;
+    const highlightIndex = isInteractive ? highlightCounter++ : null;
 
-    const name = node.name?.value ?? '';
-    const description = node.description?.value ?? '';
-    const value = node.value?.value ?? '';
-    const isDisabled = node.disabled?.value === true;
-
-    const attributes: Record<string, string> = {
-      role,
-      'aria-label': name,
-      'aria-description': description,
-      value,
-      'data-ax-node-id': node.nodeId,
-      ...(node.backendDOMNodeId != null ? { 'data-backend-node-id': String(node.backendDOMNodeId) } : {}),
-      // Store center coordinates for Phase 3 CDP click
-      'data-cdp-x': String(Math.round(box.x)),
-      'data-cdp-y': String(Math.round(box.y)),
-    };
-
-    if (isDisabled) attributes['disabled'] = 'true';
-
-    const elementNode = new DOMElementNode({
-      tagName: mapAXRoleToTagName(role),
-      xpath: null,
+    const domNode = new DOMElementNode({
+      tagName:        axRoleToTagName(role),
+      xpath:          null,           // assigned after tree is stitched
       attributes,
-      children: [],
-      isVisible: true,
-      isInteractive: !isDisabled,
-      isTopElement: true,
-      isInViewport: true,
-      highlightIndex: highlightCounter,
-      shadowRoot: false,
-      parent: null,
+      children:       [],
+      isVisible:      true,           // AXTree only surfaces visible nodes
+      isInteractive,
+      isTopElement:   false,
+      isInViewport:   false,          // set during bounding box enrichment
+      shadowRoot:     false,
+      highlightIndex,
+      parent:         null,
     });
 
-    selectorMap.set(highlightCounter, elementNode);
-    buildElements.push(elementNode);
-    highlightCounter++;
+    domNodeMap.set(axNode.nodeId, domNode);
+    if (highlightIndex !== null) selectorMap.set(highlightIndex, domNode);
+  }
 
-    if (showHighlightElements) {
-      logger.debug(
-        `[AXTree] [${highlightCounter - 1}] ${role} "${name || value}" @ (${Math.round(box.x)}, ${Math.round(box.y)})`,
-      );
+  // ── Step 3: Stitch parent-child relationships (second pass) ─────────────
+  let rootNode: DOMElementNode | null = null;
+
+  for (const axNode of axNodes) {
+    if (axNode.ignored) continue;
+    const domNode = domNodeMap.get(axNode.nodeId);
+    if (!domNode) continue;
+
+    if (!axNode.parentId) {
+      if (!rootNode) rootNode = domNode;
+      continue;
+    }
+    const parent = domNodeMap.get(axNode.parentId);
+    if (parent) {
+      domNode.parent = parent;
+      parent.children.push(domNode);
     }
   }
 
-  logger.info(`[AXTree] Extracted ${buildElements.length} interactive elements from tab ${tabId}`);
-
-  // Build a flat root element (compatible with current elementTree interface)
-  const elementTree = new DOMElementNode({
-    tagName: 'root',
-    xpath: '/',
-    attributes: {},
-    children: buildElements,
-    isVisible: true,
-    isInteractive: false,
-    isTopElement: true,
-    isInViewport: true,
-    highlightIndex: null,
-    shadowRoot: false,
-    parent: null,
-  });
-
-  // Wire parent references
-  for (const child of buildElements) {
-    child.parent = elementTree;
+  if (!rootNode) {
+    logger.warning('[AXTreeExtractor] Could not determine root node');
+    return buildEmptyDOMState();
   }
 
-  return { elementTree, selectorMap };
+  logger.info(
+    `[AXTreeExtractor] Tree built — ${highlightCounter} interactive / ${axNodes.length} total AX nodes`,
+  );
+
+  // ── Step 4: Enrich interactive nodes with bounding boxes ─────────────────
+  // Parallel CDP calls: only for nodes that have a backendDOMNodeId.
+  // These coordinates power cdpClick; they are NOT serialized into the LLM prompt.
+  await enrichWithBoundingBoxes(tabId, axNodes, domNodeMap, viewportWidth, viewportHeight);
+
+  return { elementTree: rootNode, selectorMap };
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Bounding box enrichment ───────────────────────────────────────────────────
+
+async function enrichWithBoundingBoxes(
+  tabId: number,
+  axNodes: AXNode[],
+  domNodeMap: Map<string, DOMElementNode>,
+  viewportWidth: number,
+  viewportHeight: number,
+): Promise<void> {
+  const targets = axNodes.filter(n => {
+    const dom = domNodeMap.get(n.nodeId);
+    return dom?.isInteractive && n.backendDOMNodeId != null;
+  });
+
+  if (targets.length === 0) return;
+  logger.debug(`[AXTreeExtractor] Fetching bounding boxes for ${targets.length} interactive nodes`);
+
+  const results = await Promise.allSettled(
+    targets.map(async axNode => {
+      const box = await cdpBridge.getBoxModel(tabId, axNode.backendDOMNodeId!);
+      if (!box) return;
+
+      const domNode = domNodeMap.get(axNode.nodeId);
+      if (!domNode) return;
+
+      // Build a fully-typed CoordinateSet from the BoxModel
+      const coords: CoordinateSet = {
+        topLeft:     { x: box.left,             y: box.top              },
+        topRight:    { x: box.left + box.width, y: box.top              },
+        bottomLeft:  { x: box.left,             y: box.top + box.height },
+        bottomRight: { x: box.left + box.width, y: box.top + box.height },
+        center:      { x: box.x,                y: box.y               },
+        width:       box.width,
+        height:      box.height,
+      };
+
+      domNode.pageCoordinates     = coords;
+      domNode.viewportCoordinates = coords; // scroll offset applied at click-dispatch time
+      domNode.isInViewport =
+        box.x >= 0 && box.y >= 0 &&
+        box.x < viewportWidth && box.y < viewportHeight;
+    }),
+  );
+
+  const failed = results.filter(r => r.status === 'rejected').length;
+  if (failed > 0) {
+    logger.debug(
+      `[AXTreeExtractor] ${failed}/${targets.length} box model lookups failed (off-screen or detached nodes)`,
+    );
+  }
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+/**
+ * Map an ARIA role to a representative HTML tag name.
+ * Populates DOMElementNode.tagName for compatibility with the existing
+ * clickableElementsToString() serializer.
+ */
+function axRoleToTagName(role: string): string {
+  const map: Record<string, string> = {
+    button: 'button', link: 'a',
+    textbox: 'input', searchbox: 'input', checkbox: 'input',
+    radio: 'input', spinbutton: 'input', slider: 'input', switch: 'input',
+    combobox: 'select', listbox: 'select', option: 'option',
+    menuitem: 'li', menuitemcheckbox: 'li', menuitemradio: 'li',
+    tab: 'button', treeitem: 'li',
+    gridcell: 'td', columnheader: 'th', rowheader: 'th',
+    scrollbar: 'div', heading: 'h2', img: 'img',
+    list: 'ul', listitem: 'li', table: 'table', row: 'tr',
+    paragraph: 'p', generic: 'div', none: 'div', presentation: 'div',
+  };
+  return map[role] ?? 'div';
+}
 
 function buildEmptyDOMState(): DOMState {
   const elementTree = new DOMElementNode({
-    tagName: 'body',
-    xpath: '',
-    attributes: {},
-    children: [],
-    isVisible: false,
-    isInteractive: false,
-    isTopElement: false,
-    isInViewport: false,
-    highlightIndex: null,
-    shadowRoot: false,
-    parent: null,
+    tagName: 'body', xpath: '', attributes: {}, children: [],
+    isVisible: false, isInteractive: false, isTopElement: false,
+    isInViewport: false, highlightIndex: null, shadowRoot: false, parent: null,
   });
   return { elementTree, selectorMap: new Map() };
-}
-
-/** Map semantic AX roles to HTML tag names for LLM comprehension */
-function mapAXRoleToTagName(role: string): string {
-  switch (role) {
-    case 'link':           return 'a';
-    case 'button':         return 'button';
-    case 'textbox':
-    case 'searchbox':      return 'input';
-    case 'combobox':       return 'select';
-    case 'checkbox':       return 'input[type=checkbox]';
-    case 'radio':          return 'input[type=radio]';
-    case 'tab':            return 'tab';
-    case 'menuitem':
-    case 'menuitemcheckbox':
-    case 'menuitemradio':  return 'menuitem';
-    case 'listbox':        return 'ul';
-    case 'option':         return 'option';
-    case 'slider':
-    case 'spinbutton':     return 'input[type=range]';
-    default:               return 'div';
-  }
 }

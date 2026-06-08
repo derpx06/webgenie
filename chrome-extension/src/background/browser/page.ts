@@ -23,6 +23,8 @@ import { createLogger } from '@src/background/log';
 import { ClickableElementProcessor } from './dom/clickable/service';
 import { isUrlAllowed, isNewTabPage } from './util';
 import { getDOMStateViaSnapshot } from './chromium-apis/dom-snapshot-extractor';
+import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
+import { pruneAXTree } from './dom/ax-tree-pruner';
 
 const logger = createLogger('Page');
 
@@ -332,39 +334,52 @@ export default class Page {
       return null;
     }
 
-    try {
-      const state = await getDOMStateViaSnapshot(this._tabId);
-      if (state && state.selectorMap.size > 0) {
-        if (showHighlightElements) {
-          const rects = [];
-          for (const [idx, el] of state.selectorMap.entries()) {
-            if (el.pageCoordinates) {
-              rects.push({
-                index: idx,
-                x: el.pageCoordinates.center.x,
-                y: el.pageCoordinates.center.y,
-                w: parseInt(el.attributes['computedWidth'] || '0'),
-                h: parseInt(el.attributes['computedHeight'] || '0'),
-              });
-            }
+    const mode = this._config.domPerceptionMode ?? 'snapshot';
+
+    // ── Path A: AXTree-first ──────────────────────────────────────────────────
+    // Token-efficient, CSP-proof. Uses native Accessibility domain, no script injection.
+    if (mode === 'axtree') {
+      try {
+        const { width, height } = this._config.browserWindowSize;
+        const rawState = await getAXTreeState(this._tabId, width, height);
+        if (rawState && rawState.selectorMap.size > 0) {
+          const state = pruneAXTree(rawState);
+          logger.info(`[Page] AXTree: ${state.selectorMap.size} interactive elements after pruning`);
+          if (showHighlightElements) {
+            await this._drawHighlightsFromCoords(state);
           }
-          if (rects.length > 0) {
-            await drawHighlightOverlaysViaCoordinates(this._tabId, rects);
-          }
+          return state;
         }
-        return state;
+        logger.warning('[Page] AXTree returned empty selectorMap — falling through to snapshot');
+      } catch (err) {
+        logger.error('[Page] AXTree extraction error — falling through to snapshot:', err);
       }
-    } catch (error) {
-      logger.error('[Page] DOMSnapshot extraction failed, falling back to legacy DOM service:', error);
     }
 
-    // Fallback to legacy script-injection DOM builder if snapshot is unavailable or empty
+    // ── Path B: DOMSnapshot ───────────────────────────────────────────────────
+    // Current default. Coordinate-rich, high-fidelity, CSP-proof via CDP.
+    if (mode === 'snapshot' || mode === 'axtree') {
+      try {
+        const state = await getDOMStateViaSnapshot(this._tabId);
+        if (state && state.selectorMap.size > 0) {
+          if (showHighlightElements) {
+            await this._drawHighlightsFromCoords(state);
+          }
+          return state;
+        }
+      } catch (error) {
+        logger.error('[Page] DOMSnapshot extraction failed, falling back to legacy DOM service:', error);
+      }
+    }
+
+    // ── Path C: Legacy script-injection ──────────────────────────────────────
+    // Final fallback — CSP-vulnerable but works without debugger permission.
     let tabUrl = this._state.url;
     try {
       const tab = await chrome.tabs.get(this._tabId);
       tabUrl = tab.url ?? tabUrl;
     } catch {
-      // Tab closed or inaccessible; fall back to cached state URL
+      // Tab closed or inaccessible
     }
     return _getClickableElements(
       this._tabId,
@@ -373,6 +388,28 @@ export default class Page {
       focusElement,
       this._config.viewportExpansion,
     );
+  }
+
+  /**
+   * Draw highlight overlays for all interactive elements in a DOMState using their
+   * stored pageCoordinates. Works for both AXTree-derived and DOMSnapshot-derived states.
+   */
+  private async _drawHighlightsFromCoords(state: DOMState): Promise<void> {
+    const rects: { index: number; x: number; y: number; w: number; h: number }[] = [];
+    for (const [idx, el] of state.selectorMap.entries()) {
+      if (el.pageCoordinates) {
+        rects.push({
+          index: idx,
+          x: el.pageCoordinates.center.x,
+          y: el.pageCoordinates.center.y,
+          w: el.pageCoordinates.width,
+          h: el.pageCoordinates.height,
+        });
+      }
+    }
+    if (rects.length > 0) {
+      await drawHighlightOverlaysViaCoordinates(this._tabId, rects);
+    }
   }
 
   // Get scroll position information for the current page.
