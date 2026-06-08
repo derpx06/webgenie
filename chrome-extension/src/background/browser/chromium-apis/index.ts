@@ -65,8 +65,9 @@
 export { cdpBridge, CDPBridge } from './cdp-bridge';
 export type { AXNode, BoxModel } from './cdp-bridge';
 
-export { getClickableElementsViaCDP } from './ax-tree-extractor';
+export { getAXTreeState } from './ax-tree-extractor';
 export { getDOMStateViaSnapshot } from './dom-snapshot-extractor';
+
 
 // ── Tab Tools ─────────────────────────────────────────────────────────────────
 export {

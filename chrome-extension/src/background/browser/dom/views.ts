@@ -90,6 +90,7 @@ export class DOMElementNode extends DOMBaseNode {
   viewportCoordinates?: CoordinateSet;
   pageCoordinates?: CoordinateSet;
   viewportInfo?: ViewportInfo;
+  backendNodeId?: number;
 
   /*
 	### State injected by the browser context.
@@ -114,6 +115,7 @@ export class DOMElementNode extends DOMBaseNode {
     viewportInfo?: ViewportInfo;
     isNew?: boolean | null;
     parent?: DOMElementNode | null;
+    backendNodeId?: number;
   }) {
     super(params.isVisible, params.parent);
     this.tagName = params.tagName;
@@ -129,6 +131,7 @@ export class DOMElementNode extends DOMBaseNode {
     this.pageCoordinates = params.pageCoordinates;
     this.viewportInfo = params.viewportInfo;
     this.isNew = params.isNew ?? null;
+    this.backendNodeId = params.backendNodeId;
   }
 
   // Cache for the hash value
@@ -283,6 +286,37 @@ export class DOMElementNode extends DOMBaseNode {
               delete attributesToInclude.role;
             }
 
+            // Remove redundant role attributes matching standard native HTML tags
+            const REDUNDANT_ROLES_FOR_TAGS: Record<string, string> = {
+              'a': 'link',
+              'button': 'button',
+              'input': 'textbox',
+              'textarea': 'textbox',
+              'select': 'combobox',
+              'option': 'option',
+              'img': 'img',
+              'h1': 'heading',
+              'h2': 'heading',
+              'h3': 'heading',
+              'h4': 'heading',
+              'h5': 'heading',
+              'h6': 'heading',
+              'li': 'listitem',
+              'ul': 'list',
+              'ol': 'list',
+              'table': 'table',
+              'tr': 'row',
+              'td': 'gridcell',
+              'th': 'columnheader',
+            };
+            const tagLower = (node.tagName ?? '').toLowerCase();
+            if (
+              attributesToInclude.role &&
+              REDUNDANT_ROLES_FOR_TAGS[tagLower] === attributesToInclude.role.toLowerCase()
+            ) {
+              delete attributesToInclude.role;
+            }
+
             // Remove attributes that duplicate the node's text content
             const attrsToRemoveIfTextMatches = ['aria-label', 'placeholder', 'title'];
             for (const attr of attrsToRemoveIfTextMatches) {
@@ -294,38 +328,49 @@ export class DOMElementNode extends DOMBaseNode {
               }
             }
 
-            if (Object.keys(attributesToInclude).length > 0) {
-              // Format as key1='value1' key2='value2'
-              attributesHtmlStr = Object.entries(attributesToInclude)
-                .map(([key, value]) => `${key}=${capTextLength(value, 15)}`)
-                .join(' ');
+            // Mark off-screen elements
+            if (!node.isInViewport) {
+              attributesToInclude['offscreen'] = 'true';
             }
-          }
 
-          // Build the line
-          const highlightIndicator = node.isNew ? `*[${node.highlightIndex}]` : `[${node.highlightIndex}]`;
-
-          let line = `${depthStr}${highlightIndicator}<${node.tagName}`;
-
-          if (attributesHtmlStr) {
-            line += ` ${attributesHtmlStr}`;
-          }
-
-          if (text) {
-            // Add space before >text only if there were NO attributes added before
-            const trimmedText = text.trim();
-            if (!attributesHtmlStr) {
-              line += ' ';
-            }
-            line += `>${trimmedText}`;
-          }
-          // Add space before /> only if neither attributes NOR text were added
-          else if (!attributesHtmlStr) {
-            line += ' ';
-          }
-
-          // makes sense to have if the website has lots of text -> so the LLM knows which things are part of the same clickable element and which are not
-          line += ' />'; // 1 token
+             if (Object.keys(attributesToInclude).length > 0) {
+               // Format as key="value" with dynamic caps based on key importance
+               attributesHtmlStr = Object.entries(attributesToInclude)
+                 .map(([key, value]) => {
+                   let capLimit = 15;
+                   if (key === 'href') {
+                     capLimit = 50;
+                   } else if (['aria-label', 'aria-description', 'placeholder', 'title', 'value'].includes(key)) {
+                     capLimit = 40;
+                   }
+                   const capped = capTextLength(value, capLimit);
+                   const escaped = capped.replace(/"/g, '&quot;');
+                   return `${key}="${escaped}"`;
+                 })
+                 .join(' ');
+             }
+           }
+ 
+           // Build the line
+           const highlightIndicator = node.isNew ? `*[${node.highlightIndex}]` : `[${node.highlightIndex}]`;
+ 
+           let line = `${depthStr}${highlightIndicator}<${node.tagName ?? 'DIV'}`;
+ 
+           if (attributesHtmlStr) {
+             line += ` ${attributesHtmlStr}`;
+           }
+ 
+           if (text) {
+             // Add space before >text only if there were NO attributes added before
+             const trimmedText = text.trim();
+             if (!attributesHtmlStr) {
+               line += ' ';
+             }
+             line += `>${trimmedText}`;
+           }
+ 
+           // makes sense to have if the website has lots of text -> so the LLM knows which things are part of the same clickable element and which are not
+           line += ' />'; // 1 token
           formattedText.push(line);
         }
 
@@ -573,29 +618,6 @@ export interface DOMState {
   selectorMap: Map<number, DOMElementNode>;
 }
 
-export function domElementNodeToDict(elementTree: DOMBaseNode): unknown {
-  function nodeToDict(node: DOMBaseNode): unknown {
-    if (node instanceof DOMTextNode) {
-      return {
-        type: 'text',
-        text: node.text,
-      };
-    }
-    if (node instanceof DOMElementNode) {
-      return {
-        type: 'element',
-        tagName: node.tagName,
-        attributes: node.attributes,
-        highlightIndex: node.highlightIndex,
-        children: node.children.map(child => nodeToDict(child)),
-      };
-    }
-
-    return {};
-  }
-
-  return nodeToDict(elementTree);
-}
 
 export async function calcBranchPathHashSet(state: DOMState): Promise<Set<string>> {
   const pathHashes = new Set(

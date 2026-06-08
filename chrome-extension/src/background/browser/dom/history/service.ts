@@ -21,16 +21,19 @@ export function convertDomElementToHistoryElement(domElement: DOMElementNode): D
   );
 }
 
+import { healElement } from '../selector-healer';
+
 /**
- * Find a history element in the DOM tree
+ * Find a history element in the DOM tree using a cascading match strategy
  */
 export async function findHistoryElementInTree(
   domHistoryElement: DOMHistoryElement,
   tree: DOMElementNode,
 ): Promise<DOMElementNode | null> {
+  // ── Phase A: Strict hash match ──────────────────────────────────────────────
   const hashedDomHistoryElement = await hashDomHistoryElement(domHistoryElement);
 
-  const processNode = async (node: DOMElementNode): Promise<DOMElementNode | null> => {
+  const processNodeStrict = async (node: DOMElementNode): Promise<DOMElementNode | null> => {
     if (node.highlightIndex != null) {
       const hashedNode = await hashDomElement(node);
       if (
@@ -43,7 +46,7 @@ export async function findHistoryElementInTree(
     }
     for (const child of node.children) {
       if (child instanceof DOMElementNode) {
-        const result = await processNode(child);
+        const result = await processNodeStrict(child);
         if (result !== null) {
           return result;
         }
@@ -52,26 +55,59 @@ export async function findHistoryElementInTree(
     return null;
   };
 
-  return processNode(tree);
-}
+  const strictResult = await processNodeStrict(tree);
+  if (strictResult !== null) {
+    return strictResult;
+  }
 
-/**
- * Compare a history element and a DOM element
- */
-export async function compareHistoryElementAndDomElement(
-  domHistoryElement: DOMHistoryElement,
-  domElement: DOMElementNode,
-): Promise<boolean> {
-  const [hashedDomHistoryElement, hashedDomElement] = await Promise.all([
-    hashDomHistoryElement(domHistoryElement),
-    hashDomElement(domElement),
-  ]);
+  // ── Phase B: Attribute-only match (ignores XPath/branchPath drift) ───────────
+  const processNodeAttributeOnly = async (node: DOMElementNode): Promise<DOMElementNode | null> => {
+    if (node.highlightIndex != null) {
+      const hashedNode = await hashDomElement(node);
+      if (
+        hashedNode.attributesHash === hashedDomHistoryElement.attributesHash &&
+        (node.tagName || '').toLowerCase() === (domHistoryElement.tagName || '').toLowerCase()
+      ) {
+        return node;
+      }
+    }
+    for (const child of node.children) {
+      if (child instanceof DOMElementNode) {
+        const result = await processNodeAttributeOnly(child);
+        if (result !== null) {
+          return result;
+        }
+      }
+    }
+    return null;
+  };
 
-  return (
-    hashedDomHistoryElement.branchPathHash === hashedDomElement.branchPathHash &&
-    hashedDomHistoryElement.attributesHash === hashedDomElement.attributesHash &&
-    hashedDomHistoryElement.xpathHash === hashedDomElement.xpathHash
-  );
+  const attrResult = await processNodeAttributeOnly(tree);
+  if (attrResult !== null) {
+    return attrResult;
+  }
+
+  // ── Phase C: SelectorHealer semantic scoring ─────────────────────────────────
+  const interactiveNodes: DOMElementNode[] = [];
+  const collectInteractive = (node: DOMElementNode) => {
+    if (node.highlightIndex != null) {
+      interactiveNodes.push(node);
+    }
+    for (const child of node.children) {
+      if (child instanceof DOMElementNode) {
+        collectInteractive(child);
+      }
+    }
+  };
+  collectInteractive(tree);
+
+  const healed = healElement(domHistoryElement, interactiveNodes, 0.60);
+  if (healed) {
+    return healed.node;
+  }
+
+  // ── Phase D: Failure ─────────────────────────────────────────────────────────
+  return null;
 }
 
 /**
@@ -141,14 +177,6 @@ async function _xpathHash(xpath: string): Promise<string> {
 }
 
 /**
- * Create a hash from the element text
- */
-async function _textHash(domElement: DOMElementNode): Promise<string> {
-  const textString = domElement.getAllTextTillNextClickableElement();
-  return _createSHA256Hash(textString);
-}
-
-/**
  * Create a SHA-256 hash from a string using Web Crypto API
  */
 async function _createSHA256Hash(input: string): Promise<string> {
@@ -165,11 +193,9 @@ async function _createSHA256Hash(input: string): Promise<string> {
 export const HistoryTreeProcessor = {
   convertDomElementToHistoryElement,
   findHistoryElementInTree,
-  compareHistoryElementAndDomElement,
   hashDomElement,
   _getParentBranchPath,
   _parentBranchPathHash,
   _attributesHash,
   _xpathHash,
-  _textHash,
 };

@@ -219,7 +219,7 @@ The following is one-time information - if you need to remember it write it to m
 Current tab: ${currentTab}
 Other available tabs:
   ${otherTabs.join('\n')}
-Interactive elements from top layer of the current page inside the viewport:
+Interactive elements from the current page (with offscreen markers for out-of-viewport elements):
 ${formattedElementsText}
 ${stepInfoDescription}
 ${actionResultsDescription}

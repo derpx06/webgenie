@@ -12,6 +12,7 @@
  */
 
 import { DOMElementNode, DOMTextNode, type DOMState, type DOMBaseNode } from '../dom/views';
+import type { CoordinateSet } from '../dom/history/view';
 import { createLogger } from '@src/background/log';
 import { cdpBridge } from './cdp-bridge';
 
@@ -231,6 +232,30 @@ function parseSnapshot(
           highlightCounter++;
         }
 
+        const pageLeft = Math.round(parentOffsetPageX + rx);
+        const pageTop = Math.round(parentOffsetPageY + ry);
+        const pageCoords: CoordinateSet = {
+          topLeft:     { x: pageLeft,         y: pageTop          },
+          topRight:    { x: pageLeft + width, y: pageTop          },
+          bottomLeft:  { x: pageLeft,         y: pageTop + height },
+          bottomRight: { x: pageLeft + width, y: pageTop + height },
+          center:      { x: pageX,            y: pageY            },
+          width,
+          height,
+        };
+
+        const viewportLeft = Math.round(pageLeft - rootScrollX);
+        const viewportTop = Math.round(pageTop - rootScrollY);
+        const viewportCoords: CoordinateSet = {
+          topLeft:     { x: viewportLeft,         y: viewportTop          },
+          topRight:    { x: viewportLeft + width, y: viewportTop          },
+          bottomLeft:  { x: viewportLeft,         y: viewportTop + height },
+          bottomRight: { x: viewportLeft + width, y: viewportTop + height },
+          center:      { x: viewportX,            y: viewportY            },
+          width,
+          height,
+        };
+
         const elementNode = new DOMElementNode({
           tagName,
           xpath: null,
@@ -241,8 +266,8 @@ function parseSnapshot(
           isTopElement: docIndex === 0 && i === 0,
           isInViewport: inViewport,
           highlightIndex,
-          viewportCoordinates: { x: viewportX, y: viewportY },
-          pageCoordinates: { x: pageX, y: pageY }
+          viewportCoordinates: viewportCoords,
+          pageCoordinates: pageCoords
         });
 
         if (highlightIndex !== null) {

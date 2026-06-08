@@ -25,6 +25,9 @@ import { isUrlAllowed, isNewTabPage } from './util';
 import { getDOMStateViaSnapshot } from './chromium-apis/dom-snapshot-extractor';
 import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
 import { pruneAXTree } from './dom/ax-tree-pruner';
+import { healElement } from './dom/selector-healer';
+import { cdpBridge } from './chromium-apis/cdp-bridge';
+
 
 const logger = createLogger('Page');
 
@@ -334,6 +337,13 @@ export default class Page {
       return null;
     }
 
+    // Wait for layout/DOM stability before any extraction
+    try {
+      await this._waitForDomStability();
+    } catch (err) {
+      logger.warning('[Page] Error waiting for DOM stability:', err);
+    }
+
     const mode = this._config.domPerceptionMode ?? 'snapshot';
 
     // ── Path A: AXTree-first ──────────────────────────────────────────────────
@@ -343,7 +353,17 @@ export default class Page {
         const { width, height } = this._config.browserWindowSize;
         const rawState = await getAXTreeState(this._tabId, width, height);
         if (rawState && rawState.selectorMap.size > 0) {
-          const state = pruneAXTree(rawState);
+          let goal: string | undefined;
+          try {
+            const registryState = await chrome.storage.local.get('tab-orchestration-state');
+            const tabRecord = registryState?.['tab-orchestration-state']?.tabs?.[this._tabId];
+            if (tabRecord && tabRecord.purpose) {
+              goal = tabRecord.purpose;
+            }
+          } catch {
+            // Ignore
+          }
+          const state = pruneAXTree(rawState, goal);
           logger.info(`[Page] AXTree: ${state.selectorMap.size} interactive elements after pruning`);
           if (showHighlightElements) {
             await this._drawHighlightsFromCoords(state);
@@ -410,6 +430,57 @@ export default class Page {
     if (rects.length > 0) {
       await drawHighlightOverlaysViaCoordinates(this._tabId, rects);
     }
+  }
+
+  /**
+   * Non-blocking node count monitor that waits for DOM stabilization before parsing.
+   */
+  private async _waitForDomStability(maxWaitMs = 1500, checkIntervalMs = 100): Promise<void> {
+    let prevNodeCount = 0;
+    let stableTicks = 0;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+      try {
+        let nodeCount = 0;
+        if (this._puppeteerPage) {
+          const frames = this._puppeteerPage.frames();
+          const counts = await Promise.all(
+            frames.map(async (frame) => {
+              try {
+                return await frame.evaluate(() => document.getElementsByTagName('*').length);
+              } catch {
+                return 0;
+              }
+            })
+          );
+          nodeCount = counts.reduce((sum, c) => sum + c, 0);
+        } else {
+          const mainCount = await cdpBridge.evaluate<number>(
+            this._tabId,
+            "document.getElementsByTagName('*').length"
+          );
+          nodeCount = mainCount ?? 0;
+        }
+
+        if (nodeCount > 0) {
+          if (nodeCount === prevNodeCount) {
+            stableTicks++;
+            if (stableTicks >= 2) {
+              logger.info(`[waitForDomStability] DOM stabilized at ${nodeCount} elements across all frames.`);
+              return;
+            }
+          } else {
+            stableTicks = 0;
+            prevNodeCount = nodeCount;
+          }
+        }
+      } catch {
+        // Continue
+      }
+      await new Promise(resolve => setTimeout(resolve, checkIntervalMs));
+    }
+    logger.info(`[waitForDomStability] Timeout reached before absolute stability.`);
   }
 
   // Get scroll position information for the current page.
@@ -1445,12 +1516,30 @@ export default class Page {
       logger.info('currentFrame changed', currentFrame);
     }
 
-    const cssSelector = element.enhancedCssSelectorForElement(this._config.includeDynamicAttributes);
+    let elementHandle: ElementHandle | null = null;
 
     try {
+      // 0. Try adopting via backendNodeId if available (SOTA and precise)
+      if (element.backendNodeId != null) {
+        try {
+          logger.info(`Locating element via backendNodeId: ${element.backendNodeId}`);
+          const adopted = await (currentFrame as any).mainRealm().adoptBackendNode(element.backendNodeId);
+          if (adopted) {
+            elementHandle = adopted;
+          }
+        } catch (err) {
+          logger.debug(`Failed to adopt backendNodeId ${element.backendNodeId}:`, err);
+        }
+      }
+
       // 1. Try CSS selector first — trust it; SPAs change DOM structure between snapshot
       //    and action time so XPath re-validation causes false negatives on valid elements.
-      let elementHandle: ElementHandle | null = await currentFrame.$(cssSelector);
+      if (!elementHandle) {
+        const cssSelector = element.enhancedCssSelectorForElement(this._config.includeDynamicAttributes);
+        if (cssSelector) {
+          elementHandle = await currentFrame.$(cssSelector);
+        }
+      }
 
       // 2. CSS failed — try raw XPath as a structural fallback
       if (!elementHandle) {
@@ -1466,9 +1555,33 @@ export default class Page {
         }
       }
 
-      // 3. Both selectors failed — try semantic heuristic (stable attributes + text + role)
+      // 3. Both selectors failed — try SelectorHealer fuzzy match against selectorMap
+      if (!elementHandle && this._state.selectorMap.size > 0) {
+        logger.info('CSS and XPath failed, trying SelectorHealer fuzzy match...');
+        const candidates = Array.from(this._state.selectorMap.values());
+        const healed = healElement(element, candidates, 0.60);
+        if (healed) {
+          logger.info(
+            `[SelectorHealer] Healed target element to candidate [${healed.node.highlightIndex}] (Score: ${healed.score.toFixed(
+              2,
+            )}, Matched by: ${healed.matchedBy.join(', ')})`,
+          );
+          const healedCss = healed.node.enhancedCssSelectorForElement(this._config.includeDynamicAttributes);
+          elementHandle = await currentFrame.$(healedCss);
+          if (!elementHandle && healed.node.xpath) {
+            try {
+              const fullXpath = healed.node.xpath.startsWith('/') ? healed.node.xpath : `/${healed.node.xpath}`;
+              elementHandle = await currentFrame.$(`::-p-xpath(${fullXpath})`);
+            } catch (healedXpathError) {
+              logger.debug('Healed XPath lookup failed:', healedXpathError);
+            }
+          }
+        }
+      }
+
+      // 4. All specific selectors failed — try general semantic heuristic (stable attributes + text + role)
       if (!elementHandle) {
-        logger.info('CSS and XPath failed, trying heuristic matching...');
+        logger.info('Fuzzy matching failed, trying general heuristic matching...');
         elementHandle = await this._heuristicLocate(currentFrame, element);
       }
 
@@ -2243,11 +2356,25 @@ export default class Page {
       throw new Error('Puppeteer page is not connected');
     }
     try {
-      const content = await this._puppeteerPage.evaluate(() => {
-        const main = document.querySelector('article') || document.querySelector('main') || document.body;
-        return main ? (main.innerText || main.textContent || '') : '';
-      });
-      return content.trim();
+      const frames = this._puppeteerPage.frames();
+      const contentParts: string[] = [];
+
+      for (const frame of frames) {
+        try {
+          const text = await frame.evaluate(() => {
+            const main = document.querySelector('article') || document.querySelector('main') || document.body;
+            return main ? (main.innerText || main.textContent || '') : '';
+          });
+          const trimmed = text.trim();
+          if (trimmed) {
+            contentParts.push(trimmed);
+          }
+        } catch (err) {
+          logger.debug(`Failed to extract content from frame ${frame.url()}:`, err);
+        }
+      }
+
+      return contentParts.join('\n\n');
     } catch (error) {
       logger.error('Failed to get complete page content:', error);
       throw error;

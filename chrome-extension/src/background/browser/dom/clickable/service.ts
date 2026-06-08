@@ -61,8 +61,9 @@ export async function hashDomElement(domElement: DOMElementNode): Promise<string
     // _textHash(domElement) // Uncomment if needed
   ]);
 
-  return _hashString(`${branchPathHash}-${attributesHash}-${xpathHash}`);
+  return `${branchPathHash}-${attributesHash}-${xpathHash}`;
 }
+
 
 /**
  * Get the branch path from parent elements
@@ -126,16 +127,6 @@ async function createSHA256Hash(input: string): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-/**
- * Create a hash from a string - synchronous version for combining hashes
- * Used only for the final string combination
- */
-function _hashString(string: string): string {
-  // Simple hash for combining existing hashes
-  // Real hashing is done in createSHA256Hash
-  return string;
 }
 
 /**

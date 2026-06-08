@@ -27,7 +27,7 @@ const logger = createLogger('ScriptingTools');
  */
 export async function executeInMainWorld<T = unknown>(
   tabId: number,
-  func: (...args: unknown[]) => T,
+  func: (...args: any[]) => T,
   args: unknown[] = [],
 ): Promise<T | null> {
   logger.debug(`[ScriptingTools] executeInMainWorld on tab ${tabId}`);
@@ -39,11 +39,11 @@ export async function executeInMainWorld<T = unknown>(
       args,
     });
     const result = results[0];
-    if (result.error) {
-      logger.error('[ScriptingTools] MAIN world error:', result.error);
+    if (result && (result as any).error) {
+      logger.error('[ScriptingTools] MAIN world error:', (result as any).error);
       return null;
     }
-    return result.result as T;
+    return result ? (result.result as T) : null;
   } catch (err) {
     logger.error('[ScriptingTools] executeInMainWorld failed:', err);
     return null;
@@ -56,7 +56,7 @@ export async function executeInMainWorld<T = unknown>(
  */
 export async function executeInIsolatedWorld<T = unknown>(
   tabId: number,
-  func: (...args: unknown[]) => T,
+  func: (...args: any[]) => T,
   args: unknown[] = [],
   frameIds?: number[],
 ): Promise<T | null> {
@@ -69,11 +69,11 @@ export async function executeInIsolatedWorld<T = unknown>(
       args,
     });
     const result = results[0];
-    if (result?.error) {
-      logger.error('[ScriptingTools] Isolated world error:', result.error);
+    if (result && (result as any).error) {
+      logger.error('[ScriptingTools] Isolated world error:', (result as any).error);
       return null;
     }
-    return result?.result as T ?? null;
+    return result ? (result.result as T) : null;
   } catch (err) {
     logger.error('[ScriptingTools] executeInIsolatedWorld failed:', err);
     return null;
@@ -85,7 +85,7 @@ export async function executeInIsolatedWorld<T = unknown>(
  */
 export async function executeInAllFrames<T = unknown>(
   tabId: number,
-  func: (...args: unknown[]) => T,
+  func: (...args: any[]) => T,
   args: unknown[] = [],
 ): Promise<T[]> {
   try {
@@ -95,7 +95,7 @@ export async function executeInAllFrames<T = unknown>(
       func,
       args,
     });
-    return results.filter(r => !r.error).map(r => r.result as T);
+    return results.filter(r => !(r as any).error).map(r => r.result as T);
   } catch (err) {
     logger.error('[ScriptingTools] executeInAllFrames failed:', err);
     return [];

@@ -75,7 +75,10 @@ export interface RollbackHandle {
 export async function createRollbackSnapshot(originalTabId: number): Promise<RollbackHandle> {
   logger.info(`[TabTools] Creating rollback snapshot for tab ${originalTabId}`);
   const clone = await chrome.tabs.duplicate(originalTabId);
-  const cloneTabId = clone.id!;
+  if (!clone || clone.id === undefined) {
+    throw new Error(`Failed to duplicate tab ${originalTabId}`);
+  }
+  const cloneTabId = clone.id;
 
   // Move clone to end of tab strip and keep it inactive
   await chrome.tabs.update(cloneTabId, { active: false });

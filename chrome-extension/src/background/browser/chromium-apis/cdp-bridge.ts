@@ -72,7 +72,7 @@ export class CDPBridge {
   async send<T = unknown>(tabId: number, method: string, params: object = {}): Promise<T> {
     await this.attach(tabId);
     return new Promise<T>((resolve, reject) => {
-      chrome.debugger.sendCommand({ tabId }, method, params, (result) => {
+      chrome.debugger.sendCommand({ tabId }, method, params as Record<string, unknown>, (result) => {
         if (chrome.runtime.lastError) {
           const err = chrome.runtime.lastError.message ?? `CDP error: ${method}`;
           logger.error(`[CDPBridge] Command failed — ${method}:`, err);

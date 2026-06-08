@@ -1,5 +1,5 @@
 /**
- * AXTreePruner — Token Reduction Layer
+ * AXTreePruner — Token Reduction Layer (V2)
  *
  * Post-processes an AXTree-derived DOMState before it is serialized into the
  * LLM prompt. Target: ≤600 tokens per typical page vs 2,000–8,000 tokens with
@@ -10,9 +10,10 @@
  *   2. Container collapsing   — marks single-child non-interactive wrappers
  *   3. Text truncation        — aria-label / placeholder / title capped at 80 chars
  *   4. Deduplication          — siblings with identical role + aria-label de-duped
+ *   5. Semantic relevance     — filters off-screen nodes by user goal keywords
  */
 
-import { DOMElementNode, DOMTextNode, type DOMState } from './views';
+import { DOMElementNode, DOMTextNode, DOMBaseNode, type DOMState } from './views';
 import { createLogger } from '@src/background/log';
 
 const logger = createLogger('AXTreePruner');
@@ -27,6 +28,13 @@ const PRESENTATIONAL_ROLES = new Set([
 const TEXT_ATTRS = ['aria-label', 'aria-description', 'placeholder', 'title', 'alt', 'value'];
 const MAX_TEXT_LENGTH = 80;
 
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'of', 'in', 'on', 'to', 'for', 'with', 'this', 'that', 'is', 'it', 'be',
+  'do', 'go', 'get', 'set', 'use', 'click', 'button', 'link', 'input', 'select', 'open', 'close',
+  'find', 'please', 'then', 'now', 'next', 'back', 'up', 'down', 'from', 'to', 'at', 'by', 'show',
+  'me', 'please', 'web', 'page', 'site', 'website', 'search', 'query', 'url'
+]);
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -34,10 +42,10 @@ const MAX_TEXT_LENGTH = 80;
  * Safe to call on snapshot-derived states too — rules degrade gracefully when
  * AX metadata is absent.
  */
-export function pruneAXTree(state: DOMState): DOMState {
+export function pruneAXTree(state: DOMState, goal?: string): DOMState {
   const before = state.selectorMap.size;
 
-  pruneNode(state.elementTree);
+  pruneNode(state.elementTree, goal);
   rebuildSelectorMap(state);
 
   logger.debug(`[AXTreePruner] ${before} → ${state.selectorMap.size} interactive nodes after pruning`);
@@ -50,7 +58,7 @@ export function pruneAXTree(state: DOMState): DOMState {
  * Recursively prune a node bottom-up.
  * Returns true if the node should be kept, false if it should be discarded.
  */
-function pruneNode(node: DOMElementNode): boolean {
+function pruneNode(node: DOMElementNode, goal?: string): boolean {
   // Rule 3: Truncate text attributes before any other processing
   for (const attr of TEXT_ATTRS) {
     const val = node.attributes[attr];
@@ -63,13 +71,24 @@ function pruneNode(node: DOMElementNode): boolean {
   const keptChildren: DOMElementNode['children'] = [];
   for (const child of node.children) {
     if (child instanceof DOMElementNode) {
-      if (pruneNode(child)) keptChildren.push(child);
+      if (pruneNode(child, goal)) keptChildren.push(child);
       // child returning false → discarded
     } else if (child instanceof DOMTextNode) {
       if (child.text.trim().length > 0) keptChildren.push(child);
     }
   }
   node.children = keptChildren;
+
+  // Rule 5: Goal-directed semantic pruning for off-screen interactive elements
+  if (node.highlightIndex !== null && !node.isInViewport && goal) {
+    const keywords = getKeywords(goal);
+    const score = calculateRelevance(node, keywords);
+    if (score < 0.3) {
+      if (!hasInteractiveDescendant(node)) {
+        return false;
+      }
+    }
+  }
 
   // Rule 1: Remove non-visible nodes that carry no interactive descendants
   if (!node.isVisible && node.highlightIndex === null) {
@@ -156,4 +175,49 @@ function rebuildSelectorMap(state: DOMState): void {
 
   walk(state.elementTree);
   state.selectorMap = newMap;
+}
+
+function getKeywords(text: string): Set<string> {
+  const words = text.toLowerCase().split(/[\W_]+/);
+  return new Set(words.filter(w => w.length > 2 && !STOP_WORDS.has(w)));
+}
+
+function collectAllText(node: DOMElementNode): string {
+  const textParts: string[] = [];
+  function walk(n: DOMBaseNode) {
+    if (n instanceof DOMTextNode) {
+      textParts.push(n.text);
+    } else if (n instanceof DOMElementNode) {
+      for (const child of n.children) {
+        walk(child);
+      }
+    }
+  }
+  walk(node);
+  return textParts.join(' ');
+}
+
+function calculateRelevance(node: DOMElementNode, keywords: Set<string>): number {
+  if (keywords.size === 0) return 1.0;
+
+  let matchCount = 0;
+  const innerText = collectAllText(node);
+  let attrsText = '';
+  for (const [key, val] of Object.entries(node.attributes)) {
+    attrsText += ` ${key}="${val}"`;
+  }
+
+  const textContent = (
+    (node.tagName ?? '') + ' ' +
+    attrsText + ' ' +
+    innerText
+  ).toLowerCase();
+
+  for (const keyword of keywords) {
+    if (textContent.includes(keyword)) {
+      matchCount++;
+    }
+  }
+
+  return matchCount / keywords.size;
 }

@@ -628,31 +628,7 @@ export async function drawHighlightOverlaysViaCoordinates(tabId: number, rects: 
 }
 
 
-/**
- * Get the scroll information for the current page.
- * @param tabId - The ID of the tab to get the scroll information for.
- * @returns A tuple containing the number of pixels above and below the current scroll position.
- */
-// export async function getScrollInfo(tabId: number): Promise<[number, number]> {
-//   const results = await chrome.scripting.executeScript({
-//     target: { tabId: tabId },
-//     func: () => {
-//       const scroll_y = window.scrollY;
-//       const viewport_height = window.innerHeight;
-//       const total_height = document.documentElement.scrollHeight;
-//       return {
-//         pixels_above: scroll_y,
-//         pixels_below: total_height - (scroll_y + viewport_height),
-//       };
-//     },
-//   });
 
-//   const result = results[0]?.result;
-//   if (!result) {
-//     throw new Error('Failed to get scroll information');
-//   }
-//   return [result.pixels_above, result.pixels_below];
-// }
 
 export async function getScrollInfo(tabId: number): Promise<[number, number, number]> {
   const results = await chrome.scripting.executeScript({
