@@ -23,6 +23,9 @@ import { createLogger } from '@src/background/log';
 import { ClickableElementProcessor } from './dom/clickable/service';
 import { isUrlAllowed, isNewTabPage } from './util';
 import { getDOMStateViaSnapshot } from './chromium-apis/dom-snapshot-extractor';
+import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
+import { pruneAXTree } from './dom/ax-tree-pruner';
+import { healElement, LOW_CONFIDENCE_THRESHOLD } from './dom/selector-healer';
 
 const logger = createLogger('Page');
 
@@ -332,33 +335,82 @@ export default class Page {
       return null;
     }
 
-    try {
-      const state = await getDOMStateViaSnapshot(this._tabId);
-      if (state && state.selectorMap.size > 0) {
-        if (showHighlightElements) {
-          const rects = [];
-          for (const [idx, el] of state.selectorMap.entries()) {
-            if (el.pageCoordinates) {
-              rects.push({
-                index: idx,
-                x: el.pageCoordinates.center.x,
-                y: el.pageCoordinates.center.y,
-                w: parseInt(el.attributes['computedWidth'] || '0'),
-                h: parseInt(el.attributes['computedHeight'] || '0'),
-              });
+    const mode = this._config.domPerceptionMode ?? 'snapshot';
+
+    // ── Path A: AXTree-first (SOTA — token-efficient, CSP-proof) ─────────────
+    if (mode === 'axtree') {
+      try {
+        const windowSize = this._config.browserWindowSize;
+        const rawState = await getAXTreeState(
+          this._tabId,
+          windowSize.width,
+          windowSize.height,
+        );
+        if (rawState && rawState.selectorMap.size > 0) {
+          // Apply pruning layer to reduce token footprint
+          const prunedState = pruneAXTree(rawState);
+          logger.info(
+            `[Page] AXTree mode: ${prunedState.selectorMap.size} interactive elements after pruning`,
+          );
+
+          // Draw overlays using bounding boxes enriched by ax-tree-extractor
+          if (showHighlightElements) {
+            const rects = [];
+            for (const [idx, el] of prunedState.selectorMap.entries()) {
+              if (el.pageCoordinates) {
+                rects.push({
+                  index: idx,
+                  x: el.pageCoordinates.center.x,
+                  y: el.pageCoordinates.center.y,
+                  w: el.pageCoordinates.width,
+                  h: el.pageCoordinates.height,
+                });
+              }
+            }
+            if (rects.length > 0) {
+              await drawHighlightOverlaysViaCoordinates(this._tabId, rects);
             }
           }
-          if (rects.length > 0) {
-            await drawHighlightOverlaysViaCoordinates(this._tabId, rects);
-          }
+
+          return prunedState;
         }
-        return state;
+        logger.warning('[Page] AXTree returned empty selectorMap — falling through to snapshot fallback');
+      } catch (error) {
+        logger.error('[Page] AXTree extraction failed, falling through to snapshot fallback:', error);
       }
-    } catch (error) {
-      logger.error('[Page] DOMSnapshot extraction failed, falling back to legacy DOM service:', error);
+      // Fall through to snapshot path if AXTree fails or returns empty
     }
 
-    // Fallback to legacy script-injection DOM builder if snapshot is unavailable or empty
+    // ── Path B: DOMSnapshot-first (current behavior, coordinate-rich) ────────
+    if (mode === 'snapshot' || mode === 'axtree') {
+      try {
+        const state = await getDOMStateViaSnapshot(this._tabId);
+        if (state && state.selectorMap.size > 0) {
+          if (showHighlightElements) {
+            const rects = [];
+            for (const [idx, el] of state.selectorMap.entries()) {
+              if (el.pageCoordinates) {
+                rects.push({
+                  index: idx,
+                  x: el.pageCoordinates.center.x,
+                  y: el.pageCoordinates.center.y,
+                  w: parseInt(el.attributes['computedWidth'] || '0'),
+                  h: parseInt(el.attributes['computedHeight'] || '0'),
+                });
+              }
+            }
+            if (rects.length > 0) {
+              await drawHighlightOverlaysViaCoordinates(this._tabId, rects);
+            }
+          }
+          return state;
+        }
+      } catch (error) {
+        logger.error('[Page] DOMSnapshot extraction failed, falling back to legacy DOM service:', error);
+      }
+    }
+
+    // ── Path C: Legacy script-injection (no CDP required) ────────────────────
     let tabUrl = this._state.url;
     try {
       const tab = await chrome.tabs.get(this._tabId);
@@ -1885,34 +1937,42 @@ export default class Page {
           throw error;
         }
         
-        // Fallback: Re-locate a fresh handle to avoid stale references, focus it, and dispatch a full synthetic event chain
-        logger.warning('CDP click failed, trying synthetic MouseEvent dispatch chain on fresh handle', error);
-        try {
-          const freshElement = await this.locateElement(elementNode);
-          if (!freshElement) {
-            throw new Error('Element no longer found for fallback click');
-          }
-          await freshElement.evaluate((el: Element) => {
-            if (el instanceof HTMLElement) {
-              el.focus();
-            }
-            const eventOpts = { bubbles: true, cancelable: true, view: window };
-            el.dispatchEvent(new MouseEvent('mousedown', eventOpts));
-            el.dispatchEvent(new MouseEvent('mouseup', eventOpts));
-            if (el instanceof HTMLElement) {
-              el.click();
-            } else {
-              el.dispatchEvent(new MouseEvent('click', eventOpts));
-            }
-          });
-          await this._checkAndHandleNavigation();
-        } catch (secondError) {
-          if (secondError instanceof URLNotAllowedError) {
-            throw secondError;
-          }
-          throw new Error(
-            `Failed to click element: ${secondError instanceof Error ? secondError.message : String(secondError)}`,
+        // Tier 2: SelectorHealer — semantic fuzzy recovery (zero-cost, no LLM)
+        logger.warning('CDP click failed — attempting SelectorHealer semantic recovery', error);
+        const currentSelectorMap = this.getSelectorMap();
+        const historyEl = {
+          tagName: elementNode.tagName ?? '',
+          xpath: elementNode.xpath ?? '',
+          highlightIndex: elementNode.highlightIndex,
+          entireParentBranchPath: [],
+          attributes: elementNode.attributes,
+          shadowRoot: elementNode.shadowRoot,
+          cssSelector: null,
+          pageCoordinates: elementNode.pageCoordinates ?? null,
+          viewportCoordinates: elementNode.viewportCoordinates ?? null,
+          viewportInfo: elementNode.viewportInfo ?? null,
+        };
+        const healed = healElement(historyEl, currentSelectorMap);
+        if (healed) {
+          logger.info(
+            `[SelectorHealer] Recovered element (score=${healed.score.toFixed(2)}, matched=[${healed.matchedBy.join(', ')}])`,
           );
+          try {
+            await Promise.race([
+              this.cdpClick(await this.locateElement(healed.node) ?? (() => { throw new Error('Healed element not locatable'); })()),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Healed CDP click timeout')), 5000)),
+            ]);
+            await this._checkAndHandleNavigation();
+            // Healed click succeeded — skip Tier 3
+          } catch (healedClickError) {
+            if (healedClickError instanceof URLNotAllowedError) throw healedClickError;
+            logger.warning('[SelectorHealer] Healed click also failed — falling through to Tier 3', healedClickError);
+            // Fall through to Tier 3 below
+            await this._tier3SyntheticClick(elementNode);
+          }
+        } else {
+          logger.warning('[SelectorHealer] No candidate above threshold — falling through to Tier 3');
+          await this._tier3SyntheticClick(elementNode);
         }
       }
 
@@ -1936,6 +1996,31 @@ export default class Page {
         `Failed to click element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+
+  /**
+   * Tier 3 Interaction: Synthetic MouseEvent dispatch chain on a fresh element handle.
+   * Last resort after Tier 1 (CDP coordinate click) and Tier 2 (SelectorHealer) both fail.
+   */
+  private async _tier3SyntheticClick(elementNode: DOMElementNode): Promise<void> {
+    const freshElement = await this.locateElement(elementNode);
+    if (!freshElement) {
+      throw new Error('Element no longer found for Tier 3 synthetic click');
+    }
+    await freshElement.evaluate((el: Element) => {
+      if (el instanceof HTMLElement) {
+        el.focus();
+      }
+      const eventOpts = { bubbles: true, cancelable: true, view: window };
+      el.dispatchEvent(new MouseEvent('mousedown', eventOpts));
+      el.dispatchEvent(new MouseEvent('mouseup', eventOpts));
+      if (el instanceof HTMLElement) {
+        el.click();
+      } else {
+        el.dispatchEvent(new MouseEvent('click', eventOpts));
+      }
+    });
+    await this._checkAndHandleNavigation();
   }
 
   getSelectorMap(): Map<number, DOMElementNode> {

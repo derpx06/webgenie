@@ -22,7 +22,12 @@ export function convertDomElementToHistoryElement(domElement: DOMElementNode): D
 }
 
 /**
- * Find a history element in the DOM tree
+ * Find a history element in the DOM tree using a 4-phase cascading match strategy.
+ *
+ * Phase A: Strict triple-hash match (branchPath + attributes + xpath) — O(n)
+ * Phase B: Attribute-only hash match — ignores XPath drift from SPA re-renders
+ * Phase C: Semantic scoring via SelectorHealer — fuzzy recovery (score ≥ 0.75)
+ * Phase D: Return null — caller must handle re-observation
  */
 export async function findHistoryElementInTree(
   domHistoryElement: DOMHistoryElement,
@@ -30,8 +35,13 @@ export async function findHistoryElementInTree(
 ): Promise<DOMElementNode | null> {
   const hashedDomHistoryElement = await hashDomHistoryElement(domHistoryElement);
 
-  const processNode = async (node: DOMElementNode): Promise<DOMElementNode | null> => {
+  // Collect all interactive nodes for Phase B/C re-use
+  const interactiveNodes: DOMElementNode[] = [];
+
+  // ── Phase A: Strict triple-hash match ────────────────────────────────────
+  const strictMatch = await (async function processNode(node: DOMElementNode): Promise<DOMElementNode | null> {
     if (node.highlightIndex != null) {
+      interactiveNodes.push(node);
       const hashedNode = await hashDomElement(node);
       if (
         hashedNode.branchPathHash === hashedDomHistoryElement.branchPathHash &&
@@ -44,16 +54,58 @@ export async function findHistoryElementInTree(
     for (const child of node.children) {
       if (child instanceof DOMElementNode) {
         const result = await processNode(child);
-        if (result !== null) {
-          return result;
-        }
+        if (result !== null) return result;
       }
     }
     return null;
-  };
+  })(tree);
 
-  return processNode(tree);
+  if (strictMatch) return strictMatch;
+
+  // ── Phase B: Attribute-only hash match (XPath may have drifted) ──────────
+  for (const node of interactiveNodes) {
+    const hashedNode = await hashDomElement(node);
+    if (
+      hashedNode.attributesHash === hashedDomHistoryElement.attributesHash &&
+      (node.tagName ?? '') === domHistoryElement.tagName
+    ) {
+      console.debug('[HistoryService] Phase B attribute-only match recovered element:', node.tagName);
+      return node;
+    }
+  }
+
+  // ── Phase C: SelectorHealer semantic scoring ──────────────────────────────
+  const selectorMap = new Map<number, DOMElementNode>();
+  for (const node of interactiveNodes) {
+    if (node.highlightIndex !== null) {
+      selectorMap.set(node.highlightIndex, node);
+    }
+  }
+
+  if (selectorMap.size > 0) {
+    const { healElement, LOW_CONFIDENCE_THRESHOLD } = await import('../selector-healer');
+    const candidate = healElement(domHistoryElement, selectorMap);
+    if (candidate) {
+      if (candidate.score >= 0.75) {
+        console.debug(
+          `[HistoryService] Phase C high-confidence semantic recovery (score=${candidate.score.toFixed(2)}, matched=[${candidate.matchedBy.join(', ')}])`,
+        );
+        return candidate.node;
+      }
+      if (candidate.score >= LOW_CONFIDENCE_THRESHOLD) {
+        console.warn(
+          `[HistoryService] Phase C low-confidence semantic recovery (score=${candidate.score.toFixed(2)}, matched=[${candidate.matchedBy.join(', ')}]) — verify result`,
+        );
+        return candidate.node;
+      }
+    }
+  }
+
+  // ── Phase D: Unrecoverable ────────────────────────────────────────────────
+  console.debug('[HistoryService] Phase D: element not recoverable — returning null');
+  return null;
 }
+
 
 /**
  * Compare a history element and a DOM element
