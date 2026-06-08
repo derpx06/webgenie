@@ -76,15 +76,6 @@ export interface BrowserContextConfig {
    * @default true
    */
   displayHighlights: boolean;
-
-  /**
-   * DOM perception mode used by the agent observation loop.
-   *  'axtree'   — AXTree-first (SOTA: token-efficient, CSP-proof, semantic)
-   *  'snapshot' — DOMSnapshot-first (current behavior, coordinate-rich)
-   *  'legacy'   — Script-injection only (no CDP required, CSP-vulnerable)
-   * @default 'snapshot'
-   */
-  domPerceptionMode: 'axtree' | 'snapshot' | 'legacy';
 }
 
 export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
@@ -99,7 +90,6 @@ export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   includeDynamicAttributes: true,
   homePageUrl: 'about:blank',
   displayHighlights: true,
-  domPerceptionMode: 'snapshot',
 };
 
 export interface PageState extends DOMState {
