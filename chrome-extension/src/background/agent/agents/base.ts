@@ -79,6 +79,10 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
     this.modelOutputToolName = `${this.id}_output`;
   }
 
+  public getChatLLM(): BaseChatModel {
+    return this.chatLLM;
+  }
+
   // Set the model name
   private getModelName(): string {
     if ('modelName' in this.chatLLM) {

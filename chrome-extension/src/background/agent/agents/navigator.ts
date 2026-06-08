@@ -13,6 +13,7 @@ import { convertZodToJsonSchema } from '@src/background/utils';
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
 import { type BaseMessage, HumanMessage } from '@langchain/core/messages';
+import { WebGenieMemoryStore, ContextRouter, ContextBuilder } from '../memory';
 
 import { NavigatorActionRegistry } from './navigator/registry';
 export { NavigatorActionRegistry };
@@ -149,7 +150,18 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
       if (this.isTaskInterrupted()) return agentOutput;
 
-      const modelOutput = await this.invoke(this.context.messageManager.getMessages());
+      // Extract current page state message from MessageManager (last added message)
+      const allMsgs = this.context.messageManager.getMessages();
+      const currentStateMsg = allMsgs[allMsgs.length - 1] as HumanMessage;
+
+      // Build structured context packet
+      const contextPacket = ContextBuilder.buildContextPacket(
+        this.context,
+        this.prompt.getSystemMessage(),
+        currentStateMsg
+      );
+
+      const modelOutput = await this.invoke(contextPacket);
 
       if (this.isTaskInterrupted()) return agentOutput;
 
@@ -158,14 +170,18 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       modelOutput.action = actions;
       modelOutputString = JSON.stringify(modelOutput);
 
-      // ── SELF-REFLECTION PROPAGATION ──────────────────────────────────────
-      const brain = modelOutput.current_state as { evaluation_previous_goal?: string; memory?: string } | undefined;
+      // ── SELF-REFLECTION & STRUCTURED MEMORY PROPAGATION ─────────────────
+      const brain = modelOutput.current_state as any;
       if (brain?.evaluation_previous_goal) {
         this.context.lastEvaluation = brain.evaluation_previous_goal;
       }
       if (brain?.memory) {
         this.context.lastMemory = brain.memory;
       }
+
+      // Import facts, constraints, decisions, and progress from Navigator LLM response
+      this.context.memory.importFromLLMResponse(brain);
+
       // Full brain state log (untruncated)
       const brainDivider = '─'.repeat(60);
       console.log(
@@ -180,11 +196,27 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       logger.info(`[Brain] memory: ${brain?.memory || '(none)'}`);
       // ─────────────────────────────────────────────────────────────────────
 
+      // ── Persist durable working memory scratchpad ─────────────────────────
+      if (brain?.memory) {
+        void this.context.messageManager.setWorkingMemory(brain.memory);
+      }
+      if (brain?.evaluation_previous_goal) {
+        this.context.lastEvaluation = brain.evaluation_previous_goal;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       this.removeLastStateMessageFromMemory();
       this.context.messageManager.addModelOutput(modelOutput);
 
       actionResults = await this.doMultiAction(actions);
       this.context.actionResults = actionResults;
+
+      // Push actions to RecentActionBuffer
+      for (const act of actions) {
+        const name = Object.keys(act)[0];
+        const args = JSON.stringify(act[name]);
+        this.context.memory.recentActions.pushAction(`${name} ${args}`);
+      }
 
       if (this.isTaskInterrupted()) return agentOutput;
 
@@ -314,6 +346,30 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           const domElement = browserState.selectorMap.get(indexArg);
           if (domElement) {
             result.interactedElement = HistoryTreeProcessor.convertDomElementToHistoryElement(domElement);
+
+            // Record successful interactions to memory store
+            if (!result.error && result.interactedElement) {
+              try {
+                const domain = new URL(browserState.url).hostname;
+                const pagePath = ContextRouter.getPagePath(browserState.url);
+                const layoutHash = this.context.activeLayoutHash;
+                const intentKey = this.context.lastGoal || '';
+                const xpath = result.interactedElement.xpath;
+                const selector = result.interactedElement.cssSelector ||
+                                 (domElement.attributes?.['id'] ? `#${domElement.attributes['id']}` : '') ||
+                                 (domElement.attributes?.['data-webgenie-id'] ? `[data-webgenie-id="${domElement.attributes['data-webgenie-id']}"]` : '') ||
+                                 domElement.tagName || '';
+
+                if (domain && pagePath && layoutHash && xpath && selector) {
+                  void WebGenieMemoryStore.learnSelector(
+                    domain, pagePath, layoutHash, intentKey, selector, xpath,
+                  );
+                  logger.info(`Learned selector | intent="${intentKey}" xpath=${xpath}`);
+                }
+              } catch (err) {
+                logger.error('Failed to save successful selector in memory store:', err);
+              }
+            }
           }
         }
 

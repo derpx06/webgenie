@@ -7,13 +7,22 @@ export interface ToolCall {
   type?: 'tool_call';
 }
 
+export enum PyramidLevel {
+  INIT = 'init',
+  LIVE = 'live',
+  TRACE = 'trace',
+  MILESTONE = 'milestone',
+}
+
 export class MessageMetadata {
   tokens: number;
   message_type: string | null = null;
+  level?: PyramidLevel;
 
-  constructor(tokens: number, message_type?: string | null) {
+  constructor(tokens: number, message_type?: string | null, level?: PyramidLevel) {
     this.tokens = tokens;
     this.message_type = message_type ?? null;
+    this.level = level;
   }
 }
 
@@ -117,6 +126,7 @@ export interface SerializedManagedMessage {
   metadata: {
     tokens: number;
     message_type: string | null;
+    level?: string;
   };
 }
 
@@ -151,6 +161,7 @@ export function serializeHistory(history: MessageHistory): SerializedHistoryData
         metadata: {
           tokens: m.metadata.tokens,
           message_type: m.metadata.message_type,
+          level: m.metadata.level,
         },
       };
     }),
@@ -216,7 +227,11 @@ export function deserializeHistory(data: unknown): MessageHistory {
           message = new HumanMessage({ content, ...kwargs });
       }
 
-      const metadata = new MessageMetadata(m.metadata?.tokens || 0, m.metadata?.message_type);
+      const metadata = new MessageMetadata(
+        m.metadata?.tokens || 0,
+        m.metadata?.message_type,
+        m.metadata?.level as PyramidLevel | undefined
+      );
       return new ManagedMessage(message, metadata);
     });
   }

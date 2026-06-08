@@ -12,6 +12,7 @@ import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
 import { EventManager } from './event/manager';
 import { Actors, type EventCallback, EventType, ExecutionState } from './event/types';
+import { ContextRouter, classifyIntent, type UserIntent } from './memory';
 import {
   ChatModelAuthError,
   ChatModelBadRequestError,
@@ -142,22 +143,65 @@ export class Executor {
    */
   async execute(): Promise<void> {
     await this.context.messageManager.loadFromSession();
+    await this.context.messageManager.loadWorkingMemory();
     const taskText = this.tasks[this.tasks.length - 1];
+
+    // Reset the step counter
+    const context = this.context;
+    context.nSteps = 0;
+    const allowedMaxSteps = this.context.options.maxSteps;
+
+    // Intent Classification Layer
+    let intent: UserIntent = 'NEW_TASK';
+    try {
+      intent = await classifyIntent(this.navigator.getChatLLM(), taskText);
+      logger.info(`[IntentClassification] Intent classified as: ${intent}`);
+    } catch (err) {
+      logger.error('Failed to classify user message intent:', err);
+    }
+
+    // Update goals based on intent
+    const goalManager = this.context.memory.goalManager;
+    if (this.context.nSteps === 0 || intent === 'NEW_TASK') {
+      goalManager.updateGoals(taskText, taskText, 'Initialize task execution');
+    } else if (intent === 'MODIFY_TASK') {
+      goalManager.updateGoals(undefined, taskText, 'Modify task context');
+      // Extract fact/constraint from modified task text as a best-effort fallback
+      if (taskText.toLowerCase().includes('budget') || taskText.toLowerCase().includes('under') || taskText.toLowerCase().includes('avoid')) {
+        this.context.memory.addConstraint(taskText, 'HIGH');
+      } else {
+        this.context.memory.addFact(taskText, 'MEDIUM');
+      }
+    } else if (intent === 'CONTINUE_TASK') {
+      goalManager.updateGoals(undefined, undefined, taskText);
+    } else if (intent === 'REFERENCE_PREVIOUS_TASK') {
+      goalManager.updateGoals(undefined, undefined, `Querying archives: ${taskText}`);
+    } else if (intent === 'QUESTION') {
+      goalManager.updateGoals(undefined, undefined, `Answering question: ${taskText}`);
+    }
+
+    // Add task start event to conversation timeline
+    this.context.memory.addTimelineEvent('TASK_STARTED', `Started task: "${taskText}"`, {
+      taskId: this.context.taskId,
+      task: taskText,
+      intent,
+    });
+
+    // De-duplicate/supersede conflicting items
+    this.context.memory.resolveConflicts();
+
     const execDivider = '═'.repeat(60);
     console.log(
       `\n[Executor] ${execDivider}\n` +
       `  TASK START\n` +
       `  taskId  : ${this.context.taskId}\n` +
       `  task    : ${taskText}\n` +
+      `  intent  : ${intent}\n` +
       `  maxSteps: ${this.context.options.maxSteps}\n` +
       `  time    : ${new Date().toISOString()}\n` +
       `[Executor] ${execDivider}`,
     );
     logger.info(`🚀 Executing task: ${taskText}`);
-    // reset the step counter
-    const context = this.context;
-    context.nSteps = 0;
-    const allowedMaxSteps = this.context.options.maxSteps;
 
     if (this.generalSettings?.enableTracing && this.generalSettings.langsmithApiKey) {
       try {
@@ -177,7 +221,7 @@ export class Executor {
           name: runName,
           run_type: "chain",
           inputs: { task: taskText },
-          projectName: this.generalSettings.langsmithProject || 'web-surfer',
+          project_name: this.generalSettings.langsmithProject || 'web-genie',
           client,
         });
 
@@ -211,7 +255,7 @@ export class Executor {
           `  STEP ${step + 1} / ${allowedMaxSteps}  |  taskId: ${context.taskId}\n` +
           `  time: ${new Date().toISOString()}\n` +
           `  consecutiveFailures: ${context.consecutiveFailures}\n` +
-          `  memory: ${(context.lastMemory || '(none)').slice(0, 200)}\n` +
+          `  memory: ${(context.messageManager.getWorkingMemory() || '(none)').slice(0, 200)}\n` +
           `  lastEval: ${(context.lastEvaluation || '(none)').slice(0, 200)}\n` +
           `[Executor] ${stepDivider}`,
         );
@@ -234,6 +278,9 @@ export class Executor {
         // Execute navigator
         navigatorDone = await this.navigate();
 
+        // Compact history at the end of each step
+        context.messageManager.compactHistory();
+
         // If navigator indicates completion, the next periodic planner run will validate it
         if (navigatorDone) {
           logger.info('🔄 Navigator indicates completion - will be validated by next planner run');
@@ -244,11 +291,57 @@ export class Executor {
       const isCompleted = latestPlanOutput?.result?.done === true;
 
       if (this.context.stopped) {
+        context.memory.addTimelineEvent('TASK_COMPLETED', `Cancelled task: "${taskText}"`, {
+          taskId: context.taskId,
+          status: 'cancelled'
+        });
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
 
         // Track task cancellation
         void analytics.trackTaskCancelled(this.context.taskId);
       } else if (isCompleted) {
+        // Extract facts & decisions for structured outcome
+        const activeFacts = context.memory.getActiveItemsByType('fact').map(f => f.content);
+        const activeDecisions = context.memory.getActiveItemsByType('decision').map(d => d.content);
+        
+        context.memory.taskArchive.addRecord({
+          taskId: context.taskId,
+          goal: taskText,
+          outcome: context.finalAnswer || 'Task completed successfully',
+          decisions: activeDecisions,
+          facts: activeFacts,
+          summary: `Completed goal: "${taskText}" with outcome: "${context.finalAnswer || 'Success'}"`
+        });
+
+        context.memory.addTimelineEvent('TASK_COMPLETED', `Completed task: "${taskText}"`, {
+          taskId: context.taskId,
+          outcome: context.finalAnswer || 'Success'
+        });
+
+        // Full A-MEM consolidation after successful task completion:
+        // saves episodic note, links to related past notes (Zettelkasten),
+        // and updates the domain KV intelligence record.
+        try {
+          const browserState = await context.browserContext.getState(false);
+          const currentUrl = browserState.url;
+          if (currentUrl) {
+            const domain = new URL(currentUrl).hostname;
+            const pagePath = ContextRouter.getPagePath(currentUrl);
+            const layoutHash = context.activeLayoutHash || '';
+            const finalAnswer = context.finalAnswer || '';
+            await ContextRouter.consolidateAfterTask(
+              domain,
+              pagePath,
+              layoutHash,
+              this.tasks[0],
+              finalAnswer,
+              step,
+            );
+          }
+        } catch (err) {
+          logger.error('Failed to consolidate task memory:', err);
+        }
+
         // Emit final answer if available, otherwise use task ID
         const finalMessage = this.context.finalAnswer || this.context.taskId;
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, finalMessage);
@@ -256,6 +349,10 @@ export class Executor {
         // Track task completion
         void analytics.trackTaskComplete(this.context.taskId);
       } else if (step >= allowedMaxSteps) {
+        context.memory.addTimelineEvent('TASK_COMPLETED', `Failed task (Max steps reached): "${taskText}"`, {
+          taskId: context.taskId,
+          status: 'failed'
+        });
         logger.error('❌ Task failed: Max steps reached');
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_errors_maxStepsReached'));
 
@@ -387,6 +484,7 @@ export class Executor {
       }
       if (planOutput.result) {
         const p = planOutput.result;
+        context.lastGoal = p.next_steps || p.observation || '';
         const planDivider = '─'.repeat(60);
         console.log(
           `\n[Planner] ${planDivider}\n` +

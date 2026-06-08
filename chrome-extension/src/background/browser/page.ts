@@ -219,24 +219,33 @@ export default class Page {
     return chrome.debugger.sendCommand({ tabId: this._tabId }, method, params);
   }
 
-  /**
-   * Performs an OS-level click on the element via CDP Input.dispatchMouseEvent.
-   * Viewport-relative coordinates are fetched using the element's boundingBox.
-   */
   public async cdpClick(element: ElementHandle<Element>): Promise<void> {
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not attached to this page');
     }
-    const box = await element.boundingBox();
-    if (!box) {
-      throw new Error('Element has no bounding box (not visible or detached)');
+    
+    // Fetch high-precision viewport coordinates using client rects to avoid clicking empty space on line wraps or large wrappers
+    const coords = await element.evaluate((el) => {
+      const rects = el.getClientRects();
+      if (rects.length > 0) {
+        for (let i = 0; i < rects.length; i++) {
+          const r = rects[i];
+          if (r.width > 0 && r.height > 0) {
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          }
+        }
+      }
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+
+    if (!coords || typeof coords.x !== 'number' || typeof coords.y !== 'number') {
+      throw new Error('Element has no visible layout rectangles');
     }
-    const x = box.x + box.width / 2;
-    const y = box.y + box.height / 2;
 
     await this._puppeteerPage.bringToFront();
-    await this._puppeteerPage.mouse.move(x, y);
-    await this._puppeteerPage.mouse.click(x, y, { delay: 50 });
+    await this._puppeteerPage.mouse.move(coords.x, coords.y);
+    await this._puppeteerPage.mouse.click(coords.x, coords.y, { delay: 50 });
   }
 
   public async cdpType(element: ElementHandle<Element>, text: string): Promise<void> {
@@ -332,8 +341,8 @@ export default class Page {
             if (el.pageCoordinates) {
               rects.push({
                 index: idx,
-                x: el.pageCoordinates.x,
-                y: el.pageCoordinates.y,
+                x: el.pageCoordinates.center.x,
+                y: el.pageCoordinates.center.y,
                 w: parseInt(el.attributes['computedWidth'] || '0'),
                 h: parseInt(el.attributes['computedHeight'] || '0'),
               });
@@ -1837,6 +1846,32 @@ export default class Page {
       // Scroll element into view if needed
       await this._scrollIntoViewIfNeeded(element);
 
+      // Wait for element position/size to stabilize (prevents clicking shifting nodes)
+      await this._waitForElementStability(element, 1000);
+
+      // Verify element interactivity/clickability before executing CDP click
+      const clickabilityError = await element.evaluate((el) => {
+        if (el instanceof HTMLButtonElement || el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) {
+          if (el.disabled) return 'Element is disabled';
+        }
+        if (el.getAttribute('aria-disabled') === 'true') {
+          return 'Element has aria-disabled set to true';
+        }
+        const style = window.getComputedStyle(el);
+        if (style.pointerEvents === 'none') {
+          return 'Element has pointer-events: none';
+        }
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) {
+          return 'Element has 0 width or height';
+        }
+        return null;
+      });
+
+      if (clickabilityError) {
+        logger.warning(`[ClickabilityCheck] Target may not be clickable: ${clickabilityError}. Proceeding with best-effort click.`);
+      }
+
       try {
         // Primary attempt: Use OS-level click via CDP Input.dispatchMouseEvent
         logger.info(`Attempting CDP OS-level click on element: ${elementNode}`);
@@ -1849,17 +1884,27 @@ export default class Page {
         if (error instanceof URLNotAllowedError) {
           throw error;
         }
-        // Fallback: Re-locate a fresh element and use evaluate().click().
-        // This avoids the stale-handle problem (element may have been detached
-        // by SPA re-renders during the 5s wait) and is more reliable than
-        // dispatching raw MouseEvents for React/Angular SPAs.
-        logger.warning('CDP click failed, trying legacy evaluate().click() on fresh handle', error);
+        
+        // Fallback: Re-locate a fresh handle to avoid stale references, focus it, and dispatch a full synthetic event chain
+        logger.warning('CDP click failed, trying synthetic MouseEvent dispatch chain on fresh handle', error);
         try {
           const freshElement = await this.locateElement(elementNode);
           if (!freshElement) {
             throw new Error('Element no longer found for fallback click');
           }
-          await freshElement.evaluate((el: Element) => (el as HTMLElement).click());
+          await freshElement.evaluate((el: Element) => {
+            if (el instanceof HTMLElement) {
+              el.focus();
+            }
+            const eventOpts = { bubbles: true, cancelable: true, view: window };
+            el.dispatchEvent(new MouseEvent('mousedown', eventOpts));
+            el.dispatchEvent(new MouseEvent('mouseup', eventOpts));
+            if (el instanceof HTMLElement) {
+              el.click();
+            } else {
+              el.dispatchEvent(new MouseEvent('click', eventOpts));
+            }
+          });
           await this._checkAndHandleNavigation();
         } catch (secondError) {
           if (secondError instanceof URLNotAllowedError) {

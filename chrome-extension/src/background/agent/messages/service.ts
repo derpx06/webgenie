@@ -1,5 +1,5 @@
 import { type BaseMessage, AIMessage, HumanMessage, type SystemMessage, ToolMessage } from '@langchain/core/messages';
-import { MessageHistory, MessageMetadata, serializeHistory, deserializeHistory } from '@src/background/agent/messages/views';
+import { MessageHistory, MessageMetadata, PyramidLevel, serializeHistory, deserializeHistory } from '@src/background/agent/messages/views';
 import { createLogger } from '@src/background/log';
 import {
   filterExternalContent,
@@ -47,11 +47,21 @@ export default class MessageManager {
   private toolId: number;
   private settings: MessageManagerSettings;
   private sessionId: string | null;
-  // Batching tokens to prevent Chrome Storage blocking
   private pendingInputTokens = 0;
   private pendingOutputTokens = 0;
   private flushTimeout: ReturnType<typeof setTimeout> | null = null;
   private flushIntervalMs = 2000;
+  /**
+   * Durable working memory scratchpad — the agent's mutable "brain notes".
+   *
+   * Stored SEPARATELY from the message history under `${sessionId}:wm` so it:
+   * - Survives Chrome service worker restarts (session storage is process-scoped)
+   * - Is NEVER compacted, pruned, or summarized away
+   * - Can be appended to incrementally without re-writing the whole string
+   *
+   * Research ref: browser-use `AgentBrain.memory` field, browser_agent_research_pt2.md §Working Memory.
+   */
+  private workingMemory = '';
 
   constructor(settings: MessageManagerSettings = new MessageManagerSettings(), sessionId: string | null = null, flushIntervalMs = 2000) {
     this.settings = settings;
@@ -110,6 +120,65 @@ export default class MessageManager {
     }
   }
 
+  // ── Working Memory Scratchpad ─────────────────────────────────────────────
+
+  /**
+   * Overwrites the working memory scratchpad and persists to session storage.
+   * Called by navigator after each step with the agent's updated `memory` field.
+   */
+  public async setWorkingMemory(memory: string): Promise<void> {
+    this.workingMemory = memory.slice(0, 2000); // cap at 2000 chars
+    await this._persistWorkingMemory();
+  }
+
+  /**
+   * Returns the current working memory scratchpad.
+   * Used by base.ts to inject into the reflection prefix.
+   */
+  public getWorkingMemory(): string {
+    return this.workingMemory;
+  }
+
+  /**
+   * Appends a note to the working memory without overwriting.
+   * Useful for pinning extracted data or key discoveries.
+   */
+  public async appendWorkingMemory(note: string): Promise<void> {
+    const combined = this.workingMemory
+      ? `${this.workingMemory}\n${note}`
+      : note;
+    this.workingMemory = combined.slice(0, 2000);
+    await this._persistWorkingMemory();
+  }
+
+  /**
+   * Loads working memory from session storage (called at task resume).
+   */
+  public async loadWorkingMemory(): Promise<void> {
+    if (!this.sessionId) return;
+    try {
+      const key = `${this.sessionId}:wm`;
+      const data = await chrome.storage.session.get(key);
+      if (data?.[key]) {
+        this.workingMemory = String(data[key]).slice(0, 2000);
+        logger.info(`Loaded working memory (${this.workingMemory.length} chars) from session`);
+      }
+    } catch (err) {
+      logger.error('Failed to load working memory:', err);
+    }
+  }
+
+  private async _persistWorkingMemory(): Promise<void> {
+    if (!this.sessionId) return;
+    try {
+      await chrome.storage.session.set({ [`${this.sessionId}:wm`]: this.workingMemory });
+    } catch (err) {
+      logger.error('Failed to persist working memory:', err);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   get cumulativeInputTokens(): number {
     return this.history.cumulativeInputTokens;
   }
@@ -120,19 +189,19 @@ export default class MessageManager {
 
   public initTaskMessages(systemMessage: SystemMessage, task: string, messageContext?: string): void {
     // Add system message
-    this.addMessageWithTokens(systemMessage, 'init');
+    this.addMessageWithTokens(systemMessage, PyramidLevel.INIT);
 
     // Add context message if provided
     if (messageContext && messageContext.length > 0) {
       const contextMessage = new HumanMessage({
         content: `Context for the task: ${messageContext}`,
       });
-      this.addMessageWithTokens(contextMessage, 'init');
+      this.addMessageWithTokens(contextMessage, PyramidLevel.INIT);
     }
 
     // Add task instructions
     const taskMessage = MessageManager.taskInstructions(task);
-    this.addMessageWithTokens(taskMessage, 'init');
+    this.addMessageWithTokens(taskMessage, PyramidLevel.INIT);
 
     // Add sensitive data info if sensitive data is provided
     if (this.settings.sensitiveData) {
@@ -140,14 +209,14 @@ export default class MessageManager {
       const infoMessage = new HumanMessage({
         content: `${info}\nTo use them, write <secret>the placeholder name</secret>`,
       });
-      this.addMessageWithTokens(infoMessage, 'init');
+      this.addMessageWithTokens(infoMessage, PyramidLevel.INIT);
     }
 
     // Add example output
     const placeholderMessage = new HumanMessage({
       content: 'Example output:',
     });
-    this.addMessageWithTokens(placeholderMessage, 'init');
+    this.addMessageWithTokens(placeholderMessage, PyramidLevel.INIT);
 
     const toolCallId = this.nextToolId();
     const toolCalls = [
@@ -180,21 +249,21 @@ export default class MessageManager {
       content: '',
       tool_calls: toolCalls,
     });
-    this.addMessageWithTokens(exampleToolCall, 'init');
-    this.addToolMessage('Browser started', toolCallId, 'init');
+    this.addMessageWithTokens(exampleToolCall, PyramidLevel.INIT);
+    this.addToolMessage('Browser started', toolCallId, PyramidLevel.INIT);
 
     // Add history start marker
     const historyStartMessage = new HumanMessage({
       content: '[Your task history memory starts here]',
     });
-    this.addMessageWithTokens(historyStartMessage);
+    this.addMessageWithTokens(historyStartMessage, PyramidLevel.INIT);
 
     // Add available file paths if provided
     if (this.settings.availableFilePaths && this.settings.availableFilePaths.length > 0) {
       const filepathsMsg = new HumanMessage({
         content: `Here are file paths you can use: ${this.settings.availableFilePaths}`,
       });
-      this.addMessageWithTokens(filepathsMsg, 'init');
+      this.addMessageWithTokens(filepathsMsg, PyramidLevel.INIT);
     }
   }
 
@@ -256,7 +325,7 @@ export default class MessageManager {
     }
 
     const msg = new HumanMessage({ content: finalContent });
-    this.addMessageWithTokens(msg);
+    this.addMessageWithTokens(msg, PyramidLevel.INIT);
   }
 
   /**
@@ -268,7 +337,7 @@ export default class MessageManager {
     if (plan) {
       const cleanedPlan = filterExternalContent(plan, false);
       const msg = new AIMessage({ content: `<plan>${cleanedPlan}</plan>` });
-      this.addMessageWithTokens(msg, null, position);
+      this.addMessageWithTokens(msg, PyramidLevel.MILESTONE, null, position);
     }
   }
 
@@ -277,7 +346,7 @@ export default class MessageManager {
    * @param stateMessage - The HumanMessage object containing the state
    */
   public addStateMessage(stateMessage: HumanMessage): void {
-    this.addMessageWithTokens(stateMessage);
+    this.addMessageWithTokens(stateMessage, PyramidLevel.LIVE);
   }
 
   /**
@@ -299,11 +368,11 @@ export default class MessageManager {
       content: 'tool call',
       tool_calls: toolCalls,
     });
-    this.addMessageWithTokens(msg);
+    this.addMessageWithTokens(msg, PyramidLevel.TRACE);
 
     // Need a placeholder for the tool response here to avoid errors sometimes
     // NOTE: in browser-use, it uses an empty string
-    this.addToolMessage('tool call response', toolCallId);
+    this.addToolMessage('tool call response', toolCallId, PyramidLevel.TRACE);
   }
 
   /**
@@ -345,10 +414,16 @@ export default class MessageManager {
   /**
    * Adds a message to the history with the token count metadata
    * @param message - The BaseMessage object to add
+   * @param level - The pyramid level of the message
    * @param messageType - The type of the message (optional)
-   * @param position - The optional position to add the message, if not provided, the message will be added to the end of the history
+   * @param position - The optional position to add the message
    */
-  public addMessageWithTokens(message: BaseMessage, messageType?: string | null, position?: number): void {
+  public addMessageWithTokens(
+    message: BaseMessage,
+    level: PyramidLevel = PyramidLevel.LIVE,
+    messageType?: string | null,
+    position?: number,
+  ): void {
     let filteredMessage = message;
     // filter out sensitive data if provided
     if (this.settings.sensitiveData) {
@@ -356,7 +431,7 @@ export default class MessageManager {
     }
 
     const tokenCount = this._countTokens(filteredMessage);
-    const metadata: MessageMetadata = new MessageMetadata(tokenCount, messageType);
+    const metadata: MessageMetadata = new MessageMetadata(tokenCount, messageType, level);
     this.history.addMessage(filteredMessage, metadata, position);
     void this.saveToSession();
   }
@@ -437,78 +512,209 @@ export default class MessageManager {
    *
    * Get current message list, potentially trimmed to max tokens
    */
+  /**
+   * Cuts oldest messages from trace and milestone levels when history total tokens exceed budget.
+   * Never touches INIT or LIVE levels to prevent JSON/DOM corruption.
+   */
   public cutMessages(): void {
     let diff = this.history.totalTokens - this.settings.maxInputTokens;
     if (diff <= 0) return;
 
-    const lastMsg = this.history.messages[this.history.messages.length - 1];
+    logger.info(`Total tokens (${this.history.totalTokens}) exceed limit (${this.settings.maxInputTokens}). Cutting history...`);
 
-    // if list with image remove image
-    if (Array.isArray(lastMsg.message.content)) {
-      let text = '';
-      lastMsg.message.content = lastMsg.message.content.filter(item => {
-        if ('image_url' in item) {
-          diff -= this.settings.imageTokens;
-          lastMsg.metadata.tokens -= this.settings.imageTokens;
-          this.history.totalTokens -= this.settings.imageTokens;
-          logger.debug(
-            `Removed image with ${this.settings.imageTokens} tokens - total tokens now: ${this.history.totalTokens}/${this.settings.maxInputTokens}`,
-          );
-          return false;
+    // 1. Drop oldest TRACE messages first
+    for (let i = 0; i < this.history.messages.length; i++) {
+      const m = this.history.messages[i];
+      if (m.metadata.level === PyramidLevel.TRACE) {
+        const tokens = m.metadata.tokens;
+        this.history.messages.splice(i, 1);
+        this.history.totalTokens -= tokens;
+        diff -= tokens;
+        i--; // Adjust index
+        if (diff <= 0) {
+          void this.saveToSession();
+          return;
         }
-        if ('text' in item) {
-          text += item.text;
-        }
-        return true;
-      });
-      lastMsg.message.content = text;
-      this.history.messages[this.history.messages.length - 1] = lastMsg;
+      }
     }
 
-    if (diff <= 0) {
-      void this.saveToSession();
-      return;
+    // 2. Drop oldest MILESTONE messages next
+    for (let i = 0; i < this.history.messages.length; i++) {
+      const m = this.history.messages[i];
+      if (m.metadata.level === PyramidLevel.MILESTONE) {
+        const tokens = m.metadata.tokens;
+        this.history.messages.splice(i, 1);
+        this.history.totalTokens -= tokens;
+        diff -= tokens;
+        i--; // Adjust index
+        if (diff <= 0) {
+          void this.saveToSession();
+          return;
+        }
+      }
     }
 
-    // if still over, remove text from state message proportionally to the number of tokens needed with buffer
-    // Calculate the proportion of content to remove
-    const proportionToRemove = diff / lastMsg.metadata.tokens;
-    if (proportionToRemove > 0.99) {
-      throw new Error(
-        `Max token limit reached - history is too long - reduce the system prompt or task. proportion_to_remove: ${proportionToRemove}`,
+    // Fallback: If still exceeding, log warning
+    if (diff > 0) {
+      logger.warning(`Unable to free enough tokens by dropping traces/milestones. Remaining diff: ${diff}`);
+    }
+    void this.saveToSession();
+  }
+
+  /**
+   * Compacts the TRACE history messages when they exceed the budget.
+   * Finds the oldest TRACE messages (AIMessage tool calls & ToolMessages),
+   * summarizes them programmatically, replaces them with a MILESTONE human message,
+   * and preserves any important verification/extracted results.
+   */
+  public compactHistory(traceBudget = 1500): void {
+    // Calculate current tokens in PyramidLevel.TRACE
+    let traceTokens = 0;
+    for (const m of this.history.messages) {
+      if (m.metadata.level === PyramidLevel.TRACE) {
+        traceTokens += m.metadata.tokens;
+      }
+    }
+
+    if (traceTokens <= traceBudget) return;
+
+    logger.info(`Trace tokens (${traceTokens}) exceed budget (${traceBudget}). Compacting history...`);
+
+    // Collect TRACE message indices
+    const traceIndices: number[] = [];
+    for (let i = 0; i < this.history.messages.length; i++) {
+      if (this.history.messages[i].metadata.level === PyramidLevel.TRACE) {
+        traceIndices.push(i);
+      }
+    }
+
+    // Process oldest TRACE pairs (AIMessage + ToolMessage) until under budget.
+    while (traceTokens > traceBudget && traceIndices.length >= 2) {
+      const aiIdx  = traceIndices.shift()!;
+      const toolIdx = traceIndices.shift()!;
+
+      const aiMsg  = this.history.messages[aiIdx];
+      const toolMsg = this.history.messages[toolIdx];
+
+      if (!aiMsg || !toolMsg) continue;
+
+      // ── CRITICAL: Pin extracted content BEFORE compaction removes it ────────
+      // Any ToolMessage that contains meaningful extracted data (scraped values,
+      // auth tokens, product IDs, etc.) must be preserved as a protected INIT
+      // message so the agent can reference it for the rest of the task.
+      // Research ref: goated_memory_architecture.md §Risk 3.
+      const resultStr = String(toolMsg.message.content);
+      const isExtractedData = resultStr.length > 20 &&
+        !resultStr.startsWith('tool call') &&
+        !resultStr.startsWith('Browser started') &&
+        !resultStr.startsWith('Action result: ') &&
+        !resultStr.startsWith('Action error: ');
+
+      if (isExtractedData) {
+        // Pin as INIT-level so it survives all future compaction and cutMessages
+        const pinnedContent = `[Pinned extracted data from step]: ${resultStr.slice(0, 300)}`;
+        const pinMsg = new HumanMessage({ content: pinnedContent });
+        const pinMeta = new MessageMetadata(
+          this._countTokens(pinMsg),
+          'pinned_extraction',
+          PyramidLevel.INIT,
+        );
+        // Insert right after the last INIT message (before any TRACE/LIVE)
+        const lastInitIdx = this.history.messages.reduce(
+          (acc, m, i) => m.metadata.level === PyramidLevel.INIT ? i : acc, -1,
+        );
+        this.history.addMessage(pinMsg, pinMeta, lastInitIdx + 1);
+        logger.info(`Pinned extracted data from tool message (${resultStr.length} chars) as INIT`);
+      }
+      // ────────────────────────────────────────────────────────────────────────
+
+      // Build the action string from the AI tool call
+      let actionStr = '';
+      if (aiMsg.message instanceof AIMessage && aiMsg.message.tool_calls) {
+        actionStr = aiMsg.message.tool_calls
+          .map(tc => {
+            if (tc.name === 'AgentOutput') {
+              const args = tc.args as Record<string, unknown>;
+              return JSON.stringify((args as Record<string, unknown>)?.['action'] || tc.args);
+            }
+            return tc.name;
+          })
+          .join(', ');
+      } else {
+        actionStr = String(aiMsg.message.content).slice(0, 80);
+      }
+
+      const resultSummary = resultStr.slice(0, 80);
+      const summary =
+        `[Milestone] Action: ${actionStr} → Result: ${resultSummary}`;
+
+      // Remove the two old TRACE messages
+      const removedTokens = aiMsg.metadata.tokens + toolMsg.metadata.tokens;
+      // Adjust indices for any insertion done above (pinning shifts indices by 1)
+      const actualAiIdx  = this.history.messages.indexOf(aiMsg);
+      const actualToolIdx = this.history.messages.indexOf(toolMsg);
+      this.history.messages = this.history.messages.filter(
+        (_, i) => i !== actualAiIdx && i !== actualToolIdx,
       );
+      this.history.totalTokens -= removedTokens;
+      traceTokens -= removedTokens;
+
+      // Insert milestone at position of the old AI message
+      const insertAt = Math.min(actualAiIdx, this.history.messages.length);
+      const milestoneMsg = new HumanMessage({ content: summary });
+      const milestoneMeta = new MessageMetadata(
+        this._countTokens(milestoneMsg),
+        null,
+        PyramidLevel.MILESTONE,
+      );
+      this.history.addMessage(milestoneMsg, milestoneMeta, insertAt);
+      logger.info(`Compacted TRACE pair → milestone: "${summary.slice(0, 80)}"`);
+
+      // ── Milestone cap: max 5 milestones (200-token budget per research spec) ─
+      // If we now have > 5 milestones, drop the oldest one.
+      const milestoneIndices: number[] = [];
+      for (let i = 0; i < this.history.messages.length; i++) {
+        if (this.history.messages[i].metadata.level === PyramidLevel.MILESTONE) {
+          milestoneIndices.push(i);
+        }
+      }
+      if (milestoneIndices.length > 5) {
+        const oldestIdx = milestoneIndices[0];
+        const oldestTokens = this.history.messages[oldestIdx].metadata.tokens;
+        this.history.messages.splice(oldestIdx, 1);
+        this.history.totalTokens -= oldestTokens;
+        logger.info('Milestone cap (5) exceeded — evicted oldest milestone');
+      }
+      // ────────────────────────────────────────────────────────────────────────
+
+      // Re-index remaining TRACE messages after structural changes
+      traceIndices.length = 0;
+      for (let i = 0; i < this.history.messages.length; i++) {
+        if (this.history.messages[i].metadata.level === PyramidLevel.TRACE) {
+          traceIndices.push(i);
+        }
+      }
     }
-    logger.debug(
-      `Removing ${(proportionToRemove * 100).toFixed(2)}% of the last message (${(proportionToRemove * lastMsg.metadata.tokens).toFixed(2)} / ${lastMsg.metadata.tokens.toFixed(2)} tokens)`,
-    );
 
-    const content = lastMsg.message.content as string;
-    const charactersToRemove = Math.floor(content.length * proportionToRemove);
-    const newContent = content.slice(0, -charactersToRemove);
-
-    // remove tokens and old long message
-    this.history.removeLastStateMessage();
-
-    // new message with updated content
-    const msg = new HumanMessage({ content: newContent });
-    this.addMessageWithTokens(msg);
-
-    const finalMsg = this.history.messages[this.history.messages.length - 1];
-    logger.debug(
-      `Added message with ${finalMsg.metadata.tokens} tokens - total tokens now: ${this.history.totalTokens}/${this.settings.maxInputTokens} - total messages: ${this.history.messages.length}`,
-    );
+    void this.saveToSession();
   }
 
   /**
    * Adds a tool message to the history
    * @param content - The content of the tool message
-   * @param toolCallId - The tool call id of the tool message, if not provided, a new tool call id will be generated
+   * @param toolCallId - The tool call id of the tool message
+   * @param level - The pyramid level
    * @param messageType - The type of the tool message
    */
-  public addToolMessage(content: string, toolCallId?: number, messageType?: string | null): void {
+  public addToolMessage(
+    content: string,
+    toolCallId?: number,
+    level: PyramidLevel = PyramidLevel.LIVE,
+    messageType?: string | null,
+  ): void {
     const id = toolCallId ?? this.nextToolId();
     const msg = new ToolMessage({ content, tool_call_id: String(id) });
-    this.addMessageWithTokens(msg, messageType);
+    this.addMessageWithTokens(msg, level, messageType);
   }
 
   /**

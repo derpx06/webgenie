@@ -5,6 +5,8 @@ import type { AgentOutput } from '../types';
 import { Actors, ExecutionState } from '../event/types';
 import { handleAgentError } from './utils/error-handler';
 import { preparePlannerMessages, cleanPlannerOutput } from './planner/utils';
+import { ContextBuilder } from '../memory';
+import { HumanMessage } from '@langchain/core/messages';
 
 const logger = createLogger('PlannerAgent');
 
@@ -48,10 +50,19 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
     try {
       this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_START, 'Planning...');
 
-      const messages = this.context.messageManager.getMessages();
-      const plannerMessages = preparePlannerMessages(
+      // Extract current page state message from MessageManager (last added message)
+      const allMsgs = this.context.messageManager.getMessages();
+      const currentStateMsg = allMsgs[allMsgs.length - 1] as HumanMessage;
+
+      // Build structured context packet
+      const contextPacket = ContextBuilder.buildContextPacket(
+        this.context,
         this.prompt.getSystemMessage(),
-        messages,
+        currentStateMsg
+      );
+
+      const plannerMessages = preparePlannerMessages(
+        contextPacket,
         this.context.options.useVision,
         this.context.options.useVisionForPlanner
       );

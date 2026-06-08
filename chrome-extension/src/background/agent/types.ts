@@ -6,6 +6,7 @@ import type MessageManager from './messages/service';
 import type { EventManager } from './event/manager';
 import { type Actors, type ExecutionState, AgentEvent } from './event/types';
 import { AgentStepHistory } from './history';
+import { InChatMemory } from './memory';
 
 /**
  * Records a single failed element interaction.
@@ -77,8 +78,11 @@ export class AgentContext {
    */
   lastEvaluation: string;  // evaluation_previous_goal from last navigator step
   lastMemory: string;      // memory scratchpad from last navigator step
+  lastGoal?: string;
+  activeLayoutHash?: string;
   parentRun?: any;
   traceCallbacks?: any;
+  memory: InChatMemory;
 
   /**
    * Phase 1 Memory — Failure Registry
@@ -156,6 +160,7 @@ export class AgentContext {
     this.lastEvaluation = '';
     this.lastMemory = '';
     this.failureRegistry = new Map<string, FailureRecord>();
+    this.memory = new InChatMemory();
   }
 
   async emitEvent(actor: Actors, state: ExecutionState, eventDetails: string, screenshot?: string) {
@@ -246,6 +251,13 @@ export const agentBrainSchema = z
     evaluation_previous_goal: z.string(),
     memory: z.string(),
     next_goal: z.string(),
+    extracted_facts: z.array(z.string()).optional(),
+    extracted_constraints: z.array(z.string()).optional(),
+    extracted_decisions: z.array(z.string()).optional(),
+    progress_completed: z.array(z.string()).optional(),
+    progress_remaining: z.array(z.string()).optional(),
+    progress_current: z.array(z.string()).optional(),
+    pinned_items: z.array(z.string()).optional(),
   })
   .describe('Current state of the agent');
 

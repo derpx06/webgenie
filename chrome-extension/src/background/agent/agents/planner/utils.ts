@@ -5,13 +5,11 @@ import type { PlannerOutput } from '../planner';
  * Prepares messages for the planner, optionally stripping images if vision is not enabled for planning.
  */
 export function preparePlannerMessages(
-  systemMessage: BaseMessage,
   messages: BaseMessage[],
   useVision: boolean,
   useVisionForPlanner: boolean
 ): BaseMessage[] {
-  // Use full message history except the first one (which is usually the system message from another context)
-  const plannerMessages = [systemMessage, ...messages.slice(1)];
+  const plannerMessages = [...messages];
 
   // Remove images from last message if vision is not enabled for planner but vision is enabled globally
   if (!useVisionForPlanner && useVision) {
