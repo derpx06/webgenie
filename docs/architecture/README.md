@@ -12,6 +12,8 @@
 | [PART1_EXECUTION_LIFECYCLE.md](./PART1_EXECUTION_LIFECYCLE.md) | Background SW kernel · Executor step loop & cancellation · Dual-agent model (Navigator + Planner) · AgentContext · MessageManager & token-budget enforcement · Error taxonomy (fatal / retriable / action-level) · ExecutionState event bus |
 | [PART2_DOM_ENGINE.md](./PART2_DOM_ENGINE.md) | DOMService script injection · DOMElementNode virtual tree · `highlightIndex` system · 3-stage element location pipeline (CSS → XPath → heuristic) · SHA-256 branch-path hash change detection · Stale-index recovery · Network quiescence · Click & input primitives · Anti-detection scripts |
 | [PART3_ORCHESTRATION.md](./PART3_ORCHESTRATION.md) | BrowserContext / CDP bridge · TabOrchestrator 5-component stack · TabEventBridge (single listener set) · TabRegistry persistence · ActivityEngine WorkflowStage mapping · Content script ambient UI (border / capsule / cursor) · Full action schema system · `ask_human` HITL · End-to-end `new_task` data flow trace · SW resilience model · 12 architecture invariants |
+| [AGENT_CRITIQUE_REPORT.md](./AGENT_CRITIQUE_REPORT.md) | Structural vulnerabilities · Amnesia Protocol · Perception-Action gaps · Verification deficit · Bot-detection risks |
+| [DEEP_DIVE_LOOPHOLES.md](./DEEP_DIVE_LOOPHOLES.md) | Procedural memory volatility · Semantic blindness in recall · Human simulation deficits · Concurrency & Operational risks · Flat DOM fallacies |
 
 ---
 

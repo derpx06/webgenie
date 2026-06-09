@@ -159,8 +159,8 @@ export class TabOrchestrator {
       // Create chrome.tabGroups group for this task (if grouping enabled)
       if (settings.enableTabGrouping) {
         try {
-          const llmGroupTitle = await this._generateGroupTitle(description);
-          const group = await this._groupManager.createGroup(taskId, description, [activeTabId], llmGroupTitle);
+          // Create the group with standard fallback first to avoid blocking the task execution start
+          const group = await this._groupManager.createGroup(taskId, description, [activeTabId]);
           this._currentGroupId = group.groupId;
 
           // Update tab record with groupId
@@ -170,6 +170,32 @@ export class TabOrchestrator {
 
           // Collapse other active groups
           await this._groupManager.collapseInactiveGroups(group.groupId);
+
+          // Asynchronously generate group title to avoid blocking task start on LLM latency/network issues
+          this._generateGroupTitle(description).then(async (llmGroupTitle) => {
+            if (llmGroupTitle && group.chromeGroupId !== null) {
+              try {
+                // Update native chrome group title
+                await chrome.tabGroups.update(group.chromeGroupId, {
+                  title: llmGroupTitle
+                });
+                // Update in-memory / storage group metadata
+                const state = await tabOrchestrationStore.getState();
+                const currentGroup = state.groups[group.groupId];
+                if (currentGroup) {
+                  await tabOrchestrationStore.upsertGroup({
+                    ...currentGroup,
+                    title: llmGroupTitle
+                  });
+                }
+                logger.info(`TabOrchestrator: updated tab group title to "${llmGroupTitle}"`);
+              } catch (err) {
+                logger.warning('TabOrchestrator: failed to update group title natively or in store:', err);
+              }
+            }
+          }).catch(err => {
+            logger.warning('TabOrchestrator: failed to generate LLM group title asynchronously:', err);
+          });
         } catch (err) {
           logger.warning('TabOrchestrator: failed to create tab group:', err);
         }

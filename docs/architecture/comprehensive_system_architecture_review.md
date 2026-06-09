@@ -16,6 +16,7 @@ This architectural review evaluates WebGenie, a modular agentic browser automati
 2. **Context & Token Bloat**: The agent suffers from linear context bloat. Short-term memory slices elements based on raw character cuts instead of semantic tokens, increasing the risk of broken JSON buffers and high token costs.
 3. **Bot-Detection Vulnerability**: Action handlers trigger actions using synthetic events rather than native, human-like Bezier coordinates, making the agent vulnerable to detection by modern anti-bot frameworks (e.g., Cloudflare, Akamai).
 4. **Validation Deficit**: The system lacks an automated, post-action "Critic Validator" step. If an action fails silently (e.g., clicking a button does not trigger navigation), the agent does not immediately detect it, leading to redundant retry loops.
+5. **Architectural Loopholes**: A detailed critique has identified significant risks in the "Amnesia Protocol" memory pruning and the "Open-Loop" execution model. See [AGENT_CRITIQUE_REPORT.md](./AGENT_CRITIQUE_REPORT.md) for a full breakdown.
 
 ### Summary of Recommendations
 We propose an **evolutionary roadmap** prioritizing high-ROI stability improvements over deep system rewrites:

@@ -628,7 +628,16 @@ async function subscribeToExecutorEvents(executor: Executor) {
   executor.subscribeExecutionEvents(async event => {
     try {
       if (currentPort) {
-        currentPort.postMessage(event);
+        // Map the AgentEvent instance to a plain object to ensure safe serialization over Chrome Port in Manifest V3
+        const plainEvent = {
+          actor: event.actor,
+          state: event.state,
+          data: event.data,
+          timestamp: event.timestamp,
+          type: event.type,
+          screenshot: event.screenshot,
+        };
+        currentPort.postMessage(plainEvent);
       }
 
       // Sync the current active tab with the orchestrator
