@@ -349,9 +349,21 @@ chrome.runtime.onConnect.addListener(port => {
               const result = await currentExecutor.execute();
               logger.info('follow_up_task execution result', message.tabId, result);
             } else {
-              // executor was cleaned up, can not add follow-up task
-              logger.info('follow_up_task: executor was cleaned up, can not add follow-up task');
-              return port.postMessage({ type: 'error', error: t('bg_cmd_followUpTask_cleaned') });
+              // executor was cleaned up, initialize a new executor seamlessly
+              logger.info('follow_up_task: executor was cleaned up, initializing new executor seamlessly');
+              currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
+              subscribeToExecutorEvents(currentExecutor);
+
+              const followUpSettings = await generalSettingsStore.getSettings();
+              await tabOrchestrator.beginTask(
+                message.taskId,
+                message.task,
+                followUpSettings,
+                message.tabId,
+              );
+
+              const result = await currentExecutor.execute();
+              logger.info('follow_up_task execution result (new executor)', message.tabId, result);
             }
             break;
           }

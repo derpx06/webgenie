@@ -97,6 +97,14 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
 
   const dedupedSteps = deduplicateSteps(steps, isActive);
 
+  // Default to expanded if active, collapsed if completed
+  const [isExpanded, setIsExpanded] = React.useState(isActive);
+
+  // Sync isExpanded state with isActive prop updates (e.g. when a task goes from running to completed)
+  React.useEffect(() => {
+    setIsExpanded(isActive);
+  }, [isActive]);
+
   return (
     <div className={`xphase ${isActive ? 'active-phase' : ''}`}>
       {/* 17x17px absolute positioned phase dot */}
@@ -111,7 +119,11 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
       </div>
 
       {/* Phase header labels */}
-      <div className="phase-label-row">
+      <div 
+        className="phase-label-row" 
+        onClick={() => setIsExpanded(!isExpanded)}
+        style={{ cursor: 'pointer', userSelect: 'none' }}
+      >
         <span className={`phase-type-label ${isActive ? 'active' : isPlanner ? 'plan' : 'act'}`}>
           {isActive ? 'Active' : isPlanner ? 'Planning' : 'Acting'}
         </span>
@@ -122,56 +134,77 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
           </span>
         )}
 
-        <span className="step-count">
-          {steps.length} {steps.length === 1 ? 'step' : 'steps'}
-        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span className="step-count" style={{ margin: 0 }}>
+            {steps.length} {steps.length === 1 ? 'step' : 'steps'}
+          </span>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{
+              width: '10px',
+              height: '10px',
+              color: 'var(--ws-muted)',
+              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'transform 0.2s ease',
+            }}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
       </div>
 
       {/* Steps List */}
-      <div className="steps-list">
-        {dedupedSteps.map((step, i) => {
-          const isCompleted = !step.isLive;
-          return (
-            <div className={`step-row ${isCompleted ? 'opacity-40' : ''}`} key={i}>
-              <div className="step-icon-container">
-                {step.isLive ? (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="size-3 animate-spin-fast text-indigo-500">
-                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38" />
-                  </svg>
-                ) : step.isWarning ? (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-3 text-[#D97706]">
-                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                    <line x1="12" y1="9" x2="12" y2="13" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" className="size-3 text-emerald-500">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-              </div>
-              
-              <div className="min-w-0 flex-grow">
-                <span className={`step-text ${step.isLive ? 'live' : ''}`}>
-                  {step.content}
-                </span>
-
-                {step.count > 1 && (
-                  <span className="step-badge-dedup">
-                    ×{step.count}
+      {isExpanded && (
+        <div className="steps-list animate-slide-in">
+          {dedupedSteps.map((step, i) => {
+            const isCompleted = !step.isLive;
+            return (
+              <div className={`step-row ${isCompleted ? 'opacity-40' : ''}`} key={i}>
+                <div className="step-icon-container">
+                  {step.isLive ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="size-3 animate-spin-fast text-indigo-500">
+                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38" />
+                    </svg>
+                  ) : step.isWarning ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-3 text-[#D97706]">
+                      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                      <line x1="12" y1="9" x2="12" y2="13" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" className="size-3 text-emerald-500">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </div>
+                
+                <div className="min-w-0 flex-grow">
+                  <span className={`step-text ${step.isLive ? 'live' : ''}`}>
+                    {step.content}
                   </span>
-                )}
 
-                {step.isWarning && step.warningDetail && (
-                  <span className="step-badge-warn">
-                    {step.warningDetail}
-                  </span>
-                )}
+                  {step.count > 1 && (
+                    <span className="step-badge-dedup">
+                      ×{step.count}
+                    </span>
+                  )}
+
+                  {step.isWarning && step.warningDetail && (
+                    <span className="step-badge-warn">
+                      {step.warningDetail}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

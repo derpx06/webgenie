@@ -1,6 +1,6 @@
 import type { Message } from '@extension/storage';
 import { Actors } from '@extension/storage';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { AnswerRow } from './message-list/AnswerRow';
 import { ThinkBlock } from './message-list/ThinkBlock';
 import { HITLBlock } from './message-list/HITLBlock';
@@ -40,6 +40,7 @@ export default memo(function MessageList({
   onOptionSelect,
   isTaskRunning = false,
 }: MessageListProps) {
+  const [isCompletionExpanded, setIsCompletionExpanded] = useState(false);
   const cycles: {
     userMessage: Message | null;
     blocks: {
@@ -171,17 +172,42 @@ export default memo(function MessageList({
             <div className="status-line" />
           </div>
 
-          <div className="task-completion-card animate-slide-in">
+          <div 
+            className="task-completion-card animate-slide-in"
+            onClick={() => setIsCompletionExpanded(!isCompletionExpanded)}
+            style={{ cursor: 'pointer', userSelect: 'none' }}
+          >
             <div className="completion-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" className="size-3">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>
-            <div className="completion-details">
-              <span className="completion-title">Task complete</span>
-              <span className="completion-subtitle" title={summaryDetail}>
-                {summaryDetail}
-              </span>
+            <div className="completion-details" style={{ flexGrow: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'between', width: '100%' }}>
+                <span className="completion-title" style={{ flexGrow: 1 }}>Task complete</span>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{
+                    width: '10px',
+                    height: '10px',
+                    color: 'var(--ws-muted)',
+                    transform: isCompletionExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                    transition: 'transform 0.2s ease',
+                  }}
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </div>
+              {isCompletionExpanded && (
+                <span className="completion-subtitle" title={summaryDetail} style={{ display: 'block', marginTop: '4px' }}>
+                  {summaryDetail}
+                </span>
+              )}
             </div>
           </div>
         </>
