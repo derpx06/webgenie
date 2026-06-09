@@ -9,6 +9,7 @@ interface MessageListProps {
   messages: Message[];
   isDarkMode?: boolean;
   onOptionSelect?: (text: string) => void;
+  isTaskRunning?: boolean;
 }
 
 const formatTimeOnly = (timestamp: number) => {
@@ -23,17 +24,22 @@ const renderDateSeparator = (timestamp: number, isDarkMode: boolean) => {
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <div className="my-6 flex items-center gap-4 opacity-40">
-      <div className={`h-px grow ${isDarkMode ? 'bg-white/10' : 'bg-gray-200'}`} />
-      <span className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-        {text} • {time}
+    <div className="my-4 flex items-center gap-3">
+      <div className={`h-[0.5px] grow ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
+      <span className="font-mono text-[9px] uppercase tracking-wider opacity-30 select-none">
+        {text} · {time}
       </span>
-      <div className={`h-px grow ${isDarkMode ? 'bg-white/10' : 'bg-gray-200'}`} />
+      <div className={`h-[0.5px] grow ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
     </div>
   );
 };
 
-export default memo(function MessageList({ messages, isDarkMode = false, onOptionSelect }: MessageListProps) {
+export default memo(function MessageList({
+  messages,
+  isDarkMode = false,
+  onOptionSelect,
+  isTaskRunning = false,
+}: MessageListProps) {
   const cycles: {
     userMessage: Message | null;
     blocks: {
@@ -71,28 +77,37 @@ export default memo(function MessageList({ messages, isDarkMode = false, onOptio
     cycles.push(currentCycle);
   }
 
+  // Calculate total steps for status rows
+  const totalStepsCount = messages.filter(
+    m => m.actor !== Actors.USER && m.actor !== Actors.SYSTEM && m.actor !== Actors.HITL && m.content !== 'Showing progress...'
+  ).length;
+
+  const isCompleted = !isTaskRunning && messages.length > 0;
+  const lastSystemMessage = [...messages].reverse().find(m => m.actor === Actors.SYSTEM);
+  const summaryDetail = lastSystemMessage ? lastSystemMessage.content : 'Task finished successfully.';
+
   return (
-    <div className="flex w-full flex-col gap-6 p-4">
+    <div className="flex w-full flex-col gap-[8px] p-3">
       {cycles.map((cycle, cIdx) => (
-        <div key={cIdx} className="animate-in fade-in slide-in-from-bottom-2 flex w-full flex-col duration-500">
+        <div key={cIdx} className="animate-in fade-in slide-in-from-bottom-2 flex w-full flex-col gap-[8px] duration-500">
           {cycle.userMessage && cIdx === 0 && renderDateSeparator(cycle.userMessage.timestamp, isDarkMode)}
 
           {cycle.userMessage && (
-            <div className="mb-6 flex flex-col items-end">
-              <div className={`font-inter max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-[14px] font-medium leading-relaxed shadow-sm ${isDarkMode
-                ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white'
-                : 'bg-gradient-to-br from-indigo-500 to-indigo-600 text-white'
+            <div className="mb-2 flex flex-col items-end">
+              <div className={`max-w-[85%] rounded-[11px] rounded-br-[3px] border border-solid px-3.5 py-2 text-[13px] leading-relaxed shadow-sm ${isDarkMode
+                ? 'bg-[#818cf8]/[0.13] border-[#818cf8]/20 text-[#f1f5f9]'
+                : 'bg-[#8B5CF6]/[0.13] border-[#8B5CF6]/20 text-slate-900'
                 }`}>
                 {cycle.userMessage.content}
               </div>
-              <span className={`mt-1.5 text-[10px] font-bold uppercase tracking-tighter opacity-40 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
+              <span className="mt-1 font-mono text-[9px] uppercase tracking-wider opacity-30 select-none">
                 {formatTimeOnly(cycle.userMessage.timestamp)}
               </span>
             </div>
           )}
 
           {cycle.blocks.length > 0 && (
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-[8px]">
               {cycle.blocks.map((block, bIdx) => {
                 const isLastInCycle = bIdx === cycle.blocks.length - 1;
                 const isOverallLastBlock = cIdx === cycles.length - 1 && isLastInCycle;
@@ -129,7 +144,6 @@ export default memo(function MessageList({ messages, isDarkMode = false, onOptio
                     actor={block.actor}
                     messages={block.messages}
                     isActive={isActive}
-                    defaultOpen={shouldDefaultOpen}
                     isDarkMode={isDarkMode}
                   />
                 );
@@ -138,6 +152,40 @@ export default memo(function MessageList({ messages, isDarkMode = false, onOptio
           )}
         </div>
       ))}
+
+      {/* Status Row at the bottom of the stream */}
+      {isTaskRunning && (
+        <div className="status-row running animate-slide-in">
+          <div className="status-dot" />
+          <span className="status-text">RUNNING</span>
+          <span className="status-steps">· {totalStepsCount} step{totalStepsCount === 1 ? '' : 's'}</span>
+          <div className="status-line" />
+        </div>
+      )}
+
+      {isCompleted && (
+        <>
+          <div className="status-row completed animate-slide-in">
+            <span className="completed-status-text">✓ COMPLETED</span>
+            <span className="status-steps">· {totalStepsCount} step{totalStepsCount === 1 ? '' : 's'}</span>
+            <div className="status-line" />
+          </div>
+
+          <div className="task-completion-card animate-slide-in">
+            <div className="completion-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" className="size-3">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <div className="completion-details">
+              <span className="completion-title">Task complete</span>
+              <span className="completion-subtitle" title={summaryDetail}>
+                {summaryDetail}
+              </span>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 });
