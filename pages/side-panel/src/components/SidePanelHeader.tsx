@@ -18,10 +18,10 @@ const SidePanelHeader = ({
 }: SidePanelHeaderProps) => {
 
   return (
-    <header className={`sticky top-0 z-[60] overflow-hidden p-5 transition-all duration-700 ${isDarkMode
-      ? 'border-b border-white/[0.04] bg-webgenie-bg/40'
-      : 'border-b border-slate-200/40 bg-white/40'
-      } backdrop-blur-3xl`}>
+    <header className={`ws-header-premium sticky top-0 z-[60] overflow-hidden p-5 transition-all duration-700 ${isDarkMode
+      ? 'border-b border-white/[0.06] bg-slate-950/35'
+      : 'border-b border-slate-200/45 bg-white/35'
+      }`} style={{ backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }}>
 
       {/* Atmospheric Glow Integration */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -59,6 +59,9 @@ const SidePanelHeader = ({
           <div className="flex flex-col">
             <span className={`font-outfit text-[20px] font-black leading-none tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
               WebGenie
+            </span>
+            <span className={`font-outfit text-[10px] font-semibold tracking-wide mt-1.5 opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              AI Browser Agent
             </span>
           </div>
         </button>
@@ -98,21 +101,6 @@ const SidePanelHeader = ({
                 </button>
               </>
             )}
-          </div>
-
-          <div className={`mx-2 h-5 w-px ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-
-          <div className="flex items-center gap-1">
-            <a
-              href="https://github.com/derpx06/webgenie"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`flex size-9 items-center justify-center rounded-xl transition-all duration-500 ${isDarkMode ? 'text-slate-400 hover:bg-white/10 hover:text-white' : 'text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              title="GitHub"
-            >
-              <FaGithub size={15} />
-            </a>
 
             <button
               type="button"

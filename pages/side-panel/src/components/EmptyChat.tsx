@@ -2,13 +2,12 @@ import React from 'react';
 import { OrbVisual } from './welcome/OrbVisual';
 import { BackgroundGradientAnimation } from './ui/background-gradient-animation';
 import type { ChatSessionMetadata } from '@extension/storage';
-import { ChatSessionList } from './welcome/ChatSessionList';
-import { WorkflowGallery } from './welcome/WorkflowGallery';
 
 interface EmptyChatProps {
     onSelectPrompt: (text: string) => void;
     isDarkMode: boolean;
     recentSessions?: ChatSessionMetadata[];
+    onSelectSession?: (sessionId: string) => void;
     children?: React.ReactNode;
 }
 
@@ -19,228 +18,348 @@ interface TestToolDefinition {
     schema?: Record<string, unknown>;
 }
 
-const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recentSessions = [], children }) => {
-    const [testOutput, setTestOutput] = React.useState<string>('');
-    const [toolsList, setToolsList] = React.useState<TestToolDefinition[]>([]);
+/* ─── Pill data — two rows, opposite scroll directions ─── */
+const ROW_A = [
+    { icon: '🔍', label: 'Search Hacker News' },
+    { icon: '▶️', label: 'Open YouTube' },
+    { icon: '🐦', label: 'Browse Twitter' },
+    { icon: '✈️', label: 'Find cheap flights' },
+    { icon: '🛍️', label: 'Compare products' },
+    { icon: '📰', label: 'Summarize article' },
+];
 
-    const handleLogPageState = () => {
-        chrome.runtime.sendMessage({ type: 'TEST_GET_LLM_PAGE_STATE' }, (response) => {
-            if (chrome.runtime.lastError) {
-                console.error("Runtime error:", chrome.runtime.lastError);
-                setTestOutput("Error: " + chrome.runtime.lastError.message);
-                return;
-            }
-            if (response && response.success) {
-                console.log("=== LLM PAGE STATE ===");
-                console.log("Formatted Description for LLM:\n", response.stateDescription);
-                console.log("Raw Browser State Object:\n", response.rawState);
-                setTestOutput(response.stateDescription);
-                setToolsList([]);
-            } else {
-                const errMsg = response?.error || "Unknown error fetching state";
-                console.error("Failed to fetch state:", errMsg);
-                setTestOutput("Failed to fetch state: " + errMsg);
-            }
-        });
+const ROW_B = [
+    { icon: '💼', label: 'Search LinkedIn jobs' },
+    { icon: '📈', label: 'Check stock prices' },
+    { icon: '🌐', label: 'Translate webpage' },
+    { icon: '🎵', label: 'Play music on Spotify' },
+    { icon: '🗓️', label: 'Open Google Calendar' },
+    { icon: '📬', label: 'Read latest emails' },
+];
+
+/* Helper: relative time label */
+const getTimeAgo = (timestamp: number): string => {
+    const diffMs = Date.now() - timestamp;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return 'yesterday';
+    return `${diffDays}d ago`;
+};
+
+/* ─── Single pill chip ─── */
+const PillChip: React.FC<{ icon: string; label: string; isDarkMode: boolean; onClick: () => void }> = ({
+    icon, label, isDarkMode, onClick,
+}) => (
+    <button
+        type="button"
+        onClick={onClick}
+        className="group flex shrink-0 cursor-pointer items-center gap-2 rounded-full px-4 py-2 text-[12px] font-semibold tracking-tight transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.03] active:scale-95"
+        style={{
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            background: isDarkMode
+                ? 'rgba(255,255,255,0.04)'
+                : 'rgba(255,255,255,0.72)',
+            border: isDarkMode
+                ? '1px solid rgba(255,255,255,0.08)'
+                : '1px solid rgba(0,0,0,0.07)',
+            boxShadow: isDarkMode
+                ? '0 2px 10px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.04)'
+                : '0 2px 8px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.9)',
+            color: isDarkMode ? 'rgba(226,232,240,0.85)' : 'rgba(30,41,59,0.85)',
+            whiteSpace: 'nowrap',
+        }}
+        onMouseEnter={e => {
+            const el = e.currentTarget;
+            el.style.background = isDarkMode ? 'rgba(99,102,241,0.12)' : 'rgba(99,102,241,0.06)';
+            el.style.border = isDarkMode ? '1px solid rgba(99,102,241,0.28)' : '1px solid rgba(99,102,241,0.22)';
+        }}
+        onMouseLeave={e => {
+            const el = e.currentTarget;
+            el.style.background = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.72)';
+            el.style.border = isDarkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)';
+        }}
+    >
+        <span className="text-base leading-none">{icon}</span>
+        <span>{label}</span>
+    </button>
+);
+
+/* ─── Dual-direction marquee rows ─── */
+const PillMarquee: React.FC<{ isDarkMode: boolean; onSelectPrompt: (text: string) => void }> = ({
+    isDarkMode, onSelectPrompt,
+}) => {
+    const doubled = (arr: typeof ROW_A) => [...arr, ...arr];
+
+    return (
+        <div className="w-full overflow-hidden" style={{ WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, black 10%, black 90%, transparent 100%)', maskImage: 'linear-gradient(90deg, transparent 0%, black 10%, black 90%, transparent 100%)' }}>
+            {/* Row A → scrolls right */}
+            <div className="mb-2.5 flex gap-2.5" style={{ animation: 'marquee-right 28s linear infinite' }}>
+                {doubled(ROW_A).map((p, i) => (
+                    <PillChip key={i} icon={p.icon} label={p.label} isDarkMode={isDarkMode} onClick={() => onSelectPrompt(p.label)} />
+                ))}
+            </div>
+            {/* Row B → scrolls left */}
+            <div className="flex gap-2.5" style={{ animation: 'marquee-left 22s linear infinite' }}>
+                {doubled(ROW_B).map((p, i) => (
+                    <PillChip key={i} icon={p.icon} label={p.label} isDarkMode={isDarkMode} onClick={() => onSelectPrompt(p.label)} />
+                ))}
+            </div>
+        </div>
+    );
+};
+
+/* ─── iPhone-style session notification card ─── */
+const SessionCard: React.FC<{ session: ChatSessionMetadata; isDarkMode: boolean; onClick: () => void }> = ({
+    session, isDarkMode, onClick,
+}) => {
+    const colors = [
+        ['#8b5cf6', '#6366f1'],
+        ['#06b6d4', '#0891b2'],
+        ['#d946ef', '#a21caf'],
+        ['#f59e0b', '#d97706'],
+        ['#10b981', '#059669'],
+        ['#f43f5e', '#e11d48'],
+    ];
+    const idx = (session.title?.charCodeAt(0) ?? 65) % colors.length;
+    const [c1, c2] = colors[idx];
+
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className="group flex h-full w-full items-center gap-3 rounded-2xl px-3.5 text-left transition-all duration-200"
+            style={{
+                backdropFilter: 'none',
+                WebkitBackdropFilter: 'none',
+                background: isDarkMode ? '#0f172a' : '#ffffff',
+                border: isDarkMode ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.12)',
+                boxShadow: isDarkMode
+                    ? '0 4px 14px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06)'
+                    : '0 3px 12px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.9)',
+            }}
+            onMouseEnter={e => {
+                const el = e.currentTarget;
+                el.style.background = isDarkMode ? '#1e293b' : '#f8fafc';
+                el.style.border = isDarkMode ? '1px solid rgba(255, 255, 255, 0.20)' : '1px solid rgba(99, 102, 241, 0.35)';
+                el.style.boxShadow = isDarkMode
+                    ? '0 6px 20px rgba(0, 0, 0, 0.45)'
+                    : '0 4px 16px rgba(99, 102, 241, 0.12)';
+            }}
+            onMouseLeave={e => {
+                const el = e.currentTarget;
+                el.style.background = isDarkMode ? '#0f172a' : '#ffffff';
+                el.style.border = isDarkMode ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.12)';
+                el.style.boxShadow = isDarkMode
+                    ? '0 4px 14px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06)'
+                    : '0 3px 12px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.9)';
+            }}
+        >
+            {/* Color dot */}
+            <div
+                className="flex size-9 shrink-0 items-center justify-center rounded-xl text-white text-[15px] font-bold shadow-sm transition-transform duration-200 group-hover:scale-105"
+                style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
+            >
+                {(session.title?.[0] ?? 'W').toUpperCase()}
+            </div>
+
+            {/* Text */}
+            <div className="min-w-0 flex-1 overflow-hidden">
+                <p className={`truncate text-[12.5px] font-semibold tracking-tight transition-colors duration-200 ${
+                    isDarkMode ? 'text-slate-200 group-hover:text-white' : 'text-slate-800 group-hover:text-slate-900'
+                }`}>
+                    {session.title || 'Untitled Session'}
+                </p>
+                <p className={`mt-0.5 text-[10px] font-medium ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                    WebGenie · Browser Agent
+                </p>
+            </div>
+
+            {/* Time badge */}
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-bold tracking-wide ${
+                isDarkMode ? 'bg-white/[0.05] text-slate-500' : 'bg-slate-100 text-slate-400'
+            }`}>
+                {getTimeAgo(session.createdAt)}
+            </span>
+        </button>
+    );
+};
+
+/* ─── Main EmptyChat ─── */
+const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recentSessions = [], onSelectSession, children }) => {
+    const [scrollTop, setScrollTop] = React.useState(0);
+    const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        setScrollTop(e.currentTarget.scrollTop);
     };
 
-    const handleLogTools = () => {
-        chrome.runtime.sendMessage({ type: 'TEST_GET_ALL_TOOLS' }, (response) => {
-            if (chrome.runtime.lastError) {
-                console.error("Runtime error:", chrome.runtime.lastError);
-                setTestOutput("Error: " + chrome.runtime.lastError.message);
-                return;
-            }
-            if (response && response.success) {
-                console.log("=== LLM ACCESSIBLE TOOLS ===");
-                response.tools.forEach((tool: TestToolDefinition) => {
-                    console.log(`Tool: ${tool.name}`, tool);
-                });
-                setToolsList(response.tools);
-                setTestOutput('');
-            } else {
-                const errMsg = response?.error || "Unknown error fetching tools";
-                console.error("Failed to fetch tools:", errMsg);
-                setTestOutput("Failed to fetch tools: " + errMsg);
-            }
-        });
-    };
+    // Use native non-passive listener to prevent scroll propagation
+    React.useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
 
-    const handleLogFailureRegistry = () => {
-        chrome.runtime.sendMessage({ type: 'TEST_GET_FAILURE_REGISTRY' }, (response) => {
-            if (chrome.runtime.lastError) {
-                console.error("Runtime error:", chrome.runtime.lastError);
-                setTestOutput("Error: " + chrome.runtime.lastError.message);
-                return;
-            }
-            if (response && response.success) {
-                console.log("=== FAILURE REGISTRY RECORD ===");
-                console.log(response.records);
-                setTestOutput(response.records.length > 0
-                    ? "=== BLOCKED SELECTORS (FAILURE REGISTRY) ===\n" + JSON.stringify(response.records, null, 2)
-                    : "No blocked selectors registered."
-                );
-                setToolsList([]);
-            } else {
-                const errMsg = response?.error || "Unknown error fetching failure registry";
-                console.error("Failed to fetch failure registry:", errMsg);
-                setTestOutput("Failed to fetch failure registry: " + errMsg);
-            }
-        });
-    };
+        const handleWheelEvent = (e: WheelEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            container.scrollTop += e.deltaY;
+        };
 
-    const handleLogSessionStats = () => {
-        chrome.runtime.sendMessage({ type: 'TEST_GET_SESSION_STATS' }, (response) => {
-            if (chrome.runtime.lastError) {
-                console.error("Runtime error:", chrome.runtime.lastError);
-                setTestOutput("Error: " + chrome.runtime.lastError.message);
-                return;
-            }
-            if (response && response.success) {
-                console.log("=== ACTIVE SESSION STATS ===");
-                console.log(response.stats);
-                setTestOutput(response.stats
-                    ? "=== ACTIVE SESSION STATS ===\n" + JSON.stringify(response.stats, null, 2)
-                    : "No active execution task running. Stats are empty."
-                );
-                setToolsList([]);
-            } else {
-                const errMsg = response?.error || "Unknown error fetching session stats";
-                console.error("Failed to fetch session stats:", errMsg);
-                setTestOutput("Failed to fetch session stats: " + errMsg);
-            }
-        });
-    };
+        container.addEventListener('wheel', handleWheelEvent, { passive: false });
+        return () => {
+            container.removeEventListener('wheel', handleWheelEvent);
+        };
+    }, [recentSessions.length]);
 
-    const handleClearFailureRegistry = () => {
-        chrome.runtime.sendMessage({ type: 'TEST_CLEAR_FAILURE_REGISTRY' }, (response) => {
-            if (chrome.runtime.lastError) {
-                console.error("Runtime error:", chrome.runtime.lastError);
-                setTestOutput("Error: " + chrome.runtime.lastError.message);
-                return;
-            }
-            if (response && response.success) {
-                console.log("=== FAILURE REGISTRY CLEARED ===");
-                setTestOutput("Success: " + response.message);
-                setToolsList([]);
-            } else {
-                const errMsg = response?.error || "Unknown error clearing failure registry";
-                console.error("Failed to clear failure registry:", errMsg);
-                setTestOutput("Failed to clear failure registry: " + errMsg);
-            }
-        });
-    };
+    // Stacking parameters
+    const cardStep = 66; // 58px height + 8px gap
+    const threshold = 264; // 4 * cardStep (keeps 5 visible)
 
     return (
         <BackgroundGradientAnimation
             containerClassName={`flex-1 w-full overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-slate-950' : 'bg-slate-50'}`}
-            className={`relative z-10 flex h-full flex-col justify-start overflow-y-auto px-6 pb-8 pt-4 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}
-            gradientBackgroundStart={isDarkMode ? "rgb(2, 6, 23)" : "rgb(248, 250, 252)"}
-            gradientBackgroundEnd={isDarkMode ? "rgb(15, 23, 42)" : "rgb(241, 245, 249)"}
-            firstColor={isDarkMode ? "79, 70, 229" : "99, 102, 241"}
-            secondColor={isDarkMode ? "56, 189, 248" : "129, 140, 248"}
-            thirdColor={isDarkMode ? "30, 41, 59" : "226, 232, 240"}
-            fourthColor={isDarkMode ? "12, 21, 37" : "248, 250, 252"}
-            fifthColor={isDarkMode ? "2, 6, 23" : "255, 255, 255"}
-            pointerColor={isDarkMode ? "79, 70, 229" : "99, 102, 241"}
+            className={`relative z-10 flex h-full flex-col justify-start overflow-hidden pb-4 pt-[35px] ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}
+            gradientBackgroundStart={isDarkMode ? 'rgb(2, 6, 23)' : 'rgb(248, 250, 252)'}
+            gradientBackgroundEnd={isDarkMode ? 'rgb(15, 23, 42)' : 'rgb(241, 245, 249)'}
+            firstColor={isDarkMode ? '79, 70, 229' : '99, 102, 241'}
+            secondColor={isDarkMode ? '56, 189, 248' : '129, 140, 248'}
+            thirdColor={isDarkMode ? '30, 41, 59' : '226, 232, 240'}
+            fourthColor={isDarkMode ? '12, 21, 37' : '248, 250, 252)'}
+            fifthColor={isDarkMode ? '2, 6, 23' : '255, 255, 255'}
+            pointerColor={isDarkMode ? '79, 70, 229' : '99, 102, 241'}
         >
             <div className="from-slate-950/48 via-slate-950/38 to-slate-950/62 pointer-events-none absolute inset-0 z-0 bg-gradient-to-b" />
+
             <div className="pointer-events-auto relative z-10 mx-auto w-full max-w-xl">
-                <div className="relative mb-4 flex flex-col items-center text-center">
-                    <div className="relative mb-3 opacity-95 transition-all duration-700">
+
+                {/* ── Logo + Title ── */}
+                <div className="mb-5 flex flex-col items-center px-6 text-center">
+                    <div className="relative mb-2 opacity-95 transition-all duration-700">
                         <OrbVisual isDarkMode={isDarkMode} />
                     </div>
-
-                    <div className="space-y-2 px-4">
-                        <h1 className={`text-5xl font-black leading-none -tracking-wider transition-all duration-700 ${isDarkMode 
-                            ? 'bg-gradient-to-b from-white via-white to-white/40 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,255,255,0.1)]' 
-                            : 'bg-gradient-to-b from-slate-900 via-slate-800 to-slate-500 bg-clip-text text-transparent'
-                            }`}>
+                    <div className="space-y-1.5 px-4">
+                        <h1 className={`text-4xl font-extrabold leading-none -tracking-wide transition-all duration-700 ${isDarkMode
+                            ? 'bg-gradient-to-r from-white via-indigo-200 to-indigo-100 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(99,102,241,0.2)]'
+                            : 'bg-gradient-to-r from-slate-900 via-indigo-900 to-indigo-950 bg-clip-text text-transparent'
+                        }`}>
                             WebGenie
                         </h1>
-                        <p className={`mx-auto max-w-[340px] px-2 font-sans text-[14px] font-medium leading-relaxed tracking-tight ${isDarkMode ? 'text-slate-300/95' : 'text-slate-500'}`}>
-                            Professional-grade autonomous intelligence for <br />
-                            <span className={isDarkMode ? 'text-indigo-300/95' : 'text-indigo-700/90'}>web research and multi-step task execution.</span>
+                        <p className={`mx-auto max-w-[300px] font-sans text-[12px] font-medium leading-relaxed tracking-tight ${isDarkMode ? 'text-slate-300/70' : 'text-slate-500'}`}>
+                            Autonomous browser operations and web search inside your browser.
                         </p>
                     </div>
                 </div>
 
-                <div className="mb-6 w-full">
+                {/* ── Chat input slot ── */}
+                <div className="mb-5 w-full px-4">
                     {children}
                 </div>
 
-                {recentSessions.length > 0 ? (
-                    <ChatSessionList sessions={recentSessions} isDarkMode={isDarkMode} onSelectPrompt={onSelectPrompt} />
-                ) : (
-                    <WorkflowGallery isDarkMode={isDarkMode} onSelectPrompt={onSelectPrompt} />
+                {/* ── Dual-direction pill marquee ── */}
+                <div className="mb-6">
+                    <p className={`mb-3 px-6 text-[9px] font-black uppercase tracking-[0.14em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                        Quick Actions
+                    </p>
+                    <PillMarquee isDarkMode={isDarkMode} onSelectPrompt={onSelectPrompt} />
+                </div>
+
+                {/* ── Session history — iPhone notification style ── */}
+                {recentSessions.length > 0 && (
+                    <div className="px-4">
+                        {/* Section header */}
+                        <div className="mb-3 flex items-center justify-between px-1">
+                            <div className="flex items-center gap-3">
+                                <p className={`text-[9px] font-black uppercase tracking-[0.14em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                                    Recent Sessions
+                                </p>
+                                <div
+                                    className="h-px w-20"
+                                    style={{
+                                        background: isDarkMode
+                                            ? 'linear-gradient(90deg, rgba(99,102,241,0.15) 0%, transparent 100%)'
+                                            : 'linear-gradient(90deg, rgba(99,102,241,0.10) 0%, transparent 100%)',
+                                    }}
+                                />
+                            </div>
+                            <span className={`text-[9.5px] font-bold ${isDarkMode ? 'text-indigo-400/60' : 'text-indigo-500/60'}`}>
+                                {recentSessions.length} sessions
+                            </span>
+                        </div>
+
+                        {/* Stacking scroll area */}
+                        <div
+                            ref={scrollContainerRef}
+                            onScroll={handleScroll}
+                            className="scrollbar-none relative overflow-y-auto px-1 py-1.5"
+                            style={{
+                                height: '390px',
+                                overscrollBehavior: 'contain',
+                                maskImage: 'linear-gradient(to bottom, transparent 0%, black 5%, black 85%, transparent 100%)',
+                                WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 5%, black 85%, transparent 100%)',
+                            }}
+                        >
+                            <div style={{ height: `${recentSessions.length * cardStep + 60}px`, position: 'relative' }}>
+                                {recentSessions.map((session, i) => {
+                                    const y_i = i * cardStep;
+                                    const relY = y_i - scrollTop;
+                                    let translateY = 0;
+                                    let scale = 1;
+                                    let opacity = 1;
+                                    const zIndex = 100 - i;
+
+                                    if (relY > threshold) {
+                                        const diff = relY - threshold;
+                                        const overlap = Math.min(22, diff * 0.16);
+                                        translateY = -diff + overlap;
+                                        scale = Math.max(0.86, 1 - (diff * 0.0013));
+                                        opacity = Math.max(0, 1 - (diff * 0.025));
+                                    } else if (relY < 0) {
+                                        const diffTop = -relY;
+                                        const overlapTop = Math.min(16, diffTop * 0.12);
+                                        translateY = diffTop - overlapTop;
+                                        scale = Math.max(0.9, 1 - (diffTop * 0.0015));
+                                        opacity = Math.max(0, 1 - (diffTop * 0.03));
+                                    }
+
+                                    return (
+                                        <div
+                                            key={session.id}
+                                            style={{
+                                                transform: `translate3d(0, ${translateY}px, 0) scale(${scale})`,
+                                                opacity,
+                                                zIndex,
+                                                transformOrigin: 'top center',
+                                                transition: 'transform 0.04s ease-out, opacity 0.04s ease-out',
+                                                position: 'absolute',
+                                                top: `${y_i}px`,
+                                                left: 0,
+                                                right: 0,
+                                                height: '58px',
+                                            }}
+                                        >
+                                            <SessionCard
+                                                session={session}
+                                                isDarkMode={isDarkMode}
+                                                onClick={() => {
+                                                    if (onSelectSession) {
+                                                        onSelectSession(session.id);
+                                                    } else {
+                                                        onSelectPrompt(session.title);
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
                 )}
 
-                {/* TEST BUTTONS CONTAINER - START */}
-                <div className="pointer-events-auto relative z-20 mt-8 rounded-xl border border-red-500/30 bg-slate-900/40 p-4 text-left">
-                    <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-red-400">Test & Verification Actions (Easy to Remove)</h3>
-                    <div className="mb-3 flex flex-wrap gap-2">
-                        <button
-                            onClick={handleLogPageState}
-                            className="pointer-events-auto rounded bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white transition-all hover:bg-indigo-500"
-                        >
-                            Log Page State
-                        </button>
-                        <button
-                            onClick={handleLogTools}
-                            className="pointer-events-auto rounded bg-purple-600 px-3 py-1.5 text-xs font-bold text-white transition-all hover:bg-purple-500"
-                        >
-                            Log LLM Tools
-                        </button>
-                        <button
-                            onClick={handleLogFailureRegistry}
-                            className="pointer-events-auto rounded bg-amber-600 px-3 py-1.5 text-xs font-bold text-white transition-all hover:bg-amber-500"
-                        >
-                            Log Blocked Selectors
-                        </button>
-                        <button
-                            onClick={handleLogSessionStats}
-                            className="pointer-events-auto rounded bg-teal-600 px-3 py-1.5 text-xs font-bold text-white transition-all hover:bg-teal-500"
-                        >
-                            Log Session Stats
-                        </button>
-                        <button
-                            onClick={handleClearFailureRegistry}
-                            className="pointer-events-auto rounded bg-rose-600 px-3 py-1.5 text-xs font-bold text-white transition-all hover:bg-rose-500"
-                        >
-                            Clear Blocked Selectors
-                        </button>
-                    </div>
-                    
-                    {(testOutput || toolsList.length > 0) && (
-                        <div className="max-h-48 overflow-y-auto rounded border border-white/10 bg-black/60 p-2 font-mono text-[10px] text-slate-300">
-                            {testOutput && <pre className="whitespace-pre-wrap">{testOutput}</pre>}
-                            {toolsList.length > 0 && (
-                                <div className="space-y-2">
-                                    <div className="mb-1 font-bold text-amber-400">ALL ACCESSIBLE TOOLS ({toolsList.length}):</div>
-                                    {toolsList.map((tool, idx) => (
-                                        <div key={idx} className="border-b border-white/5 pb-1">
-                                            <span className="font-bold text-indigo-400">{tool.name}</span>: {tool.description}
-                                            <div className="mt-0.5 text-[9px] text-slate-500">
-                                                Schema: {JSON.stringify(tool.schema)}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-                {/* TEST BUTTONS CONTAINER - END */}
-
-                {/* Operational Status */}
-                <div className="mt-6 flex flex-col items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <div className="size-1.5 animate-pulse rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>
-                        <span className={`text-[9px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-300/85' : 'text-slate-600/80'}`}>
-                            Runtime Operational
-                        </span>
-                    </div>
-                </div>
             </div>
         </BackgroundGradientAnimation>
     );

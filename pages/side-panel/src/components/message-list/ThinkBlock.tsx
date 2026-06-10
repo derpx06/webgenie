@@ -107,14 +107,22 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
 
   return (
     <div className={`xphase ${isActive ? 'active-phase' : ''}`}>
-      {/* 17x17px absolute positioned phase dot */}
+      {/* Absolute positioned phase dot */}
       <div className={`phase-dot ${isActive ? 'active' : isPlanner ? 'plan' : 'act'}`}>
         {isActive ? (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="size-2.5 animate-spin-fast">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38" />
           </svg>
+        ) : isPlanner ? (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-2.5">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
         ) : (
-          isPlanner ? 'P' : 'A'
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-2.5">
+            <polyline points="4 17 10 11 4 5" />
+            <line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
         )}
       </div>
 
@@ -160,26 +168,32 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
 
       {/* Steps List */}
       {isExpanded && (
-        <div className="steps-list animate-slide-in">
+        <div className="steps-list animate-slide-in relative">
+          {/* Internal timeline connecting track line */}
+          <div className="absolute left-[7px] top-2 bottom-2 w-[0.5px] bg-slate-300 dark:bg-white/[0.06]" />
+
           {dedupedSteps.map((step, i) => {
             const isCompleted = !step.isLive;
             return (
-              <div className={`step-row ${isCompleted ? 'opacity-40' : ''}`} key={i}>
-                <div className="step-icon-container">
+              <div className={`step-row ${isCompleted ? 'opacity-85' : ''} ${step.isLive ? 'is-live' : ''}`} key={i}>
+                <div className="step-icon-container relative z-10">
                   {step.isLive ? (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="size-3 animate-spin-fast text-indigo-500">
-                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38" />
-                    </svg>
+                    <div className="relative flex size-3.5 items-center justify-center">
+                      <div className="absolute inset-0 rounded-full bg-indigo-500/25 animate-ping" />
+                      <div className="size-1.5 rounded-full bg-indigo-500" />
+                    </div>
                   ) : step.isWarning ? (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-3 text-[#D97706]">
-                      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                      <line x1="12" y1="9" x2="12" y2="13" />
-                      <line x1="12" y1="17" x2="12.01" y2="17" />
-                    </svg>
+                    <div className="flex size-3.5 items-center justify-center rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="size-2">
+                        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                      </svg>
+                    </div>
                   ) : (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" className="size-3 text-emerald-500">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
+                    <div className="flex size-3.5 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="size-1.5">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
                   )}
                 </div>
                 

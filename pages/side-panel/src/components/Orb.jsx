@@ -128,29 +128,24 @@ export default function Orb({
       
       float ang = atan(uv.y, uv.x);
       float len = length(uv);
-      float invLen = len > 0.0 ? 1.0 / len : 0.0;
-
-      // Glow intensity based on noise and distance
-      float n0 = snoise3(vec3(uv * noiseScale, iTime * 0.5)) * 0.5 + 0.5;
-      float r0 = mix(innerRadius, 1.0, n0 * 0.2);
-      float d0 = distance(uv, (r0 * invLen) * uv);
       
-      // Ring glow
-      float glow = light1(1.0, 15.0, d0);
+      // Multi-layered noise for organic flowing effect
+      float n0 = snoise3(vec3(uv * 1.2, iTime * 0.25)) * 0.5 + 0.5;
+      float n1 = snoise3(vec3(uv * 2.5 + vec2(iTime * 0.1), iTime * 0.4)) * 0.5 + 0.5;
       
-      // Interactive flare
-      float a = iTime * -1.0;
-      vec2 pos = vec2(cos(a), sin(a)) * r0;
-      float flare = light2(1.5, 8.0, distance(uv, pos));
+      // Soft radial gradient falloff from center
+      float radialGlow = smoothstep(0.95, 0.0, len);
       
-      // Masking to keep it a ring
-      float ringMask = smoothstep(r0 + 0.2, r0, len) * smoothstep(r0 - 0.2, r0, len);
+      // Blend radial glow with the dynamic noise patterns
+      float finalAlpha = radialGlow * (0.45 + n1 * 0.55);
+      finalAlpha = clamp(pow(finalAlpha, 1.6), 0.0, 1.0);
       
-      vec3 color = mix(col1, col2, cos(ang + iTime) * 0.5 + 0.5);
-      color = mix(color, col3, flare);
+      // Shift colors organically across the canvas using the noise
+      vec3 color = mix(col1, col2, sin(ang + iTime * 0.2) * 0.5 + 0.5);
+      color = mix(color, col3, n0);
       
-      float finalAlpha = (glow + flare * 0.5) * ringMask;
-      finalAlpha = clamp(finalAlpha, 0.0, 1.0);
+      // Boost center brightness for depth
+      color += vec3(0.12, 0.08, 0.18) * (1.0 - len);
       
       return vec4(color, finalAlpha);
     }

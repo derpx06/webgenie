@@ -70,11 +70,14 @@ export default function ChatInput({
           />
         )}
 
-        <div className={`relative flex flex-col overflow-hidden rounded-2xl border transition-all duration-300 ${
-          isDarkMode
-            ? 'border-white/[0.07] bg-slate-900/60 focus-within:border-indigo-500/30'
-            : 'border-slate-200/80 bg-white/95 focus-within:border-indigo-300'
-          } ${disabled && !showStopButton ? 'pointer-events-none opacity-40' : ''}`}>
+        {/* ── Rotating colorful radiant glow underlay ── */}
+        <div className="premium-glow-underlay" />
+
+        {/* ── Rotating conic-gradient border wrapper ── */}
+        <div className={`premium-rotate-wrapper ${disabled && !showStopButton ? 'pointer-events-none opacity-40' : ''}`}>
+          <div
+            className="premium-inner-input relative flex flex-col overflow-hidden"
+          >
 
           <AttachmentBar attachedFiles={attachedFiles} onRemoveFile={handleRemoveFile} isDarkMode={isDarkMode} />
 
@@ -88,16 +91,16 @@ export default function ChatInput({
             style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
             className={`w-full resize-none border-0 bg-transparent px-5 pb-2 pt-4 font-sans text-[14px] font-medium leading-relaxed tracking-tight transition-all focus:border-0 focus:outline-none focus:ring-0 ${
               isDarkMode
-                ? 'text-slate-100 placeholder:text-slate-600/80'
+                ? 'text-slate-100 placeholder:text-slate-500/70'
                 : 'text-slate-900 placeholder:text-slate-400'
             }`}
-            placeholder={attachedFiles.length > 0 ? 'Add context or instructions...' : 'Describe your task or research goal…'}
+            placeholder={attachedFiles.length > 0 ? 'Add context or instructions...' : 'Ask WebGenie to research, browse, automate, or analyze…'}
           />
 
           {/* Separator */}
-          <div className={`mx-4 h-px ${isDarkMode ? 'bg-white/[0.05]' : 'bg-slate-100'}`} />
+          <div className={`mx-4 h-px ${isDarkMode ? 'bg-white/[0.06]' : 'bg-slate-900/[0.05]'}`} />
 
-          {/* Action bar — no background, fully unified */}
+          {/* Action bar */}
           <div className="flex items-center justify-between px-3 py-2">
             {/* Left tools */}
             <div className="flex items-center gap-0.5">
@@ -107,8 +110,8 @@ export default function ChatInput({
                 disabled={disabled}
                 className={`flex size-8 items-center justify-center rounded-lg transition-all duration-200 ${
                   isDarkMode
-                    ? 'text-slate-600 hover:bg-white/5 hover:text-slate-400 active:scale-90'
-                    : 'text-slate-300 hover:bg-slate-100 hover:text-slate-500 active:scale-90'
+                    ? 'text-slate-500 hover:bg-white/8 hover:text-slate-300 active:scale-90'
+                    : 'text-slate-400 hover:bg-slate-900/5 hover:text-slate-700 active:scale-90'
                 }`}
                 title="Attach file">
                 <FaPaperclip size={12} />
@@ -128,8 +131,8 @@ export default function ChatInput({
                       isRecording
                         ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
                         : isDarkMode
-                          ? 'text-slate-600 hover:bg-white/5 hover:text-slate-400 active:scale-90'
-                          : 'text-slate-300 hover:bg-slate-100 hover:text-slate-500 active:scale-90'
+                          ? 'text-slate-500 hover:bg-white/8 hover:text-slate-300 active:scale-90'
+                          : 'text-slate-400 hover:bg-slate-900/5 hover:text-slate-700 active:scale-90'
                     }`}>
                     {isProcessingSpeech
                       ? <AiOutlineLoading3Quarters size={12} className="animate-spin" />
@@ -152,6 +155,7 @@ export default function ChatInput({
               />
             </div>
           </div>
+        </div>
         </div>
 
         <ShortcutHint isDarkMode={isDarkMode} disabled={disabled} />

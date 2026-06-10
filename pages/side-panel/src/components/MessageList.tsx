@@ -41,6 +41,22 @@ export default memo(function MessageList({
   isTaskRunning = false,
 }: MessageListProps) {
   const [isCompletionExpanded, setIsCompletionExpanded] = useState(false);
+
+  const getElapsedDurationStr = () => {
+    if (messages.length < 2) return '';
+    const firstMsg = messages[0];
+    const lastMsg = messages[messages.length - 1];
+    const diffMs = lastMsg.timestamp - firstMsg.timestamp;
+    if (diffMs <= 0) return '';
+    const totalSecs = Math.floor(diffMs / 1000);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+  };
+  const durationStr = getElapsedDurationStr();
+
+  const isResearch = messages.some(m => m.content.toLowerCase().includes('search') || m.content.toLowerCase().includes('research'));
+  const titleText = isResearch ? 'Research Completed' : 'Task Completed';
   const cycles: {
     userMessage: Message | null;
     blocks: {
@@ -88,18 +104,17 @@ export default memo(function MessageList({
   const summaryDetail = lastSystemMessage ? lastSystemMessage.content : 'Task finished successfully.';
 
   return (
-    <div className="flex w-full flex-col gap-[8px] p-3">
+    <div className="flex w-full flex-col gap-[6px] p-2">
       {cycles.map((cycle, cIdx) => (
-        <div key={cIdx} className="animate-in fade-in slide-in-from-bottom-2 flex w-full flex-col gap-[8px] duration-500">
+        <div key={cIdx} className="animate-in fade-in slide-in-from-bottom-2 flex w-full flex-col gap-[6px] duration-500">
           {cycle.userMessage && cIdx === 0 && renderDateSeparator(cycle.userMessage.timestamp, isDarkMode)}
 
           {cycle.userMessage && (
-            <div className="mb-2 flex flex-col items-end">
-              <div className={`max-w-[85%] rounded-[11px] rounded-br-[3px] border border-solid px-3.5 py-2 text-[13px] leading-relaxed shadow-sm ${isDarkMode
-                ? 'bg-[#818cf8]/[0.13] border-[#818cf8]/20 text-[#f1f5f9]'
-                : 'bg-[#8B5CF6]/[0.13] border-[#8B5CF6]/20 text-slate-900'
-                }`}>
-                {cycle.userMessage.content}
+            <div className="mb-1.5 flex flex-col items-end">
+              <div className="msg-user">
+                <div className="bub">
+                  {cycle.userMessage.content}
+                </div>
               </div>
               <span className="mt-1 font-mono text-[9px] uppercase tracking-wider opacity-30 select-none">
                 {formatTimeOnly(cycle.userMessage.timestamp)}
@@ -108,7 +123,7 @@ export default memo(function MessageList({
           )}
 
           {cycle.blocks.length > 0 && (
-            <div className="flex flex-col gap-[8px]">
+            <div className="flex flex-col gap-[6px]">
               {cycle.blocks.map((block, bIdx) => {
                 const isLastInCycle = bIdx === cycle.blocks.length - 1;
                 const isOverallLastBlock = cIdx === cycles.length - 1 && isLastInCycle;
@@ -177,14 +192,14 @@ export default memo(function MessageList({
             onClick={() => setIsCompletionExpanded(!isCompletionExpanded)}
             style={{ cursor: 'pointer', userSelect: 'none' }}
           >
-            <div className="completion-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" className="size-3">
+            <div className="completion-icon-large">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="size-5">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>
             <div className="completion-details" style={{ flexGrow: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'between', width: '100%' }}>
-                <span className="completion-title" style={{ flexGrow: 1 }}>Task complete</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <span className="completion-title">✓ {titleText}</span>
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
@@ -193,8 +208,8 @@ export default memo(function MessageList({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   style={{
-                    width: '10px',
-                    height: '10px',
+                    width: '12px',
+                    height: '12px',
                     color: 'var(--ws-muted)',
                     transform: isCompletionExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
                     transition: 'transform 0.2s ease',
@@ -203,8 +218,17 @@ export default memo(function MessageList({
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
               </div>
+              <div className="completion-meta-row">
+                <span>{totalStepsCount} step{totalStepsCount === 1 ? '' : 's'} completed</span>
+                {durationStr && (
+                  <>
+                    <span className="completion-bullet-divider">•</span>
+                    <span>{durationStr}</span>
+                  </>
+                )}
+              </div>
               {isCompletionExpanded && (
-                <span className="completion-subtitle" title={summaryDetail} style={{ display: 'block', marginTop: '4px' }}>
+                <span className="completion-subtitle" title={summaryDetail} style={{ display: 'block', marginTop: '6px' }}>
                   {summaryDetail}
                 </span>
               )}

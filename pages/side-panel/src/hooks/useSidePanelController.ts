@@ -127,6 +127,11 @@ export const useSidePanelController = () => {
     stopConnection();
   }, [resetSession, stopConnection]);
 
+  // Auto-load sessions on mount so welcome page can show recent history
+  useEffect(() => {
+    loadChatSessions();
+  }, [loadChatSessions]);
+
   const handleLoadHistory = useCallback(async () => {
     await loadChatSessions();
     setShowHistory(true);

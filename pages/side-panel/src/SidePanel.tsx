@@ -86,21 +86,23 @@ const SidePanel = () => {
   }, [hasConfiguredModels, handleSendMessage]);
 
   return (
-    <div className={`relative flex h-screen w-screen flex-col overflow-hidden p-1.5 ${isDarkMode ? 'theme-dark bg-[#040813]' : 'theme-light bg-[#F1F5F9]'}`}>
-      <div className={`flex flex-1 flex-col overflow-hidden rounded-[14px] border border-solid shadow-2xl transition-all duration-300 ${isDarkMode ? 'border-white/[0.08] bg-[#020617]' : 'border-slate-200/80 bg-white'}`}>
+    <div className={`relative flex h-screen w-screen flex-col overflow-hidden ${isDarkMode ? 'theme-dark bg-[#020617]' : 'theme-light bg-[#F8FAFC]'}`}>
+      <div className={`relative flex flex-1 flex-col overflow-hidden transition-all duration-300 ${isDarkMode ? 'bg-[#020617]' : 'bg-white'}`}>
         <NeuralBackground isDarkMode={isDarkMode} />
         {(hasConfiguredModels === true || showHistory) && (
-          <SidePanelHeader
-            isDarkMode={isDarkMode}
-            showHistory={showHistory}
-            onBackToChat={() => handleBackToChat(false)}
-            onNewChat={handleNewChat}
-            onLoadHistory={handleLoadHistory}
-          />
+          <div className="absolute left-0 right-0 top-0 z-[60]">
+            <SidePanelHeader
+              isDarkMode={isDarkMode}
+              showHistory={showHistory}
+              onBackToChat={() => handleBackToChat(false)}
+              onNewChat={handleNewChat}
+              onLoadHistory={handleLoadHistory}
+            />
+          </div>
         )}
 
         {showHistory ? (
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden pt-[85px]">
             <ChatHistoryList
               sessions={chatSessions}
               onSessionSelect={handleSessionSelect}
@@ -130,12 +132,13 @@ const SidePanel = () => {
                 {messages.length === 0 ? (
                   <EmptyChat
                     isDarkMode={isDarkMode}
-                    recentSessions={chatSessions.slice(0, 3)}
+                    recentSessions={chatSessions}
                     onSelectPrompt={text => {
                       if (setInputTextRef.current) {
                         setInputTextRef.current(text);
                       }
-                    }}>
+                    }}
+                    onSelectSession={handleSessionSelect}>
                     <div className="relative z-20 shrink-0 px-2 pb-2 pt-4">
                       <ChatInput
                         onSendMessage={handleSendMessage}
@@ -159,18 +162,17 @@ const SidePanel = () => {
                     {/* AgentSight: floating circle, only in active chat */}
                     <AgentSight screenshot={lastScreenshot} isActive={showStopButton} />
 
-                    {/* TabOrchestrator: live workflow panel — only renders when tasks are active */}
-                    <TabOrchestrator isDarkMode={isDarkMode} />
-
-                    <div className="ws-body relative z-10 min-h-0 flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+                    <div 
+                      className="ws-body relative z-10 min-h-0 flex-1 overflow-y-auto px-3 flex flex-col gap-2"
+                      style={{ paddingTop: '85px', paddingBottom: '150px' }}
+                    >
+                      {/* TabOrchestrator: live workflow panel — only renders when tasks are active */}
+                      <TabOrchestrator isDarkMode={isDarkMode} />
                       <MessageList messages={messages} isDarkMode={isDarkMode} onOptionSelect={handleSendMessage} isTaskRunning={showStopButton} />
                       <div ref={messagesEndRef} />
                     </div>
 
-                    <div className={`relative z-20 shrink-0 border-t px-2 pb-2 pt-3 transition-all duration-300 ${isDarkMode
-                      ? 'border-white/5 bg-slate-950/80 backdrop-blur-xl'
-                      : 'border-slate-100 bg-white/85 backdrop-blur-xl'
-                      }`}>
+                    <div className="bottom-glass-panel">
                       <ChatInput
                         onSendMessage={handleSendMessage}
                         onStopTask={handleStopTask}
