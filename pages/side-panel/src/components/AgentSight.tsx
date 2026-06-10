@@ -67,15 +67,16 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
                 tabIndex={0}
                 aria-expanded={isExpanded}
                 aria-label="Toggle agent sight panel"
-                className={`relative z-[100] overflow-hidden transition-all duration-[400ms] ease-in-out ${
+                className={`z-[100] overflow-hidden transition-all duration-[400ms] ease-in-out ${
                     isExpanded
-                        ? 'fixed inset-x-4 top-4 rounded-2xl border border-white/15 shadow-2xl'
-                        : 'mx-4 mb-1 mt-3 cursor-pointer rounded-full border border-white/10 shadow-lg hover:border-white/20'
-                } bg-slate-900/90 backdrop-blur-xl`}
+                        ? 'fixed inset-x-4 top-24 rounded-2xl border border-white/15 shadow-2xl bg-slate-900/95 backdrop-blur-2xl'
+                        : 'fixed top-[92px] right-4 size-11 cursor-pointer rounded-full border border-white/15 shadow-lg hover:border-white/30 hover:scale-105 active:scale-95 bg-slate-900/90 backdrop-blur-xl'
+                }`}
                 style={{
-                    height: isExpanded ? '240px' : '32px',
+                    height: isExpanded ? '240px' : '44px',
+                    width: isExpanded ? 'calc(100% - 32px)' : '44px',
                     transition:
-                        'height 0.35s cubic-bezier(0.4,0,0.2,1), border-radius 0.35s cubic-bezier(0.4,0,0.2,1), top 0.35s, left 0.35s, right 0.35s',
+                        'height 0.35s cubic-bezier(0.4,0,0.2,1), width 0.35s cubic-bezier(0.4,0,0.2,1), border-radius 0.35s cubic-bezier(0.4,0,0.2,1), top 0.35s, left 0.35s, right 0.35s, transform 0.2s',
                 }}
                 onClick={!isExpanded ? () => setIsExpanded(true) : undefined}
                 onKeyDown={(e) => {
@@ -85,24 +86,32 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
                     }
                 }}
             >
-                <div className={`absolute inset-0 flex items-center gap-2 px-3 transition-opacity duration-200 ${isExpanded ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
-                    <div className="relative flex-shrink-0">
-                        <div className={`size-2 rounded-full ${isActive ? 'bg-cyan-400' : 'bg-slate-500'}`} />
-                        {isActive && <div className="absolute inset-0 size-2 animate-ping rounded-full bg-cyan-400 opacity-75" />}
-                    </div>
-
-                    {displayScreenshot && (
-                        <div className="h-5 w-8 flex-shrink-0 overflow-hidden rounded opacity-80">
-                            <img src={formatSrc(displayScreenshot)} alt="" className="size-full object-cover" />
+                {/* Collapsed circular view content */}
+                <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${isExpanded ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
+                    {displayScreenshot ? (
+                        <div className="relative size-full overflow-hidden rounded-full">
+                            <img src={formatSrc(displayScreenshot)} alt="Agent View" className="size-full object-cover" />
+                            {/* Glowing corner indicator */}
+                            <div className="absolute bottom-0.5 right-0.5 p-0.5 bg-slate-950 rounded-full">
+                                <div className={`size-1.5 rounded-full ${isActive ? 'bg-cyan-400' : 'bg-slate-500'}`} />
+                                {isActive && <div className="absolute inset-0 size-1.5 animate-ping rounded-full bg-cyan-400 opacity-75" />}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="relative flex size-full items-center justify-center">
+                            {/* Browser/Eye Icon */}
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={`size-4.5 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`}>
+                                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                                <circle cx="12" cy="12" r="3" />
+                            </svg>
+                            <div className="absolute bottom-0.5 right-0.5 p-0.5 bg-slate-950 rounded-full">
+                                <div className={`size-1.5 rounded-full ${isActive ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'}`} />
+                            </div>
                         </div>
                     )}
-
-                    <span className="flex-1 truncate text-[9px] font-black uppercase tracking-[0.15em] text-white/60">
-                        {isActive ? 'Agent Sight · Live' : 'Agent Sight'}
-                    </span>
-                    <HiOutlineChevronUp size={11} className="flex-shrink-0 text-white/30" />
                 </div>
 
+                {/* Expanded full view content */}
                 <div className={`absolute inset-0 transition-opacity duration-[250ms] ${isExpanded ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
                     <div className="relative size-full">
                         {prevScreenshot && isTransitioning && (

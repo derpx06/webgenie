@@ -234,7 +234,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
         >
             <div className="from-slate-950/48 via-slate-950/38 to-slate-950/62 pointer-events-none absolute inset-0 z-0 bg-gradient-to-b" />
 
-            <div className="pointer-events-auto relative z-10 mx-auto w-full max-w-xl">
+            <div className="pointer-events-auto relative z-10 mx-auto flex h-full w-full max-w-xl flex-col">
 
                 {/* ── Logo + Title ── */}
                 <div className="mb-5 flex flex-col items-center px-6 text-center">
@@ -269,7 +269,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
 
                 {/* ── Session history — iPhone notification style ── */}
                 {recentSessions.length > 0 && (
-                    <div className="px-4">
+                    <div className="px-4 flex flex-1 flex-col min-h-0 pb-3">
                         {/* Section header */}
                         <div className="mb-3 flex items-center justify-between px-1">
                             <div className="flex items-center gap-3">
@@ -294,12 +294,9 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                         <div
                             ref={scrollContainerRef}
                             onScroll={handleScroll}
-                            className="scrollbar-none relative overflow-y-auto px-1 py-1.5"
+                            className="scrollbar-none relative flex-1 min-h-0 overflow-y-auto px-1 py-1.5"
                             style={{
-                                height: '390px',
                                 overscrollBehavior: 'contain',
-                                maskImage: 'linear-gradient(to bottom, transparent 0%, black 5%, black 85%, transparent 100%)',
-                                WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 5%, black 85%, transparent 100%)',
                             }}
                         >
                             <div style={{ height: `${recentSessions.length * cardStep + 60}px`, position: 'relative' }}>
@@ -316,13 +313,13 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                                         const overlap = Math.min(22, diff * 0.16);
                                         translateY = -diff + overlap;
                                         scale = Math.max(0.86, 1 - (diff * 0.0013));
-                                        opacity = Math.max(0, 1 - (diff * 0.025));
+                                        opacity = diff > 40 ? 0 : 1;
                                     } else if (relY < 0) {
                                         const diffTop = -relY;
                                         const overlapTop = Math.min(16, diffTop * 0.12);
                                         translateY = diffTop - overlapTop;
                                         scale = Math.max(0.9, 1 - (diffTop * 0.0015));
-                                        opacity = Math.max(0, 1 - (diffTop * 0.03));
+                                        opacity = diffTop > 40 ? 0 : 1;
                                     }
 
                                     return (

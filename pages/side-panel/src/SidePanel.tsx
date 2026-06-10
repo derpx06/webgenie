@@ -159,15 +159,12 @@ const SidePanel = () => {
                   </EmptyChat>
                 ) : (
                   <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                    {/* AgentSight: floating circle, only in active chat */}
                     <AgentSight screenshot={lastScreenshot} isActive={showStopButton} />
 
                     <div 
                       className="ws-body relative z-10 min-h-0 flex-1 overflow-y-auto px-3 flex flex-col gap-2"
-                      style={{ paddingTop: '85px', paddingBottom: '150px' }}
+                      style={{ paddingTop: '85px', paddingBottom: '210px' }}
                     >
-                      {/* TabOrchestrator: live workflow panel — only renders when tasks are active */}
-                      <TabOrchestrator isDarkMode={isDarkMode} />
                       <MessageList messages={messages} isDarkMode={isDarkMode} onOptionSelect={handleSendMessage} isTaskRunning={showStopButton} />
                       <div ref={messagesEndRef} />
                     </div>
