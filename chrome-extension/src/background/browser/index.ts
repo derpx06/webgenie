@@ -16,3 +16,5 @@ export * from './context';
 export * from './page';
 export * from './views';
 export * from './util';
+export * from './chromium-apis';
+

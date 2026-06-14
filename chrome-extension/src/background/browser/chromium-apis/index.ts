@@ -90,7 +90,7 @@ export {
   waitForTabLoad,
   isTabAudible,
 } from './tab-tools';
-export type { ScreenshotResult, RollbackHandle, TabInfo } from './tab-tools';
+export type { ScreenshotResult, RollbackHandle, TabInfo as ChromiumTabInfo } from './tab-tools';
 
 // ── Scripting Tools ───────────────────────────────────────────────────────────
 export {
@@ -178,3 +178,21 @@ export type {
   SummaryFormat,
   SummaryLength,
 } from './built-in-ai-tools';
+
+// ── User Activity Tools ───────────────────────────────────────────────────────
+export { getFlatBookmarks, searchBookmarks } from './bookmarks';
+export type { BookmarkItem } from './bookmarks';
+
+export { queryReadingList, getUnreadReadingList, addReadingListItem, markReadingListItemAsRead } from './reading-list';
+
+export { getRecentHistory, getFrequentHistoryDomains } from './history';
+export type { HistoryInsight } from './history';
+
+export { downloadFile, searchDownloads } from './downloads';
+
+export { getRecentlyClosedSessions, restoreSession, getSyncedDevices } from './sessions';
+
+export { getTopSites } from './top-sites';
+
+export { getCookie, getAllCookies, setCookie, removeCookie } from './cookies';
+
