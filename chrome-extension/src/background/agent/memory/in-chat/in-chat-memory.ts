@@ -4,9 +4,65 @@ import { RecentActionBuffer } from './recent-actions';
 import { TaskArchive } from './task-archive';
 import { ConversationTimeline, type TimelineEventType } from './conversation-timeline';
 import type { MemoryItem } from './types';
+import type { FailureRecord } from '../../types';
 import { createLogger } from '../../../log';
 
 const logger = createLogger('Memory');
+
+export function jaroWinklerSimilarity(s1: string, s2: string): number {
+  s1 = s1.trim().toLowerCase();
+  s2 = s2.trim().toLowerCase();
+  if (s1 === s2) return 1.0;
+
+  const len1 = s1.length;
+  const len2 = s2.length;
+  if (len1 === 0 || len2 === 0) return 0.0;
+
+  const matchWindow = Math.floor(Math.max(len1, len2) / 2) - 1;
+  const s1Matches = new Array(len1).fill(false);
+  const s2Matches = new Array(len2).fill(false);
+
+  let matches = 0;
+  for (let i = 0; i < len1; i++) {
+    const start = Math.max(0, i - matchWindow);
+    const end = Math.min(len2, i + matchWindow + 1);
+    for (let j = start; j < end; j++) {
+      if (!s2Matches[j] && s1[i] === s2[j]) {
+        s1Matches[i] = true;
+        s2Matches[j] = true;
+        matches++;
+        break;
+      }
+    }
+  }
+
+  if (matches === 0) return 0.0;
+
+  let transpositions = 0;
+  let k = 0;
+  for (let i = 0; i < len1; i++) {
+    if (s1Matches[i]) {
+      while (!s2Matches[k]) k++;
+      if (s1[i] !== s2[k]) transpositions++;
+      k++;
+    }
+  }
+
+  const jaro = (matches / len1 + matches / len2 + (matches - transpositions / 2) / matches) / 3;
+
+  let prefixLen = 0;
+  const maxPrefix = Math.min(4, Math.min(len1, len2));
+  for (let i = 0; i < maxPrefix; i++) {
+    if (s1[i] === s2[i]) {
+      prefixLen++;
+    } else {
+      break;
+    }
+  }
+
+  const p = 0.1;
+  return jaro + prefixLen * p * (1 - jaro);
+}
 
 export class InChatMemory {
   public goalManager: GoalManager;
@@ -14,6 +70,7 @@ export class InChatMemory {
   public recentActions: RecentActionBuffer;
   public taskArchive: TaskArchive;
   public timeline: ConversationTimeline;
+  public failureRegistry: Map<string, FailureRecord>;
   private items: MemoryItem[] = [];
 
   constructor(primaryGoal = '') {
@@ -22,6 +79,7 @@ export class InChatMemory {
     this.recentActions = new RecentActionBuffer(5);
     this.taskArchive = new TaskArchive();
     this.timeline = new ConversationTimeline();
+    this.failureRegistry = new Map<string, FailureRecord>();
 
     // Wire goal changed events to the timeline
     this.goalManager.onGoalChanged = (description, metadata) => {
@@ -84,12 +142,21 @@ export class InChatMemory {
   }
 
   public addFact(content: string, importance: MemoryItem['importance'] = 'MEDIUM', sourceTaskId?: string): void {
-    const isNew = !this.items.some(
-      item => item.active && item.type === 'fact' && item.content.toLowerCase().trim() === content.toLowerCase().trim()
+    const existing = this.items.find(
+      item => item.active && item.type === 'fact' && jaroWinklerSimilarity(item.content, content) > 0.85
     );
-    this.addItem('fact', content, importance, 1.0, sourceTaskId);
-    if (isNew) {
-      this.addTimelineEvent('FACT_UPDATED', `Fact added/updated: ${content}`, { sourceTaskId });
+
+    if (existing) {
+      const wasDifferent = existing.content !== content;
+      existing.content = content;
+      existing.updatedAt = Date.now();
+      if (sourceTaskId) existing.sourceTaskId = sourceTaskId;
+      if (wasDifferent) {
+        this.addTimelineEvent('FACT_UPDATED', `Fact consolidated: ${content}`, { sourceTaskId });
+      }
+    } else {
+      this.addItem('fact', content, importance, 1.0, sourceTaskId);
+      this.addTimelineEvent('FACT_UPDATED', `Fact added: ${content}`, { sourceTaskId });
     }
   }
 
@@ -98,11 +165,16 @@ export class InChatMemory {
   }
 
   public addDecision(content: string, importance: MemoryItem['importance'] = 'HIGH', sourceTaskId?: string): void {
-    const isNew = !this.items.some(
-      item => item.active && item.type === 'decision' && item.content.toLowerCase().trim() === content.toLowerCase().trim()
+    const existing = this.items.find(
+      item => item.active && item.type === 'decision' && jaroWinklerSimilarity(item.content, content) > 0.85
     );
-    this.addItem('decision', content, importance, 1.0, sourceTaskId);
-    if (isNew) {
+
+    if (existing) {
+      existing.content = content;
+      existing.updatedAt = Date.now();
+      if (sourceTaskId) existing.sourceTaskId = sourceTaskId;
+    } else {
+      this.addItem('decision', content, importance, 1.0, sourceTaskId);
       this.addTimelineEvent('DECISION_MADE', `Decision made: ${content}`, { sourceTaskId });
     }
   }
@@ -113,7 +185,7 @@ export class InChatMemory {
 
   /**
    * Resolves contradictory memory items by deactivating superseded items.
-   * Compares items that represent the same semantic slot/key.
+   * Compares items that represent the same semantic slot/key and semantically similar items.
    */
   public resolveConflicts(): void {
     const slots = new Map<string, MemoryItem>();
@@ -129,19 +201,47 @@ export class InChatMemory {
       return b.index - a.index;
     });
 
+    const activeFacts: MemoryItem[] = [];
+    const activeConstraints: MemoryItem[] = [];
+    const activeDecisions: MemoryItem[] = [];
+
     for (const { item } of sorted) {
       if (!item.active) continue;
 
-      // Extract slot/key if content follows a pattern like "budget = 80000" or "budget: 80000"
+      // 1. Slot-key regex conflict resolution
       const match = item.content.match(/^([a-zA-Z0-9_\-\s]+)\s*(?:=|:|is|set to)\s*(.+)$/i);
       if (match) {
         const slotKey = match[1].trim().toLowerCase();
         if (slots.has(slotKey)) {
-          // Deactivate the older conflicting item
           item.active = false;
+          continue;
         } else {
           slots.set(slotKey, item);
         }
+      }
+
+      // 2. Semantic Jaro-Winkler similarity deduplication
+      if (item.type === 'fact') {
+        const similar = activeFacts.find(f => jaroWinklerSimilarity(f.content, item.content) > 0.85);
+        if (similar) {
+          item.active = false;
+          continue;
+        }
+        activeFacts.push(item);
+      } else if (item.type === 'constraint') {
+        const similar = activeConstraints.find(c => jaroWinklerSimilarity(c.content, item.content) > 0.85);
+        if (similar) {
+          item.active = false;
+          continue;
+        }
+        activeConstraints.push(item);
+      } else if (item.type === 'decision') {
+        const similar = activeDecisions.find(d => jaroWinklerSimilarity(d.content, item.content) > 0.85);
+        if (similar) {
+          item.active = false;
+          continue;
+        }
+        activeDecisions.push(item);
       }
     }
   }
@@ -201,6 +301,7 @@ export class InChatMemory {
       taskArchive: this.taskArchive.toJSON(),
       timeline: this.timeline.toJSON(),
       items: this.items,
+      failureRegistry: Array.from(this.failureRegistry.entries()),
     };
   }
 
@@ -211,6 +312,12 @@ export class InChatMemory {
     if (data.recentActions) this.recentActions.fromJSON(data.recentActions);
     if (data.taskArchive) this.taskArchive.fromJSON(data.taskArchive);
     if (data.timeline) this.timeline.fromJSON(data.timeline);
+    if (Array.isArray(data.failureRegistry)) {
+      this.failureRegistry.clear();
+      for (const [key, val] of data.failureRegistry) {
+        this.failureRegistry.set(key, val);
+      }
+    }
     if (Array.isArray(data.items)) {
       this.items = [...data.items];
     }

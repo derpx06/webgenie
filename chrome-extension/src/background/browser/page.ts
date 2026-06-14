@@ -327,7 +327,7 @@ export default class Page {
   }
 
   async removeHighlight(): Promise<void> {
-    if (this._config.displayHighlights && this._validWebPage) {
+    if (this._validWebPage) {
       await _removeHighlights(this._tabId);
     }
   }
@@ -1729,7 +1729,7 @@ export default class Page {
 
         // Type the text with OS-level inputs via CDP
         try {
-          logger.info(`Attempting CDP OS-level type on element: ${elementNode}`);
+          logger.info(`Attempting CDP OS-level type on element index ${elementNode.highlightIndex} (xpath: ${elementNode.xpath})`);
           await this.cdpType(element, text);
         } catch (error) {
           logger.warning('CDP typing failed, trying legacy element.type() fallback:', error);
@@ -1990,7 +1990,7 @@ export default class Page {
     try {
       const element = await this.locateElement(elementNode);
       if (!element) {
-        throw new Error(`Element: ${elementNode} not found`);
+        throw new Error(`Element at index ${elementNode.highlightIndex} (tag: ${elementNode.tagName}, xpath: ${elementNode.xpath}) was not found in the DOM`);
       }
 
       // Scroll element into view if needed

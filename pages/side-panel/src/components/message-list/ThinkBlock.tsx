@@ -29,6 +29,74 @@ interface DeduplicatedStep {
   isLive: boolean;
 }
 
+function jaroWinklerSimilarity(s1: string, s2: string): number {
+  s1 = s1.trim().toLowerCase();
+  s2 = s2.trim().toLowerCase();
+  if (s1 === s2) return 1.0;
+
+  const len1 = s1.length;
+  const len2 = s2.length;
+  if (len1 === 0 || len2 === 0) return 0.0;
+
+  const matchWindow = Math.floor(Math.max(len1, len2) / 2) - 1;
+  const s1Matches = new Array(len1).fill(false);
+  const s2Matches = new Array(len2).fill(false);
+
+  let matches = 0;
+  for (let i = 0; i < len1; i++) {
+    const start = Math.max(0, i - matchWindow);
+    const end = Math.min(len2, i + matchWindow + 1);
+    for (let j = start; j < end; j++) {
+      if (!s2Matches[j] && s1[i] === s2[j]) {
+        s1Matches[i] = true;
+        s2Matches[j] = true;
+        matches++;
+        break;
+      }
+    }
+  }
+
+  if (matches === 0) return 0.0;
+
+  let transpositions = 0;
+  let k = 0;
+  for (let i = 0; i < len1; i++) {
+    if (s1Matches[i]) {
+      while (!s2Matches[k]) k++;
+      if (s1[i] !== s2[k]) transpositions++;
+      k++;
+    }
+  }
+
+  const jaro = (matches / len1 + matches / len2 + (matches - transpositions / 2) / matches) / 3;
+
+  let prefixLen = 0;
+  const maxPrefix = Math.min(4, Math.min(len1, len2));
+  for (let i = 0; i < maxPrefix; i++) {
+    if (s1[i] === s2[i]) {
+      prefixLen++;
+    } else {
+      break;
+    }
+  }
+
+  const p = 0.1;
+  return jaro + prefixLen * p * (1 - jaro);
+}
+
+const areStringsSimilar = (s1: string, s2: string): boolean => {
+  const clean1 = s1.trim().toLowerCase();
+  const clean2 = s2.trim().toLowerCase();
+  if (clean1 === clean2) return true;
+
+  const norm1 = clean1.replace(/[^a-z0-9]/g, '');
+  const norm2 = clean2.replace(/[^a-z0-9]/g, '');
+  if (norm1 === norm2) return true;
+
+  // Semantic similarity threshold
+  return jaroWinklerSimilarity(clean1, clean2) > 0.85;
+};
+
 const deduplicateSteps = (stepsList: Message[], isPhaseActive: boolean): DeduplicatedStep[] => {
   const deduped: DeduplicatedStep[] = [];
   
@@ -63,7 +131,7 @@ const deduplicateSteps = (stepsList: Message[], isPhaseActive: boolean): Dedupli
       }
     }
 
-    if (deduped.length > 0 && deduped[deduped.length - 1].content === step.content && !isStepLive) {
+    if (deduped.length > 0 && areStringsSimilar(deduped[deduped.length - 1].content, step.content) && !isStepLive) {
       deduped[deduped.length - 1].count += 1;
       // Keep the latest timestamp
       deduped[deduped.length - 1].timestamp = step.timestamp;

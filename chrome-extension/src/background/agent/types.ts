@@ -159,8 +159,8 @@ export class AgentContext {
     this.humanQuestion = null;
     this.lastEvaluation = '';
     this.lastMemory = '';
-    this.failureRegistry = new Map<string, FailureRecord>();
     this.memory = new InChatMemory();
+    this.failureRegistry = this.memory.failureRegistry;
   }
 
   async emitEvent(actor: Actors, state: ExecutionState, eventDetails: string, screenshot?: string) {

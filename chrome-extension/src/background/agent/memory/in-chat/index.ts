@@ -7,3 +7,5 @@ export * from './intent';
 export * from './context-builder';
 export * from './task-archive';
 export * from './conversation-timeline';
+export * from './failure-registry';
+

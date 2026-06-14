@@ -129,7 +129,7 @@ export default memo(function MessageList({
                 const isOverallLastBlock = cIdx === cycles.length - 1 && isLastInCycle;
                 const progressIndex = block.messages.findIndex(m => m.content === 'Showing progress...');
                 const hasProgress = progressIndex !== -1;
-                const isActive = isOverallLastBlock && hasProgress;
+                const isActive = isOverallLastBlock && (hasProgress || isTaskRunning);
                 const nextBlockIsSystem = !isLastInCycle && cycle.blocks[bIdx + 1].actor === Actors.SYSTEM;
                 const shouldDefaultOpen = isActive || isLastInCycle || nextBlockIsSystem;
 

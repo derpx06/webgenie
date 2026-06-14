@@ -416,6 +416,12 @@ export class Executor {
         void analytics.trackTaskFailed(this.context.taskId, errorCategory);
       }
     } finally {
+      try {
+        await this.context.browserContext.removeHighlight();
+      } catch (err) {
+        logger.error('Failed to clean up highlights at task end:', err);
+      }
+
       if (import.meta.env.DEV) {
         logger.debug('Executor history', JSON.stringify(this.context.history, null, 2));
       }

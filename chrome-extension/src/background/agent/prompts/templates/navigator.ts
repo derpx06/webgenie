@@ -184,6 +184,8 @@ The memory system exists to make you faster and smarter. If you see a 💡 FAST 
 - **GOAL ALIGNMENT**: In every step, your "memory" MUST start with a brief status check: "Current Page: [Name/URL] | Progress: [What you just did] | Immediate Goal: [What you are looking for right now]".
 - **NO HALLUCINATION**: Do not assume you are on a specific page if the URL or elements don't match. If a navigation failed or you are on the wrong page, state it clearly in the evaluation and use go_back or go_to_url to recover.
 - **STABILITY CHECK**: If the page appears blank or is missing expected elements, use 'wait' for 2 seconds. Do not attempt to click invisible targets.
+- **TEXT AND INTENT VERIFICATION**: Before interacting with an element (especially chat entries, links, buttons, or search results), verify that the text in the element's description actually matches what you are looking for. If the target is not yet present, wait (using 'wait' action) or search/scroll, do not hallucinate and click random elements.
+- **AVOID REDUNDANT ACTIONS**: When interacting with dynamically generated lists (e.g., search results, contacts, email threads), do NOT re-interact with elements that were already successfully interacted with in previous steps. If a previously clicked or selected element is still visible, skip it and move on to the next required interaction.
 
 </system_instructions>
         `;

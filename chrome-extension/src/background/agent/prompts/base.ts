@@ -35,14 +35,29 @@ abstract class BasePrompt {
     let layoutHash = '';
     let domain = '';
     let pagePath = '/';
-    try {
-      domain = new URL(browserState.url).hostname;
-      pagePath = ContextRouter.getPagePath(browserState.url);
-      layoutHash = await ContextRouter.computeLayoutFingerprint(browserState, browserState.url);
-      context.activeLayoutHash = layoutHash;
-      logger.info(`Layout fingerprint: ${layoutHash} | domain: ${domain} | path: ${pagePath}`);
-    } catch (err) {
-      logger.error('Failed to compute layout fingerprint:', err);
+    
+    let isValidUrl = false;
+    if (browserState.url) {
+      try {
+        new URL(browserState.url);
+        isValidUrl = true;
+      } catch {
+        isValidUrl = false;
+      }
+    }
+
+    if (isValidUrl) {
+      try {
+        domain = new URL(browserState.url).hostname;
+        pagePath = ContextRouter.getPagePath(browserState.url);
+        layoutHash = await ContextRouter.computeLayoutFingerprint(browserState, browserState.url);
+        context.activeLayoutHash = layoutHash;
+        logger.info(`Layout fingerprint: ${layoutHash} | domain: ${domain} | path: ${pagePath}`);
+      } catch (err) {
+        logger.error('Failed to compute layout fingerprint:', err);
+      }
+    } else {
+      logger.warning(`Invalid or empty URL: "${browserState.url || ''}". Skipping layout fingerprinting.`);
     }
 
     // Apply goal-based DOM attention masking (unchanged)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GoalManager, ProgressTracker, RecentActionBuffer, InChatMemory, ContextBuilder, TaskArchive, ConversationTimeline } from '..';
+import { GoalManager, ProgressTracker, RecentActionBuffer, InChatMemory, ContextBuilder, TaskArchive, ConversationTimeline, jaroWinklerSimilarity } from '..';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import { AgentContext } from '../../types';
 
@@ -167,5 +167,95 @@ describe('Simulations (300-Step & 15-Task)', () => {
     const events = memory.timeline.getEvents();
     expect(events.filter(e => e.type === 'TASK_STARTED').length).toBe(15);
     expect(events.filter(e => e.type === 'TASK_COMPLETED').length).toBe(15);
+  });
+});
+
+describe('Jaro-Winkler String Similarity & Semantic Deduplication', () => {
+  it('correctly calculates Jaro-Winkler similarity scores', () => {
+    expect(jaroWinklerSimilarity('hello', 'hello')).toBe(1.0);
+    expect(jaroWinklerSimilarity('martha', 'marhta')).toBeGreaterThan(0.9);
+    expect(jaroWinklerSimilarity('abc', 'xyz')).toBe(0.0);
+  });
+
+  it('semantically deduplicates facts and decisions with high similarity', () => {
+    const memory = new InChatMemory('Semantic Deduplication Test');
+    
+    // Add two semantically very similar facts
+    memory.addFact('the budget is about $500', 'MEDIUM');
+    memory.addFact('the budget is around $500', 'MEDIUM');
+    
+    memory.resolveConflicts();
+    const activeFacts = memory.getActiveItemsByType('fact');
+    expect(activeFacts.length).toBe(1);
+    expect(activeFacts[0].content).toBe('the budget is around $500');
+
+    // Add two different facts (similarity <= 0.85)
+    memory.addFact('select Lenovo laptop', 'MEDIUM');
+    memory.addFact('avoid Dell desktop', 'MEDIUM');
+
+    memory.resolveConflicts();
+    const allFacts = memory.getActiveItemsByType('fact');
+    expect(allFacts.length).toBe(3); // Consolidated budget fact + 2 distinct facts
+  });
+});
+
+describe('FailureRegistry Selector Blocking & Prompt Annotation', () => {
+  it('registers failures and flags blocked selectors', () => {
+    const mockBrowserContext = {} as any;
+    const mockMessageManager = {} as any;
+    const mockEventManager = {} as any;
+    
+    const context = new AgentContext(
+      'task-id',
+      mockBrowserContext,
+      mockMessageManager,
+      mockEventManager,
+      {}
+    );
+
+    const selector = 'button-checkout';
+    const url = 'https://example.com/checkout';
+
+    expect(context.isSelectorBlocked(selector, url)).toBe(false);
+
+    // Register first failure
+    context.registerFailure(selector, url, 'click_element');
+    expect(context.isSelectorBlocked(selector, url)).toBe(false);
+
+    // Register second failure (reaches FAILURE_THRESHOLD)
+    context.registerFailure(selector, url, 'click_element');
+    expect(context.isSelectorBlocked(selector, url)).toBe(true);
+
+    // Check mapping serialization/deserialization
+    const serialized = context.memory.toJSON();
+    expect(serialized.failureRegistry).toBeDefined();
+
+    const newMemory = new InChatMemory('Deserialized Memory');
+    newMemory.fromJSON(serialized);
+    expect(newMemory.failureRegistry.get(`${url}|${selector}`)).toBeDefined();
+    expect(newMemory.failureRegistry.get(`${url}|${selector}`)?.failCount).toBe(2);
+  });
+});
+
+describe('ContextBuilder Token Budgeting & Safeguards', () => {
+  it('truncates sections when exceeding character budget limits', () => {
+    const mockContext = {
+      memory: new InChatMemory('Task Goal'),
+    } as unknown as AgentContext;
+
+    const memory = mockContext.memory;
+    // Add many facts directly to bypass Jaro-Winkler semantic deduplication
+    for (let i = 0; i < 50; i++) {
+      memory.addItem('fact', `completely unique fact content representing distinct knowledge item index ${i} to fill the buffer`, 'MEDIUM');
+    }
+
+    const systemMsg = new SystemMessage('System instructions');
+    const stateMsg = new HumanMessage('Interactive page elements');
+
+    const [mergedSystem] = ContextBuilder.buildContextPacket(mockContext, systemMsg, stateMsg);
+    const content = mergedSystem.content;
+
+    // Verify it is truncated with the budget warning suffix
+    expect(content).toContain('truncated due to token budget');
   });
 });

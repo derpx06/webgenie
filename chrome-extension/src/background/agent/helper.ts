@@ -226,7 +226,7 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
   if (!providerConfig.azureDeploymentNames.includes(deploymentName)) {
     console.warn(
       `[createChatModel] Selected deployment "${deploymentName}" not found in available deployments. ` +
-        `Available: ${JSON.stringify(providerConfig.azureDeploymentNames)}. Using the model anyway.`,
+      `Available: ${JSON.stringify(providerConfig.azureDeploymentNames)}. Using the model anyway.`,
     );
   }
 
@@ -252,17 +252,17 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
     // For O series models, use modelKwargs instead of temperature/topP
     ...(isOSeriesModel
       ? {
-          modelKwargs: {
-            max_completion_tokens: maxTokens,
-            // Add reasoning_effort parameter for Azure o-series models if specified
-            ...(modelConfig.reasoningEffort ? { reasoning_effort: modelConfig.reasoningEffort } : {}),
-          },
-        }
+        modelKwargs: {
+          max_completion_tokens: maxTokens,
+          // Add reasoning_effort parameter for Azure o-series models if specified
+          ...(modelConfig.reasoningEffort ? { reasoning_effort: modelConfig.reasoningEffort } : {}),
+        },
+      }
       : {
-          temperature,
-          topP,
-          maxTokens,
-        }),
+        temperature,
+        topP,
+        maxTokens,
+      }),
     // DO NOT pass baseUrl or configuration here
   };
   // console.log('[createChatModel] Azure args passed to AzureChatOpenAI:', args);
