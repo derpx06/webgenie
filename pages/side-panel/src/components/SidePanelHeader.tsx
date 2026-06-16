@@ -7,6 +7,7 @@ type SidePanelHeaderProps = {
   onBackToChat: () => void;
   onNewChat: () => void;
   onLoadHistory: () => void;
+  isTransparent?: boolean;
 };
 
 const SidePanelHeader = ({
@@ -15,19 +16,25 @@ const SidePanelHeader = ({
   onBackToChat,
   onNewChat,
   onLoadHistory,
+  isTransparent = false,
 }: SidePanelHeaderProps) => {
 
   return (
-    <header className={`ws-header-premium sticky top-0 z-[60] overflow-hidden p-5 transition-all duration-700 ${isDarkMode
-      ? 'border-b border-white/[0.06] bg-slate-950/35'
-      : 'border-b border-slate-200/45 bg-white/35'
-      }`} style={{ backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }}>
+    <header className={`ws-header-premium sticky top-0 z-[60] overflow-hidden p-5 transition-all duration-700 ${
+      isTransparent
+        ? 'border-b border-transparent bg-transparent'
+        : isDarkMode
+          ? 'border-b border-white/[0.06] bg-slate-950/35'
+          : 'border-b border-slate-200/45 bg-white/35'
+      }`} style={isTransparent ? {} : { backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }}>
 
       {/* Atmospheric Glow Integration */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className={`absolute -right-20 -top-20 size-48 rounded-full blur-[100px] transition-all duration-1000 ${isDarkMode ? 'bg-indigo-500/10' : 'bg-indigo-400/10'}`}></div>
-        <div className={`absolute -bottom-20 -left-20 size-48 rounded-full blur-[100px] transition-all duration-1000 ${isDarkMode ? 'bg-purple-500/5' : 'bg-purple-400/5'}`}></div>
-      </div>
+      {!isTransparent && (
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className={`absolute -right-20 -top-20 size-48 rounded-full blur-[100px] transition-all duration-1000 ${isDarkMode ? 'bg-indigo-500/10' : 'bg-indigo-400/10'}`}></div>
+          <div className={`absolute -bottom-20 -left-20 size-48 rounded-full blur-[100px] transition-all duration-1000 ${isDarkMode ? 'bg-purple-500/5' : 'bg-purple-400/5'}`}></div>
+        </div>
+      )}
 
       <div className="relative z-10 flex items-center justify-between">
         {/* BRAND IDENTITY - NEURAL CORE LINK */}

@@ -97,6 +97,7 @@ const SidePanel = () => {
               onBackToChat={() => handleBackToChat(false)}
               onNewChat={handleNewChat}
               onLoadHistory={handleLoadHistory}
+              isTransparent={messages.length === 0 && !showHistory}
             />
           </div>
         )}
