@@ -22,7 +22,7 @@ const SidePanelHeader = ({
   return (
     <header className={`ws-header-premium sticky top-0 z-[60] overflow-hidden p-5 transition-all duration-700 ${
       isTransparent
-        ? 'border-b border-transparent bg-transparent'
+        ? 'ws-header-transparent border-b border-transparent bg-transparent'
         : isDarkMode
           ? 'border-b border-white/[0.06] bg-slate-950/35'
           : 'border-b border-slate-200/45 bg-white/35'
