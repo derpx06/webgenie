@@ -1,13 +1,10 @@
-
-
-
 # WebGenie
 
 <div align="center">
     <img src="chrome-extension/public/webgenie-logo.png" alt="WebGenie Logo" width="160" style="margin-top: 8px; margin-bottom: 12px;">
 </div>
 
-> **The Open-Source AI Web Automation Extension** — Run sophisticated multi-agent systems directly in your browser. Automate complex web tasks, do actions, and streamline workflows.
+> **The Open-Source AI Web Automation Extension** — Run sophisticated multi-agent systems directly in your browser. Automate complex web tasks, execute actions, and streamline workflows.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Chrome Extension](https://img.shields.io/badge/Platform-Chrome%20%7C%20Edge-informational?logo=google-chrome)](https://chrome.google.com)
@@ -26,37 +23,37 @@ WebGenie empowers developers and automation enthusiasts with a **free, open-sour
 ## Key Features
 
 ### Multi-Agent Intelligence
-- **Navigator Agent** — Intelligent DOM interaction and web navigation that understands page structure
-- **Planner Agent** — High-level task planning and strategic reasoning to break down complex workflows
-- **Validator Agent** — Autonomous verification of task completion and result accuracy
-- Coordinated execution through Chrome Messaging APIs for seamless inter-agent communication
+- **Navigator Agent** — Intelligent DOM interaction and web navigation that understands page structure.
+- **Planner Agent** — High-level task planning and strategic reasoning to break down complex workflows.
+- **Validator Agent** — Autonomous verification of task completion and result accuracy.
+- Coordinated execution through Chrome Messaging APIs for seamless inter-agent communication.
 
 ### LLM Provider Flexibility
-- **OpenAI** — GPT-4, GPT-4 Turbo, GPT-3.5 Turbo for cutting-edge reasoning
-- **Anthropic** — Claude 3 (Opus, Sonnet, Haiku) for diverse capability tiers
-- **Google Gemini** — Gemini Pro and Gemini 1.5 for multimodal understanding
-- **AWS Bedrock** — Managed Claude/Llama/Titan family models on AWS
-- **Llama API** — Hosted Llama models via `api.llama.com`
-- **Ollama** — Local LLM support for self-hosted and privacy-conscious deployments
-- **Azure OpenAI** — Enterprise LLM deployments for organizational scale
+- **OpenAI** — GPT-4o, GPT-4, and GPT-3.5 Turbo for cutting-edge reasoning.
+- **Anthropic** — Claude 3.5 (Sonnet), Claude 3 (Opus, Sonnet, Haiku) for diverse capability tiers.
+- **Google Gemini** — Gemini 1.5 Pro and Gemini 1.5 Flash for multimodal understanding.
+- **AWS Bedrock** — Managed Claude, Llama, and Titan family models on AWS (supports Access Key, Secret Key, custom Region, and STS session tokens).
+- **Llama API** — Hosted Llama models via `api.llama.com`.
+- **Ollama** — Local LLM support for self-hosted and privacy-conscious deployments.
+- **Azure OpenAI** — Enterprise LLM deployments for organizational scale.
 
 ### Security & Privacy
-- **Local Processing** — All AI reasoning happens entirely in-browser, never leaves your machine
-- **No API Fallback** — No automatic cloud uploads or hidden data transmission
-- **Content Sanitization** — Built-in XSS and injection prevention for safe DOM manipulation
-- **URL Validation** — Protected navigation and safe browsing to prevent malicious redirects
+- **Local Processing** — All AI reasoning happens entirely in-browser; it never leaves your machine.
+- **No API Fallback** & **No Telemetry Leakage** — Fully controlled storage with zero automatic cloud uploads or hidden telemetry transmission.
+- **Domain Firewall** — Built-in domain filtering (segmented Allow/Deny controls) to strictly enforce navigation boundaries.
+- **Content Sanitization** — Built-in XSS and injection prevention for safe DOM manipulation.
 
 ### Developer Experience
-- **Hot Reload Development** — Vite-powered rapid iteration for faster development cycles
-- **Comprehensive Logging** — Debug agent reasoning step-by-step to understand decision-making
-- **Modular Architecture** — Clean, extensible codebase designed for easy customization
-- **Type-Safe** — Strict TypeScript throughout for reliability and maintainability
+- **Hot Reload Development** — Vite-powered rapid iteration for faster development cycles.
+- **Standardized Schema Settings** — Consolidated schemas for General, Advanced, and Developer configuration fields, purging all legacy options.
+- **Log DOM Snapshot** — Developer control to output serialized DOM (what the LLM sees) directly to the background service worker console.
+- **Type-Safe** — Strict TypeScript throughout for reliability and maintainability.
 
-### User-Friendly Interface
-- **Chat-Based Controls** — Talk to the extension naturally, no complex syntax needed
-- **Real-Time Feedback** — Watch live agent execution status and progress updates
-- **Visual DOM Analysis** — Interactively inspect and explore page elements
-- **Favorites & History** — Easily reuse, refine, and iterate on previous automation tasks
+### Premium User Interface
+- **Chat-Based Controls** — Talk to the extension naturally, featuring a modern glassmorphism design and a dynamic visual orb.
+- **Collapsible Execution Steps** — Keeps the interface clean by nesting verbose agent actions inside interactive, collapsible step details.
+- **History Switcher & Bulk Management** — Filter history by **All**, **Chats**, or **Tasks**, with bulk selection support for easy session-level cleanup.
+- **Polished Settings Dashboard** — A dark-first premium settings panel using human-friendly typography (DM Sans / system-sans) and clean monospace values.
 
 ---
 
@@ -159,12 +156,12 @@ If you want a very detailed walkthrough of the DOM engine, read [docs/dom-deep-d
 **User Interface Layer**: The side panel (_React + TypeScript_) allows users to interact with the system through a chat interface. The options page lets users configure LLM providers and preferences, which are stored locally via Chrome Storage API.
 
 **Request Flow**: When a user submits a task:
-1. The Side Panel sends a message to the Background Service Worker
-2. The Executor coordinates the request across the multi-agent system
-3. The Planner breaks down the task into actionable steps
-4. The Navigator executes steps by interacting with the DOM
-5. The Validator checks if the task was completed successfully
-6. Results are sent back to the UI for display
+1. The Side Panel sends a message to the Background Service Worker.
+2. The Executor coordinates the request across the multi-agent system.
+3. The Planner breaks down the task into actionable steps.
+4. The Navigator executes steps by interacting with the DOM.
+5. The Validator checks if the task was completed successfully.
+6. Results are sent back to the UI for display.
 
 **Agent Coordination**: Agents communicate through the Executor using a message-passing pattern. The Navigator never directly executes actions—it requests the Page Controller to perform user interactions safely.
 
@@ -172,34 +169,37 @@ If you want a very detailed walkthrough of the DOM engine, read [docs/dom-deep-d
 
 **LLM Integration**: All agents use the configured LLM provider for reasoning. The system supports OpenAI, Anthropic, Gemini, AWS Bedrock, Llama API, Ollama, Azure OpenAI, OpenRouter, and compatible custom OpenAI endpoints.
 
-### Provider Setup (Bedrock, Llama, Ollama)
+---
 
-#### AWS Bedrock
+## Provider Setup (Bedrock, Llama, Ollama)
+
+### AWS Bedrock
 
 1. Open Options → Model Settings → add **AWS Bedrock**
 2. Fill:
-    - **Access Key** = AWS access key ID
-    - **AWS Secret Key** = AWS secret access key
+    - **Access Key ID** = AWS access key ID
+    - **Secret Access Key** = AWS secret access key
+    - **Session Token (Optional)** = AWS STS session token if using temporary credentials
     - **AWS Region** (for example `us-east-1`)
-3. Keep model IDs in the Bedrock format (for example `us.anthropic.claude-sonnet-4-20250514-v1:0`)
-4. Save and assign Bedrock models to Planner/Navigator
+3. Keep model IDs in the Bedrock format (for example `us.anthropic.claude-3-5-sonnet-20241022-v2:0` or custom model ARNs)
+4. Save and assign Bedrock models to Planner/Navigator.
 
 Bedrock credentials are passed as SigV4 AWS credentials and used directly by the Bedrock runtime client.
 
-#### Llama API (Hosted)
+### Llama API (Hosted)
 
-1. Add **Llama** provider
-2. Set Base Endpoint to `https://api.llama.com/v1` (or your compatible endpoint)
-3. Add your Llama API key
-4. Save and select a Llama model for agents
+1. Add **Llama** provider.
+2. Set Base Endpoint to `https://api.llama.com/v1` (or your compatible endpoint).
+3. Add your Llama API key.
+4. Save and select a Llama model for agents.
 
-#### Ollama (Local Server)
+### Ollama (Local Server)
 
-1. Start Ollama locally (default endpoint: `http://localhost:11434`)
-2. Add **Ollama** provider
-3. Set Base Endpoint to your Ollama server URL
-4. Add installed model names exactly as seen in Ollama (examples: `qwen3:14b`, `mistral-small:24b`)
-5. Save and select models for Planner/Navigator
+1. Start Ollama locally (default endpoint: `http://localhost:11434`).
+2. Add **Ollama** provider.
+3. Set Base Endpoint to your Ollama server URL.
+4. Add installed model names exactly as seen in Ollama (examples: `qwen2.5:14b`, `mistral-small:24b`).
+5. Save and select models for Planner/Navigator.
 
 If Ollama runs on another machine, expose it on your network and use that full `http(s)://host:port` URL.
 
@@ -252,10 +252,10 @@ pnpm build
 
 Ready to test your extension?
 
-1. Open `chrome://extensions/` in your browser
-2. Enable **Developer mode** using the toggle in the top-right corner
-3. Click **Load unpacked**
-4. Select the `dist/` directory
+1. Open `chrome://extensions/` in your browser.
+2. Enable **Developer mode** using the toggle in the top-right corner.
+3. Click **Load unpacked**.
+4. Select the `dist/` directory.
 
 Your extension is now loaded and ready to use!
 
@@ -355,10 +355,10 @@ pnpm update-version                        # Update version across packages
 
 We maintain high code quality standards across the project:
 
-- **TypeScript** — Strict mode enabled throughout for type safety
-- **ESLint + Prettier** — Automated code formatting and linting
-- **Vitest** — Fast unit testing framework
-- **Comprehensive Type Definitions** — Full TypeScript coverage
+- **TypeScript** — Strict mode enabled throughout for type safety.
+- **ESLint + Prettier** — Automated code formatting and linting.
+- **Vitest** — Fast unit testing framework.
+- **Comprehensive Type Definitions** — Full TypeScript coverage.
 
 For detailed development guidelines and best practices, see [BEST_PRACTICES.md](BEST_PRACTICES.md).
 
@@ -368,26 +368,15 @@ For detailed development guidelines and best practices, see [BEST_PRACTICES.md](
 
 WebGenie puts **privacy and security at the core** of its design:
 
-- All AI reasoning happens entirely in-browser with zero cloud dependencies
-- No automatic telemetry or data collection (unless explicitly enabled by users)
-- Built-in content sanitization prevents XSS, injection attacks, and malicious content
-- URL validation prevents navigation to suspicious or blocked sites
-- User configuration stored locally in Chrome storage, never transmitted
-- Minimal required permissions for core functionality only
-- Full transparency in what data is processed and where
+- All AI reasoning happens entirely in-browser with zero cloud dependencies.
+- No automatic telemetry or data collection (unless explicitly enabled by users).
+- Built-in content sanitization prevents XSS, injection attacks, and malicious content.
+- URL validation prevents navigation to suspicious or blocked sites.
+- User configuration stored locally in Chrome storage, never transmitted.
+- Minimal required permissions for core functionality only.
+- Full transparency in what data is processed and where.
 
 For detailed security information and threat modeling, see [SECURITY.md](SECURITY.md).
-
----
-
-## Documentation
-
-Comprehensive documentation is available:
-
-- **[MODULARITY_GUIDE.md](MODULARITY_GUIDE.md)** — Complete architecture and module organization guide
-- **[BEST_PRACTICES.md](BEST_PRACTICES.md)** — Code quality standards and development best practices
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contribution guidelines for developers and maintainers
-- **[CHANGELOG.md](CHANGELOG.md)** — Version history and release notes
 
 ---
 
@@ -395,11 +384,11 @@ Comprehensive documentation is available:
 
 We welcome contributions from the community! Here's how you can help:
 
-1. **Fork** the repository on GitHub
-2. **Create a feature branch** for your work (`git checkout -b feature/amazing-feature`)
-3. **Commit your changes** with clear, descriptive messages (`git commit -m 'Add amazing feature'`)
-4. **Push to your branch** (`git push origin feature/amazing-feature`)
-5. **Open a Pull Request** with a detailed description of your changes
+1. **Fork** the repository on GitHub.
+2. **Create a feature branch** for your work (`git checkout -b feature/amazing-feature`).
+3. **Commit your changes** with clear, descriptive messages (`git commit -m 'Add amazing feature'`).
+4. **Push to your branch** (`git push origin feature/amazing-feature`).
+5. **Open a Pull Request** with a detailed description of your changes.
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) for our code standards, testing requirements, and development workflow.
 
@@ -435,7 +424,7 @@ WebGenie stands on the shoulders of exceptional open-source projects:
 
 Have questions or want to help?
 
-- **Report Bugs or Request Features** — Open an issue on [GitHub Issues](https://github.com/yourusername/WebGenie/issues)
+- **Report Bugs or Request Features** — Open an issue on [GitHub Issues](https://github.com/derpx06/webgenie/issues)
 - **Join Community Discussions** — Participate in our GitHub discussions
 - **Read the Documentation** — Check out the [comprehensive guides](./docs/)
 
