@@ -189,7 +189,6 @@ WebGenie/
 | :--- | :--- | :--- |
 | **General** | Interaction Highlights | Toggles visual outlines over elements the Navigator agent focuses on. |
 | | Task Tab Grouping | Groups tabs spawned by the automation cycle into a dedicated Chrome Tab Group. |
-| | Replay Historical Tasks | Saves historic execution records locally for step-by-step debugging. |
 | **Advanced** | Viewport Dimensions | Configures the fixed viewport width and height used during DOM element calculation. |
 | | Action Latency Buffer | Sets the delay (in milliseconds) before evaluating DOM updates after actions like clicking. |
 | | Planner Vision Mode | Allows the planner to process screenshot buffers when supported by multimodal models. |
