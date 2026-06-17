@@ -1,4 +1,4 @@
-# WebGenie
+# 🧞‍♂️ WebGenie
 
 <div align="center">
     <img src="chrome-extension/public/webgenie-logo.png" alt="WebGenie Logo" width="160" style="margin-top: 8px; margin-bottom: 12px;">
@@ -6,55 +6,66 @@
 
 > **The Open-Source AI Web Automation Extension** — Run sophisticated multi-agent systems directly in your browser. Automate complex web tasks, execute actions, and streamline workflows.
 
+<div align="center">
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Chrome Extension](https://img.shields.io/badge/Platform-Chrome%20%7C%20Edge-informational?logo=google-chrome)](https://chrome.google.com)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-informational?logo=typescript)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/UI-React%2018-informational?logo=react)](https://react.dev)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/derpx06/webgenie)
+
+</div>
+
 ---
+
 https://github.com/user-attachments/assets/f2a8e7eb-eeee-4b39-abce-5368a4facd80
 
-## Vision
+---
+
+## 🌟 Vision
 
 WebGenie empowers developers and automation enthusiasts with a **free, open-source alternative to AI web automation tools** like OpenAI Operator. By leveraging local multi-agent AI systems, WebGenie enables intelligent web automation without vendor lock-in or cloud dependencies. Perfect for building custom workflows, testing automation logic, and experimenting with autonomous agents in a sandboxed browser environment.
 
+> [!NOTE]
+> WebGenie is fully local and runs on Chrome Manifest V3, communicating directly with your configured AI endpoints with no intermediate cloud databases.
+
 ---
 
-## Key Features
+## ⚡ Key Features
 
-### 1. Multi-Agent Intelligence
+### 🤖 1. Multi-Agent Intelligence
 WebGenie relies on a collaborative multi-agent architecture where agents share responsibilities to optimize success rates and ensure safety:
-- **Navigator Agent** — Focuses on page analysis, translating raw interactive elements into a clean interactive tree, and executing actions like clicking, typing, and scrolling.
-- **Planner Agent** — Handles high-level reasoning and orchestrates step-by-step strategies. It breaks down complex user goals into small, manageable objectives.
-- **Validator Agent** — Periodically evaluates page states to verify if actions successfully reached the goal, preventing false positives.
-- **Chrome Messaging Coordination** — Fast, asynchronous messaging routes agent commands and feedback cycles smoothly through the extension worker.
+* 🧭 **Navigator Agent** — Focuses on page analysis, translating raw interactive elements into a clean interactive tree, and executing actions like clicking, typing, and scrolling.
+* 📋 **Planner Agent** — Handles high-level reasoning and orchestrates step-by-step strategies. It breaks down complex user goals into small, manageable objectives.
+* ⚖️ **Validator Agent** — Periodically evaluates page states to verify if actions successfully reached the goal, preventing false positives.
+* 💬 **Chrome Messaging Coordination** — Fast, asynchronous messaging routes agent commands and feedback cycles smoothly through the extension worker.
 
-### 2. Native Browser Integration & Subsystems Control
+### 🔌 2. Native Browser Integration & Subsystems Control
 Unlike cloud-hosted solutions that operate inside remote VNC containers, WebGenie runs directly inside your local Chrome instance, accessing native APIs via the **`chrome_control`** tool:
-- **Bookmarks Manager** — Allows agents to query the bookmarks tree, search folders, and create new bookmarks dynamically.
-- **Reading List** — Allows agents to append articles, check unread tabs, and mark pages as read.
-- **Browsing History** — Inspects visit frequency and queries domain telemetry to guide autonomous tasks.
-- **Downloads Controller** — Automatically downloads files, handles conflict strategies (overwrite/uniquify), and monitors progress.
+* 🔖 **Bookmarks Manager** — Allows agents to query the bookmarks tree, search folders, and create new bookmarks dynamically.
+* 📖 **Reading List** — Allows agents to append articles, check unread tabs, and mark pages as read.
+* history 🕒 **Browsing History** — Inspects visit frequency and queries domain telemetry to guide autonomous tasks.
+* 📥 **Downloads Controller** — Automatically downloads files, handles conflict strategies (overwrite/uniquify), and monitors progress.
 
-### 3. Agent Memory & Caching
-- **Session-Level Memory Cache** — Agents use the `cache_content` tool to store extracted text, credentials, keys, or state data, making them accessible across subsequent execution steps.
-- **DOM Context Isolation** — Serializes the interactive accessibility tree into structured, indexable nodes while filtering out noisy visual elements to optimize LLM token usage.
+### 🧠 3. Agent Memory & Caching
+* 💾 **Session-Level Memory Cache** — Agents use the `cache_content` tool to store extracted text, credentials, keys, or state data, making them accessible across subsequent execution steps.
+* 🗜️ **DOM Context Isolation** — Serializes the interactive accessibility tree into structured, indexable nodes while filtering out noisy visual elements to optimize LLM token usage.
 
-### 4. Advanced Security & Privacy
-- **Local Control Sandbox** — All prompt assembly, execution logic, and decision framing occur locally on your machine.
-- **Zero Telemetry Leakage** — Settings, history, and workspace configurations are kept entirely inside native `chrome.storage.local`.
-- **Domain Firewall** — Segmented Allow/Deny list filters enforce navigation guardrails to block malicious redirects or off-domain links.
-- **XSS & Injection Protection** — Sanitizes input strings before writing to inputs or executing clicks.
+### 🔒 4. Advanced Security & Privacy
+* 🛡️ **Local Control Sandbox** — All prompt assembly, execution logic, and decision framing occur locally on your machine.
+* 🔏 **Zero Telemetry Leakage** — Settings, history, and workspace configurations are kept entirely inside native `chrome.storage.local`.
+* 🧱 **Domain Firewall** — Segmented Allow/Deny list filters enforce navigation guardrails to block malicious redirects or off-domain links.
+* 🧼 **Content Sanitization** — Sanitizes input strings before writing to inputs or executing clicks.
 
-### 5. Premium UI/UX Customization
-- **Modern Options Dashboard** — A clean, dark-first dashboard designed with unified typography (DM Sans for settings, JetBrains Mono for system values).
-- **Interactive Switcher Tabs** — Side-panel filters separating **All**, **Chats**, and **Tasks** for precise history management.
-- **Collapsible Detail Steps** — Groups low-level agent actions (such as scrolling and typing) into collapsible blocks, keeping the main chat thread clean.
-- **Bulk Selection** — Instantly batch-delete old sessions or task history with a sticky operations bar.
+### 🎨 5. Premium UI/UX Customization
+* 🎛️ **Modern Options Dashboard** — A clean, dark-first dashboard designed with unified typography (DM Sans for settings, JetBrains Mono for system values).
+* 🗂️ **Interactive Switcher Tabs** — Side-panel filters separating **All**, **Chats**, and **Tasks** for precise history management.
+* 🪆 **Collapsible Detail Steps** — Groups low-level agent actions (such as scrolling and typing) into collapsible blocks, keeping the main chat thread clean.
+* 🗑️ **Bulk Selection** — Instantly batch-delete old sessions or task history with a sticky operations bar.
 
 ---
 
-## System Architecture
+## 🏗️ System Architecture
 
 WebGenie is built on a modular, layered architecture that separates UI components, service abstractions, storage protocols, and core AI agents.
 
@@ -146,7 +157,7 @@ graph TB
     style SEC fill:#fa709a,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-### Modular Directory Breakdown
+### 📂 Modular Directory Breakdown
 ```
 WebGenie/
 ├── chrome-extension/              # background service workers & manifest definition
@@ -172,50 +183,47 @@ WebGenie/
 
 ---
 
-## Detailed LLM Provider Configuration
+## ⚙️ Detailed LLM Provider Configuration
 
 WebGenie connects directly to LLMs without middleware. Enter your keys in the Options Dashboard to configure:
 
 ### 1. AWS Bedrock Setup
 AWS Bedrock operates using SigV4 signed HTTP requests from the background service worker:
-- **Access Key ID** & **Secret Access Key**: AWS IAM credentials. Ensure your IAM user has `bedrock:InvokeModel` permissions.
-- **Session Token (Optional)**: If you use temporary AWS credentials via STS, enter the session token.
-- **AWS Region**: Select the region hosting your models (e.g., `us-east-1`, `us-west-2`).
-- **Model ID**: Enter model IDs in Bedrock format, e.g., `us.anthropic.claude-3-5-sonnet-20241022-v2:0` (Claude 3.5 Sonnet) or full Bedrock Model/Custom ARNs.
+* **Access Key ID** & **Secret Access Key**: AWS IAM credentials. Ensure your IAM user has `bedrock:InvokeModel` permissions.
+* **Session Token (Optional)**: If you use temporary AWS credentials via STS, enter the session token.
+* **AWS Region**: Select the region hosting your models (e.g., `us-east-1`, `us-west-2`).
+* **Model ID**: Enter model IDs in Bedrock format, e.g., `us.anthropic.claude-3-5-sonnet-20241022-v2:0` (Claude 3.5 Sonnet) or full Bedrock Model/Custom ARNs.
 
 ### 2. Ollama (Self-Hosted Local LLM)
-- **Base Endpoint**: Point to your running Ollama daemon instance (default: `http://localhost:11434`).
-- **Model Name**: Use the name of your pulled Ollama model exactly (e.g., `qwen2.5:14b`, `mistral-small:24b`).
-- *Note: Ensure your Ollama setup permits cross-origin requests (`OLLAMA_ORIGINS="*"`) to avoid Chrome Extensions blocking requests.*
+* **Base Endpoint**: Point to your running Ollama daemon instance (default: `http://localhost:11434`).
+* **Model Name**: Use the name of your pulled Ollama model exactly (e.g., `qwen2.5:14b`, `mistral-small:24b`).
+
+> [!TIP]
+> Ensure your Ollama setup permits cross-origin requests (`OLLAMA_ORIGINS="*"`) to avoid Chrome Extensions blocking requests.
 
 ### 3. OpenAI & Custom Endpoints
-- **Base Endpoint**: Defaults to `https://api.openai.com/v1`, but can be mapped to any OpenAI-compatible server (like LocalAI or vLLM).
-- **API Key**: Your API developer key.
+* **Base Endpoint**: Defaults to `https://api.openai.com/v1`, but can be mapped to any OpenAI-compatible server (like LocalAI or vLLM).
+* **API Key**: Your API developer key.
 
 ---
 
-## Settings Configuration Reference
+## 🛠️ Settings Configuration Reference
 
-### General Settings
-- **Interaction Highlights**: Toggles visual outlines over elements the Navigator agent focuses on.
-- **Task Tab Grouping**: Groups tabs spawned by the automation cycle into a dedicated Chrome Tab Group.
-- **Replay Historical Tasks**: Saves historic execution records locally for step-by-step debugging.
-
-### Advanced Settings
-- **Viewport Dimensions**: Configures the fixed viewport width and height used during DOM element calculation.
-- **Action Latency Buffer**: Sets the delay (in milliseconds) before evaluating DOM updates after actions like clicking. Marked with `Caution` warning styles.
-- **Planner Vision Mode**: Allows the planner to process screenshot buffers when supported by multimodal models.
-
-### Developer Settings
-- **Log DOM Snapshot**: Instructs the background agent to print the serialized DOM tree that the LLM processes to the service worker console.
-- **Developer Options Master Switch**: Master toggle that activates testing controls.
-
-### Firewall Settings
-- **Domain Filter Rules**: A single-column list of domain patterns (e.g. `*.github.com`) configured with segmented **Allow** or **Deny** behaviors to enforce navigation safety.
+| Tab | Feature Name | Description |
+| :--- | :--- | :--- |
+| **General** | Interaction Highlights | Toggles visual outlines over elements the Navigator agent focuses on. |
+| | Task Tab Grouping | Groups tabs spawned by the automation cycle into a dedicated Chrome Tab Group. |
+| | Replay Historical Tasks | Saves historic execution records locally for step-by-step debugging. |
+| **Advanced** | Viewport Dimensions | Configures the fixed viewport width and height used during DOM element calculation. |
+| | Action Latency Buffer | Sets the delay (in milliseconds) before evaluating DOM updates after actions like clicking. |
+| | Planner Vision Mode | Allows the planner to process screenshot buffers when supported by multimodal models. |
+| **Developer**| Log DOM Snapshot | Prints the serialized DOM tree that the LLM processes to the service worker console. |
+| | Developer Options | Master toggle that activates testing controls. |
+| **Firewall** | Domain Filter Rules | Enforces navigation safety using segmented Allow or Deny lists of domain patterns (e.g. `*.github.com`). |
 
 ---
 
-## Installation & Developer Quickstart
+## 🚀 Installation & Developer Quickstart
 
 ### 1. Build from Source
 ```bash
@@ -241,7 +249,7 @@ pnpm build
 
 ---
 
-## License & Disclaimer
+## 📄 License & Disclaimer
 
 - Licensed under the **Apache License 2.0** — see the [LICENSE](LICENSE) file for details.
 - This repository does **not** endorse or support blockchain, cryptocurrency, NFT projects, or similar derivative works. Any such projects are **unaffiliated** with the maintainers of this codebase.
