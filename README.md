@@ -22,46 +22,41 @@ WebGenie empowers developers and automation enthusiasts with a **free, open-sour
 
 ## Key Features
 
-### Multi-Agent Intelligence
-- **Navigator Agent** — Intelligent DOM interaction and web navigation that understands page structure.
-- **Planner Agent** — High-level task planning and strategic reasoning to break down complex workflows.
-- **Validator Agent** — Autonomous verification of task completion and result accuracy.
-- Coordinated execution through Chrome Messaging APIs for seamless inter-agent communication.
+### 1. Multi-Agent Intelligence
+WebGenie relies on a collaborative multi-agent architecture where agents share responsibilities to optimize success rates and ensure safety:
+- **Navigator Agent** — Focuses on page analysis, translating raw interactive elements into a clean interactive tree, and executing actions like clicking, typing, and scrolling.
+- **Planner Agent** — Handles high-level reasoning and orchestrates step-by-step strategies. It breaks down complex user goals into small, manageable objectives.
+- **Validator Agent** — Periodically evaluates page states to verify if actions successfully reached the goal, preventing false positives.
+- **Chrome Messaging Coordination** — Fast, asynchronous messaging routes agent commands and feedback cycles smoothly through the extension worker.
 
-### Agent Capabilities & Native Integration
-- **Agent Memory & Cache System** — Enables agents to cache structured findings and context frames across execution cycles to preserve task memory and execute complex reasoning paths.
-- **Chrome Subsystems Control** — The agent has direct access (via native Chrome APIs) to manage and interact with browser data:
-  - **Bookmarks** (Get flat list, search bookmarks, and dynamically create bookmarks)
-  - **Reading List** (Track unread items, add new pages, and mark read status)
-  - **History** (Inspect recent visits and analyze frequent navigation domains)
-  - **Downloads** (Initiate file downloads and search downloaded files)
+### 2. Native Browser Integration & Subsystems Control
+Unlike cloud-hosted solutions that operate inside remote VNC containers, WebGenie runs directly inside your local Chrome instance, accessing native APIs via the **`chrome_control`** tool:
+- **Bookmarks Manager** — Allows agents to query the bookmarks tree, search folders, and create new bookmarks dynamically.
+- **Reading List** — Allows agents to append articles, check unread tabs, and mark pages as read.
+- **Browsing History** — Inspects visit frequency and queries domain telemetry to guide autonomous tasks.
+- **Downloads Controller** — Automatically downloads files, handles conflict strategies (overwrite/uniquify), and monitors progress.
 
-### LLM Provider Flexibility
-- **OpenAI** — GPT-4o, GPT-4, and GPT-3.5 Turbo for cutting-edge reasoning.
-- **Anthropic** — Claude 3.5 (Sonnet), Claude 3 (Opus, Sonnet, Haiku).
-- **Google Gemini** — Gemini 1.5 Pro and Gemini 1.5 Flash.
-- **AWS Bedrock** — Managed Claude, Llama, and Titan family models on AWS (supports Access Key, Secret Key, custom Region, and STS session tokens).
-- **Llama API** — Hosted Llama models via `api.llama.com`.
-- **Ollama** — Local LLM support for self-hosted and privacy-conscious deployments.
-- **Azure OpenAI** & **OpenRouter** — Enterprise deployments and unified gateways.
+### 3. Agent Memory & Caching
+- **Session-Level Memory Cache** — Agents use the `cache_content` tool to store extracted text, credentials, keys, or state data, making them accessible across subsequent execution steps.
+- **DOM Context Isolation** — Serializes the interactive accessibility tree into structured, indexable nodes while filtering out noisy visual elements to optimize LLM token usage.
 
-### Security & Privacy
-- **Local Processing** — All AI reasoning happens entirely in-browser; it never leaves your machine.
-- **No Telemetry Leakage** — Fully controlled storage with zero automatic cloud uploads or hidden data transmission.
-- **Domain Firewall** — Built-in domain filtering (segmented Allow/Deny controls) to strictly enforce navigation boundaries.
-- **Content Sanitization** — Built-in XSS and injection prevention for safe DOM manipulation.
+### 4. Advanced Security & Privacy
+- **Local Control Sandbox** — All prompt assembly, execution logic, and decision framing occur locally on your machine.
+- **Zero Telemetry Leakage** — Settings, history, and workspace configurations are kept entirely inside native `chrome.storage.local`.
+- **Domain Firewall** — Segmented Allow/Deny list filters enforce navigation guardrails to block malicious redirects or off-domain links.
+- **XSS & Injection Protection** — Sanitizes input strings before writing to inputs or executing clicks.
 
-### Premium User Interface
-- **Chat-Based Controls** — Talk to the extension naturally, featuring a modern glassmorphism design and a dynamic visual orb.
-- **Collapsible Execution Steps** — Keeps the interface clean by nesting verbose agent actions inside interactive, collapsible step details.
-- **History Switcher & Bulk Management** — Filter history by **All**, **Chats**, or **Tasks**, with bulk selection support for easy session-level cleanup.
-- **Polished Settings Dashboard** — A dark-first premium settings panel using human-friendly typography (DM Sans / system-sans) and clean monospace values.
+### 5. Premium UI/UX Customization
+- **Modern Options Dashboard** — A clean, dark-first dashboard designed with unified typography (DM Sans for settings, JetBrains Mono for system values).
+- **Interactive Switcher Tabs** — Side-panel filters separating **All**, **Chats**, and **Tasks** for precise history management.
+- **Collapsible Detail Steps** — Groups low-level agent actions (such as scrolling and typing) into collapsible blocks, keeping the main chat thread clean.
+- **Bulk Selection** — Instantly batch-delete old sessions or task history with a sticky operations bar.
 
 ---
 
-## Architecture Overview
+## System Architecture
 
-WebGenie is built on a modular, layered architecture that separates concerns and enables clear communication between components.
+WebGenie is built on a modular, layered architecture that separates UI components, service abstractions, storage protocols, and core AI agents.
 
 ```mermaid
 graph TB
@@ -151,74 +146,98 @@ graph TB
     style SEC fill:#fa709a,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-For a detailed walkthrough of the DOM engine, see [docs/dom-deep-dive.md](docs/dom-deep-dive.md).
-
-### How It Works Together
-
-When a user submits a task through the Side Panel:
-1. The **Executor** coordinates the request across the multi-agent system.
-2. The **Planner** breaks down the task into actionable steps.
-3. The **Navigator** executes steps by interacting with the DOM.
-4. The **Validator** checks if the task was completed successfully.
-5. Results and status updates are sent back to the Side Panel UI.
-
----
-
-## Provider Setup
-
-### AWS Bedrock
-1. Open Options → Model Settings → add **AWS Bedrock**.
-2. Fill:
-    - **Access Key ID** = AWS access key ID.
-    - **Secret Access Key** = AWS secret access key.
-    - **Session Token (Optional)** = AWS STS session token if using temporary credentials.
-    - **AWS Region** (e.g. `us-east-1`).
-3. Set model IDs in the Bedrock format (e.g. `us.anthropic.claude-3-5-sonnet-20241022-v2:0` or custom model ARNs).
-
-### Ollama (Local Server)
-1. Start Ollama locally (default endpoint: `http://localhost:11434`).
-2. Add **Ollama** provider.
-3. Set Base Endpoint to your Ollama server URL.
-4. Set model name exactly as configured in Ollama (e.g. `qwen2.5:14b`).
+### Modular Directory Breakdown
+```
+WebGenie/
+├── chrome-extension/              # background service workers & manifest definition
+│   ├── src/background/
+│   │   ├── agent/                 # Navigator, Planner, and Validator orchestrations
+│   │   ├── browser/               # Chrome subsystems integrations (Bookmarks, History)
+│   │   ├── services/              # security, analytics, and voice utilities
+│   │   └── task/                  # execution loop coordinators
+│   └── public/                    # manifest.json and static icons
+│
+├── pages/                         # React UI layers
+│   ├── side-panel/                # main user chat interface with collapsible details
+│   ├── options/                   # unified settings management dashboard
+│   └── content/                   # page analyzers & DOM accessibility tree generators
+│
+└── packages/                      # shared monorepo modules
+    ├── shared/                    # cross-boundary types
+    ├── storage/                   # type-safe Chrome local storage schemas
+    ├── ui/                        # custom UI buttons, inputs, and cards
+    ├── i18n/                      # translation bindings
+    └── schema-utils/              # Zod validation schemas
+```
 
 ---
 
-## Quick Start (Build from Source)
+## Detailed LLM Provider Configuration
 
-### Prerequisites
-- **Node.js** (check `.nvmrc` for version)
-- **pnpm** (Fast, disk-efficient package manager)
+WebGenie connects directly to LLMs without middleware. Enter your keys in the Options Dashboard to configure:
 
-### Installation & Setup
+### 1. AWS Bedrock Setup
+AWS Bedrock operates using SigV4 signed HTTP requests from the background service worker:
+- **Access Key ID** & **Secret Access Key**: AWS IAM credentials. Ensure your IAM user has `bedrock:InvokeModel` permissions.
+- **Session Token (Optional)**: If you use temporary AWS credentials via STS, enter the session token.
+- **AWS Region**: Select the region hosting your models (e.g., `us-east-1`, `us-west-2`).
+- **Model ID**: Enter model IDs in Bedrock format, e.g., `us.anthropic.claude-3-5-sonnet-20241022-v2:0` (Claude 3.5 Sonnet) or full Bedrock Model/Custom ARNs.
 
+### 2. Ollama (Self-Hosted Local LLM)
+- **Base Endpoint**: Point to your running Ollama daemon instance (default: `http://localhost:11434`).
+- **Model Name**: Use the name of your pulled Ollama model exactly (e.g., `qwen2.5:14b`, `mistral-small:24b`).
+- *Note: Ensure your Ollama setup permits cross-origin requests (`OLLAMA_ORIGINS="*"`) to avoid Chrome Extensions blocking requests.*
+
+### 3. OpenAI & Custom Endpoints
+- **Base Endpoint**: Defaults to `https://api.openai.com/v1`, but can be mapped to any OpenAI-compatible server (like LocalAI or vLLM).
+- **API Key**: Your API developer key.
+
+---
+
+## Settings Configuration Reference
+
+### General Settings
+- **Interaction Highlights**: Toggles visual outlines over elements the Navigator agent focuses on.
+- **Task Tab Grouping**: Groups tabs spawned by the automation cycle into a dedicated Chrome Tab Group.
+- **Replay Historical Tasks**: Saves historic execution records locally for step-by-step debugging.
+
+### Advanced Settings
+- **Viewport Dimensions**: Configures the fixed viewport width and height used during DOM element calculation.
+- **Action Latency Buffer**: Sets the delay (in milliseconds) before evaluating DOM updates after actions like clicking. Marked with `Caution` warning styles.
+- **Planner Vision Mode**: Allows the planner to process screenshot buffers when supported by multimodal models.
+
+### Developer Settings
+- **Log DOM Snapshot**: Instructs the background agent to print the serialized DOM tree that the LLM processes to the service worker console.
+- **Developer Options Master Switch**: Master toggle that activates testing controls.
+
+### Firewall Settings
+- **Domain Filter Rules**: A single-column list of domain patterns (e.g. `*.github.com`) configured with segmented **Allow** or **Deny** behaviors to enforce navigation safety.
+
+---
+
+## Installation & Developer Quickstart
+
+### 1. Build from Source
 ```bash
 # Clone the repository
 git clone https://github.com/derpx06/webgenie.git
 cd webgenie
 
-# Install dependencies
+# Install dependencies (requires Node.js and pnpm)
 pnpm install
 
-# Start development with hot reload
-pnpm -F chrome-extension dev
+# Run type checks to verify project integrity
+pnpm type-check
 
-# Build for production
+# Compile for production
 pnpm build
 ```
 
-### Loading in Chrome
-1. Open `chrome://extensions/` in your browser.
-2. Enable **Developer mode** (top-right corner).
-3. Click **Load unpacked** and select the built `dist/` directory.
-
----
-
-## Documentation & Contributing
-
-- **[MODULARITY_GUIDE.md](MODULARITY_GUIDE.md)** — Architecture & module organization guide.
-- **[BEST_PRACTICES.md](BEST_PRACTICES.md)** — Code quality standards and development guidelines.
-- **[SECURITY.md](SECURITY.md)** — Security architecture & threat modeling.
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — Standard contributing guidelines.
+### 2. Load into Chrome
+1. Open Google Chrome and go to `chrome://extensions/`.
+2. Toggle **Developer mode** in the top-right corner.
+3. Click **Load unpacked** in the top-left corner.
+4. Select the `dist/` directory generated in your workspace folder.
 
 ---
 
