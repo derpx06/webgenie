@@ -6,18 +6,7 @@ import type { BaseStorage } from '../base/types';
 export interface AdvancedSettingsConfig {
   // Developer Options
   enableDeveloperOptions: boolean;
-  enableVerboseCDPDebug: boolean;
-  verboseCDPLogging: boolean;         // alias kept in sync with UI
-  bypassSecuritySandbox: boolean;
-  traceDOMMutationCycles: boolean;
-  logLLMContextBeforeSteps: boolean;
   logDOMSnapshot: boolean;            // log the full DOM the LLM sees each step
-
-  // Advanced Configuration
-  cdpCommandTimeout: number; // in ms
-  hardwareActionLatency: number; // in ms
-  concurrentTaskCap: number;
-  inputEmulationMode: 'cdp' | 'dom' | 'hybrid';
 }
 
 export type AdvancedSettingsStorage = BaseStorage<AdvancedSettingsConfig> & {
@@ -29,16 +18,7 @@ export type AdvancedSettingsStorage = BaseStorage<AdvancedSettingsConfig> & {
 // Default settings
 export const DEFAULT_ADVANCED_SETTINGS: AdvancedSettingsConfig = {
   enableDeveloperOptions: false,
-  enableVerboseCDPDebug: false,
-  verboseCDPLogging: false,
-  bypassSecuritySandbox: false,
-  traceDOMMutationCycles: false,
-  logLLMContextBeforeSteps: false,
   logDOMSnapshot: false,
-  cdpCommandTimeout: 30000,
-  hardwareActionLatency: 50,
-  concurrentTaskCap: 3,
-  inputEmulationMode: 'hybrid',
 };
 
 const storage = createStorage<AdvancedSettingsConfig>('advanced-settings', DEFAULT_ADVANCED_SETTINGS, {
