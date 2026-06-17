@@ -425,6 +425,14 @@ export class Executor {
       if (import.meta.env.DEV) {
         logger.debug('Executor history', JSON.stringify(this.context.history, null, 2));
       }
+
+      try {
+        const historyString = JSON.stringify(this.context.history);
+        logger.info(`Executor history size: ${historyString.length}`);
+        await chatHistoryStore.storeAgentStepHistory(this.context.taskId, this.tasks[0], historyString);
+      } catch (err) {
+        logger.error('Failed to store task step history:', err);
+      }
     }
   }
 
