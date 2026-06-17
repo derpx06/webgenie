@@ -74,14 +74,6 @@ export const DeveloperSettings = ({ isDarkMode = false }: DeveloperSettingsProps
               onChange={val => updateSetting('logDOMSnapshot', val)}
               severity="caution"
             />
-            <SettingToggle 
-              title="Session Replay" 
-              desc="Store and replay historical task logs for post-mortem debugging" 
-              checked={generalSettings.replayHistoricalTasks} 
-              isDarkMode={isDarkMode} 
-              onChange={val => updateGeneralSetting('replayHistoricalTasks', val)} 
-              severity="caution"
-            />
           </div>
         )}
       </DashboardSection>
