@@ -99,7 +99,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
 
   if (loading) {
     return (
-      <div className="flex flex-col gap-6 max-w-2xl mx-auto pb-10">
+      <div className="mx-auto flex max-w-2xl flex-col gap-6 pb-10">
         <div className={`h-10 w-48 rounded-2xl ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`}></div>
         <div className="grid grid-cols-1 gap-6">
           {[1, 2, 3].map(i => (
@@ -111,7 +111,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
   }
 
   return (
-    <div className={`animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 max-w-2xl mx-auto pb-10 duration-700 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+    <div className={`animate-in fade-in slide-in-from-bottom-4 mx-auto flex max-w-2xl flex-col gap-6 pb-10 duration-700 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
 
       {/* 1. TOKEN CONSUMPTION HERO SECTION */}
       <DashboardSection

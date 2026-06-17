@@ -178,7 +178,7 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
       {/* Absolute positioned phase dot */}
       <div className={`phase-dot ${isActive ? 'active' : isPlanner ? 'plan' : 'act'}`}>
         {isActive ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="size-2.5 animate-spin-fast">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="animate-spin-fast size-2.5">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38" />
           </svg>
         ) : isPlanner ? (
@@ -238,7 +238,7 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
       {isExpanded && (
         <div className="steps-list animate-slide-in relative">
           {/* Internal timeline connecting track line */}
-          <div className="absolute left-[7px] top-2 bottom-2 w-[0.5px] bg-slate-300 dark:bg-white/[0.06]" />
+          <div className="absolute inset-y-2 left-[7px] w-[0.5px] bg-slate-300 dark:bg-white/[0.06]" />
 
           {dedupedSteps.map((step, i) => {
             const isCompleted = !step.isLive;
@@ -247,17 +247,17 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
                 <div className="step-icon-container relative z-10">
                   {step.isLive ? (
                     <div className="relative flex size-3.5 items-center justify-center">
-                      <div className="absolute inset-0 rounded-full bg-indigo-500/25 animate-ping" />
+                      <div className="absolute inset-0 animate-ping rounded-full bg-indigo-500/25" />
                       <div className="size-1.5 rounded-full bg-indigo-500" />
                     </div>
                   ) : step.isWarning ? (
-                    <div className="flex size-3.5 items-center justify-center rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                    <div className="flex size-3.5 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 text-amber-500">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="size-2">
                         <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
                       </svg>
                     </div>
                   ) : (
-                    <div className="flex size-3.5 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <div className="flex size-3.5 items-center justify-center rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="size-1.5">
                         <polyline points="20 6 9 17 4 12" />
                       </svg>

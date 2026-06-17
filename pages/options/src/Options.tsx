@@ -87,7 +87,7 @@ const Options = () => {
   };
 
   return (
-    <div className={`font-sans min-h-screen overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-[#0f1117] text-white' : 'bg-[#f8fafc] text-slate-900'}`}>
+    <div className={`min-h-screen overflow-hidden font-sans transition-colors duration-500 ${isDarkMode ? 'bg-[#0f1117] text-white' : 'bg-[#f8fafc] text-slate-900'}`}>
       <OptionsBackground isDarkMode={isDarkMode} />
 
       <div className="relative z-10 flex h-screen overflow-hidden">

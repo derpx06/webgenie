@@ -54,7 +54,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
       {/* Header section (always visible) */}
       <div 
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex cursor-pointer items-center justify-between p-6 select-none"
+        className="flex cursor-pointer select-none items-center justify-between p-6"
       >
         <div className="flex items-center gap-3">
           <div className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-tighter ${isInStorage
@@ -70,8 +70,8 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
         <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
           <button
             className={`flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all duration-300 active:scale-95 disabled:opacity-30 ${buttonProps.variant === 'danger'
-              ? 'border border-red-500/20 bg-transparent text-red-400 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/40'
-              : 'bg-[#7C3AED] text-white hover:bg-[#7C3AED]/90 shadow-md shadow-[#7C3AED]/20'
+              ? 'border border-red-500/20 bg-transparent text-red-400 hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-500'
+              : 'bg-[#7C3AED] text-white shadow-md shadow-[#7C3AED]/20 hover:bg-[#7C3AED]/90'
               }`}
             disabled={buttonProps.disabled}
             onClick={() => isInStorage && !isModified ? handleDelete(providerId) : handleSave(providerId)}
@@ -80,7 +80,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
           </button>
           <button 
             onClick={() => setIsExpanded(!isExpanded)}
-            className={`flex size-8 items-center justify-center rounded-lg hover:bg-white/5 transition-all text-slate-400 hover:text-white`}
+            className={`flex size-8 items-center justify-center rounded-lg text-slate-400 transition-all hover:bg-white/5 hover:text-white`}
           >
             {isExpanded ? <FiChevronUp size={16} /> : <FiChevronDown size={16} />}
           </button>
@@ -89,7 +89,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="px-6 pb-6 pt-2 space-y-4 border-t border-white/5 animate-in fade-in slide-in-from-top-1 duration-200">
+        <div className="animate-in fade-in slide-in-from-top-1 space-y-4 border-t border-white/5 px-6 pb-6 pt-2 duration-200">
           {providerConfig.type === ProviderTypeEnum.CustomOpenAI && (
             <div className="space-y-1.5">
               <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Identity</div>

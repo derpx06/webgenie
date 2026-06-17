@@ -30,7 +30,7 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 max-w-2xl mx-auto pb-10 duration-700">
+    <div className="animate-in fade-in slide-in-from-bottom-4 mx-auto flex max-w-2xl flex-col gap-6 pb-10 duration-700">
 
       {/* 1. SAFETY & LIMITS MODULE */}
       <DashboardSection

@@ -245,7 +245,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                 setIsManageMode(!isManageMode);
                 setSelectedSessionIds([]);
               }}
-              className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all duration-200 cursor-pointer ${
+              className={`cursor-pointer rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all duration-200 ${
                 isManageMode
                   ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/20'
                   : isDarkMode
@@ -323,18 +323,18 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               key={filter}
               type="button"
               onClick={() => setActiveFilter(filter)}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-semibold tracking-tight transition-all duration-200 cursor-pointer ${
+              className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-semibold tracking-tight transition-all duration-200 ${
                 activeFilter === filter
                   ? isDarkMode
-                    ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
-                    : 'bg-indigo-50 text-indigo-600 border border-indigo-200'
+                    ? 'border border-indigo-500/30 bg-indigo-600/20 text-indigo-300'
+                    : 'border border-indigo-200 bg-indigo-50 text-indigo-600'
                   : isDarkMode
-                    ? 'border border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/[0.02]'
-                    : 'border border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+                    ? 'border border-transparent text-slate-500 hover:bg-white/[0.02] hover:text-slate-300'
+                    : 'border border-transparent text-slate-500 hover:bg-slate-100/50 hover:text-slate-700'
               }`}
             >
               <span className="capitalize">{filter}</span>
-              <span className={`text-[9.5px] px-1 rounded-md ${
+              <span className={`rounded-md px-1 text-[9.5px] ${
                 activeFilter === filter
                   ? isDarkMode ? 'bg-indigo-500/30' : 'bg-indigo-100'
                   : isDarkMode ? 'bg-white/[0.04]' : 'bg-slate-200/50'
@@ -347,7 +347,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
 
         {/* Bottom separator gradient */}
         <div
-          className="pointer-events-none absolute bottom-0 left-0 right-0 h-px"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-px"
           style={{
             background: isDarkMode
               ? 'linear-gradient(90deg, transparent 0%, rgba(99,102,241,0.15) 40%, rgba(139,92,246,0.15) 60%, transparent 100%)'
@@ -474,7 +474,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                         {isManageMode && (
                           <div className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border transition-all ${
                             isSelected
-                              ? 'bg-indigo-600 border-indigo-600 text-white'
+                              ? 'border-indigo-600 bg-indigo-600 text-white'
                               : isDarkMode
                                 ? 'border-white/20 hover:border-white/40'
                                 : 'border-slate-300 hover:border-slate-400'
@@ -538,10 +538,10 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                                 <span className={`text-[10px] ${isDarkMode ? 'text-slate-700' : 'text-slate-300'}`}>•</span>
                                 <span className={`rounded px-1.5 py-0.5 text-[8.2px] font-bold uppercase tracking-wider ${
                                   enriched.isFailed
-                                    ? 'bg-rose-500/10 text-rose-400 border border-rose-500/10'
+                                    ? 'border border-rose-500/10 bg-rose-500/10 text-rose-400'
                                     : enriched.isCancelled
-                                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/10'
-                                      : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10'
+                                      ? 'border border-amber-500/10 bg-amber-500/10 text-amber-400'
+                                      : 'border border-emerald-500/10 bg-emerald-500/10 text-emerald-400'
                                 }`}>
                                   {enriched.isFailed ? 'Failed' : enriched.isCancelled ? 'Cancelled' : 'Completed'}
                                 </span>
@@ -552,7 +552,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
 
                         {/* Action buttons — slide in on hover (hidden in manage mode) */}
                         {!isManageMode && (
-                          <div className="flex shrink-0 translate-x-3 items-center gap-0.5 opacity-0 transition-all duration-250 group-hover:translate-x-0 group-hover:opacity-100">
+                          <div className="duration-250 flex shrink-0 translate-x-3 items-center gap-0.5 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100">
                             {onSessionBookmark && (
                               <button
                                 onClick={e => { e.stopPropagation(); onSessionBookmark(session.id); }}
@@ -594,7 +594,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
       {/* Bulk Delete Bottom Drawer */}
       {isManageMode && (
         <div
-          className="absolute bottom-0 left-0 right-0 z-[70] px-4 py-4 flex items-center justify-between border-t transition-all duration-300 animate-in slide-in-from-bottom"
+          className="animate-in slide-in-from-bottom absolute inset-x-0 bottom-0 z-[70] flex items-center justify-between border-t p-4 transition-all duration-300"
           style={{
             background: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
             backdropFilter: 'blur(20px)',
@@ -619,10 +619,10 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                 setIsManageMode(false);
                 setSelectedSessionIds([]);
               }}
-              className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all duration-200 cursor-pointer ${
+              className={`cursor-pointer rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all duration-200 ${
                 isDarkMode
-                  ? 'bg-white/5 hover:bg-white/10 text-slate-300'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  ? 'bg-white/5 text-slate-300 hover:bg-white/10'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
               Cancel
@@ -631,10 +631,10 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               type="button"
               disabled={selectedSessionIds.length === 0}
               onClick={handleBulkDelete}
-              className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 ${
+              className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all duration-200 ${
                 selectedSessionIds.length === 0
-                  ? 'opacity-40 cursor-not-allowed bg-rose-500/10 text-rose-500/50'
-                  : 'bg-rose-600 hover:bg-rose-700 text-white shadow-sm shadow-rose-600/20'
+                  ? 'cursor-not-allowed bg-rose-500/10 text-rose-500/50 opacity-40'
+                  : 'bg-rose-600 text-white shadow-sm shadow-rose-600/20 hover:bg-rose-700'
               }`}
             >
               <FaTrash size={9} />

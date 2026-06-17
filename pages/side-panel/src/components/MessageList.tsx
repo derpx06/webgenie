@@ -26,7 +26,7 @@ const renderDateSeparator = (timestamp: number, isDarkMode: boolean) => {
   return (
     <div className="my-4 flex items-center gap-3">
       <div className={`h-[0.5px] grow ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-      <span className="font-mono text-[9px] uppercase tracking-wider opacity-30 select-none">
+      <span className="select-none font-mono text-[9px] uppercase tracking-wider opacity-30">
         {text} · {time}
       </span>
       <div className={`h-[0.5px] grow ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
@@ -139,7 +139,7 @@ export default memo(function MessageList({
                     {cycle.userMessage.content}
                   </div>
                 </div>
-                <span className="mt-1 font-mono text-[9px] uppercase tracking-wider opacity-30 select-none">
+                <span className="mt-1 select-none font-mono text-[9px] uppercase tracking-wider opacity-30">
                   {formatTimeOnly(cycle.userMessage.timestamp)}
                 </span>
               </div>
@@ -163,18 +163,18 @@ export default memo(function MessageList({
                 <button
                   type="button"
                   onClick={() => toggleSteps(cIdx)}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left font-sans select-none"
+                  className="flex w-full select-none items-center justify-between px-4 py-3 text-left font-sans"
                 >
                   <div className="flex items-center gap-2.5">
                     {/* Status Dot / Icon */}
-                    <div className={`flex items-center justify-center rounded-full p-1 size-5 shrink-0 ${
+                    <div className={`flex size-5 shrink-0 items-center justify-center rounded-full p-1 ${
                       status === 'running' ? 'bg-indigo-500/10 text-indigo-400' :
                       status === 'success' ? 'bg-emerald-500/10 text-emerald-400' :
                       status === 'cancelled' ? 'bg-amber-500/10 text-amber-400' :
                       'bg-rose-500/10 text-rose-400'
                     }`}>
                       {status === 'running' && (
-                        <div className="size-2 rounded-full bg-indigo-400 animate-pulse shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
+                        <div className="size-2 animate-pulse rounded-full bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                       )}
                       {status === 'success' && (
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" className="size-3">
@@ -208,7 +208,7 @@ export default memo(function MessageList({
                          status === 'cancelled' ? 'Automation Cancelled' :
                          'Automation Failed'}
                       </span>
-                      <span className={`text-[9.5px] font-semibold mt-0.5 tracking-tight ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      <span className={`mt-0.5 text-[9.5px] font-semibold tracking-tight ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                         {cycleStepsCount} step{cycleStepsCount === 1 ? '' : 's'}
                         {durationStr && isOverallLastCycle && ` · ${durationStr}`}
                       </span>
@@ -216,7 +216,7 @@ export default memo(function MessageList({
                   </div>
 
                   {/* Expand Icon */}
-                  <div className={`flex items-center gap-1.5 text-[10px] font-bold tracking-tight uppercase ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                  <div className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-tight ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                     <span>Detail</span>
                     <svg
                       viewBox="0 0 24 24"
@@ -237,7 +237,7 @@ export default memo(function MessageList({
 
                 {/* Collapsible Content */}
                 {isExpanded && (
-                  <div className={`px-4 pb-4 pt-1 flex flex-col gap-2.5 border-t ${
+                  <div className={`flex flex-col gap-2.5 border-t px-4 pb-4 pt-1 ${
                     isDarkMode ? 'border-white/[0.04]' : 'border-slate-200/50'
                   }`}>
                     {agentBlocks.map((block, bIdx) => {

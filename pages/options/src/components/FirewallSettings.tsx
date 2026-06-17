@@ -55,15 +55,15 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 max-w-2xl mx-auto pb-10 duration-700">
+    <div className="animate-in fade-in slide-in-from-bottom-4 mx-auto flex max-w-2xl flex-col gap-6 pb-10 duration-700">
       
       {/* Top Master Toggle Card */}
-      <div className={`rounded-2xl border p-6 flex items-center justify-between transition-all duration-300 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-200 bg-white'}`}>
+      <div className={`flex items-center justify-between rounded-2xl border p-6 transition-all duration-300 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-200 bg-white'}`}>
         <div>
           <h3 className={`font-outfit text-base font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
             Firewall Protection
           </h3>
-          <p className="text-xs text-slate-400 opacity-80 mt-1">
+          <p className="mt-1 text-xs text-slate-400 opacity-80">
             Toggle domain access filtering on or off
           </p>
         </div>
@@ -138,7 +138,7 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
             </div>
             
             {/* Segmented Control instead of select */}
-            <div className={`flex rounded-lg p-0.5 border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-100 border-slate-200'}`}>
+            <div className={`flex rounded-lg border p-0.5 ${isDarkMode ? 'border-white/10 bg-white/5' : 'border-slate-200 bg-slate-100'}`}>
               <button
                 type="button"
                 onClick={() => setNewUrlType('allow')}

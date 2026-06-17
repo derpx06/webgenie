@@ -69,8 +69,8 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
                 aria-label="Toggle agent sight panel"
                 className={`z-[100] overflow-hidden transition-all duration-[400ms] ease-in-out ${
                     isExpanded
-                        ? 'fixed inset-x-4 top-24 rounded-2xl border border-white/15 shadow-2xl bg-slate-900/95 backdrop-blur-2xl'
-                        : 'fixed top-[92px] right-4 size-11 cursor-pointer rounded-full border border-white/15 shadow-lg hover:border-white/30 hover:scale-105 active:scale-95 bg-slate-900/90 backdrop-blur-xl'
+                        ? 'fixed inset-x-4 top-24 rounded-2xl border border-white/15 bg-slate-900/95 shadow-2xl backdrop-blur-2xl'
+                        : 'fixed right-4 top-[92px] size-11 cursor-pointer rounded-full border border-white/15 bg-slate-900/90 shadow-lg backdrop-blur-xl hover:scale-105 hover:border-white/30 active:scale-95'
                 }`}
                 style={{
                     height: isExpanded ? '240px' : '44px',
@@ -92,7 +92,7 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
                         <div className="relative size-full overflow-hidden rounded-full">
                             <img src={formatSrc(displayScreenshot)} alt="Agent View" className="size-full object-cover" />
                             {/* Glowing corner indicator */}
-                            <div className="absolute bottom-0.5 right-0.5 p-0.5 bg-slate-950 rounded-full">
+                            <div className="absolute bottom-0.5 right-0.5 rounded-full bg-slate-950 p-0.5">
                                 <div className={`size-1.5 rounded-full ${isActive ? 'bg-cyan-400' : 'bg-slate-500'}`} />
                                 {isActive && <div className="absolute inset-0 size-1.5 animate-ping rounded-full bg-cyan-400 opacity-75" />}
                             </div>
@@ -104,8 +104,8 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
                                 <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
                                 <circle cx="12" cy="12" r="3" />
                             </svg>
-                            <div className="absolute bottom-0.5 right-0.5 p-0.5 bg-slate-950 rounded-full">
-                                <div className={`size-1.5 rounded-full ${isActive ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'}`} />
+                            <div className="absolute bottom-0.5 right-0.5 rounded-full bg-slate-950 p-0.5">
+                                <div className={`size-1.5 rounded-full ${isActive ? 'animate-pulse bg-cyan-400' : 'bg-slate-500'}`} />
                             </div>
                         </div>
                     )}

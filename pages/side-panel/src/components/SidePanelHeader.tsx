@@ -40,7 +40,7 @@ const SidePanelHeader = ({
         {/* BRAND IDENTITY - NEURAL CORE LINK */}
         <button
           type="button"
-          className={`group flex items-center gap-3.5 text-left transition-all duration-300 ${isTransparent ? 'invisible opacity-0 pointer-events-none' : 'visible opacity-100'}`}
+          className={`group flex items-center gap-3.5 text-left transition-all duration-300 ${isTransparent ? 'pointer-events-none invisible opacity-0' : 'visible opacity-100'}`}
           onClick={showHistory ? onBackToChat : undefined}
           aria-label={showHistory ? 'Back to chat' : 'WebGenie'}
         >
@@ -67,7 +67,7 @@ const SidePanelHeader = ({
             <span className={`font-outfit text-[20px] font-black leading-none tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
               WebGenie
             </span>
-            <span className={`font-outfit text-[10px] font-semibold tracking-wide mt-1.5 opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            <span className={`mt-1.5 font-outfit text-[10px] font-semibold tracking-wide opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
               AI Browser Agent
             </span>
           </div>

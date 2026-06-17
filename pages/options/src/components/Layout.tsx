@@ -73,12 +73,12 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
                         <item.icon size={16} className={`transition-transform duration-300 group-hover:scale-110 ${activeTab === item.id ? 'opacity-100' : 'opacity-60'}`} />
                         <span className="flex-1 text-left">{item.label}</span>
                         {item.id === 'firewall' && (
-                            <span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider border transition-all ${
+                            <span className={`rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-wider transition-all ${
                                 firewallStatus.type === 'success'
-                                    ? 'bg-[#2ED9A8]/10 text-[#2ED9A8] border-[#2ED9A8]/20'
+                                    ? 'border-[#2ED9A8]/20 bg-[#2ED9A8]/10 text-[#2ED9A8]'
                                     : firewallStatus.type === 'caution'
-                                    ? 'bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/20'
-                                    : 'bg-[#6B7280]/10 text-[#6B7280] border-[#6B7280]/20'
+                                    ? 'border-[#F59E0B]/20 bg-[#F59E0B]/10 text-[#F59E0B]'
+                                    : 'border-[#6B7280]/20 bg-[#6B7280]/10 text-[#6B7280]'
                             }`}>
                                 {firewallStatus.text}
                             </span>
@@ -111,7 +111,7 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
 
                 <div className={`rounded-xl border p-3 backdrop-blur-3xl ${isDarkMode ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-white/50'}`}>
                     <div className="mb-1 flex items-center justify-between">
-                        <div className="text-[9px] font-black font-mono uppercase tracking-widest opacity-30">v2.1.4</div>
+                        <div className="font-mono text-[9px] font-black uppercase tracking-widest opacity-30">v2.1.4</div>
                         <div className="size-1.5 animate-pulse rounded-full bg-emerald-500/50"></div>
                     </div>
                     <div className={`text-[8px] font-bold uppercase tracking-tighter opacity-20 ${isDarkMode ? 'text-white' : 'text-black'}`}>© 2026 Neural Runtime</div>

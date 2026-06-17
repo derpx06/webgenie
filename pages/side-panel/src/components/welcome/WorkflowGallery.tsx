@@ -47,8 +47,8 @@ export const WorkflowGallery: React.FC<WorkflowGalleryProps> = ({ isDarkMode, on
                         onClick={() => onSelectPrompt(item.prompt)}
                         className={`group relative flex items-center gap-4 overflow-hidden rounded-xl border p-3.5 text-left transition-all duration-300 ${
                             isDarkMode
-                                ? 'border-white/[0.04] bg-slate-900/30 backdrop-blur-md hover:border-indigo-500/30 hover:bg-slate-900/50 hover:shadow-[0_8px_32px_rgba(99,102,241,0.08)] hover:-translate-y-0.5'
-                                : 'border-slate-200/60 bg-white/60 backdrop-blur-md hover:border-indigo-300/60 hover:bg-white/80 hover:shadow-[0_8px_32px_rgba(99,102,241,0.04)] hover:-translate-y-0.5'
+                                ? 'border-white/[0.04] bg-slate-900/30 backdrop-blur-md hover:-translate-y-0.5 hover:border-indigo-500/30 hover:bg-slate-900/50 hover:shadow-[0_8px_32px_rgba(99,102,241,0.08)]'
+                                : 'border-slate-200/60 bg-white/60 backdrop-blur-md hover:-translate-y-0.5 hover:border-indigo-300/60 hover:bg-white/80 hover:shadow-[0_8px_32px_rgba(99,102,241,0.04)]'
                         }`}
                         style={{
                             boxShadow: isDarkMode 

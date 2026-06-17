@@ -88,7 +88,7 @@ const PillChip: React.FC<{ icon: React.ComponentType<{ className?: string }>; la
             el.style.border = isDarkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)';
         }}
     >
-        <Icon className="size-3.5 opacity-75 shrink-0" />
+        <Icon className="size-3.5 shrink-0 opacity-75" />
         <span>{label}</span>
     </button>
 );
@@ -136,7 +136,7 @@ const SessionCard: React.FC<{ session: ChatSessionMetadata; isDarkMode: boolean;
         <button
             type="button"
             onClick={onClick}
-            className="group flex h-full w-full items-center gap-3 rounded-2xl px-3.5 text-left transition-all duration-200"
+            className="group flex size-full items-center gap-3 rounded-2xl px-3.5 text-left transition-all duration-200"
             style={{
                 backdropFilter: 'none',
                 WebkitBackdropFilter: 'none',
@@ -165,7 +165,7 @@ const SessionCard: React.FC<{ session: ChatSessionMetadata; isDarkMode: boolean;
         >
             {/* Color dot */}
             <div
-                className="flex size-9 shrink-0 items-center justify-center rounded-xl text-white text-[15px] font-bold shadow-sm transition-transform duration-200 group-hover:scale-105"
+                className="flex size-9 shrink-0 items-center justify-center rounded-xl text-[15px] font-bold text-white shadow-sm transition-transform duration-200 group-hover:scale-105"
                 style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
             >
                 {(session.title?.[0] ?? 'W').toUpperCase()}
@@ -238,7 +238,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
         >
             <div className="from-slate-950/48 via-slate-950/38 to-slate-950/62 pointer-events-none absolute inset-0 z-0 bg-gradient-to-b" />
 
-            <div className="pointer-events-auto relative z-10 mx-auto flex h-full w-full max-w-xl flex-col">
+            <div className="pointer-events-auto relative z-10 mx-auto flex size-full max-w-xl flex-col">
 
                 {/* ── Logo + Title ── */}
                 <div className="relative mb-4 flex flex-col items-center text-center">
@@ -275,7 +275,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
 
                 {/* ── Session history — iPhone notification style ── */}
                 {recentSessions.length > 0 && (
-                    <div className="px-4 flex flex-1 flex-col min-h-0 pb-3">
+                    <div className="flex min-h-0 flex-1 flex-col px-4 pb-3">
                         {/* Section header */}
                         <div className="mb-3 flex items-center justify-between px-1">
                             <div className="flex items-center gap-3">
@@ -300,7 +300,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                         <div
                             ref={scrollContainerRef}
                             onScroll={handleScroll}
-                            className="scrollbar-none relative flex-1 min-h-0 overflow-y-auto px-1 py-1.5"
+                            className="scrollbar-none relative min-h-0 flex-1 overflow-y-auto px-1 py-1.5"
                             style={{
                                 overscrollBehavior: 'contain',
                             }}

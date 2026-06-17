@@ -93,7 +93,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
             <FiChevronDown className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 opacity-40 transition-transform group-hover/field:scale-110" />
           </div>
           {isBedrock && (
-            <div className="mt-2 text-[10px] font-mono opacity-50 px-1 border-t border-white/5 pt-1">
+            <div className="mt-2 border-t border-white/5 px-1 pt-1 font-mono text-[10px] opacity-50">
               ARN: <span className="select-all">{bedrockArn}</span>
             </div>
           )}
