@@ -25,13 +25,11 @@ const SidePanel = () => {
     isRecording,
     isProcessingSpeech,
     lastScreenshot,
-    replayEnabled,
     messagesEndRef,
     setInputTextRef,
     handleSendMessage,
     handleStopTask,
     handleMicClick,
-    handleReplay,
     handleNewChat,
     handleLoadHistory,
     handleBackToChat,
@@ -90,7 +88,7 @@ const SidePanel = () => {
       <div className={`relative flex flex-1 flex-col overflow-hidden transition-all duration-300 ${isDarkMode ? 'bg-[#020617]' : 'bg-white'}`}>
         <NeuralBackground isDarkMode={isDarkMode} />
         {(hasConfiguredModels === true || showHistory) && (
-          <div className="absolute left-0 right-0 top-0 z-[60]">
+          <div className="absolute inset-x-0 top-0 z-[60]">
             <SidePanelHeader
               isDarkMode={isDarkMode}
               showHistory={showHistory}
@@ -153,8 +151,6 @@ const SidePanel = () => {
                           setInputTextRef.current = setter;
                         }}
                         isDarkMode={isDarkMode}
-                        historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
-                        onReplay={handleReplay}
                       />
                     </div>
                   </EmptyChat>
@@ -163,7 +159,7 @@ const SidePanel = () => {
                     <AgentSight screenshot={lastScreenshot} isActive={showStopButton} />
 
                     <div 
-                      className="ws-body relative z-10 min-h-0 flex-1 overflow-y-auto px-3 flex flex-col gap-2"
+                      className="ws-body relative z-10 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3"
                       style={{ paddingTop: '85px', paddingBottom: '210px' }}
                     >
                       <MessageList messages={messages} isDarkMode={isDarkMode} onOptionSelect={handleSendMessage} isTaskRunning={showStopButton} />
@@ -183,8 +179,6 @@ const SidePanel = () => {
                           setInputTextRef.current = setter;
                         }}
                         isDarkMode={isDarkMode}
-                        historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
-                        onReplay={handleReplay}
                       />
                     </div>
                   </div>

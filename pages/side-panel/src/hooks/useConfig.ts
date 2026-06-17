@@ -1,9 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
-import { agentModelStore, generalSettingsStore } from '@extension/storage';
+import { agentModelStore } from '@extension/storage';
 
 export const useConfig = () => {
     const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null);
-    const [replayEnabled, setReplayEnabled] = useState(false);
 
     const checkModelConfiguration = useCallback(async () => {
         try {
@@ -15,32 +14,19 @@ export const useConfig = () => {
         }
     }, []);
 
-    const loadGeneralSettings = useCallback(async () => {
-        try {
-            const settings = await generalSettingsStore.getSettings();
-            setReplayEnabled(settings.replayHistoricalTasks);
-        } catch (error) {
-            console.error('Error loading general settings:', error);
-            setReplayEnabled(false);
-        }
-    }, []);
-
     useEffect(() => {
         checkModelConfiguration();
-        loadGeneralSettings();
-    }, [checkModelConfiguration, loadGeneralSettings]);
+    }, [checkModelConfiguration]);
 
     useEffect(() => {
         const handleVisibilityChange = () => {
             if (!document.hidden) {
                 checkModelConfiguration();
-                loadGeneralSettings();
             }
         };
 
         const handleFocus = () => {
             checkModelConfiguration();
-            loadGeneralSettings();
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -50,12 +36,10 @@ export const useConfig = () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('focus', handleFocus);
         };
-    }, [checkModelConfiguration, loadGeneralSettings]);
+    }, [checkModelConfiguration]);
 
     return {
         hasConfiguredModels,
-        replayEnabled,
         checkModelConfiguration,
-        loadGeneralSettings,
     };
 };

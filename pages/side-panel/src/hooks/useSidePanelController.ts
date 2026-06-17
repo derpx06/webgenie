@@ -35,7 +35,7 @@ export const useSidePanelController = () => {
 
   // Use specialized hooks
   const { isDarkMode } = useTheme();
-  const { hasConfiguredModels, replayEnabled } = useConfig();
+  const { hasConfiguredModels } = useConfig();
   const {
     favoritePrompts,
     handleBookmarkUpdateTitle,
@@ -96,11 +96,9 @@ export const useSidePanelController = () => {
   const {
     handleSendMessage,
     handleStopTask,
-    handleReplay,
   } = useTaskExecution({
     portRef,
     sessionIdRef,
-    replayEnabled,
     isHistoricalSession,
     isFollowUpMode,
     appendMessage,
@@ -189,13 +187,11 @@ export const useSidePanelController = () => {
     isRecording,
     isProcessingSpeech,
     lastScreenshot,
-    replayEnabled,
     messagesEndRef,
     setInputTextRef,
     handleSendMessage,
     handleStopTask,
     handleMicClick,
-    handleReplay,
     handleNewChat,
     handleLoadHistory,
     handleBackToChat,

@@ -16,8 +16,6 @@ interface ChatInputProps {
   showStopButton: boolean;
   setContent?: (setter: (text: string) => void) => void;
   isDarkMode?: boolean;
-  historicalSessionId?: string | null;
-  onReplay?: (sessionId: string) => void;
 }
 
 export default function ChatInput({
@@ -30,8 +28,6 @@ export default function ChatInput({
   showStopButton,
   setContent,
   isDarkMode = false,
-  historicalSessionId,
-  onReplay,
 }: ChatInputProps) {
   const {
     text,
@@ -49,10 +45,6 @@ export default function ChatInput({
     handleFileChange,
     handleRemoveFile,
   } = useChatInput(onSendMessage, setContent, disabled);
-
-  const handleReplay = useCallback(() => {
-    if (historicalSessionId && onReplay) onReplay(historicalSessionId);
-  }, [historicalSessionId, onReplay]);
 
   const handleFileSelect = () => fileInputRef.current?.click();
 
@@ -112,7 +104,7 @@ export default function ChatInput({
                     disabled={disabled}
                     className={`flex size-8 items-center justify-center rounded-lg transition-all duration-200 ${
                       isDarkMode
-                        ? 'text-slate-500 hover:bg-white/8 hover:text-slate-300 active:scale-90'
+                        ? 'hover:bg-white/8 text-slate-500 hover:text-slate-300 active:scale-90'
                         : 'text-slate-400 hover:bg-slate-900/5 hover:text-slate-700 active:scale-90'
                     }`}
                     title="Attach file">
@@ -133,7 +125,7 @@ export default function ChatInput({
                           isRecording
                             ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
                             : isDarkMode
-                              ? 'text-slate-500 hover:bg-white/8 hover:text-slate-300 active:scale-90'
+                              ? 'hover:bg-white/8 text-slate-500 hover:text-slate-300 active:scale-90'
                               : 'text-slate-400 hover:bg-slate-900/5 hover:text-slate-700 active:scale-90'
                         }`}>
                         {isProcessingSpeech
@@ -150,8 +142,6 @@ export default function ChatInput({
                   <ChatActionButtons
                     showStopButton={showStopButton}
                     onStopTask={onStopTask}
-                    historicalSessionId={historicalSessionId}
-                    handleReplay={handleReplay}
                     isSendButtonDisabled={isSendButtonDisabled}
                     isDarkMode={isDarkMode}
                   />
