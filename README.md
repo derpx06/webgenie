@@ -28,6 +28,14 @@ WebGenie empowers developers and automation enthusiasts with a **free, open-sour
 - **Validator Agent** — Autonomous verification of task completion and result accuracy.
 - Coordinated execution through Chrome Messaging APIs for seamless inter-agent communication.
 
+### Agent Capabilities & Native Integration
+- **Agent Memory & Cache System** — Enables agents to cache structured findings and context frames across execution cycles to preserve task memory and execute complex reasoning paths.
+- **Chrome Subsystems Control** — The agent has direct access (via native Chrome APIs) to manage and interact with browser data:
+  - **Bookmarks** (Get flat list, search bookmarks, and dynamically create bookmarks)
+  - **Reading List** (Track unread items, add new pages, and mark read status)
+  - **History** (Inspect recent visits and analyze frequent navigation domains)
+  - **Downloads** (Initiate file downloads and search downloaded files)
+
 ### LLM Provider Flexibility
 - **OpenAI** — GPT-4o, GPT-4, and GPT-3.5 Turbo for cutting-edge reasoning.
 - **Anthropic** — Claude 3.5 (Sonnet), Claude 3 (Opus, Sonnet, Haiku).
