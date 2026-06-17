@@ -67,32 +67,12 @@ export const DeveloperSettings = ({ isDarkMode = false }: DeveloperSettingsProps
         {settings.enableDeveloperOptions && (
           <div className="animate-in fade-in slide-in-from-top-2 flex flex-col duration-300">
             <SettingToggle
-              title="Verbose CDP Event Logs"
-              desc="Output all Chrome DevTools Protocol socket frames to the background service worker console"
-              checked={settings.enableVerboseCDPDebug}
-              isDarkMode={isDarkMode}
-              onChange={val => updateSetting('enableVerboseCDPDebug', val)}
-            />
-            <SettingToggle
-              title="Trace DOM Mutation Cycles"
-              desc="Actively output MutationObserver cycles and structural updates to the developer logs"
-              checked={settings.traceDOMMutationCycles}
-              isDarkMode={isDarkMode}
-              onChange={val => updateSetting('traceDOMMutationCycles', val)}
-            />
-            <SettingToggle
-              title="Log LLM Context Frames"
-              desc="Log the complete frame system context and raw payload files before launching any agent reasoning step"
-              checked={settings.logLLMContextBeforeSteps}
-              isDarkMode={isDarkMode}
-              onChange={val => updateSetting('logLLMContextBeforeSteps', val)}
-            />
-            <SettingToggle
               title="Log DOM Snapshot (What LLM Sees)"
               desc="Log the complete serialized DOM — all indexed interactive elements — that the LLM receives each step. Inspect in the background service worker console."
               checked={settings.logDOMSnapshot}
               isDarkMode={isDarkMode}
               onChange={val => updateSetting('logDOMSnapshot', val)}
+              severity="caution"
             />
             <SettingToggle 
               title="Session Replay" 
@@ -100,13 +80,7 @@ export const DeveloperSettings = ({ isDarkMode = false }: DeveloperSettingsProps
               checked={generalSettings.replayHistoricalTasks} 
               isDarkMode={isDarkMode} 
               onChange={val => updateGeneralSetting('replayHistoricalTasks', val)} 
-            />
-            <SettingToggle
-              title="Bypass Security Sandbox"
-              desc="DANGEROUS: Disables navigation guardrails, domain allowlists, and execution timeout safety nets"
-              checked={settings.bypassSecuritySandbox}
-              isDarkMode={isDarkMode}
-              onChange={val => updateSetting('bypassSecuritySandbox', val)}
+              severity="caution"
             />
           </div>
         )}

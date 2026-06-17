@@ -15,6 +15,18 @@ interface AgentCalibrationCardProps {
   handleReasoningEffortChange: (agentName: AgentNameEnum, effort: 'minimal' | 'low' | 'medium' | 'high') => void;
 }
 
+const getFriendlyBedrockName = (modelId: string): string => {
+  if (modelId.includes('claude-3-5-sonnet-20241022') || modelId.includes('claude-3-5-sonnet-v2')) return 'Anthropic Claude 3.5 Sonnet (v2)';
+  if (modelId.includes('claude-3-5-sonnet-20240620') || modelId.includes('claude-3-5-sonnet-v1')) return 'Anthropic Claude 3.5 Sonnet (v1)';
+  if (modelId.includes('claude-3-5-haiku')) return 'Anthropic Claude 3.5 Haiku';
+  if (modelId.includes('claude-3-opus')) return 'Anthropic Claude 3 Opus';
+  if (modelId.includes('claude-3-sonnet')) return 'Anthropic Claude 3 Sonnet';
+  if (modelId.includes('claude-3-haiku')) return 'Anthropic Claude 3 Haiku';
+  if (modelId.includes('meta.llama3')) return 'Meta Llama 3';
+  if (modelId.includes('cohere.command')) return 'Cohere Command';
+  return modelId;
+};
+
 export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
   agentName,
   isDarkMode,
@@ -28,6 +40,10 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
 }) => {
   const isPlanner = agentName === AgentNameEnum.Planner;
   const isDark = isDarkMode;
+
+  const currentSelectedValue = selectedModels[agentName] || '';
+  const isBedrock = currentSelectedValue.startsWith('bedrock>');
+  const bedrockArn = isBedrock ? currentSelectedValue.split('>')[1] : '';
 
   return (
     <div className={`group/agent relative overflow-hidden rounded-2xl border transition-all duration-300 ${isDark ? 'border-white/5 bg-white/[0.02]' : 'border-slate-200 bg-white'
@@ -59,18 +75,28 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
               className={`w-full cursor-pointer appearance-none bg-transparent pr-10 text-sm font-semibold outline-none focus:ring-0 ${isDark ? 'text-white' : 'text-slate-900'
                 }`}
               disabled={availableModels.length === 0}
-              value={selectedModels[agentName] || ''}
+              value={currentSelectedValue}
               onChange={e => handleModelChange(agentName, e.target.value)}
             >
               <option value="" className="bg-[#1a1c23]">Unassigned</option>
-              {availableModels.map(({ provider, providerName, model }) => (
-                <option key={`${provider}>${model}`} value={`${provider}>${model}`} className="bg-[#1a1c23]">
-                  {`${providerName} | ${model}`}
-                </option>
-              ))}
+              {availableModels.map(({ provider, providerName, model }) => {
+                const displayName = provider === 'bedrock' 
+                  ? `${providerName} | ${getFriendlyBedrockName(model)}` 
+                  : `${providerName} | ${model}`;
+                return (
+                  <option key={`${provider}>${model}`} value={`${provider}>${model}`} className="bg-[#1a1c23]">
+                    {displayName}
+                  </option>
+                );
+              })}
             </select>
             <FiChevronDown className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 opacity-40 transition-transform group-hover/field:scale-110" />
           </div>
+          {isBedrock && (
+            <div className="mt-2 text-[10px] font-mono opacity-50 px-1 border-t border-white/5 pt-1">
+              ARN: <span className="select-all">{bedrockArn}</span>
+            </div>
+          )}
         </div>
 
         {/* Parameters Grid */}
@@ -89,7 +115,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
                 max="2"
                 step="0.01"
                 value={modelParameters[agentName].temperature}
-                className="h-1 w-full cursor-pointer appearance-none rounded-full bg-indigo-500/10 accent-indigo-500"
+                className="unified-slider cursor-pointer"
                 onChange={e => handleParameterChange(agentName, 'temperature', parseFloat(e.target.value))}
               />
             </div>
@@ -111,7 +137,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
                   max="1"
                   step="0.001"
                   value={modelParameters[agentName].topP}
-                  className="h-1 w-full cursor-pointer appearance-none rounded-full bg-indigo-500/10 accent-indigo-500"
+                  className="unified-slider cursor-pointer"
                   onChange={e => handleParameterChange(agentName, 'topP', parseFloat(e.target.value))}
                 />
               </div>

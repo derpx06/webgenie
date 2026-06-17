@@ -18,7 +18,6 @@ export * from './GeneralSettings';
 export * from './AnalyticsSettings';
 export * from './AdvancedSettings';
 export * from './DeveloperSettings';
-export * from './AddonsSettings';
 
 // Layout
 export * from './Layout';

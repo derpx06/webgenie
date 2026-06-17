@@ -1,8 +1,9 @@
 /* eslint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import type { TabTypes } from '../Options';
 import { TABS } from '../Options';
 import { FiSun, FiMoon } from 'react-icons/fi';
+import { firewallStore } from '@extension/storage';
 
 interface OptionsSidebarProps {
     activeTab: TabTypes;
@@ -17,6 +18,31 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
     isDarkMode,
     onToggleDarkMode
 }) => {
+    const [firewallStatus, setFirewallStatus] = useState<{ text: string; type: 'success' | 'caution' | 'neutral' }>({
+        text: 'Active',
+        type: 'success'
+    });
+
+    useEffect(() => {
+        const updateStatus = async () => {
+            try {
+                const config = await firewallStore.getFirewall();
+                if (!config.enabled) {
+                    setFirewallStatus({ text: 'Inactive', type: 'neutral' });
+                } else if (config.allowList.length === 0 && config.denyList.length === 0) {
+                    setFirewallStatus({ text: 'Unrestricted', type: 'caution' });
+                } else {
+                    setFirewallStatus({ text: 'Active', type: 'success' });
+                }
+            } catch (e) {
+                console.error('Failed to update sidebar firewall status', e);
+            }
+        };
+        updateStatus();
+        const unsub = firewallStore.subscribe(updateStatus);
+        return () => unsub();
+    }, []);
+
     return (
         <aside className={`flex w-64 shrink-0 flex-col border-r backdrop-blur-2xl transition-all duration-500 ${isDarkMode ? 'border-white/5 bg-[#0f1117]/70 shadow-2xl' : 'border-slate-200 bg-white/80 shadow-xl'}`}>
             <div className="group flex cursor-pointer items-center gap-3 p-6 pb-4" onClick={() => window.open('https://webgenie.ai', '_blank')}>
@@ -46,7 +72,17 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
                     >
                         <item.icon size={16} className={`transition-transform duration-300 group-hover:scale-110 ${activeTab === item.id ? 'opacity-100' : 'opacity-60'}`} />
                         <span className="flex-1 text-left">{item.label}</span>
-                        {item.id === 'firewall' && <span className="rounded-full bg-red-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-tighter text-red-500">Secure</span>}
+                        {item.id === 'firewall' && (
+                            <span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider border transition-all ${
+                                firewallStatus.type === 'success'
+                                    ? 'bg-[#2ED9A8]/10 text-[#2ED9A8] border-[#2ED9A8]/20'
+                                    : firewallStatus.type === 'caution'
+                                    ? 'bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/20'
+                                    : 'bg-[#6B7280]/10 text-[#6B7280] border-[#6B7280]/20'
+                            }`}>
+                                {firewallStatus.text}
+                            </span>
+                        )}
                         {activeTab === item.id && <div className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>}
                     </button>
                 ))}
@@ -75,7 +111,7 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
 
                 <div className={`rounded-xl border p-3 backdrop-blur-3xl ${isDarkMode ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-white/50'}`}>
                     <div className="mb-1 flex items-center justify-between">
-                        <div className="text-[9px] font-black uppercase tracking-widest opacity-30">v2.1.4</div>
+                        <div className="text-[9px] font-black font-mono uppercase tracking-widest opacity-30">v2.1.4</div>
                         <div className="size-1.5 animate-pulse rounded-full bg-emerald-500/50"></div>
                     </div>
                     <div className={`text-[8px] font-bold uppercase tracking-tighter opacity-20 ${isDarkMode ? 'text-white' : 'text-black'}`}>© 2026 Neural Runtime</div>
@@ -94,7 +130,7 @@ export const OptionsBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMod
     </div>
 );
 
-export const OptionsHeader: React.FC<{ title: string; isDarkMode: boolean }> = ({ title, isDarkMode }) => (
+export const OptionsHeader: React.FC<{ title: string; subtitle: string; isDarkMode: boolean }> = ({ title, subtitle, isDarkMode }) => (
     <header className="mb-8 animate-[fadeIn_0.8s_ease-out]">
         <div className="mb-1 flex items-center gap-2">
             <div className="h-px w-6 bg-indigo-500"></div>
@@ -102,7 +138,7 @@ export const OptionsHeader: React.FC<{ title: string; isDarkMode: boolean }> = (
         </div>
         <h1 className="font-outfit mb-2 text-4xl font-black uppercase leading-tight tracking-tighter">{title}</h1>
         <p className={`max-w-md text-[13px] font-medium leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-600'} opacity-60`}>
-            Configure the autonomous runtime parameters and cognitive bio-feedback loops for this node.
+            {subtitle}
         </p>
     </header>
 );

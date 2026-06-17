@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { type GeneralSettingsConfig, generalSettingsStore, DEFAULT_GENERAL_SETTINGS } from '@extension/storage';
 import { FiActivity, FiZap } from 'react-icons/fi';
 import { DashboardSection } from './shared/DashboardSection';
-import { SettingToggle, SettingInput } from './GeneralSettingsComponents';
+import { SettingToggle, SettingStepperInput, SettingInlineUnitInput } from './GeneralSettingsComponents';
 
 interface GeneralSettingsProps {
   isDarkMode?: boolean;
@@ -30,7 +30,7 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 grid grid-cols-1 gap-8 duration-700 lg:grid-cols-2">
+    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 max-w-2xl mx-auto pb-10 duration-700">
 
       {/* 1. SAFETY & LIMITS MODULE */}
       <DashboardSection
@@ -42,9 +42,9 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
         headerClassName="py-5 px-8"
         contentClassName="flex flex-col"
       >
-        <SettingInput title="Maximum Mission Steps" desc="Safety limit for sequential reasoning" value={settings.maxSteps} isDarkMode={isDarkMode} onChange={val => updateSetting('maxSteps', val)} min={1} max={50} />
-        <SettingInput title="Actions Per Step" desc="Maximum sub-tasks per mission step" value={settings.maxActionsPerStep} isDarkMode={isDarkMode} onChange={val => updateSetting('maxActionsPerStep', val)} min={1} max={50} />
-        <SettingInput title="Retry Limit" desc="Maximum failure tolerance for complex operations" value={settings.maxFailures} isDarkMode={isDarkMode} onChange={val => updateSetting('maxFailures', val)} min={1} max={10} />
+        <SettingInlineUnitInput title="Maximum Mission Steps" desc="Safety limit for sequential reasoning" value={settings.maxSteps} unit="steps" isDarkMode={isDarkMode} onChange={val => updateSetting('maxSteps', val)} min={1} max={50} />
+        <SettingStepperInput title="Actions Per Step" desc="Maximum sub-tasks per mission step" value={settings.maxActionsPerStep} isDarkMode={isDarkMode} onChange={val => updateSetting('maxActionsPerStep', val)} min={1} max={50} />
+        <SettingStepperInput title="Retry Limit" desc="Maximum failure tolerance for complex operations" value={settings.maxFailures} isDarkMode={isDarkMode} onChange={val => updateSetting('maxFailures', val)} min={1} max={10} />
       </DashboardSection>
 
       {/* 2. EXECUTION TUNING MODULE */}
@@ -57,11 +57,10 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
         headerClassName="py-5 px-8"
         contentClassName="flex flex-col"
       >
-        <SettingInput title="Planning Interval" desc="Model refresh rate in seconds" value={settings.planningInterval} isDarkMode={isDarkMode} onChange={val => updateSetting('planningInterval', val)} min={1} max={20} />
-        <SettingInput title="Page Load Buffer" desc="Network latency compensation in milliseconds" value={settings.minWaitPageLoad} isDarkMode={isDarkMode} onChange={val => updateSetting('minWaitPageLoad', val)} min={250} max={5000} step={50} />
+        <SettingInlineUnitInput title="Planning Interval" desc="Model refresh rate in seconds" value={settings.planningInterval} unit="s" isDarkMode={isDarkMode} onChange={val => updateSetting('planningInterval', val)} min={1} max={20} />
+        <SettingInlineUnitInput title="Page Load Buffer" desc="Network latency compensation in milliseconds" value={settings.minWaitPageLoad} unit="ms" isDarkMode={isDarkMode} onChange={val => updateSetting('minWaitPageLoad', val)} min={250} max={5000} step={50} />
         <SettingToggle title="Visual Analysis" desc="Enable multi-modal environment analysis (Vision)" checked={settings.useVision} isDarkMode={isDarkMode} onChange={val => updateSetting('useVision', val)} />
       </DashboardSection>
-
 
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes loading {

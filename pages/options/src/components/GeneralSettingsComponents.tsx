@@ -6,73 +6,232 @@ interface ToggleProps {
   checked: boolean;
   isDarkMode: boolean;
   onChange: (checked: boolean) => void;
+  severity?: 'caution' | 'dangerous';
 }
 
-export const SettingToggle: React.FC<ToggleProps> = ({ title, desc, checked, isDarkMode, onChange }) => (
-  <label className={`group relative flex cursor-pointer items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
-    isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
-  }`}>
-    <div className="flex-1">
-      <div className="flex items-center gap-3">
-        {checked && <div className="size-1.5 animate-pulse rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,1)]"></div>}
-        <h3 className={`font-outfit text-[14px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-          {title}
-        </h3>
-      </div>
-      <p className={`mt-1 text-[12px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-        {desc}
-      </p>
-    </div>
-    <div className="relative inline-flex shrink-0 cursor-pointer items-center">
-      <input type="checkbox" className="peer sr-only" checked={checked} onChange={e => onChange(e.target.checked)} />
-      <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
-        after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full 
-        peer-focus:outline-none
-        ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#818cf8] peer-checked:bg-indigo-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
-        peer-checked:after:border-white peer-checked:after:bg-white`}>
-      </div>
-    </div>
-  </label>
-);
+export const SettingToggle: React.FC<ToggleProps> = ({
+  title,
+  desc,
+  checked,
+  isDarkMode,
+  onChange,
+  severity,
+}) => {
+  // Determine on track color based on severity
+  let onTrackClass = 'peer-checked:bg-[#7C3AED]';
+  if (severity === 'caution') {
+    onTrackClass = 'peer-checked:bg-[#F59E0B]';
+  } else if (severity === 'dangerous') {
+    onTrackClass = 'peer-checked:bg-[#F43F5E]';
+  }
 
-interface InputProps {
+  return (
+    <label className={`group relative flex cursor-pointer items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
+      isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
+    }`}>
+      <div className="flex-1">
+        <div className="flex items-center gap-3">
+          {severity === 'caution' && <div className="size-1.5 rounded-full bg-[#F59E0B] shadow-[0_0_8px_rgba(245,158,11,0.6)]"></div>}
+          {severity === 'dangerous' && <div className="size-1.5 rounded-full bg-[#F43F5E] shadow-[0_0_8px_rgba(244,63,94,0.6)]"></div>}
+          <h3 className={`font-sans text-[14px] font-semibold tracking-normal ${
+            severity === 'dangerous' ? 'text-[#F43F5E]' : isDarkMode ? 'text-slate-200' : 'text-slate-800'
+          }`}>
+            {severity === 'dangerous' && <span className="mr-1 text-[#F43F5E]">DANGEROUS:</span>}
+            {title}
+            {severity === 'caution' && (
+              <span className="ml-2 rounded border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#F59E0B]">
+                Caution
+              </span>
+            )}
+          </h3>
+        </div>
+        <p className={`mt-1 text-[12px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          {desc}
+        </p>
+      </div>
+      <div className="relative inline-flex shrink-0 cursor-pointer items-center">
+        <input type="checkbox" className="peer sr-only" checked={checked} onChange={e => onChange(e.target.checked)} />
+        <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
+          after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full 
+          peer-focus:outline-none
+          ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-white peer-checked:after:bg-white' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:after:bg-white'} 
+          ${onTrackClass}
+          after:transition-transform`}>
+        </div>
+      </div>
+    </label>
+  );
+};
+
+interface StepperInputProps {
   title: string;
   desc: string;
   value: number;
-  isDarkMode: boolean;
+  min: number;
+  max: number;
   onChange: (val: number) => void;
+  isDarkMode: boolean;
+  severity?: 'caution' | 'dangerous';
+}
+
+export const SettingStepperInput: React.FC<StepperInputProps> = ({
+  title,
+  desc,
+  value,
+  min,
+  max,
+  onChange,
+  isDarkMode,
+  severity,
+}) => {
+  const handleDecrement = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (value > min) onChange(value - 1);
+  };
+  const handleIncrement = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (value < max) onChange(value + 1);
+  };
+
+  return (
+    <div className={`flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
+      isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
+    }`}>
+      <div className="flex-1">
+        <div className="flex items-center gap-3">
+          {severity === 'caution' && <div className="size-1.5 rounded-full bg-[#F59E0B] shadow-[0_0_8px_rgba(245,158,11,0.6)]"></div>}
+          {severity === 'dangerous' && <div className="size-1.5 rounded-full bg-[#F43F5E] shadow-[0_0_8px_rgba(244,63,94,0.6)]"></div>}
+          <h3 className={`font-sans text-[14px] font-semibold tracking-normal ${
+            severity === 'dangerous' ? 'text-[#F43F5E]' : isDarkMode ? 'text-slate-200' : 'text-slate-800'
+          }`}>
+            {severity === 'dangerous' && <span className="mr-1 text-[#F43F5E]">DANGEROUS:</span>}
+            {title}
+            {severity === 'caution' && (
+              <span className="ml-2 rounded border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#F59E0B]">
+                Caution
+              </span>
+            )}
+          </h3>
+        </div>
+        <p className={`mt-1 text-[12px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          {desc}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={handleDecrement}
+          disabled={value <= min}
+          className={`flex size-8 items-center justify-center rounded-lg border text-sm font-black transition-all ${
+            isDarkMode 
+              ? 'border-white/10 bg-white/5 text-white hover:bg-white/10 hover:border-white/20 disabled:opacity-30' 
+              : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-30'
+          }`}
+        >
+          -
+        </button>
+        <div className={`flex h-8 min-w-[3.5rem] items-center justify-center rounded-lg border px-2 text-center font-mono text-[13px] font-bold transition-all ${
+          isDarkMode 
+            ? 'border-white/10 bg-[#0B0C12] text-[#F2F3F7]' 
+            : 'border-slate-200 bg-slate-50 text-slate-900'
+        }`}>
+          {value}
+        </div>
+        <button
+          type="button"
+          onClick={handleIncrement}
+          disabled={value >= max}
+          className={`flex size-8 items-center justify-center rounded-lg border text-sm font-black transition-all ${
+            isDarkMode 
+              ? 'border-white/10 bg-white/5 text-white hover:bg-white/10 hover:border-white/20 disabled:opacity-30' 
+              : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-30'
+          }`}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+};
+
+interface InlineUnitInputProps {
+  title: string;
+  desc: string;
+  value: number;
+  unit: string;
   min: number;
   max: number;
   step?: number;
+  onChange: (val: number) => void;
+  isDarkMode: boolean;
+  severity?: 'caution' | 'dangerous';
 }
 
-export const SettingInput: React.FC<InputProps> = ({ title, desc, value, isDarkMode, onChange, min, max, step = 1 }) => (
-  <label className={`group relative flex cursor-pointer items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
-    isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
-  }`}>
-    <div className="flex-1">
-      <h3 className={`font-outfit text-[14px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-        {title}
-      </h3>
-      <p className={`mt-1 text-[12px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-        {desc}
-      </p>
+export const SettingInlineUnitInput: React.FC<InlineUnitInputProps> = ({
+  title,
+  desc,
+  value,
+  unit,
+  min,
+  max,
+  step = 1,
+  onChange,
+  isDarkMode,
+  severity,
+}) => {
+  return (
+    <div className={`flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
+      isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
+    }`}>
+      <div className="flex-1">
+        <div className="flex items-center gap-3">
+          {severity === 'caution' && <div className="size-1.5 rounded-full bg-[#F59E0B] shadow-[0_0_8px_rgba(245,158,11,0.6)]"></div>}
+          {severity === 'dangerous' && <div className="size-1.5 rounded-full bg-[#F43F5E] shadow-[0_0_8px_rgba(244,63,94,0.6)]"></div>}
+          <h3 className={`font-sans text-[14px] font-semibold tracking-normal ${
+            severity === 'dangerous' ? 'text-[#F43F5E]' : isDarkMode ? 'text-slate-200' : 'text-slate-800'
+          }`}>
+            {severity === 'dangerous' && <span className="mr-1 text-[#F43F5E]">DANGEROUS:</span>}
+            {title}
+            {severity === 'caution' && (
+              <span className="ml-2 rounded border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#F59E0B]">
+                Caution
+              </span>
+            )}
+          </h3>
+        </div>
+        <p className={`mt-1 text-[12px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          {desc}
+        </p>
+      </div>
+
+      <div className="flex items-center">
+        <div className={`relative flex items-center rounded-lg border transition-all duration-300 focus-within:border-[#7C3AED] focus-within:ring-1 focus-within:ring-[#7C3AED]/20 ${
+          isDarkMode 
+            ? 'border-white/10 bg-[#0B0C12] hover:border-white/20' 
+            : 'border-slate-200 bg-white hover:border-slate-300'
+        }`}>
+          <input
+            type="number"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={e => onChange(parseInt(e.target.value, 10) || min)}
+            className={`w-20 bg-transparent py-1.5 pl-3 pr-1 text-right font-mono text-[13px] font-bold outline-none border-none focus:ring-0 ${
+              isDarkMode ? 'text-[#F2F3F7]' : 'text-slate-900'
+            }`}
+          />
+          <span className={`pr-3 pl-1 font-mono text-[11px] font-bold tracking-tight opacity-40 select-none ${
+            isDarkMode ? 'text-slate-300' : 'text-slate-700'
+          }`}>
+            {unit}
+          </span>
+        </div>
+      </div>
     </div>
-    <div className="flex items-center gap-3">
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={e => onChange(parseInt(e.target.value, 10))}
-        className={`w-24 rounded-xl border px-3 py-2 text-center font-mono text-[14px] font-black transition-all duration-300 focus:outline-none
-          ${isDarkMode ? 'border-white/10 bg-white/5 text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20'
-            : 'border-slate-200 bg-white text-slate-900 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/10'}`}
-      />
-    </div>
-  </label>
-);
+  );
+};
 
 export interface TextInputProps {
   title: string;
@@ -84,28 +243,36 @@ export interface TextInputProps {
   isSecret?: boolean;
 }
 
-export const SettingTextInput: React.FC<TextInputProps> = ({ title, desc, value, placeholder = '', isDarkMode, onChange, isSecret = false }) => (
-  <label className={`group relative flex cursor-pointer items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
+export const SettingTextInput: React.FC<TextInputProps> = ({
+  title,
+  desc,
+  value,
+  placeholder = '',
+  isDarkMode,
+  onChange,
+  isSecret = false,
+}) => (
+  <div className={`flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
     isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
   }`}>
     <div className="flex-1">
-      <h3 className={`font-outfit text-[14px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+      <h3 className={`font-sans text-[14px] font-semibold tracking-normal ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
         {title}
       </h3>
       <p className={`mt-1 text-[12px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
         {desc}
       </p>
     </div>
-    <div className="flex w-64 items-center gap-3">
+    <div className="flex w-64 items-center">
       <input
-        type={isSecret ? "password" : "text"}
+        type={isSecret ? 'password' : 'text'}
         placeholder={placeholder}
         value={value}
         onChange={e => onChange(e.target.value)}
-        className={`w-full rounded-xl border px-3 py-2 font-mono text-[13px] font-medium transition-all duration-300 focus:outline-none
-          ${isDarkMode ? 'border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20'
-            : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-300 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/10'}`}
+        className={`w-full rounded-xl border px-3.5 py-2.5 font-mono text-[13px] font-medium transition-all duration-300 focus:outline-none focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED]/20
+          ${isDarkMode ? 'border-white/10 bg-[#0B0C12] text-white placeholder:text-white/20'
+            : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-300'}`}
       />
     </div>
-  </label>
+  </div>
 );

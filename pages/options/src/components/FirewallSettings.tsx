@@ -55,8 +55,28 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 grid grid-cols-1 gap-8 duration-700 lg:grid-cols-2">
+    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 max-w-2xl mx-auto pb-10 duration-700">
       
+      {/* Top Master Toggle Card */}
+      <div className={`rounded-2xl border p-6 flex items-center justify-between transition-all duration-300 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-200 bg-white'}`}>
+        <div>
+          <h3 className={`font-outfit text-base font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            Firewall Protection
+          </h3>
+          <p className="text-xs text-slate-400 opacity-80 mt-1">
+            Toggle domain access filtering on or off
+          </p>
+        </div>
+        <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
+          <input type="checkbox" className="peer sr-only" checked={isEnabled} onChange={handleToggleFirewall} />
+          <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
+            after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-focus:outline-none
+            ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#818cf8] peer-checked:bg-indigo-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
+            peer-checked:after:border-white peer-checked:after:bg-white`}>
+          </div>
+        </label>
+      </div>
+
       {/* 1. SYSTEM RUNTIME MODULE */}
       <DashboardSection
         title="Domain Filtering"
@@ -66,17 +86,6 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
         colorTheme="slate"
         headerClassName="justify-between py-4 px-6"
       >
-        <div className="absolute right-6 top-5">
-          <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
-            <input type="checkbox" className="peer sr-only" checked={isEnabled} onChange={handleToggleFirewall} />
-            <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
-              after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-focus:outline-none
-              ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#818cf8] peer-checked:bg-indigo-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
-              peer-checked:after:border-white peer-checked:after:bg-white`}>
-            </div>
-          </label>
-        </div>
-
         <div className="p-6">
           {/* Active Rules List */}
           <div className="mb-6 min-h-[60px] space-y-2">
@@ -127,15 +136,31 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
                 onKeyDown={e => e.key === 'Enter' && handleAddUrl()}
               />
             </div>
-            <div className="relative">
-              <select
-                className={`h-full min-w-[100px] rounded-lg border-0 px-4 py-2.5 focus:ring-1 focus:ring-indigo-500 ${isDarkMode ? 'cursor-pointer bg-white/5 text-white' : 'cursor-pointer bg-white text-slate-900 shadow-sm'} appearance-none text-[11px] font-bold uppercase tracking-wider outline-none`}
-                value={newUrlType}
-                onChange={e => setNewUrlType(e.target.value as 'allow' | 'deny')}>
-                <option value="allow" className={isDarkMode ? 'bg-[#1a1c23]' : ''}>Allow</option>
-                <option value="deny" className={isDarkMode ? 'bg-[#1a1c23]' : ''}>Block</option>
-              </select>
+            
+            {/* Segmented Control instead of select */}
+            <div className={`flex rounded-lg p-0.5 border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-100 border-slate-200'}`}>
+              <button
+                type="button"
+                onClick={() => setNewUrlType('allow')}
+                className={`rounded-md px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-all duration-200 ${newUrlType === 'allow'
+                  ? (isDarkMode ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-indigo-600 shadow-sm')
+                  : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Allow
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewUrlType('deny')}
+                className={`rounded-md px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-all duration-200 ${newUrlType === 'deny'
+                  ? (isDarkMode ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-indigo-600 shadow-sm')
+                  : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Block
+              </button>
             </div>
+
             <button
               onClick={handleAddUrl}
               className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-6 py-2.5 text-[11px] font-bold uppercase tracking-widest text-white shadow-lg shadow-indigo-500/10 transition-all hover:bg-indigo-500 active:scale-95"
