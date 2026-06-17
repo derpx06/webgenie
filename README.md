@@ -181,31 +181,9 @@ WebGenie/
     └── schema-utils/              # Zod validation schemas
 ```
 
----
-
-## ⚙️ Detailed LLM Provider Configuration
-
-WebGenie connects directly to LLMs without middleware. Enter your keys in the Options Dashboard to configure:
-
-### 1. AWS Bedrock Setup
-AWS Bedrock operates using SigV4 signed HTTP requests from the background service worker:
-* **Access Key ID** & **Secret Access Key**: AWS IAM credentials. Ensure your IAM user has `bedrock:InvokeModel` permissions.
-* **Session Token (Optional)**: If you use temporary AWS credentials via STS, enter the session token.
-* **AWS Region**: Select the region hosting your models (e.g., `us-east-1`, `us-west-2`).
-* **Model ID**: Enter model IDs in Bedrock format, e.g., `us.anthropic.claude-3-5-sonnet-20241022-v2:0` (Claude 3.5 Sonnet) or full Bedrock Model/Custom ARNs.
-
-### 2. Ollama (Self-Hosted Local LLM)
-* **Base Endpoint**: Point to your running Ollama daemon instance (default: `http://localhost:11434`).
-* **Model Name**: Use the name of your pulled Ollama model exactly (e.g., `qwen2.5:14b`, `mistral-small:24b`).
-
-> [!TIP]
-> Ensure your Ollama setup permits cross-origin requests (`OLLAMA_ORIGINS="*"`) to avoid Chrome Extensions blocking requests.
-
-### 3. OpenAI & Custom Endpoints
-* **Base Endpoint**: Defaults to `https://api.openai.com/v1`, but can be mapped to any OpenAI-compatible server (like LocalAI or vLLM).
-* **API Key**: Your API developer key.
 
 ---
+
 
 ## 🛠️ Settings Configuration Reference
 
