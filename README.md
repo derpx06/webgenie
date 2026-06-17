@@ -1,10 +1,10 @@
-# 🧞‍♂️ WebGenie
+# WebGenie
 
 <div align="center">
     <img src="chrome-extension/public/webgenie-logo.png" alt="WebGenie Logo" width="160" style="margin-top: 8px; margin-bottom: 12px;">
 </div>
 
-> **The Open-Source AI Web Automation Extension** — Run sophisticated multi-agent systems directly in your browser. Automate complex web tasks, execute actions, and streamline workflows.
+> **The Open-Source AI Web Automation Extension** — Run multi-agent systems directly in your browser. Automate web tasks, execute actions, and manage workflows.
 
 <div align="center">
 
@@ -22,50 +22,50 @@ https://github.com/user-attachments/assets/f2a8e7eb-eeee-4b39-abce-5368a4facd80
 
 ---
 
-## 🌟 Vision
+## Vision
 
-WebGenie empowers developers and automation enthusiasts with a **free, open-source alternative to AI web automation tools** like OpenAI Operator. By leveraging local multi-agent AI systems, WebGenie enables intelligent web automation without vendor lock-in or cloud dependencies. Perfect for building custom workflows, testing automation logic, and experimenting with autonomous agents in a sandboxed browser environment.
+WebGenie is an open-source, local alternative to cloud-based web automation agents. By running multi-agent AI loops inside a standard Chrome Extension, WebGenie lets you automate web browsing tasks without vendor lock-in or sending browsing sessions to a remote server. You can build custom workflows, test automation scripts, and run autonomous agents entirely within your local browser.
 
 > [!NOTE]
-> WebGenie is fully local and runs on Chrome Manifest V3, communicating directly with your configured AI endpoints with no intermediate cloud databases.
+> WebGenie is fully local and built on Chrome Manifest V3. The extension communicates directly with your configured AI endpoints with no intermediate backend databases.
 
 ---
 
-## ⚡ Key Features
+## Key Features
 
-### 🤖 1. Multi-Agent Intelligence
-WebGenie relies on a collaborative multi-agent architecture where agents share responsibilities to optimize success rates and ensure safety:
-* 🧭 **Navigator Agent** — Focuses on page analysis, translating raw interactive elements into a clean interactive tree, and executing actions like clicking, typing, and scrolling.
-* 📋 **Planner Agent** — Handles high-level reasoning and orchestrates step-by-step strategies. It breaks down complex user goals into small, manageable objectives.
-* ⚖️ **Validator Agent** — Periodically evaluates page states to verify if actions successfully reached the goal, preventing false positives.
-* 💬 **Chrome Messaging Coordination** — Fast, asynchronous messaging routes agent commands and feedback cycles smoothly through the extension worker.
+### 1. Multi-Agent System
+WebGenie uses a multi-agent loop where separate components coordinate to complete tasks:
+* **Navigator Agent** — Translates the page DOM into a clean interactive tree and performs actions like clicks, text input, and scrolling.
+* **Planner Agent** — Breaks down high-level user tasks into sequential steps for the navigator to execute.
+* **Validator Agent** — Checks the page state at each step to ensure that the navigator's action succeeded.
+* **Chrome Messaging Coordination** — Coordinates communication between the side panel UI and background service worker using Chrome runtime message passing.
 
-### 🔌 2. Native Browser Integration & Subsystems Control
-Unlike cloud-hosted solutions that operate inside remote VNC containers, WebGenie runs directly inside your local Chrome instance, accessing native APIs via the **`chrome_control`** tool:
-* 🔖 **Bookmarks Manager** — Allows agents to query the bookmarks tree, search folders, and create new bookmarks dynamically.
-* 📖 **Reading List** — Allows agents to append articles, check unread tabs, and mark pages as read.
-* history 🕒 **Browsing History** — Inspects visit frequency and queries domain telemetry to guide autonomous tasks.
-* 📥 **Downloads Controller** — Automatically downloads files, handles conflict strategies (overwrite/uniquify), and monitors progress.
+### 2. Browser Subsystem Integration
+Unlike remote browser automation setups, WebGenie runs directly inside your local Chrome instance. The agent can use the following native Chrome capabilities:
+* **Bookmarks** — Search, query, and create bookmarks.
+* **Reading List** — Fetch unread items, add new links, or update read status.
+* **Browsing History** — Inspect recent visits and analyze domain frequency to navigate efficiently.
+* **Downloads** — Trigger, monitor, and query downloads.
 
-### 🧠 3. Agent Memory & Caching
-* 💾 **Session-Level Memory Cache** — Agents use the `cache_content` tool to store extracted text, credentials, keys, or state data, making them accessible across subsequent execution steps.
-* 🗜️ **DOM Context Isolation** — Serializes the interactive accessibility tree into structured, indexable nodes while filtering out noisy visual elements to optimize LLM token usage.
+### 3. Agent Memory & Caching
+* **Session Cache** — The agent caches temporary text findings, variables, or keys across execution steps.
+* **DOM Compression** — Serializes the interactive accessibility tree into structured, indexable nodes while filtering out non-interactive layout nodes to save tokens.
 
-### 🔒 4. Advanced Security & Privacy
-* 🛡️ **Local Control Sandbox** — All prompt assembly, execution logic, and decision framing occur locally on your machine.
-* 🔏 **Zero Telemetry Leakage** — Settings, history, and workspace configurations are kept entirely inside native `chrome.storage.local`.
-* 🧱 **Domain Firewall** — Segmented Allow/Deny list filters enforce navigation guardrails to block malicious redirects or off-domain links.
-* 🧼 **Content Sanitization** — Sanitizes input strings before writing to inputs or executing clicks.
+### 4. Security & Privacy
+* **Local Sandboxing** — All prompt assembly and decision execution occur locally inside the extension.
+* **Local Storage** — Configuration values, histories, and firewall rules are stored in `chrome.storage.local`.
+* **Domain Firewall** — A configurable allow/deny list to prevent agents from navigating to unauthorized domains.
+* **Content Sanitization** — Inputs are sanitized before writing to DOM elements to mitigate script injection.
 
-### 🎨 5. Premium UI/UX Customization
-* 🎛️ **Modern Options Dashboard** — A clean, dark-first dashboard designed with unified typography (DM Sans for settings, JetBrains Mono for system values).
-* 🗂️ **Interactive Switcher Tabs** — Side-panel filters separating **All**, **Chats**, and **Tasks** for precise history management.
-* 🪆 **Collapsible Detail Steps** — Groups low-level agent actions (such as scrolling and typing) into collapsible blocks, keeping the main chat thread clean.
-* 🗑️ **Bulk Selection** — Instantly batch-delete old sessions or task history with a sticky operations bar.
+### 5. UI Customization
+* **Settings Dashboard** — A dark-first layout with clean typography and custom configuration inputs.
+* **History Switcher** — Side-panel filters separating **All**, **Chats**, and **Tasks** for precise history management.
+* **Collapsible Action Steps** — Groups lower-level agent actions (such as scrolling and typing) into collapsible blocks, keeping the main chat thread clean.
+* **Bulk History Management** — Instantly batch-delete old sessions or task history with a sticky operations bar.
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 WebGenie is built on a modular, layered architecture that separates UI components, service abstractions, storage protocols, and core AI agents.
 
@@ -157,7 +157,7 @@ graph TB
     style SEC fill:#fa709a,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-### 📂 Modular Directory Breakdown
+### Modular Directory Breakdown
 ```
 WebGenie/
 ├── chrome-extension/              # background service workers & manifest definition
@@ -170,7 +170,7 @@ WebGenie/
 │
 ├── pages/                         # React UI layers
 │   ├── side-panel/                # main user chat interface with collapsible details
-│   ├── options/                   # unified settings management dashboard
+│   ├── options/                   # settings management dashboard
 │   └── content/                   # page analyzers & DOM accessibility tree generators
 │
 └── packages/                      # shared monorepo modules
@@ -181,11 +181,9 @@ WebGenie/
     └── schema-utils/              # Zod validation schemas
 ```
 
-
 ---
 
-
-## 🛠️ Settings Configuration Reference
+## Settings Configuration Reference
 
 | Tab | Feature Name | Description |
 | :--- | :--- | :--- |
@@ -201,7 +199,7 @@ WebGenie/
 
 ---
 
-## 🚀 Installation & Developer Quickstart
+## Installation & Developer Quickstart
 
 ### 1. Build from Source
 ```bash
@@ -227,7 +225,7 @@ pnpm build
 
 ---
 
-## 📄 License & Disclaimer
+## License & Disclaimer
 
 - Licensed under the **Apache License 2.0** — see the [LICENSE](LICENSE) file for details.
 - This repository does **not** endorse or support blockchain, cryptocurrency, NFT projects, or similar derivative works. Any such projects are **unaffiliated** with the maintainers of this codebase.
