@@ -12,7 +12,6 @@ export interface GeneralSettingsConfig {
   planningInterval: number;
   displayHighlights: boolean;
   minWaitPageLoad: number;
-  replayHistoricalTasks: boolean;
   showAmbientBorder: boolean;
   showStatusCapsule: boolean;
   enableTracing: boolean;
@@ -40,7 +39,6 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   planningInterval: 3,
   displayHighlights: true,
   minWaitPageLoad: 250,
-  replayHistoricalTasks: false,
   showAmbientBorder: true,
   showStatusCapsule: true,
   enableTracing: false,
