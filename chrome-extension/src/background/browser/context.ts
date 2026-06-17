@@ -382,12 +382,12 @@ export default class BrowserContext {
     return browserState;
   }
 
-  public async getState(useVision = false, cacheClickableElementsHashes = false): Promise<BrowserState> {
+  public async getState(useVision = false, cacheClickableElementsHashes = false, skipNetworkIdle = false): Promise<BrowserState> {
     const currentPage = await this.getCurrentPage();
 
     const pageState = !currentPage
       ? build_initial_state()
-      : await currentPage.getState(useVision, cacheClickableElementsHashes);
+      : await currentPage.getState(useVision, cacheClickableElementsHashes, skipNetworkIdle);
     const tabInfos = await this.getTabInfos();
     const browserState: BrowserState = {
       ...pageState,

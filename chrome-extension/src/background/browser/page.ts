@@ -630,7 +630,7 @@ export default class Page {
     return this._cachedState;
   }
 
-  async getState(useVision = false, cacheClickableElementsHashes = false): Promise<PageState> {
+  async getState(useVision = false, cacheClickableElementsHashes = false, skipNetworkIdle = false): Promise<PageState> {
     // Re-validate from the live tab URL in case the tab has navigated away from
     // an initial chrome://newtab/ URL since this Page was constructed.
     await this._revalidateFromTab();
@@ -639,7 +639,16 @@ export default class Page {
       // return the initial state
       return build_initial_state(this._tabId);
     }
-    await this.waitForPageAndFramesLoad();
+    
+    if (!skipNetworkIdle) {
+      await this.waitForPageAndFramesLoad();
+    } else {
+      try {
+        await this._waitForDomStability(200, 50);
+      } catch (err) {
+        logger.warning('[Page] Error waiting for DOM stability:', err);
+      }
+    }
 
     // SPA-aware DOM extraction: retry up to 3 times if the page returns an empty
     // selector map. Gmail and other SPAs paint the shell first then hydrate the

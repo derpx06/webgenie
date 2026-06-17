@@ -330,7 +330,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
         // Check if page state changed significantly between multi-actions
         if (i > 0 && indexArg !== null) {
-          const newState = await browserContext.getState(this.context.options.useVision);
+          const newState = await browserContext.getState(this.context.options.useVision, false, true);
           const newPathHashes = await calcBranchPathHashSet(newState);
           if (!newPathHashes.isSubsetOf(cachedPathHashes)) {
             const msg = `Something new appeared after action ${i} / ${actions.length}`;
@@ -391,7 +391,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         // register a failure so the element gets flagged as BLOCKED after
         // FAILURE_THRESHOLD repeated no-op interactions on the same URL.
         if (result && !result.isDone && !result.error && indexArg !== null) {
-          const postActionState = await browserContext.getState(false);
+          const postActionState = await browserContext.getState(false, false, true);
           const postPathHashes = await calcBranchPathHashSet(postActionState);
           const pageChanged = !postPathHashes.isSubsetOf(cachedPathHashes) ||
             postActionState.url !== browserState.url;
@@ -436,8 +436,9 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
   }
 
   private async delayBetweenActions() {
+    const delay = (this.context.browserContext.getConfig().waitBetweenActions ?? 0.15) * 1000;
     await new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, 500);
+      const timeout = setTimeout(resolve, delay);
       this.context.controller.signal.addEventListener('abort', () => {
         clearTimeout(timeout);
         resolve();

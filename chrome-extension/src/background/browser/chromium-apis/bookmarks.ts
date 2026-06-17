@@ -82,3 +82,26 @@ export async function searchBookmarks(
     });
   });
 }
+
+/**
+ * Creates a new bookmark or folder.
+ */
+export async function createBookmark(
+  title: string,
+  url?: string,
+  parentId?: string
+): Promise<chrome.bookmarks.BookmarkTreeNode> {
+  return new Promise((resolve, reject) => {
+    if (typeof chrome === 'undefined' || !chrome.bookmarks) {
+      reject(new Error('chrome.bookmarks API not available'));
+      return;
+    }
+    chrome.bookmarks.create({ title, url, parentId }, (result) => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+      } else {
+        resolve(result);
+      }
+    });
+  });
+}

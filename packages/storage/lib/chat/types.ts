@@ -12,6 +12,7 @@ export interface Message {
   content: string;
   timestamp: number; // Unix timestamp in milliseconds
   isFailed?: boolean;
+  isCancelled?: boolean;
 }
 
 export interface ChatMessage extends Message {

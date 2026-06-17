@@ -24,6 +24,7 @@ import {
   scrollToBottomActionSchema,
   askHumanActionSchema,
   getCompletePageContentActionSchema,
+  chromeControlActionSchema,
 } from './schemas';
 import { z } from 'zod';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -33,6 +34,7 @@ import { InteractionHandler } from './handlers/interaction';
 import { TabHandler } from './handlers/tabs';
 import { ContentHandler } from './handlers/content';
 import { KeyboardHandler } from './handlers/keyboard';
+import { ChromeControlHandler } from './handlers/chrome-control';
 
 export class InvalidInputError extends Error {
   constructor(message: string) {
@@ -154,6 +156,7 @@ export class ActionBuilder {
   private readonly tabHandler: TabHandler;
   private readonly contentHandler: ContentHandler;
   private readonly keyboardHandler: KeyboardHandler;
+  private readonly chromeControlHandler: ChromeControlHandler;
 
   constructor(context: AgentContext, extractorLLM: BaseChatModel) {
     this.systemHandler = new SystemHandler(context, extractorLLM);
@@ -162,6 +165,7 @@ export class ActionBuilder {
     this.tabHandler = new TabHandler(context, extractorLLM);
     this.contentHandler = new ContentHandler(context, extractorLLM);
     this.keyboardHandler = new KeyboardHandler(context, extractorLLM);
+    this.chromeControlHandler = new ChromeControlHandler(context, extractorLLM);
   }
 
   buildDefaultActions(): Action[] {
@@ -172,6 +176,7 @@ export class ActionBuilder {
       ...this.buildTabActions(),
       ...this.buildContentActions(),
       ...this.buildKeyboardActions(),
+      ...this.buildChromeControlActions(),
     ];
   }
 
@@ -234,5 +239,9 @@ export class ActionBuilder {
 
   private buildKeyboardActions(): Action[] {
     return [new Action((input) => this.keyboardHandler.handleSendKeys(input), sendKeysActionSchema)];
+  }
+
+  private buildChromeControlActions(): Action[] {
+    return [new Action((input) => this.chromeControlHandler.handleChromeControl(input), chromeControlActionSchema)];
   }
 }

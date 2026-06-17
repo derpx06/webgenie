@@ -256,3 +256,29 @@ export const getCompletePageContentActionSchema: ActionSchema = {
   }),
 };
 
+export const chromeControlActionSchema: ActionSchema = {
+  name: 'chrome_control',
+  description: 'Query or manage Chrome bookmarks, reading list, history, and downloads.',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    subsystem: z.enum(['bookmarks', 'readingList', 'history', 'downloads']).describe('The Chrome subsystem to control'),
+    action: z.enum([
+      'getFlat', 'search', 'create', // Bookmarks
+      'query', 'getUnread', 'add', 'markAsRead', // Reading List
+      'getRecent', 'getFrequentDomains', // History
+      'download', 'searchDownloads'    // Downloads
+    ]).describe('The action to perform in the selected subsystem'),
+    query: z.string().optional().describe('Text query/search term for searching bookmarks, history, reading list, or downloads'),
+    url: z.string().optional().describe('URL for adding to / updating in reading list, downloading, or bookmarking'),
+    title: z.string().optional().describe('Title of the reading list item or bookmark to add'),
+    filename: z.string().optional().describe('Filename or relative path to save the downloaded file to'),
+    conflictAction: z.enum(['uniquify', 'overwrite', 'prompt']).optional().describe('Action to resolve download conflicts'),
+    saveAs: z.boolean().optional().describe('Whether to prompt the user with a Save As dialog box for downloads'),
+    daysAgo: z.number().int().optional().describe('Days ago filter for history and domain analysis'),
+    maxResults: z.number().int().optional().describe('Max results to fetch for history items'),
+    minVisitCount: z.number().int().optional().describe('Minimum visit count threshold for domain analysis'),
+    folderPath: z.string().optional().describe('Filter bookmarks by folder path name'),
+    parentId: z.string().optional().describe('Parent folder ID to create a bookmark in (optional)'),
+  }),
+};
+

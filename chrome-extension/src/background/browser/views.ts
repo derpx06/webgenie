@@ -88,10 +88,10 @@ export interface BrowserContextConfig {
 }
 
 export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
-  minimumWaitPageLoadTime: 0.25,
-  waitForNetworkIdlePageLoadTime: 0.5,
+  minimumWaitPageLoadTime: 0.1,
+  waitForNetworkIdlePageLoadTime: 0.25,
   maximumWaitPageLoadTime: 5.0,
-  waitBetweenActions: 0.5,
+  waitBetweenActions: 0.15,
   browserWindowSize: { width: 1280, height: 1100 },
   viewportExpansion: 0,
   allowedUrls: [],
@@ -99,7 +99,7 @@ export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   includeDynamicAttributes: true,
   homePageUrl: 'about:blank',
   displayHighlights: true,
-  domPerceptionMode: 'snapshot',
+  domPerceptionMode: 'axtree',
 };
 
 export interface PageState extends DOMState {

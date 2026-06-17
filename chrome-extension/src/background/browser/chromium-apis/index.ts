@@ -180,7 +180,7 @@ export type {
 } from './built-in-ai-tools';
 
 // ── User Activity Tools ───────────────────────────────────────────────────────
-export { getFlatBookmarks, searchBookmarks } from './bookmarks';
+export { getFlatBookmarks, searchBookmarks, createBookmark } from './bookmarks';
 export type { BookmarkItem } from './bookmarks';
 
 export { queryReadingList, getUnreadReadingList, addReadingListItem, markReadingListItemAsRead } from './reading-list';
