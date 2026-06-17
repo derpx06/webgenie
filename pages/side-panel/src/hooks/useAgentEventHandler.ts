@@ -112,6 +112,7 @@ export const useAgentEventHandler = ({
                 content: content || '',
                 timestamp,
                 isFailed: actor === Actors.SYSTEM && state === ExecutionState.TASK_FAIL,
+                isCancelled: actor === Actors.SYSTEM && state === ExecutionState.TASK_CANCEL,
             });
         }
         if (displayProgress) appendMessage({ actor, content: progressMessage, timestamp });

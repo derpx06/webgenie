@@ -40,7 +40,7 @@ const SidePanelHeader = ({
         {/* BRAND IDENTITY - NEURAL CORE LINK */}
         <button
           type="button"
-          className="group flex items-center gap-3.5 text-left"
+          className={`group flex items-center gap-3.5 text-left transition-all duration-300 ${isTransparent ? 'invisible opacity-0 pointer-events-none' : 'visible opacity-100'}`}
           onClick={showHistory ? onBackToChat : undefined}
           aria-label={showHistory ? 'Back to chat' : 'WebGenie'}
         >

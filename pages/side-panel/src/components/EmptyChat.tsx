@@ -2,6 +2,10 @@ import React from 'react';
 import { OrbVisual } from './welcome/OrbVisual';
 import { BackgroundGradientAnimation } from './ui/background-gradient-animation';
 import type { ChatSessionMetadata } from '@extension/storage';
+import { 
+    FaSearch, FaYoutube, FaTwitter, FaPlane, FaShoppingBag, FaFileAlt,
+    FaLinkedin, FaChartLine, FaGlobe, FaSpotify, FaCalendarAlt, FaEnvelope
+} from 'react-icons/fa';
 
 interface EmptyChatProps {
     onSelectPrompt: (text: string) => void;
@@ -20,21 +24,21 @@ interface TestToolDefinition {
 
 /* ─── Pill data — two rows, opposite scroll directions ─── */
 const ROW_A = [
-    { icon: '🔍', label: 'Search Hacker News' },
-    { icon: '▶️', label: 'Open YouTube' },
-    { icon: '🐦', label: 'Browse Twitter' },
-    { icon: '✈️', label: 'Find cheap flights' },
-    { icon: '🛍️', label: 'Compare products' },
-    { icon: '📰', label: 'Summarize article' },
+    { icon: FaSearch, label: 'Search Hacker News' },
+    { icon: FaYoutube, label: 'Open YouTube' },
+    { icon: FaTwitter, label: 'Browse Twitter' },
+    { icon: FaPlane, label: 'Find cheap flights' },
+    { icon: FaShoppingBag, label: 'Compare products' },
+    { icon: FaFileAlt, label: 'Summarize article' },
 ];
 
 const ROW_B = [
-    { icon: '💼', label: 'Search LinkedIn jobs' },
-    { icon: '📈', label: 'Check stock prices' },
-    { icon: '🌐', label: 'Translate webpage' },
-    { icon: '🎵', label: 'Play music on Spotify' },
-    { icon: '🗓️', label: 'Open Google Calendar' },
-    { icon: '📬', label: 'Read latest emails' },
+    { icon: FaLinkedin, label: 'Search LinkedIn jobs' },
+    { icon: FaChartLine, label: 'Check stock prices' },
+    { icon: FaGlobe, label: 'Translate webpage' },
+    { icon: FaSpotify, label: 'Play music on Spotify' },
+    { icon: FaCalendarAlt, label: 'Open Google Calendar' },
+    { icon: FaEnvelope, label: 'Read latest emails' },
 ];
 
 /* Helper: relative time label */
@@ -51,8 +55,8 @@ const getTimeAgo = (timestamp: number): string => {
 };
 
 /* ─── Single pill chip ─── */
-const PillChip: React.FC<{ icon: string; label: string; isDarkMode: boolean; onClick: () => void }> = ({
-    icon, label, isDarkMode, onClick,
+const PillChip: React.FC<{ icon: React.ComponentType<{ className?: string }>; label: string; isDarkMode: boolean; onClick: () => void }> = ({
+    icon: Icon, label, isDarkMode, onClick,
 }) => (
     <button
         type="button"
@@ -84,7 +88,7 @@ const PillChip: React.FC<{ icon: string; label: string; isDarkMode: boolean; onC
             el.style.border = isDarkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.07)';
         }}
     >
-        <span className="text-base leading-none">{icon}</span>
+        <Icon className="size-3.5 opacity-75 shrink-0" />
         <span>{label}</span>
     </button>
 );
@@ -96,7 +100,7 @@ const PillMarquee: React.FC<{ isDarkMode: boolean; onSelectPrompt: (text: string
     const doubled = (arr: typeof ROW_A) => [...arr, ...arr];
 
     return (
-        <div className="w-full overflow-hidden" style={{ WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, black 10%, black 90%, transparent 100%)', maskImage: 'linear-gradient(90deg, transparent 0%, black 10%, black 90%, transparent 100%)' }}>
+        <div className="w-full overflow-hidden" style={{ WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, black 15%, black 85%, transparent 100%)', maskImage: 'linear-gradient(90deg, transparent 0%, black 15%, black 85%, transparent 100%)' }}>
             {/* Row A → scrolls right */}
             <div className="mb-2.5 flex gap-2.5" style={{ animation: 'marquee-right 28s linear infinite' }}>
                 {doubled(ROW_A).map((p, i) => (
@@ -222,7 +226,7 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
     return (
         <BackgroundGradientAnimation
             containerClassName={`flex-1 w-full overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-slate-950' : 'bg-slate-50'}`}
-            className={`relative z-10 flex h-full flex-col justify-start overflow-hidden pb-4 pt-[35px] ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}
+            className={`relative z-10 flex h-full flex-col justify-start overflow-hidden pb-4 pt-[85px] ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}
             gradientBackgroundStart={isDarkMode ? 'rgb(2, 6, 23)' : 'rgb(248, 250, 252)'}
             gradientBackgroundEnd={isDarkMode ? 'rgb(15, 23, 42)' : 'rgb(241, 245, 249)'}
             firstColor={isDarkMode ? '79, 70, 229' : '99, 102, 241'}
@@ -237,19 +241,21 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
             <div className="pointer-events-auto relative z-10 mx-auto flex h-full w-full max-w-xl flex-col">
 
                 {/* ── Logo + Title ── */}
-                <div className="mb-5 flex flex-col items-center px-6 text-center">
-                    <div className="relative mb-2 opacity-95 transition-all duration-700">
+                <div className="relative mb-4 flex flex-col items-center text-center">
+                    <div className="relative mb-3 opacity-95 transition-all duration-700">
                         <OrbVisual isDarkMode={isDarkMode} />
                     </div>
-                    <div className="space-y-1.5 px-4">
-                        <h1 className={`text-4xl font-extrabold leading-none -tracking-wide transition-all duration-700 ${isDarkMode
-                            ? 'bg-gradient-to-r from-white via-indigo-200 to-indigo-100 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(99,102,241,0.2)]'
-                            : 'bg-gradient-to-r from-slate-900 via-indigo-900 to-indigo-950 bg-clip-text text-transparent'
-                        }`}>
+
+                    <div className="space-y-2 px-4">
+                        <h1 className={`text-5xl font-black leading-none -tracking-wider transition-all duration-700 ${isDarkMode 
+                            ? 'bg-gradient-to-b from-white via-white to-white/40 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,255,255,0.1)]' 
+                            : 'bg-gradient-to-b from-slate-900 via-slate-800 to-slate-500 bg-clip-text text-transparent'
+                            }`}>
                             WebGenie
                         </h1>
-                        <p className={`mx-auto max-w-[300px] font-sans text-[12px] font-medium leading-relaxed tracking-tight ${isDarkMode ? 'text-slate-300/70' : 'text-slate-500'}`}>
-                            Autonomous browser operations and web search inside your browser.
+                        <p className={`mx-auto max-w-[340px] px-2 font-sans text-[14px] font-medium leading-relaxed tracking-tight ${isDarkMode ? 'text-slate-300/95' : 'text-slate-500'}`}>
+                            Professional-grade autonomous intelligence for <br />
+                            <span className={isDarkMode ? 'text-indigo-300/95' : 'text-indigo-700/90'}>web research and multi-step task execution.</span>
                         </p>
                     </div>
                 </div>

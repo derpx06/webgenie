@@ -2301,12 +2301,9 @@ a:hover,
   background: conic-gradient(
     from 0deg,
     #8b5cf6,
-    #3b82f6,
+    #6366f1,
     #06b6d4,
-    #10b981,
-    #f59e0b,
-    #ef4444,
-    #ec4899,
+    #d946ef,
     #8b5cf6
   );
   animation: spin-border 6s linear infinite;
@@ -2346,12 +2343,9 @@ a:hover,
   background: conic-gradient(
     from 0deg,
     #8b5cf6,
-    #3b82f6,
+    #6366f1,
     #06b6d4,
-    #10b981,
-    #f59e0b,
-    #ef4444,
-    #ec4899,
+    #d946ef,
     #8b5cf6
   );
   animation: spin-border 6s linear infinite;
