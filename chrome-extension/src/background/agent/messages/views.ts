@@ -73,7 +73,7 @@ export class MessageHistory {
    * This is used to remove the state message from the history.
    */
   removeLastStateMessage(): void {
-    if (this.messages.length > 2 && this.messages[this.messages.length - 1].message instanceof HumanMessage) {
+    if (this.messages.length > 0 && this.messages[this.messages.length - 1].metadata.message_type === 'page_state') {
       const msg = this.messages.pop();
       if (msg) {
         this.totalTokens -= msg.metadata.tokens;

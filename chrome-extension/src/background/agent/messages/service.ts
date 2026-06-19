@@ -346,7 +346,7 @@ export default class MessageManager {
    * @param stateMessage - The HumanMessage object containing the state
    */
   public addStateMessage(stateMessage: HumanMessage): void {
-    this.addMessageWithTokens(stateMessage, PyramidLevel.LIVE);
+    this.addMessageWithTokens(stateMessage, PyramidLevel.LIVE, 'page_state');
   }
 
   /**
@@ -568,6 +568,20 @@ export default class MessageManager {
    * and preserves any important verification/extracted results.
    */
   public compactHistory(traceBudget = 1500): void {
+    // Prune all stale action results/errors first
+    for (let i = 0; i < this.history.messages.length; i++) {
+      const m = this.history.messages[i];
+      if (
+        m.metadata.level === PyramidLevel.TRACE &&
+        (m.metadata.message_type === 'action_result' || m.metadata.message_type === 'action_error')
+      ) {
+        const tokens = m.metadata.tokens;
+        this.history.messages.splice(i, 1);
+        this.history.totalTokens -= tokens;
+        i--;
+      }
+    }
+
     // Calculate current tokens in PyramidLevel.TRACE
     let traceTokens = 0;
     for (const m of this.history.messages) {
@@ -576,7 +590,10 @@ export default class MessageManager {
       }
     }
 
-    if (traceTokens <= traceBudget) return;
+    if (traceTokens <= traceBudget) {
+      void this.saveToSession();
+      return;
+    }
 
     logger.info(`Trace tokens (${traceTokens}) exceed budget (${traceBudget}). Compacting history...`);
 

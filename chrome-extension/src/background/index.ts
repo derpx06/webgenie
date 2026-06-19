@@ -17,6 +17,8 @@ import {
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import BrowserContext from './browser/context';
+import { ChromeBrowserAdapter } from './adapters/ChromeBrowserAdapter';
+import { ChromeStorageProvider } from './adapters/ChromeStorageProvider';
 import { Executor } from './agent/executor';
 import { createLogger } from './log';
 import { ExecutionState } from './agent/event/types';
@@ -31,7 +33,9 @@ import type { ActionSchema } from './agent/actions/schemas';
 
 const logger = createLogger('background');
 
-const browserContext = new BrowserContext({});
+const browserAdapter = new ChromeBrowserAdapter();
+const storageProvider = new ChromeStorageProvider();
+const browserContext = new BrowserContext({}, browserAdapter, storageProvider);
 let currentExecutor: Executor | null = null;
 let currentPort: chrome.runtime.Port | null = null;
 const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');

@@ -47,15 +47,6 @@ graph TD
 
 ---
 
-## 2.1 Asynchronous Threading & Native API execution
-
-Under the hood, executing `fetch(url)` does not block the Service Worker's single-threaded Javascript event loop. 
-- **Non-blocking Call**: The browser delegates the HTTP request processing (DNS resolution, TLS handshake, socket connection, stream buffering) to Chrome's native C++ network thread pool.
-- **V8 Engine Concurrency**: The Javascript execution thread remains free to handle other runtime events. When the response arrives, Chrome schedules the callback/promise resolution back onto the JS task queue.
-- **Resource Savings**: By avoiding full tab initialization (V8 execution contexts, Blink render trees, layout passes), we gain a completely lightweight network API call running asynchronously on another thread.
-
----
-
 ## 3. Implementation Details
 
 ### A. Action Schema Definition (`chrome-extension/src/background/agent/actions/schemas.ts`)

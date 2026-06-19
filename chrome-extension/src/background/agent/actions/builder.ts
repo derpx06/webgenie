@@ -49,7 +49,7 @@ export class InvalidInputError extends Error {
 export class Action {
   constructor(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    private readonly handler: (input: any) => Promise<ActionResult>,
+    public readonly handler: (input: any) => Promise<ActionResult>,
     public readonly schema: ActionSchema,
     // Whether this action has an index argument
     public readonly hasIndex: boolean = false,

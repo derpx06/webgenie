@@ -14,6 +14,7 @@ import { HistoryTreeProcessor } from '@src/background/browser/dom/history/servic
 import { AgentStepRecord } from '../history';
 import { type BaseMessage, HumanMessage } from '@langchain/core/messages';
 import { WebGenieMemoryStore, ContextRouter, ContextBuilder } from '../memory';
+import { PyramidLevel } from '@src/background/agent/messages/views';
 
 import { NavigatorActionRegistry } from './navigator/registry';
 export { NavigatorActionRegistry };
@@ -68,6 +69,15 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
   async invoke(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
     if (!this.withStructuredOutput) {
       return super.invoke(inputMessages);
+    }
+
+    try {
+      const currentPage = await this.context.browserContext.getCurrentPage().catch(() => null);
+      const currentUrl = currentPage?.url() || '';
+      this.modelOutputSchema = this.actionRegistry.setupModelOutputSchema(currentUrl);
+      this.jsonSchema = convertZodToJsonSchema(this.modelOutputSchema, 'NavigatorAgentOutput', true);
+    } catch (e) {
+      logger.error('Failed to dynamically update schema for invoke:', e);
     }
 
     const structuredLlm = this.chatLLM.withStructuredOutput(this.jsonSchema, {
@@ -278,11 +288,19 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       if (!r.includeInMemory) return;
 
       if (r.extractedContent) {
-        this.context.messageManager.addMessageWithTokens(new HumanMessage(`Action result: ${r.extractedContent}`));
+        this.context.messageManager.addMessageWithTokens(
+          new HumanMessage(`Action result: ${r.extractedContent}`),
+          PyramidLevel.TRACE,
+          'action_result'
+        );
       }
       if (r.error) {
         const lastLine = r.error.toString().split('\n').pop() || '';
-        this.context.messageManager.addMessageWithTokens(new HumanMessage(`Action error: ${lastLine}`));
+        this.context.messageManager.addMessageWithTokens(
+          new HumanMessage(`Action error: ${lastLine}`),
+          PyramidLevel.TRACE,
+          'action_error'
+        );
       }
       this.context.actionResults[i] = new ActionResult();
     });
@@ -302,7 +320,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     const results: ActionResult[] = [];
     let errCount = 0;
     const browserContext = this.context.browserContext;
-    const browserState = await browserContext.getState(this.context.options.useVision);
+    const browserState = await browserContext.getCachedState(this.context.options.useVision);
     const cachedPathHashes = await calcBranchPathHashSet(browserState);
 
     await browserContext.removeHighlight();
@@ -330,7 +348,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
         // Check if page state changed significantly between multi-actions
         if (i > 0 && indexArg !== null) {
-          const newState = await browserContext.getState(this.context.options.useVision, false, true);
+          const newState = await browserContext.getCachedState(this.context.options.useVision, false);
           const newPathHashes = await calcBranchPathHashSet(newState);
           if (!newPathHashes.isSubsetOf(cachedPathHashes)) {
             const msg = `Something new appeared after action ${i} / ${actions.length}`;
@@ -341,6 +359,10 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
         const result = await actionInstance.call(actionArgs);
         if (!result) throw new Error(`Action ${actionName} returned undefined`);
+
+        if (actionName !== 'done' && actionName !== 'ask_human') {
+          await browserContext.invalidateCache();
+        }
 
         if (indexArg !== null) {
           const domElement = browserState.selectorMap.get(indexArg);
@@ -385,6 +407,13 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         logger.info(actionLogMsg);
         results.push(result);
 
+        // If the action returned an error, halt immediately to prevent execution on incorrect page state
+        if (result.error) {
+          logger.warning(`Action ${i + 1} (${actionName}) returned an error. Halting remaining queue.`);
+          this.actionRegistry.refineActionDescription(actionName, result.error, actionArgs);
+          break;
+        }
+
         // ── FAILURE REGISTRY ───────────────────────────────────────────────
         // After executing the action, re-check the DOM path hash. If the page
         // state has NOT changed AND the action targeted a specific element,
@@ -418,7 +447,11 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         // ──────────────────────────────────────────────────────────────────
 
         if (this.isTaskInterrupted()) break;
+        const statePreFetchPromise = browserContext.getState(this.context.options.useVision, false, true);
         await this.delayBetweenActions();
+        await statePreFetchPromise.catch(err => {
+          logger.warning(`State pre-fetch failed: ${err.message}`);
+        });
 
       } catch (error) {
         if (error instanceof URLNotAllowedError) throw error;
@@ -428,10 +461,20 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         logger.error(failMsg);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
 
-        if (++errCount > 3) throw new Error('Too many errors in actions');
+        this.actionRegistry.refineActionDescription(actionName, msg, actionArgs);
         results.push(new ActionResult({ error: msg, isDone: false, includeInMemory: true }));
+        // Stop execution immediately on thrown action failures!
+        break;
       }
     }
+
+    if (!this.isTaskInterrupted()) {
+      logger.info('Starting background pre-fetch of final state for next turn...');
+      void browserContext.getState(this.context.options.useVision, false, true).catch(err => {
+        logger.warning(`Final state pre-fetch failed: ${err.message}`);
+      });
+    }
+
     return results;
   }
 

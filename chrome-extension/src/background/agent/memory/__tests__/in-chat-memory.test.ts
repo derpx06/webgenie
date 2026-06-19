@@ -259,3 +259,32 @@ describe('ContextBuilder Token Budgeting & Safeguards', () => {
     expect(content).toContain('truncated due to token budget');
   });
 });
+
+describe('GoalManager Casing and Semantic Matching', () => {
+  it('correctly matches goals with minor casing, punctuation, and wording variations', () => {
+    const gm = new GoalManager('Buy laptop');
+    gm.updateGoals('Buy laptop', 'Search laptops', 'Click checkout button!');
+
+    // 1. Casing and punctuation completion match
+    gm.completeGoal('click checkout button');
+    expect(gm.getCurrentSubgoal()).toBe('');
+    expect(gm.completedGoals.length).toBe(1);
+    expect(gm.completedGoals[0].content).toBe('Click checkout button!');
+
+    // 2. Semantic Jaccard equivalence in updateGoals prevents premature goal abandonment
+    gm.updateGoals('Buy laptop', 'Search laptops', 'Find laptops on sale');
+    // Let's rephrase slightly: "Find laptop on sale!" - should not abandon because Jaccard/Jaro-Winkler is high
+    gm.updateGoals('Buy laptop', 'Search laptops', 'Find laptop on sale!');
+    
+    // The initial currentGoal 'Buy laptop' was abandoned when updated to 'Search laptops',
+    // but the subgoal 'Find laptops on sale' should NOT be abandoned.
+    expect(gm.abandonedGoals.length).toBe(1); 
+    expect(gm.abandonedGoals[0].content).toBe('Buy laptop');
+
+    // 3. Complete using slight rephrasing
+    gm.completeGoal('Find laptop on sale');
+    expect(gm.getCurrentSubgoal()).toBe('');
+    expect(gm.completedGoals.length).toBe(2);
+  });
+});
+

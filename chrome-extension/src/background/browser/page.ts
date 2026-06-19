@@ -27,6 +27,10 @@ import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
 import { pruneAXTree } from './dom/ax-tree-pruner';
 import { healElement } from './dom/selector-healer';
 import { cdpBridge } from './chromium-apis/cdp-bridge';
+import type { IBrowserAdapter } from '../adapters/IBrowserAdapter';
+import type { IStorageProvider } from '../adapters/IStorageProvider';
+import { ChromeBrowserAdapter } from '../adapters/ChromeBrowserAdapter';
+import { ChromeStorageProvider } from '../adapters/ChromeStorageProvider';
 
 
 const logger = createLogger('Page');
@@ -74,11 +78,23 @@ export default class Page {
   private _validWebPage = false;
   private _cachedState: PageState | null = null;
   private _cachedStateClickableElementsHashes: CachedStateClickableElementsHashes | null = null;
+  private _pendingStatePromise: Promise<PageState> | null = null;
+  private _browserAdapter: IBrowserAdapter;
+  private _storageProvider: IStorageProvider;
 
-  constructor(tabId: number, url: string, title: string, config: Partial<BrowserContextConfig> = {}) {
+  constructor(
+    tabId: number,
+    url: string,
+    title: string,
+    config: Partial<BrowserContextConfig> = {},
+    browserAdapter?: IBrowserAdapter,
+    storageProvider?: IStorageProvider
+  ) {
     this._tabId = tabId;
     this._config = { ...DEFAULT_BROWSER_CONTEXT_CONFIG, ...config };
     this._state = build_initial_state(tabId, url, title);
+    this._browserAdapter = browserAdapter || new ChromeBrowserAdapter();
+    this._storageProvider = storageProvider || new ChromeStorageProvider();
     // chrome://newtab/, chrome://newtab/extensions, https://chromewebstore.google.com/ are not valid web pages, can't be attached
     const lowerCaseUrl = url.trim().toLowerCase();
     this._validWebPage =
@@ -99,6 +115,10 @@ export default class Page {
 
   get attached(): boolean {
     return this._validWebPage && this._puppeteerPage !== null;
+  }
+
+  public getPendingStatePromise(): Promise<PageState> | null {
+    return this._pendingStatePromise;
   }
 
   /**
@@ -145,7 +165,7 @@ export default class Page {
   private async _revalidateFromTab(): Promise<void> {
     if (this._validWebPage) return; // already valid, nothing to do
     try {
-      const tab = await chrome.tabs.get(this._tabId);
+      const tab = await this._browserAdapter.getTab(this._tabId);
       this.refreshValidWebPage(tab.url ?? '');
       if (this._validWebPage) {
         // Update the cached state URL/title now that we know the real URL
@@ -176,7 +196,7 @@ export default class Page {
 
     logger.info('attaching puppeteer', this._tabId);
     try {
-      await chrome.debugger.detach({ tabId: this._tabId });
+      await this._browserAdapter.detachDebugger({ tabId: this._tabId });
       logger.info('Detached existing debugger session on tab', this._tabId);
     } catch (err) {
       // Ignore if debugger was not attached
@@ -221,7 +241,7 @@ export default class Page {
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not attached to this page');
     }
-    return chrome.debugger.sendCommand({ tabId: this._tabId }, method, params);
+    return this._browserAdapter.sendDebuggerCommand({ tabId: this._tabId }, method, params);
   }
 
   public async cdpClick(element: ElementHandle<Element>): Promise<void> {
@@ -355,8 +375,8 @@ export default class Page {
         if (rawState && rawState.selectorMap.size > 0) {
           let goal: string | undefined;
           try {
-            const registryState = await chrome.storage.local.get('tab-orchestration-state');
-            const tabRecord = registryState?.['tab-orchestration-state']?.tabs?.[this._tabId];
+            const registryStateVal = await this._storageProvider.get<any>('tab-orchestration-state');
+            const tabRecord = registryStateVal?.tabs?.[this._tabId];
             if (tabRecord && tabRecord.purpose) {
               goal = tabRecord.purpose;
             }
@@ -396,7 +416,7 @@ export default class Page {
     // Final fallback — CSP-vulnerable but works without debugger permission.
     let tabUrl = this._state.url;
     try {
-      const tab = await chrome.tabs.get(this._tabId);
+      const tab = await this._browserAdapter.getTab(this._tabId);
       tabUrl = tab.url ?? tabUrl;
     } catch {
       // Tab closed or inaccessible
@@ -630,77 +650,96 @@ export default class Page {
     return this._cachedState;
   }
 
+  invalidateCache(): void {
+    logger.info('Invalidating DOM cache manually');
+    this._cachedState = null;
+    this._cachedStateClickableElementsHashes = null;
+  }
+
   async getState(useVision = false, cacheClickableElementsHashes = false, skipNetworkIdle = false): Promise<PageState> {
-    // Re-validate from the live tab URL in case the tab has navigated away from
-    // an initial chrome://newtab/ URL since this Page was constructed.
-    await this._revalidateFromTab();
-
-    if (!this._validWebPage) {
-      // return the initial state
-      return build_initial_state(this._tabId);
+    if (this._pendingStatePromise) {
+      return this._pendingStatePromise;
     }
-    
-    if (!skipNetworkIdle) {
-      await this.waitForPageAndFramesLoad();
-    } else {
-      try {
-        await this._waitForDomStability(200, 50);
-      } catch (err) {
-        logger.warning('[Page] Error waiting for DOM stability:', err);
+
+    const statePromise = (async () => {
+      // Re-validate from the live tab URL in case the tab has navigated away from
+      // an initial chrome://newtab/ URL since this Page was constructed.
+      await this._revalidateFromTab();
+
+      if (!this._validWebPage) {
+        // return the initial state
+        return build_initial_state(this._tabId);
       }
-    }
-
-    // SPA-aware DOM extraction: retry up to 3 times if the page returns an empty
-    // selector map. Gmail and other SPAs paint the shell first then hydrate the
-    // inbox asynchronously — network-idle fires too early. Retrying with a short
-    // delay gives the JS framework time to finish rendering.
-    const MAX_DOM_RETRIES = 3;
-    const DOM_RETRY_DELAY_MS = 1500;
-    let updatedState = await this._updateState(useVision);
-
-    for (let attempt = 1; attempt < MAX_DOM_RETRIES; attempt++) {
-      if (updatedState.selectorMap.size > 0) break; // got elements — done
-      logger.warning(
-        `[getState] Empty DOM on attempt ${attempt}/${MAX_DOM_RETRIES} for ${updatedState.url} — retrying in ${DOM_RETRY_DELAY_MS}ms`,
-      );
-      await new Promise(resolve => setTimeout(resolve, DOM_RETRY_DELAY_MS));
-      updatedState = await this._updateState(useVision);
-    }
-
-    if (updatedState.selectorMap.size === 0) {
-      logger.warning(`[getState] DOM still empty after ${MAX_DOM_RETRIES} attempts — serving cached state if available`);
-      if (this._cachedState && this._cachedState.selectorMap.size > 0) {
-        return this._cachedState;
-      }
-    }
-
-    // Find out which elements are new
-    // Do this only if url has not changed
-    if (cacheClickableElementsHashes) {
-      // If we are on the same url as the last state, we can use the cached hashes
-      if (
-        this._cachedStateClickableElementsHashes &&
-        this._cachedStateClickableElementsHashes.url === updatedState.url
-      ) {
-        // Get clickable elements from the updated state
-        const updatedStateClickableElements = ClickableElementProcessor.getClickableElements(updatedState.elementTree);
-
-        // Mark elements as new if they weren't in the previous state
-        for (const domElement of updatedStateClickableElements) {
-          const hash = await ClickableElementProcessor.hashDomElement(domElement);
-          domElement.isNew = !this._cachedStateClickableElementsHashes.hashes.has(hash);
+      
+      if (!skipNetworkIdle) {
+        await this.waitForPageAndFramesLoad();
+      } else {
+        try {
+          await this._waitForDomStability(200, 50);
+        } catch (err) {
+          logger.warning('[Page] Error waiting for DOM stability:', err);
         }
       }
 
-      // In any case, we need to cache the new hashes
-      const newHashes = await ClickableElementProcessor.getClickableElementsHashes(updatedState.elementTree);
-      this._cachedStateClickableElementsHashes = new CachedStateClickableElementsHashes(updatedState.url, newHashes);
+      // SPA-aware DOM extraction: retry up to 3 times if the page returns an empty
+      // selector map. Gmail and other SPAs paint the shell first then hydrate the
+      // inbox asynchronously — network-idle fires too early. Retrying with a short
+      // delay gives the JS framework time to finish rendering.
+      const MAX_DOM_RETRIES = 3;
+      const DOM_RETRY_DELAY_MS = 1500;
+      let updatedState = await this._updateState(useVision);
+
+      for (let attempt = 1; attempt < MAX_DOM_RETRIES; attempt++) {
+        if (updatedState.selectorMap.size > 0) break; // got elements — done
+        logger.warning(
+          `[getState] Empty DOM on attempt ${attempt}/${MAX_DOM_RETRIES} for ${updatedState.url} — retrying in ${DOM_RETRY_DELAY_MS}ms`,
+        );
+        await new Promise(resolve => setTimeout(resolve, DOM_RETRY_DELAY_MS));
+        updatedState = await this._updateState(useVision);
+      }
+
+      if (updatedState.selectorMap.size === 0) {
+        logger.warning(`[getState] DOM still empty after ${MAX_DOM_RETRIES} attempts — serving cached state if available`);
+        if (this._cachedState && this._cachedState.selectorMap.size > 0) {
+          return this._cachedState;
+        }
+      }
+
+      // Find out which elements are new
+      // Do this only if url has not changed
+      if (cacheClickableElementsHashes) {
+        // If we are on the same url as the last state, we can use the cached hashes
+        if (
+          this._cachedStateClickableElementsHashes &&
+          this._cachedStateClickableElementsHashes.url === updatedState.url
+        ) {
+          // Get clickable elements from the updated state
+          const updatedStateClickableElements = ClickableElementProcessor.getClickableElements(updatedState.elementTree);
+
+          // Mark elements as new if they weren't in the previous state
+          for (const domElement of updatedStateClickableElements) {
+            const hash = await ClickableElementProcessor.hashDomElement(domElement);
+            domElement.isNew = !this._cachedStateClickableElementsHashes.hashes.has(hash);
+          }
+        }
+
+        // In any case, we need to cache the new hashes
+        const newHashes = await ClickableElementProcessor.getClickableElementsHashes(updatedState.elementTree);
+        this._cachedStateClickableElementsHashes = new CachedStateClickableElementsHashes(updatedState.url, newHashes);
+      }
+
+      // Save the updated state as the cached state
+      this._cachedState = updatedState;
+
+      return updatedState;
+    })();
+
+    this._pendingStatePromise = statePromise;
+    try {
+      return await statePromise;
+    } finally {
+      this._pendingStatePromise = null;
     }
-
-    // Save the updated state as the cached state
-    this._cachedState = updatedState;
-
-    return updatedState;
   }
 
   async _updateState(useVision = false, focusElement = -1): Promise<PageState> {
@@ -774,7 +813,7 @@ export default class Page {
       // puppeteer.url() can return 'about:blank' during/after cross-origin navigation,
       // which would cause dom/service.ts to return an empty DOM tree.
       try {
-        const tab = await chrome.tabs.get(this._tabId);
+        const tab = await this._browserAdapter.getTab(this._tabId);
         this._state.url = tab.url || this._puppeteerPage?.url() || '';
         this._state.title = tab.title || (await this._puppeteerPage?.title()) || '';
       } catch {
@@ -812,26 +851,22 @@ export default class Page {
             const role        = el.attributes?.['role']          || '';
             const label       = el.attributes?.['aria-label']    || '';
             const href        = el.attributes?.['href']          || '';
-            const testid      = el.attributes?.['data-testid']   || '';
             const ariasel     = el.attributes?.['aria-selected'] || '';
             const placeholder = el.attributes?.['placeholder']   || '';
             const eltype      = el.attributes?.['type']          || '';
             const name        = el.attributes?.['name']          || '';
             const elid        = el.attributes?.['id']            || '';
-            const cls         = (el.attributes?.['class'] || '').slice(0, 40);
             const isNew       = (el as unknown as { isNew?: boolean }).isNew ? ' NEW' : '';
 
             const extras = [
               role        && `role=${role}`,
               label       && `aria="${label}"`,
               href        && `href=${href.slice(0, 60)}`,
-              testid      && `data-testid="${testid}"`,
               ariasel     && `aria-selected=${ariasel}`,
               placeholder && `placeholder="${placeholder}"`,
               eltype      && `type=${eltype}`,
               name        && `name="${name}"`,
               elid        && `id="${elid}"`,
-              cls         && `class="${cls}"`,
             ].filter(Boolean).join(' | ');
 
             const textPart   = text   ? ` "${text}"`  : '';
@@ -1643,7 +1678,7 @@ export default class Page {
             if (box) {
               const x = box.x + box.width / 2;
               const y = box.y + box.height / 2;
-              chrome.tabs.sendMessage(this._tabId, {
+              this._browserAdapter.sendTabMessage(this._tabId, {
                 type: 'AGENT_ACTION',
                 action: 'type',
                 x, y
@@ -2079,7 +2114,7 @@ export default class Page {
       try {
         const box = await element.boundingBox();
         if (box) {
-          chrome.tabs.sendMessage(this._tabId, {
+          this._browserAdapter.sendTabMessage(this._tabId, {
             type: 'AGENT_ACTION',
             action: 'click',
             x: box.x + box.width / 2,

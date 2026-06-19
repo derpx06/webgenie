@@ -51,6 +51,7 @@ export class Executor {
   private readonly generalSettings: GeneralSettingsConfig | undefined;
   private tasks: string[] = [];
   private lastPlanningStep = -1;
+  private lastPlanningUrl: string | null = null;
   constructor(
     task: string,
     taskId: string,
@@ -440,12 +441,45 @@ export class Executor {
     if (step === 0) return true;
     if (navigatorDone) return true;
 
+    // Trigger 1: Action execution failure
+    const actionFailed = this.context.actionResults.some(r => r.error);
+    if (actionFailed) {
+      logger.info('[Planner] Triggered planning: Last action returned an error.');
+      return true;
+    }
+
+    // Trigger 2: Domain/Host navigation shift
+    const currentTabId = this.context.browserContext.getCurrentTabId();
+    if (currentTabId) {
+      const page = this.context.browserContext.getPageForTab(currentTabId);
+      const currentUrl = page?.url();
+      if (currentUrl && this.lastPlanningUrl) {
+        try {
+          const currentHost = new URL(currentUrl).hostname;
+          const lastHost = new URL(this.lastPlanningUrl).hostname;
+          if (currentHost !== lastHost) {
+            logger.info(`[Planner] Triggered planning: Host changed from ${lastHost} to ${currentHost}`);
+            return true;
+          }
+        } catch (e) {
+          // Ignored
+        }
+      }
+    }
+
+    // Trigger 3: Fallback check for progress stalls
+    if (this.hasRecentProgressStall()) {
+      logger.info('[Planner] Triggered planning: Progress stall or loop detected.');
+      return true;
+    }
+
+    // Trigger 4: Interval fallback
     const stepsSinceLastPlan = step - this.lastPlanningStep;
     if (stepsSinceLastPlan >= this.context.options.planningInterval) {
       return true;
     }
 
-    return this.hasRecentProgressStall();
+    return false;
   }
 
   /**
@@ -482,6 +516,10 @@ export class Executor {
       console.log(`\n[Planner] ── invoking LLM ── ${new Date().toISOString()}`);
       const planOutput = await this.planner.execute();
       this.lastPlanningStep = this.context.nSteps;
+      const currentPage = await this.context.browserContext.getCurrentPage().catch(() => null);
+      if (currentPage) {
+        this.lastPlanningUrl = currentPage.url();
+      }
       // If planner returned an error (e.g., LLM API crash), treat it as an execution failure
       // so it counts toward consecutiveFailures and eventually stops the loop.
       if (planOutput.error) {

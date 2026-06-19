@@ -10,15 +10,27 @@ import Page, { build_initial_state } from './page';
 import { createLogger } from '@src/background/log';
 import { isUrlAllowed } from './util';
 import { analytics } from '../services/analytics';
+import type { IBrowserAdapter } from '../adapters/IBrowserAdapter';
+import type { IStorageProvider } from '../adapters/IStorageProvider';
+import { ChromeBrowserAdapter } from '../adapters/ChromeBrowserAdapter';
+import { ChromeStorageProvider } from '../adapters/ChromeStorageProvider';
 
 const logger = createLogger('BrowserContext');
 export default class BrowserContext {
   private _config: BrowserContextConfig;
   private _currentTabId: number | null = null;
   private _attachedPages: Map<number, Page> = new Map();
+  private _browserAdapter: IBrowserAdapter;
+  private _storageProvider: IStorageProvider;
 
-  constructor(config: Partial<BrowserContextConfig>) {
+  constructor(
+    config: Partial<BrowserContextConfig>,
+    browserAdapter?: IBrowserAdapter,
+    storageProvider?: IStorageProvider
+  ) {
     this._config = { ...DEFAULT_BROWSER_CONTEXT_CONFIG, ...config };
+    this._browserAdapter = browserAdapter || new ChromeBrowserAdapter();
+    this._storageProvider = storageProvider || new ChromeStorageProvider();
   }
 
   
@@ -68,7 +80,9 @@ export default class BrowserContext {
     }
 
     logger.info('getOrCreatePage', tab.id, 'creating new page');
-    const creation = Promise.resolve(new Page(tab.id, tab.url || '', tab.title || '', this._config));
+    const creation = Promise.resolve(
+      new Page(tab.id, tab.url || '', tab.title || '', this._config, this._browserAdapter, this._storageProvider)
+    );
     this._creatingPages.set(tab.id, creation);
     const page = await creation;
     this._creatingPages.delete(tab.id);
@@ -121,10 +135,10 @@ export default class BrowserContext {
     // 1. If _currentTabId not set, query the active tab and attach it
     if (!this._currentTabId) {
       let activeTab: chrome.tabs.Tab;
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const [tab] = await this._browserAdapter.queryTabs({ active: true, currentWindow: true });
       if (!tab?.id) {
         // open a new tab with blank page
-        const newTab = await chrome.tabs.create({ url: this._config.homePageUrl });
+        const newTab = await this._browserAdapter.createTab({ url: this._config.homePageUrl });
         if (!newTab.id) {
           throw new Error('No tab ID available');
         }
@@ -144,7 +158,7 @@ export default class BrowserContext {
     // 2. If _currentTabId is set but not in attachedPages, try to attach
     const existingPage = this._attachedPages.get(this._currentTabId);
     if (!existingPage) {
-      const tab = await chrome.tabs.get(this._currentTabId);
+      const tab = await this._browserAdapter.getTab(this._currentTabId);
       const page = await this._getOrCreatePage(tab);
       // Attempt attach; if it fails (e.g. still on newtab) we still return the
       // page so getState() can call _revalidateFromTab() and promote it once
@@ -162,7 +176,7 @@ export default class BrowserContext {
    * @returns A set of tab IDs.
    */
   public async getAllTabIds(): Promise<Set<number>> {
-    const tabs = await chrome.tabs.query({ currentWindow: true });
+    const tabs = await this._browserAdapter.queryTabs({ currentWindow: true });
     return new Set(tabs.map(tab => tab.id).filter(id => id !== undefined));
   }
 
@@ -195,24 +209,24 @@ export default class BrowserContext {
         const onUpdatedHandler = (updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
           if (updatedTabId !== tabId) return;
           if (changeInfo.status === 'complete') {
-            chrome.tabs.onUpdated.removeListener(onUpdatedHandler);
+            this._browserAdapter.removeTabUpdatedListener(onUpdatedHandler);
             resolve();
           }
         };
-        chrome.tabs.onUpdated.addListener(onUpdatedHandler);
+        this._browserAdapter.addTabUpdatedListener(onUpdatedHandler);
 
         // Only pre-check current state for cases like openTab where the tab
         // is freshly created and already at the final URL. For navigateTo via
         // chrome.tabs.update, skip this to avoid resolving on the OLD URL's
         // 'complete' state before the navigation even starts.
         if (!skipCurrentStateCheck) {
-          chrome.tabs.get(tabId).then(tab => {
+          this._browserAdapter.getTab(tabId).then(tab => {
             if (tab.status === 'complete') {
-              chrome.tabs.onUpdated.removeListener(onUpdatedHandler);
+              this._browserAdapter.removeTabUpdatedListener(onUpdatedHandler);
               resolve();
             }
           }).catch(() => {
-            chrome.tabs.onUpdated.removeListener(onUpdatedHandler);
+            this._browserAdapter.removeTabUpdatedListener(onUpdatedHandler);
             resolve(); // Tab closed; resolve gracefully
           });
         }
@@ -224,20 +238,20 @@ export default class BrowserContext {
       const activatedPromise = new Promise<void>(resolve => {
         const onActivatedHandler = (activeInfo: chrome.tabs.TabActiveInfo) => {
           if (activeInfo.tabId === tabId) {
-            chrome.tabs.onActivated.removeListener(onActivatedHandler);
+            this._browserAdapter.removeTabActivatedListener(onActivatedHandler);
             resolve();
           }
         };
-        chrome.tabs.onActivated.addListener(onActivatedHandler);
+        this._browserAdapter.addTabActivatedListener(onActivatedHandler);
 
         // Always pre-check activation state — it can only transition one way.
-        chrome.tabs.get(tabId).then(tab => {
+        this._browserAdapter.getTab(tabId).then(tab => {
           if (tab.active) {
-            chrome.tabs.onActivated.removeListener(onActivatedHandler);
+            this._browserAdapter.removeTabActivatedListener(onActivatedHandler);
             resolve();
           }
         }).catch(() => {
-          chrome.tabs.onActivated.removeListener(onActivatedHandler);
+          this._browserAdapter.removeTabActivatedListener(onActivatedHandler);
           resolve();
         });
       });
@@ -254,12 +268,12 @@ export default class BrowserContext {
   public async switchTab(tabId: number): Promise<Page> {
     logger.info('switchTab', tabId);
 
-    await chrome.tabs.update(tabId, { active: true });
+    await this._browserAdapter.updateTab(tabId, { active: true });
     await this.waitForTabEvents(tabId, { waitForUpdate: false });
 
     // Force-recreate the page so we always get the current URL/title, not a
     // stale cached one from when the tab was first opened.
-    const page = await this._getOrCreatePage(await chrome.tabs.get(tabId), true);
+    const page = await this._getOrCreatePage(await this._browserAdapter.getTab(tabId), true);
     await this.attachPage(page);
     this._currentTabId = tabId;
     return page;
@@ -284,7 +298,7 @@ export default class BrowserContext {
       await page.navigateTo(url);
       // Refresh the Page object so _validWebPage reflects the new URL.
       const tabId = page.tabId;
-      const updatedTab = await chrome.tabs.get(tabId).catch(() => null);
+      const updatedTab = await this._browserAdapter.getTab(tabId).catch(() => null);
       if (updatedTab) {
         await page.refreshValidWebPage(updatedTab.url ?? '');
       }
@@ -292,12 +306,12 @@ export default class BrowserContext {
     }
     // Use chrome.tabs.update only if the page is not yet puppeteer-attached
     const tabId = page.tabId;
-    await chrome.tabs.update(tabId, { url, active: true });
+    await this._browserAdapter.updateTab(tabId, { url, active: true });
     // skipCurrentStateCheck=true: avoid false-resolve on old URL's 'complete' state
     await this.waitForTabEvents(tabId, { skipCurrentStateCheck: true }).catch(() => { /* timeout is non-fatal */ });
 
     // Reattach the page after navigation completes so the new URL is picked up.
-    const updatedPage = await this._getOrCreatePage(await chrome.tabs.get(tabId), true);
+    const updatedPage = await this._getOrCreatePage(await this._browserAdapter.getTab(tabId), true);
     await this.attachPage(updatedPage);
     this._currentTabId = tabId;
   }
@@ -308,7 +322,7 @@ export default class BrowserContext {
     }
 
     // Create the new tab
-    const tab = await chrome.tabs.create({ url, active: true });
+    const tab = await this._browserAdapter.createTab({ url, active: true });
     if (!tab.id) {
       throw new Error('No tab ID available');
     }
@@ -320,7 +334,7 @@ export default class BrowserContext {
     });
 
     // Get updated tab information (may still be loading, that's OK)
-    const updatedTab = await chrome.tabs.get(tab.id);
+    const updatedTab = await this._browserAdapter.getTab(tab.id);
     // Create and attach the page after tab is fully loaded and activated
     const page = await this._getOrCreatePage(updatedTab);
     await this.attachPage(page);
@@ -331,7 +345,7 @@ export default class BrowserContext {
 
   public async closeTab(tabId: number): Promise<void> {
     await this.detachPage(tabId);
-    await chrome.tabs.remove(tabId);
+    await this._browserAdapter.removeTab(tabId);
     // update current tab id if needed
     if (this._currentTabId === tabId) {
       this._currentTabId = null;
@@ -351,7 +365,7 @@ export default class BrowserContext {
   }
 
   public async getTabInfos(): Promise<TabInfo[]> {
-    const tabs = await chrome.tabs.query({});
+    const tabs = await this._browserAdapter.queryTabs({});
     const tabInfos: TabInfo[] = [];
 
     for (const tab of tabs) {
@@ -370,7 +384,10 @@ export default class BrowserContext {
     const currentPage = await this.getCurrentPage();
 
     let pageState = !currentPage ? build_initial_state() : currentPage.getCachedState();
-    if (!pageState) {
+    const pendingPromise = currentPage?.getPendingStatePromise();
+    if (pendingPromise) {
+      pageState = await pendingPromise;
+    } else if (!pageState) {
       pageState = await currentPage.getState(useVision, cacheClickableElementsHashes);
     }
 
@@ -407,6 +424,13 @@ export default class BrowserContext {
     const page = await this.getCurrentPage();
     if (page) {
       await page.waitForPageAndFramesLoad();
+    }
+  }
+
+  public async invalidateCache(): Promise<void> {
+    const page = await this.getCurrentPage();
+    if (page) {
+      page.invalidateCache();
     }
   }
 }

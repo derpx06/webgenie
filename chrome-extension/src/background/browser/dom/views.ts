@@ -23,7 +23,6 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'aria-pressed',
   'aria-current',
   'aria-haspopup',
-  'data-testid',
   'data-value',
 ];
 
