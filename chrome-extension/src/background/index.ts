@@ -546,15 +546,25 @@ chrome.runtime.onConnect.addListener(port => {
 
 // Context Menu integration
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: 'webgenie-summarize',
-    title: 'Ask WebGenie to summarize this page',
-    contexts: ['page']
-  });
-  chrome.contextMenus.create({
-    id: 'webgenie-explain',
-    title: 'Ask WebGenie to explain "%s"',
-    contexts: ['selection']
+  logger.info('onInstalled fired, creating context menus...');
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'webgenie-summarize',
+      title: 'Ask WebGenie to summarize this page',
+      contexts: ['page', 'all']
+    }, () => {
+      if (chrome.runtime.lastError) logger.error('ContextMenu summarize error:', chrome.runtime.lastError);
+      else logger.info('ContextMenu summarize created');
+    });
+    
+    chrome.contextMenus.create({
+      id: 'webgenie-explain',
+      title: 'Ask WebGenie to explain "%s"',
+      contexts: ['selection']
+    }, () => {
+      if (chrome.runtime.lastError) logger.error('ContextMenu explain error:', chrome.runtime.lastError);
+      else logger.info('ContextMenu explain created');
+    });
   });
 });
 
