@@ -20,6 +20,7 @@ import BrowserContext from './browser/context';
 import { ChromeBrowserAdapter } from './adapters/ChromeBrowserAdapter';
 import { IndexedDBStorageProvider } from './adapters/IndexedDBStorageProvider';
 import { Executor } from './agent/executor';
+import { keepAliveManager } from './services/keepAliveManager';
 import { createLogger } from './log';
 import { ExecutionState } from './agent/event/types';
 import { createChatModel } from './agent/helper';
@@ -325,7 +326,8 @@ chrome.runtime.onConnect.addListener(port => {
             currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
             subscribeToExecutorEvents(currentExecutor);
 
-
+            // Enterprise Scaling: Start Keep-Alive Offscreen Document
+            await keepAliveManager.startKeepAlive();
 
             // Begin task in orchestrator (creates tab group, registers tab)
             const taskSettings = await generalSettingsStore.getSettings();
@@ -338,7 +340,8 @@ chrome.runtime.onConnect.addListener(port => {
 
             const result = await currentExecutor.execute();
             logger.info('new_task execution result', message.tabId, result);
-
+            // Enterprise Scaling: Stop Keep-Alive
+            await keepAliveManager.stopKeepAlive();
             break;
           }
 
@@ -347,7 +350,7 @@ chrome.runtime.onConnect.addListener(port => {
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
 
             logger.info('follow_up_task', message.tabId, message.task);
-
+            await keepAliveManager.startKeepAlive();
 
             // If executor exists, add follow-up task
             if (currentExecutor) {
@@ -383,14 +386,14 @@ chrome.runtime.onConnect.addListener(port => {
               const result = await currentExecutor.execute();
               logger.info('follow_up_task execution result (new executor)', message.tabId, result);
             }
-
+            await keepAliveManager.stopKeepAlive();
             break;
           }
 
           case 'cancel_task': {
             if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
             await currentExecutor.cancel();
-
+            await keepAliveManager.stopKeepAlive();
             break;
           }
 
@@ -526,7 +529,17 @@ chrome.runtime.onConnect.addListener(port => {
       console.log('Side panel disconnected');
       currentPort = null;
       currentExecutor?.cancel();
-
+      keepAliveManager.stopKeepAlive().catch(() => {});
+    });
+  } else if (port.name === 'enterprise-keep-alive') {
+    logger.info('Enterprise Keep-Alive Port connected.');
+    port.onMessage.addListener((message) => {
+      if (message.ping) {
+        // Keep-alive tick received
+      }
+    });
+    port.onDisconnect.addListener(() => {
+      logger.info('Enterprise Keep-Alive Port disconnected.');
     });
   }
 });

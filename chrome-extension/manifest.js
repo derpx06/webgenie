@@ -79,6 +79,7 @@ const manifest = withOperaSidebar(
       'contextMenus',
       'sessions',
       'system.cpu',
+      'offscreen',
     ],
     omnibox: {
       keyword: 'genie',
