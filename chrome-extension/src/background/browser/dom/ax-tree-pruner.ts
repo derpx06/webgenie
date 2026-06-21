@@ -13,7 +13,7 @@
  *   5. Semantic relevance     — filters off-screen nodes by user goal keywords
  */
 
-import { DOMElementNode, DOMTextNode, DOMBaseNode, type DOMState } from './views';
+import { DOMElementNode, DOMTextNode, type DOMBaseNode, type DOMState } from './views';
 import { createLogger } from '@src/background/log';
 
 const logger = createLogger('AXTreePruner');
@@ -79,8 +79,12 @@ function pruneNode(node: DOMElementNode, goal?: string): boolean {
   }
   node.children = keptChildren;
 
-  // Rule 5: Goal-directed semantic pruning for off-screen interactive elements
-  if (node.highlightIndex !== null && !node.isInViewport && goal) {
+  // Rule 5: Goal-directed semantic pruning for off-screen interactive elements.
+  // IMPORTANT: Only prune when pageCoordinates are resolved — if coordinates are
+  // undefined it means getBoxModel failed (e.g. CSP restrictions on Google Search),
+  // and isInViewport=false is the uninitialised default, NOT a confirmed off-screen signal.
+  // Pruning in that case would remove ALL elements and produce the "EMPTY PAGE" error.
+  if (node.highlightIndex !== null && !node.isInViewport && node.pageCoordinates && goal) {
     const keywords = getKeywords(goal);
     const score = calculateRelevance(node, keywords);
     if (score < 0.3) {

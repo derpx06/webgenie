@@ -75,15 +75,22 @@ function titleFromTask(taskDescription: string): string {
 // TaskGroupManager
 // ---------------------------------------------------------------------------
 
+import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
+import { ChromeBrowserAdapter } from '../../adapters/ChromeBrowserAdapter';
+
 export class TaskGroupManager {
   // Tracks groupId (UUID) → chrome native groupId
   private _chromeGroupIds: Map<string, number> = new Map();
   private readonly _tabGroupsAvailable: boolean;
+  private readonly _adapter: IBrowserAdapter;
 
-  constructor() {
+  constructor(adapter?: IBrowserAdapter) {
+    this._adapter = adapter || new ChromeBrowserAdapter();
+    // In a fully abstracted environment, this might be checked via the adapter.
+    // For now, checking global chrome as a quick feature-flag for the browser.
     this._tabGroupsAvailable = typeof chrome?.tabGroups?.update === 'function';
     if (!this._tabGroupsAvailable) {
-      logger.info('TaskGroupManager: chrome.tabGroups unavailable — metadata-only mode');
+      logger.info('TaskGroupManager: tabGroups API unavailable — metadata-only mode');
     }
   }
 
@@ -116,13 +123,13 @@ export class TaskGroupManager {
       chromeGroupId: null,
     };
 
-    // Attempt native chrome.tabGroups grouping
+    // Attempt native grouping
     if (this._tabGroupsAvailable && initialTabIds.length > 0) {
       try {
         const validTabIds = await this._filterExistingTabs(initialTabIds);
         if (validTabIds.length > 0) {
-          const chromeGroupId = await chrome.tabs.group({ tabIds: validTabIds });
-          await chrome.tabGroups.update(chromeGroupId, {
+          const chromeGroupId = await this._adapter.groupTabs({ tabIds: validTabIds });
+          await this._adapter.updateTabGroup(chromeGroupId, {
             title,
             color: toChromeColor(color),
             collapsed: false,
@@ -132,7 +139,7 @@ export class TaskGroupManager {
           logger.info(`TaskGroupManager: created chrome group ${chromeGroupId} for task ${taskId}`);
         }
       } catch (err) {
-        logger.warning('TaskGroupManager: chrome.tabs.group failed:', err);
+        logger.warning('TaskGroupManager: groupTabs failed:', err);
         // Continue without native grouping — metadata still stored
       }
     }
@@ -160,12 +167,12 @@ export class TaskGroupManager {
         tabIds: [...group.tabIds, tabId],
       };
 
-      // Add to native chrome group if available
+      // Add to native group if available
       if (this._tabGroupsAvailable && group.chromeGroupId !== null) {
         try {
           const exists = await this._filterExistingTabs([tabId]);
           if (exists.length > 0) {
-            await chrome.tabs.group({ tabIds: [tabId], groupId: group.chromeGroupId });
+            await this._adapter.groupTabs({ tabIds: [tabId], groupId: group.chromeGroupId });
           }
         } catch (err) {
           logger.warning('TaskGroupManager: addTabToGroup native failed:', err);
@@ -190,11 +197,11 @@ export class TaskGroupManager {
       if (gid === activeGroupId) {
         // Expand the active group
         if (group.chromeGroupId !== null) {
-          chrome.tabGroups.update(group.chromeGroupId, { collapsed: false }).catch(() => { });
+          this._adapter.updateTabGroup(group.chromeGroupId, { collapsed: false }).catch(() => { });
         }
       } else if (group.state === TaskGroupState.ACTIVE && group.chromeGroupId !== null) {
         // Collapse inactive groups
-        chrome.tabGroups.update(group.chromeGroupId, { collapsed: true }).catch(() => { });
+        this._adapter.updateTabGroup(group.chromeGroupId, { collapsed: true }).catch(() => { });
       }
     }
   }
@@ -215,7 +222,7 @@ export class TaskGroupManager {
       };
 
       if (this._tabGroupsAvailable && group.chromeGroupId !== null) {
-        chrome.tabGroups.update(group.chromeGroupId, {
+        this._adapter.updateTabGroup(group.chromeGroupId, {
           color: toChromeColor(GroupColor.GREY),
           collapsed: true,
         }).catch(() => { });
@@ -243,7 +250,7 @@ export class TaskGroupManager {
       };
 
       if (this._tabGroupsAvailable && group.chromeGroupId !== null) {
-        chrome.tabGroups.update(group.chromeGroupId, { color: toChromeColor(GroupColor.RED) }).catch(() => { });
+        this._adapter.updateTabGroup(group.chromeGroupId, { color: toChromeColor(GroupColor.RED) }).catch(() => { });
       }
 
       await tabOrchestrationStore.upsertGroup(updatedGroup);
@@ -259,13 +266,13 @@ export class TaskGroupManager {
     try {
       const chromeGroupId = this._chromeGroupIds.get(groupId);
       if (this._tabGroupsAvailable && chromeGroupId !== undefined) {
-        // Ungrouping is done by moving each tab out — chrome.tabGroups has no "dissolve" API
+        // Ungrouping is done by moving each tab out
         const state = await tabOrchestrationStore.getState();
         const group = state.groups[groupId];
         if (group?.tabIds.length) {
           const valid = await this._filterExistingTabs(group.tabIds);
           if (valid.length > 0) {
-            await chrome.tabs.ungroup(valid);
+            await this._adapter.ungroupTabs(valid);
           }
         }
         this._chromeGroupIds.delete(groupId);
@@ -286,7 +293,7 @@ export class TaskGroupManager {
 
   /** Filter a list of tab IDs to only those that currently exist in the browser. */
   private async _filterExistingTabs(tabIds: number[]): Promise<number[]> {
-    const results = await Promise.allSettled(tabIds.map(id => chrome.tabs.get(id)));
+    const results = await Promise.allSettled(tabIds.map(id => this._adapter.getTab(id)));
     return tabIds.filter((_, i) => results[i].status === 'fulfilled');
   }
 }

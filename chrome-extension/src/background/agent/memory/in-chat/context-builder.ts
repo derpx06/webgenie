@@ -1,4 +1,5 @@
-import { HumanMessage, type BaseMessage, SystemMessage } from '@langchain/core/messages';
+import { SystemMessage } from '@langchain/core/messages';
+import type { HumanMessage, BaseMessage } from '@langchain/core/messages';
 import type { AgentContext } from '../../types';
 
 export class ContextBuilder {

@@ -15,6 +15,7 @@ import { DOMElementNode, DOMTextNode, type DOMState, type DOMBaseNode } from '..
 import type { CoordinateSet } from '../dom/history/view';
 import { createLogger } from '@src/background/log';
 import { cdpBridge } from './cdp-bridge';
+import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
 
 const logger = createLogger('DOMSnapshotExtractor');
 
@@ -63,15 +64,21 @@ interface CDPSnapshotResponse {
 export async function getDOMStateViaSnapshot(
   tabId: number,
   viewportWidth = 1280,
-  viewportHeight = 800
+  viewportHeight = 800,
+  browserAdapter?: IBrowserAdapter
 ): Promise<DOMState> {
   logger.info(`[DOMSnapshot] Capturing native DOM snapshot for tab ${tabId}`);
 
   try {
-    const rawData = await cdpBridge.send<CDPSnapshotResponse>(tabId, 'DOMSnapshot.captureSnapshot', {
-      computedStyles: COMPUTED_STYLES,
-      includeDOMRects: true
-    });
+    const rawData = await cdpBridge.send<CDPSnapshotResponse>(
+      tabId,
+      'DOMSnapshot.captureSnapshot',
+      {
+        computedStyles: COMPUTED_STYLES,
+        includeDOMRects: true
+      },
+      browserAdapter
+    );
 
     if (!rawData || !rawData.documents || rawData.documents.length === 0) {
       throw new Error('Received empty document list from DOMSnapshot');

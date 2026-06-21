@@ -3,8 +3,11 @@ import type { BuildDomTreeArgs, RawDomTreeNode, RawDomElementNode, BuildDomTreeR
 import { type DOMState, type DOMBaseNode, DOMElementNode, DOMTextNode } from './views';
 import type { ViewportInfo } from './history/view';
 import { isNewTabPage } from '../util';
+import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
+import { ChromeBrowserAdapter } from '../../adapters/ChromeBrowserAdapter';
 
 const logger = createLogger('DOMService');
+const defaultAdapter = new ChromeBrowserAdapter();
 
 function isNotNull<T>(item: T | null | undefined): item is T {
   return item != null;
@@ -46,8 +49,12 @@ declare global {
  * @param selector - The selector to get the markdown content for. If not provided, the body of the entire page will be converted to markdown.
  * @returns The markdown content for the selected element on the current page.
  */
-export async function getMarkdownContent(tabId: number, selector?: string): Promise<string> {
-  const results = await chrome.scripting.executeScript({
+export async function getMarkdownContent(
+  tabId: number,
+  selector?: string,
+  browserAdapter: IBrowserAdapter = defaultAdapter
+): Promise<string> {
+  const results = await browserAdapter.executeScript({
     target: { tabId: tabId },
     func: sel => {
       return window.turn2Markdown(sel);
@@ -65,10 +72,14 @@ export async function getMarkdownContent(tabId: number, selector?: string): Prom
 /**
  * Get the readability content for the current page.
  * @param tabId - The ID of the tab to get the readability content for.
+ * @param browserAdapter - The browser adapter to use.
  * @returns The readability content for the current page.
  */
-export async function getReadabilityContent(tabId: number): Promise<ReadabilityResult> {
-  const results = await chrome.scripting.executeScript({
+export async function getReadabilityContent(
+  tabId: number,
+  browserAdapter: IBrowserAdapter = defaultAdapter
+): Promise<ReadabilityResult> {
+  const results = await browserAdapter.executeScript({
     target: { tabId },
     func: () => {
       return window.parserReadability();
@@ -97,6 +108,7 @@ export async function getClickableElements(
   focusElement = -1,
   viewportExpansion = 0,
   debugMode = false,
+  browserAdapter: IBrowserAdapter = defaultAdapter,
 ): Promise<DOMState> {
   const [elementTree, selectorMap] = await _buildDomTree(
     tabId,
@@ -105,6 +117,7 @@ export async function getClickableElements(
     focusElement,
     viewportExpansion,
     debugMode,
+    browserAdapter,
   );
   return { elementTree, selectorMap };
 }
@@ -116,6 +129,7 @@ async function _buildDomTree(
   focusElement = -1,
   viewportExpansion = 0,
   debugMode = false,
+  browserAdapter: IBrowserAdapter = defaultAdapter,
 ): Promise<[DOMElementNode, Map<number, DOMElementNode>]> {
   // If URL is provided and it's about:blank, return a minimal DOM tree
   if (isNewTabPage(url) || url.startsWith('chrome://')) {
@@ -133,9 +147,9 @@ async function _buildDomTree(
     return [elementTree, new Map<number, DOMElementNode>()];
   }
 
-  await injectBuildDomTreeScripts(tabId);
+  await injectBuildDomTreeScripts(tabId, browserAdapter);
 
-  const mainFrameResult = await chrome.scripting.executeScript({
+  const mainFrameResult = await browserAdapter.executeScript({
     target: { tabId },
     func: args => {
       // Access buildDomTree from the window context of the target page
@@ -168,14 +182,14 @@ async function _buildDomTree(
   const visibleIframesFailedLoading = _visibleIFramesFailedLoading(mainFramePage);
   const visibleIframesFailedLoadingCount = Object.values(visibleIframesFailedLoading).length;
   if (visibleIframesFailedLoadingCount > 0) {
-    const tabFrames = await chrome.webNavigation.getAllFrames({ tabId });
+    const tabFrames = await browserAdapter.getAllFrames({ tabId });
     const subFrames = (tabFrames ?? []).filter(frame => frame.frameId !== mainFrameResult[0].frameId).sort();
 
     // Get sub-frames info, so that we can run the buildDomTree only on the frames that failed,
     // to avoid double parsing & highlighting on the frames that succeeded.
     const frameInfoResultsRaw = await Promise.all(
       subFrames.map(async frame => {
-        const result = await chrome.scripting.executeScript({
+        const result = await browserAdapter.executeScript({
           target: { tabId, frameIds: [frame.frameId] },
           func: frameId => ({
             frameId,
@@ -202,6 +216,7 @@ async function _buildDomTree(
       frameInfoResults,
       _getMaxID(mainFramePage),
       _getMaxHighlighIndex(mainFramePage),
+      browserAdapter,
     );
     mainFramePage = frameTreeResult.resultPage;
   }
@@ -219,6 +234,7 @@ async function constructFrameTree(
   allFramesInfo: FrameInfo[],
   startingNodeId: number,
   startingHighlightIndex: number,
+  browserAdapter: IBrowserAdapter = defaultAdapter,
 ): Promise<{ maxNodeId: number; maxHighlightIndex: number; resultPage: BuildDomTreeResult }> {
   const parentIframesFailedLoading = _visibleIFramesFailedLoading(parentFramePage);
   const failedLoadingFrames = allFramesInfo.filter(frameInfo => {
@@ -239,7 +255,7 @@ async function constructFrameTree(
 
   for (const subFrame of failedLoadingFrames) {
     // Processing one frame at a time, to start from the proper highlightIndex and element id.
-    const subFrameResult = await chrome.scripting.executeScript({
+    const subFrameResult = await browserAdapter.executeScript({
       target: { tabId, frameIds: [subFrame.frameId] },
       func: args => {
         // Access buildDomTree from the window context of the target page
@@ -304,6 +320,7 @@ async function constructFrameTree(
         allFramesInfo,
         maxNodeId,
         maxHighlightIndex,
+        browserAdapter,
       );
       maxNodeId = Math.max(maxNodeId, result.maxNodeId);
       maxHighlightIndex = Math.max(maxHighlightIndex, result.maxHighlightIndex);
@@ -507,9 +524,12 @@ export function _parse_node(nodeData: RawDomTreeNode): [DOMBaseNode | null, stri
   return [elementNode, childrenIds];
 }
 
-export async function removeHighlights(tabId: number): Promise<void> {
+export async function removeHighlights(
+  tabId: number,
+  browserAdapter: IBrowserAdapter = defaultAdapter
+): Promise<void> {
   try {
-    await chrome.scripting.executeScript({
+    await browserAdapter.executeScript({
       target: { tabId, allFrames: true },
       func: () => {
         // Remove the highlight container and all its contents
@@ -551,9 +571,13 @@ export interface HighlightRect {
  * Draw visual outline highlight box and labeled overlay based on absolute page coordinates.
  * Operates with zero layout recalculation overhead since coordinates are absolute.
  */
-export async function drawHighlightOverlaysViaCoordinates(tabId: number, rects: HighlightRect[]): Promise<void> {
+export async function drawHighlightOverlaysViaCoordinates(
+  tabId: number,
+  rects: HighlightRect[],
+  browserAdapter: IBrowserAdapter = defaultAdapter
+): Promise<void> {
   try {
-    await chrome.scripting.executeScript({
+    await browserAdapter.executeScript({
       target: { tabId, allFrames: false },
       func: (rectsToDraw) => {
         // Remove existing container if any
@@ -627,11 +651,11 @@ export async function drawHighlightOverlaysViaCoordinates(tabId: number, rects: 
   }
 }
 
-
-
-
-export async function getScrollInfo(tabId: number): Promise<[number, number, number]> {
-  const results = await chrome.scripting.executeScript({
+export async function getScrollInfo(
+  tabId: number,
+  browserAdapter: IBrowserAdapter = defaultAdapter
+): Promise<[number, number, number]> {
+  const results = await browserAdapter.executeScript({
     target: { tabId: tabId },
     func: () => {
       const scrollY = window.scrollY;
@@ -653,9 +677,12 @@ export async function getScrollInfo(tabId: number): Promise<[number, number, num
 }
 
 // Function to check if script is already injected
-async function scriptInjectedFrames(tabId: number): Promise<Map<number, boolean>> {
+async function scriptInjectedFrames(
+  tabId: number,
+  browserAdapter: IBrowserAdapter = defaultAdapter
+): Promise<Map<number, boolean>> {
   try {
-    const results = await chrome.scripting.executeScript({
+    const results = await browserAdapter.executeScript({
       target: { tabId, allFrames: true },
       func: () => Object.prototype.hasOwnProperty.call(window, 'buildDomTree'),
     });
@@ -676,16 +703,19 @@ async function scriptInjectedFrames(tabId: number): Promise<Map<number, boolean>
 }
 
 // Function to inject the buildDomTree script
-export async function injectBuildDomTreeScripts(tabId: number) {
+export async function injectBuildDomTreeScripts(
+  tabId: number,
+  browserAdapter: IBrowserAdapter = defaultAdapter
+) {
   try {
     // Check if already injected
-    const injectedFrames = await scriptInjectedFrames(tabId);
+    const injectedFrames = await scriptInjectedFrames(tabId, browserAdapter);
 
     // If we couldn't check any frames or all are already injected, try to inject in main frame only
     if (injectedFrames.size === 0) {
       // Couldn't check frames, so just try to inject in the main frame
       try {
-        await chrome.scripting.executeScript({
+        await browserAdapter.executeScript({
           target: { tabId },
           files: ['dom-agent.min.js'],
         });
@@ -703,7 +733,7 @@ export async function injectBuildDomTreeScripts(tabId: number) {
     // Inject only in frames that don't have the script
     const frameIdsToInject = Array.from(injectedFrames.keys()).filter(id => !injectedFrames.get(id));
     if (frameIdsToInject.length > 0) {
-      await chrome.scripting.executeScript({
+      await browserAdapter.executeScript({
         target: {
           tabId,
           frameIds: frameIdsToInject,

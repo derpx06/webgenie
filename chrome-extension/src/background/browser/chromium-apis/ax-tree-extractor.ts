@@ -21,6 +21,9 @@ import { DOMElementNode, type DOMState } from '../dom/views';
 import { type CoordinateSet } from '../dom/history/view';
 import { cdpBridge, type AXNode, type BoxModel } from './cdp-bridge';
 import { createLogger } from '@src/background/log';
+import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
+import { ChromeBrowserAdapter } from '../../adapters/ChromeBrowserAdapter';
+import type { Page as PuppeteerPage } from 'puppeteer-core/lib/esm/puppeteer/api/Page.js';
 
 const logger = createLogger('AXTreeExtractor');
 
@@ -54,28 +57,41 @@ interface RawBoxModel {
  * The returned DOMState:
  *  - selectorMap  → only interactive nodes, each with a numeric highlightIndex
  *  - elementTree  → full semantic tree (for context/text serialization)
- *  - Interactive nodes have pageCoordinates enriched from DOM.getBoxModel
- *    (used by cdpClick in page.ts — NOT sent to the LLM prompt)
+ *  - Interactive nodes have pageCoordinates enriched from bounding box resolution.
+ *    Coordinate resolution strategy (in priority order):
+ *    1. puppeteerPage.evaluate(getBoundingClientRect) — works even when Puppeteer
+ *       owns the CDP session (avoids chrome.debugger conflict).
+ *    2. DOM.getBoxModel via cdpBridge — fallback when Puppeteer is not attached.
+ *    (Coordinates are used by cdpClick in page.ts — NOT sent to the LLM prompt)
  */
 export async function getAXTreeState(
   tabId: number,
   viewportWidth = 1280,
   viewportHeight = 900,
+  browserAdapter?: IBrowserAdapter,
+  puppeteerPage?: PuppeteerPage | null,
 ): Promise<DOMState> {
   logger.info(`[AXTreeExtractor] Starting extraction for tab ${tabId}`);
+
+  if (browserAdapter) {
+    cdpBridge.setBrowserAdapter(browserAdapter);
+  }
+  const activeAdapter = browserAdapter || new ChromeBrowserAdapter();
 
   // ── Step 1: Fetch the full main Accessibility tree ───────────────────────
   let axNodes: AXNode[] = [];
   try {
-    await cdpBridge.send(tabId, 'Accessibility.enable');
+    await cdpBridge.send(tabId, 'Accessibility.enable', {}, browserAdapter);
     const result = await cdpBridge.send<{ nodes: AXNode[] }>(
       tabId,
       'Accessibility.getFullAXTree',
+      {},
+      browserAdapter,
     );
     axNodes = result.nodes ?? [];
     logger.debug(`[AXTreeExtractor] Raw main AXTree: ${axNodes.length} nodes`);
   } finally {
-    try { await cdpBridge.send(tabId, 'Accessibility.disable'); } catch { /* non-fatal */ }
+    try { await cdpBridge.send(tabId, 'Accessibility.disable', {}, browserAdapter); } catch { /* non-fatal */ }
   }
 
   if (axNodes.length === 0) {
@@ -86,9 +102,7 @@ export async function getAXTreeState(
   // ── Step 2: Discover and query subframes (OOPIFs) ────────────────────────
   const subframeBoxes = new Map<string, BoxModel>();
   try {
-    const targets = await new Promise<chrome.debugger.TargetInfo[]>((resolve) => {
-      chrome.debugger.getTargets(resolve);
-    });
+    const targets = await activeAdapter.getDebuggerTargets();
 
     const mainTarget = targets.find(t => t.tabId === tabId && t.type === 'page');
     if (mainTarget) {
@@ -97,22 +111,17 @@ export async function getAXTreeState(
 
       for (const subTarget of childIframeTargets) {
         try {
-          await new Promise<void>((resolve, reject) => {
-            chrome.debugger.attach({ targetId: subTarget.id }, '1.3', () => {
-              if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-              else resolve();
-            });
-          });
+          await activeAdapter.attachDebugger({ targetId: subTarget.id }, '1.3');
 
-          await chrome.debugger.sendCommand({ targetId: subTarget.id }, 'Accessibility.enable');
-          const result = await chrome.debugger.sendCommand({ targetId: subTarget.id }, 'Accessibility.getFullAXTree') as { nodes: AXNode[] };
+          await activeAdapter.sendDebuggerCommand({ targetId: subTarget.id }, 'Accessibility.enable');
+          const result = await activeAdapter.sendDebuggerCommand({ targetId: subTarget.id }, 'Accessibility.getFullAXTree') as { nodes: AXNode[] };
           
           if (result && result.nodes) {
             logger.info(`[AXTreeExtractor] Fetched ${result.nodes.length} nodes for subframe target ${subTarget.id}`);
             
             // Query box models for interactive nodes in the subframe while session is active
             try {
-              await chrome.debugger.sendCommand({ targetId: subTarget.id }, 'DOM.enable');
+              await activeAdapter.sendDebuggerCommand({ targetId: subTarget.id }, 'DOM.enable');
               for (const node of result.nodes) {
                 if (
                   !node.ignored &&
@@ -121,7 +130,7 @@ export async function getAXTreeState(
                   node.backendDOMNodeId != null
                 ) {
                   try {
-                    const box = await chrome.debugger.sendCommand(
+                    const box = await activeAdapter.sendDebuggerCommand(
                       { targetId: subTarget.id },
                       'DOM.getBoxModel',
                       { backendNodeId: node.backendDOMNodeId }
@@ -144,7 +153,7 @@ export async function getAXTreeState(
                 }
               }
             } finally {
-              try { await chrome.debugger.sendCommand({ targetId: subTarget.id }, 'DOM.disable'); } catch {}
+              try { await activeAdapter.sendDebuggerCommand({ targetId: subTarget.id }, 'DOM.disable'); } catch {}
             }
 
             // Prefix IDs to prevent collisions between frames
@@ -182,12 +191,12 @@ export async function getAXTreeState(
           }
 
           try {
-            await chrome.debugger.sendCommand({ targetId: subTarget.id }, 'Accessibility.disable');
+            await activeAdapter.sendDebuggerCommand({ targetId: subTarget.id }, 'Accessibility.disable');
           } catch {}
-          await safeDetach(subTarget.id);
+          await safeDetach(subTarget.id, activeAdapter);
         } catch (subframeErr) {
           logger.warning(`[AXTreeExtractor] Error processing subframe target ${subTarget.id}:`, subframeErr);
-          await safeDetach(subTarget.id);
+          await safeDetach(subTarget.id, activeAdapter);
         }
       }
     }
@@ -271,7 +280,7 @@ export async function getAXTreeState(
   );
 
   // ── Step 5: Enrich interactive nodes with bounding boxes ─────────────────
-  await enrichWithBoundingBoxes(tabId, axNodes, domNodeMap, viewportWidth, viewportHeight, subframeBoxes);
+  await enrichWithBoundingBoxes(tabId, axNodes, domNodeMap, viewportWidth, viewportHeight, subframeBoxes, activeAdapter, puppeteerPage);
 
   return { elementTree: rootNode, selectorMap };
 }
@@ -285,6 +294,8 @@ async function enrichWithBoundingBoxes(
   viewportWidth: number,
   viewportHeight: number,
   subframeBoxes: Map<string, BoxModel>,
+  browserAdapter: IBrowserAdapter,
+  puppeteerPage?: PuppeteerPage | null,
 ): Promise<void> {
   const mainTargets = axNodes.filter(n => {
     const parts = n.nodeId.split(':');
@@ -295,31 +306,107 @@ async function enrichWithBoundingBoxes(
 
   if (mainTargets.length > 0) {
     logger.debug(`[AXTreeExtractor] Fetching main frame bounding boxes for ${mainTargets.length} nodes`);
-    await Promise.allSettled(
-      mainTargets.map(async axNode => {
-        const box = await cdpBridge.getBoxModel(tabId, axNode.backendDOMNodeId!);
-        if (!box) return;
+    let resolvedCount = 0;
+    let puppeteerCDP: any = null;
 
+    if (puppeteerPage) {
+      try {
+        puppeteerCDP = await puppeteerPage.createCDPSession();
+        await puppeteerCDP.send('DOM.enable');
+      } catch (err) {
+        logger.warning('[AXTreeExtractor] Puppeteer CDP session creation failed:', err);
+        puppeteerCDP = null;
+      }
+    }
+
+    if (!puppeteerCDP) {
+      try {
+        await cdpBridge.send(tabId, 'DOM.enable', {}, browserAdapter);
+      } catch (err) {
+        logger.warning('[AXTreeExtractor] Failed to enable DOM via cdpBridge:', err);
+      }
+    }
+
+    try {
+      await Promise.allSettled(
+        mainTargets.map(async axNode => {
+          let rawBox: RawBoxModel | null = null;
+          
+          if (puppeteerCDP) {
+            try {
+              const res = await puppeteerCDP.send('DOM.getBoxModel', { backendNodeId: axNode.backendDOMNodeId });
+              rawBox = res?.model || null;
+            } catch {
+              // ignore
+            }
+          } else {
+            try {
+              const res = await cdpBridge.send<{ model: RawBoxModel }>(
+                tabId,
+                'DOM.getBoxModel',
+                { backendNodeId: axNode.backendDOMNodeId! },
+                browserAdapter
+              );
+              rawBox = res?.model || null;
+            } catch {
+              // ignore
+            }
+          }
+
+          if (!rawBox) return;
+
+          const domNode = domNodeMap.get(axNode.nodeId);
+          if (!domNode) return;
+
+          const c = rawBox.content;
+          const box = {
+            x: (c[0] + c[4]) / 2,
+            y: (c[1] + c[5]) / 2,
+            width: Math.abs(c[2] - c[0]),
+            height: Math.abs(c[5] - c[1]),
+            left: c[0],
+            top: c[1],
+          };
+
+          const coords: CoordinateSet = {
+            topLeft:     { x: box.left,             y: box.top              },
+            topRight:    { x: box.left + box.width, y: box.top              },
+            bottomLeft:  { x: box.left,             y: box.top + box.height },
+            bottomRight: { x: box.left + box.width, y: box.top + box.height },
+            center:      { x: box.x,                y: box.y               },
+            width:       box.width,
+            height:      box.height,
+          };
+
+          domNode.pageCoordinates     = coords;
+          domNode.viewportCoordinates = coords;
+          domNode.isInViewport =
+            box.x >= 0 && box.y >= 0 &&
+            box.x < viewportWidth && box.y < viewportHeight;
+          resolvedCount++;
+        })
+      );
+    } finally {
+      if (puppeteerCDP) {
+        try { await puppeteerCDP.detach(); } catch {}
+      } else {
+        try { await cdpBridge.send(tabId, 'DOM.disable', {}, browserAdapter); } catch {}
+      }
+    }
+
+    // Safety-net: if getBoxModel failed for ALL nodes (e.g. CSP or CDP session
+    // restrictions), pageCoordinates will be undefined on every node. The pruner
+    // uses pageCoordinates as the guard for Rule 5, so this is already safe.
+    // But also set isInViewport=true so serialisation marks them correctly.
+    if (resolvedCount === 0) {
+      logger.warning('[AXTreeExtractor] No bounding boxes resolved — assuming all interactive nodes are in-viewport');
+      for (const axNode of mainTargets) {
         const domNode = domNodeMap.get(axNode.nodeId);
-        if (!domNode) return;
-
-        const coords: CoordinateSet = {
-          topLeft:     { x: box.left,             y: box.top              },
-          topRight:    { x: box.left + box.width, y: box.top              },
-          bottomLeft:  { x: box.left,             y: box.top + box.height },
-          bottomRight: { x: box.left + box.width, y: box.top + box.height },
-          center:      { x: box.x,                y: box.y               },
-          width:       box.width,
-          height:      box.height,
-        };
-
-        domNode.pageCoordinates     = coords;
-        domNode.viewportCoordinates = coords;
-        domNode.isInViewport =
-          box.x >= 0 && box.y >= 0 &&
-          box.x < viewportWidth && box.y < viewportHeight;
-      })
-    );
+        if (domNode) domNode.isInViewport = true;
+      }
+    } else {
+      logger.debug(`[AXTreeExtractor] Resolved bounding boxes for ${resolvedCount}/${mainTargets.length} nodes`);
+    }
   }
 
   // Process subframe bounding boxes relative to parent iframe coordinate offsets
@@ -404,15 +491,13 @@ function buildEmptyDOMState(): DOMState {
 }
 
 /**
- * Safely detach a debugger target, clearing any potential chrome.runtime.lastError
- * to prevent uncaught extension crashes.
+ * Safely detach a debugger target.
  */
-function safeDetach(targetId: string): Promise<void> {
-  return new Promise<void>((resolve) => {
-    chrome.debugger.detach({ targetId }, () => {
-      const _ = chrome.runtime.lastError;
-      resolve();
-    });
-  });
+async function safeDetach(targetId: string, browserAdapter: IBrowserAdapter): Promise<void> {
+  try {
+    await browserAdapter.detachDebugger({ targetId });
+  } catch {
+    // Ignore detach errors
+  }
 }
 

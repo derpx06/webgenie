@@ -13,50 +13,50 @@
  *   - Input.insertText             (Phase 3 — reliable typing)
  *   - DOM.getBoxModel              (Phase 2 — element coordinates)
  *   - Network.*                    (Phase 4 — request interception)
- */
-
-import { createLogger } from '@src/background/log';
+ */import { createLogger } from '@src/background/log';
+import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
+import { ChromeBrowserAdapter } from '../../adapters/ChromeBrowserAdapter';
 
 const logger = createLogger('CDPBridge');
-
 export class CDPBridge {
   /** Set of tabIds we have attached the debugger to */
   private attachedTabs = new Set<number>();
+  private adapter: IBrowserAdapter;
+
+  constructor(adapter?: IBrowserAdapter) {
+    this.adapter = adapter || new ChromeBrowserAdapter();
+  }
+
+  setBrowserAdapter(adapter: IBrowserAdapter) {
+    this.adapter = adapter;
+  }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-  async attach(tabId: number): Promise<void> {
+  async attach(tabId: number, adapter?: IBrowserAdapter): Promise<void> {
+    const activeAdapter = adapter || this.adapter;
     if (this.attachedTabs.has(tabId)) return;
-    await new Promise<void>((resolve, reject) => {
-      chrome.debugger.attach({ tabId }, '1.3', () => {
-        if (chrome.runtime.lastError) {
-          // Already attached by another caller (e.g. Puppeteer) — that's fine
-          const msg = chrome.runtime.lastError.message ?? '';
-          if (msg.includes('already attached')) {
-            logger.info(`[CDPBridge] Tab ${tabId} already attached — reusing session`);
-            this.attachedTabs.add(tabId);
-            resolve();
-          } else {
-            reject(new Error(msg));
-          }
-        } else {
-          logger.info(`[CDPBridge] Attached to tab ${tabId}`);
-          this.attachedTabs.add(tabId);
-          resolve();
-        }
-      });
-    });
+    try {
+      await activeAdapter.attachDebugger({ tabId }, '1.3');
+      logger.info(`[CDPBridge] Attached to tab ${tabId}`);
+      this.attachedTabs.add(tabId);
+    } catch (err: any) {
+      const msg = err?.message ?? '';
+      if (msg.includes('already attached')) {
+        logger.info(`[CDPBridge] Tab ${tabId} already attached — reusing session`);
+        this.attachedTabs.add(tabId);
+      } else {
+        throw err;
+      }
+    }
   }
 
-  async detach(tabId: number): Promise<void> {
+  async detach(tabId: number, adapter?: IBrowserAdapter): Promise<void> {
+    const activeAdapter = adapter || this.adapter;
     if (!this.attachedTabs.has(tabId)) return;
-    await new Promise<void>((resolve) => {
-      chrome.debugger.detach({ tabId }, () => {
-        this.attachedTabs.delete(tabId);
-        logger.info(`[CDPBridge] Detached from tab ${tabId}`);
-        resolve();
-      });
-    });
+    await activeAdapter.detachDebugger({ tabId });
+    this.attachedTabs.delete(tabId);
+    logger.info(`[CDPBridge] Detached from tab ${tabId}`);
   }
 
   isAttached(tabId: number): boolean {
@@ -69,21 +69,16 @@ export class CDPBridge {
    * Send a typed CDP command to a tab.
    * Automatically attaches the debugger if not already attached.
    */
-  async send<T = unknown>(tabId: number, method: string, params: object = {}): Promise<T> {
-    await this.attach(tabId);
-    return new Promise<T>((resolve, reject) => {
-      chrome.debugger.sendCommand({ tabId }, method, params as Record<string, unknown>, (result) => {
-        if (chrome.runtime.lastError) {
-          const err = chrome.runtime.lastError.message ?? `CDP error: ${method}`;
-          logger.error(`[CDPBridge] Command failed — ${method}:`, err);
-          reject(new Error(err));
-        } else {
-          resolve(result as T);
-        }
-      });
-    });
+  async send<T = unknown>(tabId: number, method: string, params: object = {}, adapter?: IBrowserAdapter): Promise<T> {
+    await this.attach(tabId, adapter);
+    const activeAdapter = adapter || this.adapter;
+    const result = await activeAdapter.sendDebuggerCommand(
+      { tabId },
+      method,
+      params as Record<string, unknown>
+    );
+    return result as T;
   }
-
   // ── Domain: Accessibility ─────────────────────────────────────────────────
 
   /**
@@ -104,11 +99,10 @@ export class CDPBridge {
    * Get the bounding box of a DOM node by its backendNodeId.
    * Returns center coordinates for click targeting.
    */
-  async getBoxModel(tabId: number, backendNodeId: number): Promise<BoxModel | null> {
+  async getBoxModel(tabId: number, backendNodeId: number, adapter?: IBrowserAdapter): Promise<BoxModel | null> {
     try {
-      const result = await this.send<{ model: RawBoxModel }>(tabId, 'DOM.getBoxModel', { backendNodeId });
+      const result = await this.send<{ model: RawBoxModel }>(tabId, 'DOM.getBoxModel', { backendNodeId }, adapter);
       const c = result.model.content;
-      // content is [x1,y1, x2,y2, x3,y3, x4,y4] (quad)
       return {
         x: (c[0] + c[4]) / 2,
         y: (c[1] + c[5]) / 2,
@@ -118,7 +112,6 @@ export class CDPBridge {
         top: c[1],
       };
     } catch {
-      // Element may be off-screen or display:none
       return null;
     }
   }

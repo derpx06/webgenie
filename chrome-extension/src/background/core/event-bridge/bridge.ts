@@ -18,6 +18,8 @@
  *   bridge.dispose(); // on extension unload
  */
 
+import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
+import { ChromeBrowserAdapter } from '../../adapters/ChromeBrowserAdapter';
 import { createLogger } from '../../log';
 
 const logger = createLogger('EventBridge');
@@ -97,6 +99,7 @@ export class TabEventBridge {
 
   private _subscribers: SubscriberMap = createEmptySubscriberMap();
   private _disposed = false;
+  private readonly _adapter: IBrowserAdapter;
 
   // Bound Chrome listener references — needed to removeListener cleanly
   private readonly _onCreated: (tab: chrome.tabs.Tab) => void;
@@ -106,7 +109,9 @@ export class TabEventBridge {
   private readonly _onMoved: (tabId: number, moveInfo: chrome.tabs.TabMoveInfo) => void;
   private readonly _onWindowFocusChanged: (windowId: number) => void;
 
-  private constructor() {
+  private constructor(adapter?: IBrowserAdapter) {
+    this._adapter = adapter || new ChromeBrowserAdapter();
+
     // Debounce onUpdated at 50ms to prevent tab-update storms.
     // Status transitions (loading → complete) fire many times per navigation.
     const debouncedUpdate = debounce(
@@ -142,26 +147,27 @@ export class TabEventBridge {
     };
 
     this._onWindowFocusChanged = (windowId) => {
-      if (windowId !== chrome.windows.WINDOW_ID_NONE) {
+      // For now, assuming WINDOW_ID_NONE = -1 which is Chrome's default
+      if (windowId !== -1) {
         this._dispatch<WindowFocusChangedEvent>('window_focus_changed', { type: 'window_focus_changed', windowId });
       }
     };
 
-    // Register all Chrome listeners exactly once
-    chrome.tabs.onCreated.addListener(this._onCreated);
-    chrome.tabs.onUpdated.addListener(this._onUpdated);
-    chrome.tabs.onRemoved.addListener(this._onRemoved);
-    chrome.tabs.onActivated.addListener(this._onActivated);
-    chrome.tabs.onMoved.addListener(this._onMoved);
-    chrome.windows.onFocusChanged.addListener(this._onWindowFocusChanged);
+    // Register all listeners exactly once
+    this._adapter.addTabCreatedListener(this._onCreated);
+    this._adapter.addTabUpdatedListener(this._onUpdated);
+    this._adapter.addTabRemovedListener(this._onRemoved);
+    this._adapter.addTabActivatedListener(this._onActivated);
+    this._adapter.addTabMovedListener(this._onMoved);
+    this._adapter.addWindowFocusChangedListener(this._onWindowFocusChanged);
 
     logger.info('TabEventBridge: listeners registered');
   }
 
   /** Get or create the singleton instance. */
-  static getInstance(): TabEventBridge {
+  static getInstance(adapter?: IBrowserAdapter): TabEventBridge {
     if (!TabEventBridge._instance) {
-      TabEventBridge._instance = new TabEventBridge();
+      TabEventBridge._instance = new TabEventBridge(adapter);
     }
     return TabEventBridge._instance;
   }
@@ -203,19 +209,19 @@ export class TabEventBridge {
   }
 
   /**
-   * Remove all Chrome listeners and clear all subscribers.
+   * Remove all listeners and clear all subscribers.
    * Call on extension unload or when the background service worker is being torn down.
    */
   dispose(): void {
     if (this._disposed) return;
     this._disposed = true;
 
-    chrome.tabs.onCreated.removeListener(this._onCreated);
-    chrome.tabs.onUpdated.removeListener(this._onUpdated);
-    chrome.tabs.onRemoved.removeListener(this._onRemoved);
-    chrome.tabs.onActivated.removeListener(this._onActivated);
-    chrome.tabs.onMoved.removeListener(this._onMoved);
-    chrome.windows.onFocusChanged.removeListener(this._onWindowFocusChanged);
+    this._adapter.removeTabCreatedListener(this._onCreated);
+    this._adapter.removeTabUpdatedListener(this._onUpdated);
+    this._adapter.removeTabRemovedListener(this._onRemoved);
+    this._adapter.removeTabActivatedListener(this._onActivated);
+    this._adapter.removeTabMovedListener(this._onMoved);
+    this._adapter.removeWindowFocusChangedListener(this._onWindowFocusChanged);
 
     for (const key of Object.keys(this._subscribers) as TabEventType[]) {
       this._subscribers[key].clear();

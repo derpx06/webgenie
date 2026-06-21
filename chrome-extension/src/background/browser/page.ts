@@ -95,6 +95,7 @@ export default class Page {
     this._state = build_initial_state(tabId, url, title);
     this._browserAdapter = browserAdapter || new ChromeBrowserAdapter();
     this._storageProvider = storageProvider || new ChromeStorageProvider();
+    cdpBridge.setBrowserAdapter(this._browserAdapter);
     // chrome://newtab/, chrome://newtab/extensions, https://chromewebstore.google.com/ are not valid web pages, can't be attached
     const lowerCaseUrl = url.trim().toLowerCase();
     this._validWebPage =
@@ -348,7 +349,7 @@ export default class Page {
 
   async removeHighlight(): Promise<void> {
     if (this._validWebPage) {
-      await _removeHighlights(this._tabId);
+      await _removeHighlights(this._tabId, this._browserAdapter);
     }
   }
 
@@ -366,12 +367,10 @@ export default class Page {
 
     const mode = this._config.domPerceptionMode ?? 'snapshot';
 
-    // ── Path A: AXTree-first ──────────────────────────────────────────────────
-    // Token-efficient, CSP-proof. Uses native Accessibility domain, no script injection.
     if (mode === 'axtree') {
       try {
         const { width, height } = this._config.browserWindowSize;
-        const rawState = await getAXTreeState(this._tabId, width, height);
+        const rawState = await getAXTreeState(this._tabId, width, height, this._browserAdapter, this._puppeteerPage);
         if (rawState && rawState.selectorMap.size > 0) {
           let goal: string | undefined;
           try {
@@ -400,7 +399,8 @@ export default class Page {
     // Current default. Coordinate-rich, high-fidelity, CSP-proof via CDP.
     if (mode === 'snapshot' || mode === 'axtree') {
       try {
-        const state = await getDOMStateViaSnapshot(this._tabId);
+        const { width, height } = this._config.browserWindowSize;
+        const state = await getDOMStateViaSnapshot(this._tabId, width, height, this._browserAdapter);
         if (state && state.selectorMap.size > 0) {
           if (showHighlightElements) {
             await this._drawHighlightsFromCoords(state);
@@ -427,6 +427,8 @@ export default class Page {
       showHighlightElements,
       focusElement,
       this._config.viewportExpansion,
+      false,
+      this._browserAdapter,
     );
   }
 
@@ -448,7 +450,7 @@ export default class Page {
       }
     }
     if (rects.length > 0) {
-      await drawHighlightOverlaysViaCoordinates(this._tabId, rects);
+      await drawHighlightOverlaysViaCoordinates(this._tabId, rects, this._browserAdapter);
     }
   }
 
@@ -508,7 +510,7 @@ export default class Page {
     if (!this._validWebPage) {
       return [0, 0, 0];
     }
-    return _getScrollInfo(this._tabId);
+    return _getScrollInfo(this._tabId, this._browserAdapter);
   }
 
   // Get scroll position information for a specific element.

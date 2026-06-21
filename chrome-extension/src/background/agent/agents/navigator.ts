@@ -318,7 +318,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
   private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
     const results: ActionResult[] = [];
-    let errCount = 0;
+    const errCount = 0;
     const browserContext = this.context.browserContext;
     const browserState = await browserContext.getCachedState(this.context.options.useVision);
     const cachedPathHashes = await calcBranchPathHashSet(browserState);

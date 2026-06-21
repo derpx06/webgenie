@@ -38,6 +38,10 @@ export default class BrowserContext {
     return this._config;
   }
 
+  public get browser(): IBrowserAdapter {
+    return this._browserAdapter;
+  }
+
   public updateConfig(config: Partial<BrowserContextConfig>): void {
     this._config = { ...this._config, ...config };
   }

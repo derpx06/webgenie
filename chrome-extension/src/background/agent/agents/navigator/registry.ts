@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { Action } from '../../actions/builder';
-import { buildDynamicActionSchema } from '../../actions/builder';
+import { Action , buildDynamicActionSchema } from '../../actions/builder';
 import { agentBrainSchema } from '../../types';
 
 export class NavigatorActionRegistry {

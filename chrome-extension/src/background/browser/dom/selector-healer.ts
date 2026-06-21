@@ -1,5 +1,5 @@
-import { DOMElementNode } from './views';
-import { DOMHistoryElement } from './history/view';
+import type { DOMElementNode } from './views';
+import type { DOMHistoryElement } from './history/view';
 
 export interface HealCandidate {
   node: DOMElementNode;
@@ -38,14 +38,12 @@ export function calculateSimilarityScore(
 
   // 3. Stable developer test IDs (30%)
   const testIdKeys = ['data-testid', 'data-cy', 'data-test', 'data-qa'];
-  let testIdMatched = false;
   for (const key of testIdKeys) {
     const targetVal = targetAttributes[key];
     const candidateVal = candidate.attributes[key];
     if (targetVal && candidateVal && targetVal === candidateVal) {
       score += 0.30;
       matchedBy.push(key);
-      testIdMatched = true;
       break;
     }
   }

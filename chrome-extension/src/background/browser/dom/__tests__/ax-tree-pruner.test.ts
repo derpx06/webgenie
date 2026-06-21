@@ -77,6 +77,15 @@ describe('AXTreePruner V2 - Goal-Directed Pruning', () => {
       isVisible: true,
     });
 
+    // Supply pageCoordinates to simulate a *confirmed* off-screen element.
+    // Without coordinates the pruner cannot know the element is off-screen
+    // (getBoxModel may have simply failed), so it leaves the element alone.
+    const offscreenCoords = {
+      topLeft: { x: 0, y: 5000 }, topRight: { x: 100, y: 5000 },
+      bottomLeft: { x: 0, y: 5050 }, bottomRight: { x: 100, y: 5050 },
+      center: { x: 50, y: 5025 }, width: 100, height: 50,
+    };
+
     const child = new DOMElementNode({
       tagName: 'BUTTON',
       xpath: '/div/button',
@@ -86,6 +95,7 @@ describe('AXTreePruner V2 - Goal-Directed Pruning', () => {
       isInViewport: false,
       highlightIndex: 3,
       parent: root,
+      pageCoordinates: offscreenCoords,
     });
     root.children.push(child);
 

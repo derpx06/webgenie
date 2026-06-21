@@ -6,7 +6,7 @@ import { Actors, ExecutionState } from '../event/types';
 import { handleAgentError } from './utils/error-handler';
 import { preparePlannerMessages, cleanPlannerOutput } from './planner/utils';
 import { ContextBuilder } from '../memory';
-import { HumanMessage } from '@langchain/core/messages';
+import type { HumanMessage } from '@langchain/core/messages';
 
 const logger = createLogger('PlannerAgent');
 
