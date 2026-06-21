@@ -114,10 +114,10 @@ importers:
         version: 5.5.4
       vite:
         specifier: ^6.4.2
-        version: 6.4.2(@types/node@22.19.17)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)
+        version: 6.4.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)
       vite-plugin-node-polyfills:
         specifier: ^0.26.0
-        version: 0.26.0(rollup@4.60.3)(vite@6.4.2(@types/node@22.19.17)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4))
+        version: 0.26.0(rollup@4.60.3)(vite@6.4.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4))
 
   chrome-extension:
     dependencies:
@@ -157,6 +157,9 @@ importers:
       '@langchain/xai':
         specifier: ^0.1.0
         version: 0.1.0(@langchain/core@0.3.79(openai@5.12.2(ws@8.18.3)(zod@3.25.76)))(ws@8.18.3)
+      dexie:
+        specifier: ^4.4.4
+        version: 4.4.4
       jsonrepair:
         specifier: ^3.13.1
         version: 3.13.1
@@ -444,7 +447,7 @@ importers:
         version: 8.5.14
       postcss-load-config:
         specifier: ^6.0.1
-        version: 6.0.1(jiti@1.21.7)(postcss@8.5.14)(tsx@4.20.6)(yaml@2.8.4)
+        version: 6.0.1(jiti@2.7.0)(postcss@8.5.14)(tsx@4.20.6)(yaml@2.8.4)
       tailwindcss:
         specifier: ^3.4.0
         version: 3.4.19(tsx@4.20.6)(yaml@2.8.4)
@@ -2361,6 +2364,9 @@ packages:
 
   devtools-protocol@0.0.1521046:
     resolution: {integrity: sha512-vhE6eymDQSKWUXwwA37NtTTVEzjtGVfDr3pRbsWEQ5onH/Snp2c+2xZHWJJawG/0hCCJLRGt4xVtEVUVILol4w==}
+
+  dexie@4.4.4:
+    resolution: {integrity: sha512-jIwsYI8Os2hgnqc6O49YwFDKGc5v5QjGx0wPVp543ip1F53VFAKMLthV2pQosQcVTv3eAskTWYspOx195PM0FQ==}
 
   didyoumean@1.2.2:
     resolution: {integrity: sha512-gxtyfqMg7GKyhQmb056K7M3xszy/myH8w+B4RT+QXBQsvAOdc3XymqDDPHx1BgPgsdAA5SIifona89YtRATDzw==}
@@ -7160,6 +7166,8 @@ snapshots:
 
   devtools-protocol@0.0.1521046: {}
 
+  dexie@4.4.4: {}
+
   didyoumean@1.2.2: {}
 
   diff@4.0.2: {}
@@ -10061,11 +10069,11 @@ snapshots:
       - supports-color
       - terser
 
-  vite-plugin-node-polyfills@0.26.0(rollup@4.60.3)(vite@6.4.2(@types/node@22.19.17)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)):
+  vite-plugin-node-polyfills@0.26.0(rollup@4.60.3)(vite@6.4.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)):
     dependencies:
       '@rollup/plugin-inject': 5.0.5(rollup@4.60.3)
       node-stdlib-browser: 1.3.1
-      vite: 6.4.2(@types/node@22.19.17)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)
+      vite: 6.4.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)
     transitivePeerDependencies:
       - rollup
 
@@ -10079,7 +10087,7 @@ snapshots:
       fsevents: 2.3.3
       terser: 5.46.2
 
-  vite@6.4.2(@types/node@22.19.17)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4):
+  vite@6.4.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4):
     dependencies:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.4)
@@ -10090,7 +10098,7 @@ snapshots:
     optionalDependencies:
       '@types/node': 22.19.17
       fsevents: 2.3.3
-      jiti: 2.7.0
+      jiti: 1.21.7
       terser: 5.46.2
       tsx: 4.20.6
       yaml: 2.8.4
