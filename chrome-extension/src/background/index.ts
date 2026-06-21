@@ -43,14 +43,7 @@ let currentPort: chrome.runtime.Port | null = null;
 const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');
 const PENDING_OMNIBOX_KEY = 'pendingOmniboxPrompt';
 
-// Enterprise Scaling: Keep-Alive Heartbeat
-// MV3 Service Workers die after 30s. We tick Chrome's APIs every 15s to reset the idle timer.
-chrome.alarms.create('keep-alive-heartbeat', { periodInMinutes: 0.25 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'keep-alive-heartbeat') {
-    chrome.storage.session.get(null).catch(() => {});
-  }
-});
+
 
 // Initialize the Tab Orchestrator (single instance, event-driven, no polling)
 const tabOrchestrator = TabOrchestrator.getInstance();
