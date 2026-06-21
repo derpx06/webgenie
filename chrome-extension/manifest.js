@@ -80,6 +80,7 @@ const manifest = withOperaSidebar(
       'sessions',
       'system.cpu',
       'offscreen',
+      'alarms',
     ],
     omnibox: {
       keyword: 'genie',
