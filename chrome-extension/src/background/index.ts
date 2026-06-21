@@ -31,6 +31,7 @@ import { analytics } from './services/analytics';
 import { TabOrchestrator } from './core/tab-orchestrator/index';
 import * as allSchemas from './agent/actions/schemas';
 import type { ActionSchema } from './agent/actions/schemas';
+import { clearHighlightOverlays } from './browser/dom/service';
 
 const logger = createLogger('background');
 
@@ -521,7 +522,13 @@ chrome.runtime.onConnect.addListener(port => {
       // this event is also triggered when the side panel is closed, so we need to cancel the task
       console.log('Side panel disconnected');
       currentPort = null;
-      currentExecutor?.cancel();
+      if (currentExecutor) {
+        const tabId = currentExecutor.getCurrentTabId();
+        if (tabId) {
+          clearHighlightOverlays(tabId, browserAdapter).catch(err => logger.error('Failed to clear overlays on disconnect', err));
+        }
+        currentExecutor.cancel();
+      }
       keepAliveManager.stopKeepAlive().catch(() => {});
     });
   } else if (port.name === 'enterprise-keep-alive') {

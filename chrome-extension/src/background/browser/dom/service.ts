@@ -651,6 +651,23 @@ export async function drawHighlightOverlaysViaCoordinates(
   }
 }
 
+export async function clearHighlightOverlays(
+  tabId: number,
+  browserAdapter: IBrowserAdapter = defaultAdapter
+): Promise<void> {
+  try {
+    await browserAdapter.executeScript({
+      target: { tabId, allFrames: false },
+      func: () => {
+        const oldContainer = document.getElementById('playwright-highlight-container');
+        if (oldContainer) oldContainer.remove();
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to clear highlight overlays:', error);
+  }
+}
+
 export async function getScrollInfo(
   tabId: number,
   browserAdapter: IBrowserAdapter = defaultAdapter

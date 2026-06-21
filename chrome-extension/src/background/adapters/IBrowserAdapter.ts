@@ -54,8 +54,10 @@ export interface IBrowserAdapter {
 
   // Bookmarks Management
   getBookmarksTree(): Promise<chrome.bookmarks.BookmarkTreeNode[]>;
-  searchBookmarks(query: string | any): Promise<chrome.bookmarks.BookmarkTreeNode[]>;
+  searchBookmarks(query: string | object): Promise<chrome.bookmarks.BookmarkTreeNode[]>;
   createBookmark(bookmark: any): Promise<chrome.bookmarks.BookmarkTreeNode>;
+  removeBookmark(id: string): Promise<void>;
+  getRecentBookmarks(numberOfItems: number): Promise<chrome.bookmarks.BookmarkTreeNode[]>;
 
   // Window Management
   getCurrentWindow(): Promise<chrome.windows.Window>;
