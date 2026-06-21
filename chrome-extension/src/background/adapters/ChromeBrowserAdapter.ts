@@ -211,7 +211,13 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
     return new Promise((resolve) => chrome.sessions.getRecentlyClosed(filter || {}, resolve));
   }
   async restoreSession(sessionId?: string): Promise<chrome.sessions.Session> {
-    return new Promise((resolve) => chrome.sessions.restore(sessionId, resolve));
+    return new Promise((resolve) => {
+      if (sessionId) {
+        chrome.sessions.restore(sessionId, resolve);
+      } else {
+        chrome.sessions.restore(resolve);
+      }
+    });
   }
 
   // Browsing Data
@@ -236,7 +242,7 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
       });
     });
   }
-  async updateContextMenu(id: string | number, updateProperties: chrome.contextMenus.UpdateProperties): Promise<void> {
+  async updateContextMenu(id: string | number, updateProperties: Omit<chrome.contextMenus.CreateProperties, "id">): Promise<void> {
     return new Promise((resolve, reject) => {
       chrome.contextMenus.update(id, updateProperties, () => {
         if (chrome.runtime.lastError) reject(chrome.runtime.lastError);

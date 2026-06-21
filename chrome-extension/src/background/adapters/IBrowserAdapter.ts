@@ -90,7 +90,7 @@ export interface IBrowserAdapter {
 
   // Context Menus
   createContextMenu(createProperties: chrome.contextMenus.CreateProperties): Promise<void>;
-  updateContextMenu(id: string | number, updateProperties: chrome.contextMenus.UpdateProperties): Promise<void>;
+  updateContextMenu(id: string | number, updateProperties: Omit<chrome.contextMenus.CreateProperties, "id">): Promise<void>;
   removeContextMenu(menuItemId: string | number): Promise<void>;
   removeAllContextMenus(): Promise<void>;
 }

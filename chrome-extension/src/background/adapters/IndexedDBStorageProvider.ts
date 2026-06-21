@@ -2,7 +2,7 @@ import Dexie from 'dexie';
 import type { IStorageProvider } from './IStorageProvider';
 
 export class WebGenieDB extends Dexie {
-  keyValues: Dexie.Table<{ key: string, value: any }, string>;
+  keyValues!: Dexie.Table<{ key: string, value: any }, string>;
 
   constructor() {
     super('WebGenieEnterpriseDB');
