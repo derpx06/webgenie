@@ -514,6 +514,47 @@ chrome.runtime.onConnect.addListener(port => {
   }
 });
 
+// Context Menu integration
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: 'webgenie-summarize',
+    title: 'Ask WebGenie to summarize this page',
+    contexts: ['page']
+  });
+  chrome.contextMenus.create({
+    id: 'webgenie-explain',
+    title: 'Ask WebGenie to explain "%s"',
+    contexts: ['selection']
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (!tab || !tab.windowId) return;
+
+  let prompt = '';
+  if (info.menuItemId === 'webgenie-summarize') {
+    prompt = 'Summarize this page.';
+  } else if (info.menuItemId === 'webgenie-explain' && info.selectionText) {
+    prompt = `Explain this text: "${info.selectionText}"`;
+  }
+
+  if (!prompt) return;
+
+  // Open side panel and save prompt
+  chrome.sidePanel.open({ windowId: tab.windowId }).catch(err => {
+    logger.error('ContextMenus: failed to open side panel:', err);
+  });
+
+  chrome.storage.session
+    .set({ [PENDING_OMNIBOX_KEY]: prompt })
+    .then(() => {
+      logger.info('ContextMenus: saved pending prompt to session storage:', prompt);
+    })
+    .catch(err => {
+      logger.error('ContextMenus: failed to save prompt:', err);
+    });
+});
+
 // Omnibox integration: typing `genie` + space sends prompt to side panel.
 chrome.omnibox.setDefaultSuggestion({
   description: 'WebGenie — run: %s',
