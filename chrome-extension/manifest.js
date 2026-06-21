@@ -74,6 +74,11 @@ const manifest = withOperaSidebar(
       'readingList',
       'history',
       'downloads',
+      'browsingData',
+      'management',
+      'contextMenus',
+      'sessions',
+      'system.cpu',
     ],
     omnibox: {
       keyword: 'genie',

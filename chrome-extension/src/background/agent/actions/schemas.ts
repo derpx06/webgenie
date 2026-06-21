@@ -258,19 +258,25 @@ export const getCompletePageContentActionSchema: ActionSchema = {
 
 export const chromeControlActionSchema: ActionSchema = {
   name: 'chrome_control',
-  description: 'Query or manage Chrome bookmarks, reading list, history, and downloads.',
+  description: 'Query or manage Chrome bookmarks, reading list, history, downloads, tabGroups, windows, privacy, extensions, system, and sessions.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
-    subsystem: z.enum(['bookmarks', 'readingList', 'history', 'downloads']).describe('The Chrome subsystem to control'),
+    subsystem: z.enum(['bookmarks', 'readingList', 'history', 'downloads', 'tabGroups', 'windows', 'privacy', 'extensions', 'system', 'sessions']).describe('The Chrome subsystem to control'),
     action: z.enum([
       'getFlat', 'search', 'create', // Bookmarks
       'query', 'getUnread', 'add', 'markAsRead', // Reading List
       'getRecent', 'getFrequentDomains', // History
-      'download', 'searchDownloads'    // Downloads
+      'download', 'searchDownloads',   // Downloads
+      'groupTabs', 'ungroupTabs', 'updateGroup', // TabGroups
+      'getAllWindows', 'getCurrentWindow', // Windows
+      'clearData', // Privacy
+      'getAll', 'setEnabled', // Extensions
+      'getCpu', 'getMemory', // System
+      'getRecentlyClosed', 'restore' // Sessions
     ]).describe('The action to perform in the selected subsystem'),
     query: z.string().optional().describe('Text query/search term for searching bookmarks, history, reading list, or downloads'),
     url: z.string().optional().describe('URL for adding to / updating in reading list, downloading, or bookmarking'),
-    title: z.string().optional().describe('Title of the reading list item or bookmark to add'),
+    title: z.string().optional().describe('Title of the reading list item, bookmark, or tab group to add/update'),
     filename: z.string().optional().describe('Filename or relative path to save the downloaded file to'),
     conflictAction: z.enum(['uniquify', 'overwrite', 'prompt']).optional().describe('Action to resolve download conflicts'),
     saveAs: z.boolean().optional().describe('Whether to prompt the user with a Save As dialog box for downloads'),
@@ -279,6 +285,16 @@ export const chromeControlActionSchema: ActionSchema = {
     minVisitCount: z.number().int().optional().describe('Minimum visit count threshold for domain analysis'),
     folderPath: z.string().optional().describe('Filter bookmarks by folder path name'),
     parentId: z.string().optional().describe('Parent folder ID to create a bookmark in (optional)'),
+    tabIds: z.array(z.number().int()).optional().describe('Array of tab IDs to group or ungroup'),
+    groupId: z.number().int().optional().describe('ID of the tab group to update'),
+    windowId: z.number().int().optional().describe('Window ID to target or open groups in'),
+    color: z.enum(['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange']).optional().describe('Color to set for a tab group'),
+    collapsed: z.boolean().optional().describe('Whether to collapse or expand a tab group'),
+    clearTypes: z.array(z.enum(['appcache', 'cache', 'cacheStorage', 'cookies', 'downloads', 'fileSystems', 'formData', 'history', 'indexedDB', 'localStorage', 'passwords', 'serviceWorkers', 'webSQL'])).optional().describe('Data types to clear for privacy'),
+    clearSince: z.number().optional().describe('Epoch timestamp (in ms) to clear data since. If not provided, clears all time.'),
+    extensionId: z.string().optional().describe('Extension ID to enable/disable'),
+    extensionEnabled: z.boolean().optional().describe('Whether to enable or disable the extension'),
+    sessionId: z.string().optional().describe('Session ID to restore'),
   }),
 };
 

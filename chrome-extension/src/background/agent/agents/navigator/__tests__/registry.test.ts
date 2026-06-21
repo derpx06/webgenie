@@ -15,9 +15,9 @@ describe('NavigatorActionRegistry DRAFT & Tool Availability', () => {
 
     // 1. Verify schema has all subsystems on a public page
     const publicSchema = registry.setupModelOutputSchema('https://google.com') as z.ZodObject<any>;
-    const publicActionSchema = publicSchema.shape.action.element.shape.chrome_control.unwrap().unwrap();
+    const publicActionSchema = publicSchema.shape.action.element.shape.chrome_control.unwrap().unwrap() as any;
     const publicSubsystems = publicActionSchema.shape.subsystem._def.values;
-    expect(publicSubsystems).toEqual(['bookmarks', 'readingList', 'history', 'downloads']);
+    expect(publicSubsystems).toEqual(['bookmarks', 'readingList', 'history', 'downloads', 'tabGroups', 'windows', 'privacy', 'extensions', 'system', 'sessions']);
 
     // 2. Refine description on failure (DRAFT)
     registry.refineActionDescription('chrome_control', 'Invalid query', { subsystem: 'history' });
