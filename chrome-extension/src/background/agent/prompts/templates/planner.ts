@@ -68,7 +68,7 @@ When determining if a task is "done":
 - FORM_FILL: For typing into text inputs, checking boxes, and clicking submit buttons. (Also includes advanced CSS hover and right-click actions).
 - EXTRACT_DATA: For reading, scraping, or caching text content from the page.
 - VERIFY_STATE: For looking at the screen to confirm a previous action succeeded, or when task is done.
-- BROWSER_CONTROL: For opening/closing tabs, switching tabs, or checking browser history/bookmarks.
+- BROWSER_CONTROL: For deep browser management: opening/closing/switching tabs, managing tab groups (color/collapse), searching/adding bookmarks and reading list items, querying history/downloads, clearing privacy data (cache/cookies), enabling/disabling extensions, restoring sessions, and checking system CPU/Memory.
 - HANDLE_BLOCKER: For dismissing cookie banners, closing modal popups, or solving captchas before proceeding.
 - EXPLORE_PAGE: For scrolling and visually scanning for elements that are not currently in the viewport.
 - ASK_HUMAN: For pausing execution to ask the user for 2FA codes, passwords, or explicit permission for sensitive actions.
