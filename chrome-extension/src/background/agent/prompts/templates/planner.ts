@@ -65,7 +65,7 @@ When determining if a task is "done":
 # MACRO OBJECTIVES (Choose exactly one):
 - NAVIGATE: For navigating to new URLs or clicking top-level navigation links.
 - SEARCH: For typing into search bars and filtering lists.
-- FORM_FILL: For typing into text inputs, checking boxes, and clicking submit buttons.
+- FORM_FILL: For typing into text inputs, checking boxes, and clicking submit buttons. (Also includes advanced CSS hover and right-click actions).
 - EXTRACT_DATA: For reading, scraping, or caching text content from the page.
 - VERIFY_STATE: For looking at the screen to confirm a previous action succeeded, or when task is done.
 - BROWSER_CONTROL: For opening/closing tabs, switching tabs, or checking browser history/bookmarks.

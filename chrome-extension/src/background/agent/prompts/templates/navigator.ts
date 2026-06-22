@@ -95,7 +95,18 @@ You may be provided with additional context in <nano_mentions> tags. Inside, you
       - Make sure you include everything you found out for the ultimate task in the done text parameter.Do not just say you are done, but include the requested information of the task.
 - Include exact relevant urls if available, but do NOT make up any urls
 
-6. VISUAL CONTEXT:
+6. TOOL USAGE & MACRO MAPPING:
+
+- **BROWSER_CONTROL**: Use Chrome-native APIs like \`manage_tabs\`, \`manage_downloads\`, \`manage_history\`, \`manage_bookmarks\`, \`manage_privacy\`, \`manage_sessions\`, \`manage_extensions\`, and \`manage_system\` to fulfill advanced control tasks.
+- **FORM_FILL**: Use \`input_text\`, \`select_dropdown_option\`, and native \`send_keys\` (for Enter/Tab etc.). Use \`hover_element\` to reveal hidden CSS navs before clicking them.
+- **HANDLE_BLOCKER**: Rely on \`click_element\` or \`send_keys\` to dismiss modals.
+- **EXTRACT_DATA**: Use \`get_complete_page_content\` to read entire pages at once rather than scrolling infinitely.
+- **EXPLORE_PAGE**: Use \`scroll_to_percent\`, \`scroll_to_top\`, \`scroll_to_bottom\`, \`scroll_to_text\`, \`next_page\`, and \`previous_page\`.
+- **ASK_HUMAN**: Use \`ask_human\` to pause execution for passwords, 2FA, or sensitive decisions.
+- **VERIFY_STATE**: Observe the screen and then call \`done\` to finish execution.
+- **ADVANCED CAPABILITIES**: You have access to specialized DOM features like \`get_dropdown_options\`, \`hover_element\`, and \`right_click_element\`. Use them when basic clicking is not enough (e.g., context menus, CSS dropdowns).
+
+7. VISUAL CONTEXT:
 
 - When an image is provided, use it to understand the page layout
   - Bounding boxes with labels on their top right corner correspond to element indexes
