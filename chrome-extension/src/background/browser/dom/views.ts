@@ -227,13 +227,28 @@ export class DOMElementNode extends DOMBaseNode {
       includeAttributes = DEFAULT_INCLUDE_ATTRIBUTES;
     }
 
+    const SEMANTIC_LAYOUT_TAGS = ['nav', 'header', 'main', 'footer', 'aside', 'section', 'ul', 'ol', 'table', 'form', 'article', 'dialog', 'menu'];
+    const SEMANTIC_ROLES = ['navigation', 'banner', 'main', 'contentinfo', 'complementary', 'list', 'table', 'form', 'dialog'];
+
     const processNode = (node: DOMBaseNode, depth: number): void => {
       let nextDepth = depth;
       const depthStr = '\t'.repeat(depth);
 
       if (node instanceof DOMElementNode) {
-        // Add element with highlight_index
-        if (node.highlightIndex !== null) {
+        const isClickable = node.highlightIndex !== null;
+        
+        let isSemanticLayout = false;
+        if (!isClickable) {
+          const tagLower = (node.tagName ?? '').toLowerCase();
+          const roleLower = (node.attributes.role ?? '').toLowerCase();
+          if (SEMANTIC_LAYOUT_TAGS.includes(tagLower) || SEMANTIC_ROLES.includes(roleLower)) {
+            isSemanticLayout = true;
+          }
+        }
+
+        const startIndex = formattedText.length;
+
+        if (isClickable) {
           nextDepth += 1;
 
           const text = node.getAllTextTillNextClickableElement();
@@ -248,65 +263,38 @@ export class DOMElementNode extends DOMBaseNode {
               }
             }
 
-            // If value of any of the attributes is the same as ANY other value attribute only include the one that appears first in includeAttributes
-            // WARNING: heavy vibes, but it seems good enough for saving tokens (it kicks in hard when it's long text)
-
-            // Pre-compute ordered keys that exist in both lists (faster than repeated lookups)
             const orderedKeys = includeAttributes.filter(key => key in attributesToInclude);
 
             if (orderedKeys.length > 1) {
-              // Only process if we have multiple attributes
-              const keysToRemove = new Set<string>(); // Use set for O(1) lookups
-              const seenValues: Record<string, string> = {}; // value -> first_key_with_this_value
+              const keysToRemove = new Set<string>();
+              const seenValues: Record<string, string> = {};
 
               for (const key of orderedKeys) {
                 const value = attributesToInclude[key];
                 if (value.length > 5) {
-                  // to not remove false, true, etc
                   if (value in seenValues) {
-                    // This value was already seen with an earlier key, so remove this key
                     keysToRemove.add(key);
                   } else {
-                    // First time seeing this value, record it
                     seenValues[value] = key;
                   }
                 }
               }
 
-              // Remove duplicate keys (no need to check existence since we know they exist)
               for (const key of keysToRemove) {
                 delete attributesToInclude[key];
               }
             }
 
-            // Easy LLM optimizations
-            // if tag == role attribute, don't include it
             if (node.tagName === attributesToInclude.role) {
               delete attributesToInclude.role;
             }
 
-            // Remove redundant role attributes matching standard native HTML tags
             const REDUNDANT_ROLES_FOR_TAGS: Record<string, string> = {
-              'a': 'link',
-              'button': 'button',
-              'input': 'textbox',
-              'textarea': 'textbox',
-              'select': 'combobox',
-              'option': 'option',
-              'img': 'img',
-              'h1': 'heading',
-              'h2': 'heading',
-              'h3': 'heading',
-              'h4': 'heading',
-              'h5': 'heading',
-              'h6': 'heading',
-              'li': 'listitem',
-              'ul': 'list',
-              'ol': 'list',
-              'table': 'table',
-              'tr': 'row',
-              'td': 'gridcell',
-              'th': 'columnheader',
+              'a': 'link', 'button': 'button', 'input': 'textbox', 'textarea': 'textbox',
+              'select': 'combobox', 'option': 'option', 'img': 'img', 'h1': 'heading',
+              'h2': 'heading', 'h3': 'heading', 'h4': 'heading', 'h5': 'heading',
+              'h6': 'heading', 'li': 'listitem', 'ul': 'list', 'ol': 'list',
+              'table': 'table', 'tr': 'row', 'td': 'gridcell', 'th': 'columnheader',
             };
             const tagLower = (node.tagName ?? '').toLowerCase();
             if (
@@ -316,7 +304,6 @@ export class DOMElementNode extends DOMBaseNode {
               delete attributesToInclude.role;
             }
 
-            // Remove attributes that duplicate the node's text content
             const attrsToRemoveIfTextMatches = ['aria-label', 'placeholder', 'title'];
             for (const attr of attrsToRemoveIfTextMatches) {
               if (
@@ -327,13 +314,11 @@ export class DOMElementNode extends DOMBaseNode {
               }
             }
 
-            // Mark off-screen elements
             if (!node.isInViewport) {
               attributesToInclude['offscreen'] = 'true';
             }
 
              if (Object.keys(attributesToInclude).length > 0) {
-               // Format as key="value" with dynamic caps based on key importance
                attributesHtmlStr = Object.entries(attributesToInclude)
                  .map(([key, value]) => {
                    let capLimit = 15;
@@ -350,35 +335,43 @@ export class DOMElementNode extends DOMBaseNode {
              }
            }
  
-           // Build the line
            const highlightIndicator = node.isNew ? `*[${node.highlightIndex}]` : `[${node.highlightIndex}]`;
- 
            let line = `${depthStr}${highlightIndicator}<${node.tagName ?? 'DIV'}`;
- 
            if (attributesHtmlStr) {
              line += ` ${attributesHtmlStr}`;
            }
- 
            if (text) {
-             // Add space before >text only if there were NO attributes added before
              const trimmedText = text.trim();
              if (!attributesHtmlStr) {
                line += ' ';
              }
              line += `>${trimmedText}`;
            }
- 
-           // makes sense to have if the website has lots of text -> so the LLM knows which things are part of the same clickable element and which are not
-           line += ' />'; // 1 token
-          formattedText.push(line);
+           line += ' />';
+           formattedText.push(line);
+        } else if (isSemanticLayout) {
+          nextDepth += 1;
+          let layoutLine = `${depthStr}<${node.tagName ?? 'DIV'}`;
+          if (node.attributes.role) {
+            layoutLine += ` role="${node.attributes.role}"`;
+          }
+          if (node.attributes['aria-label']) {
+            layoutLine += ` aria-label="${node.attributes['aria-label']}"`;
+          }
+          layoutLine += `>`;
+          formattedText.push(layoutLine);
         }
 
         // Process children regardless
         for (const child of node.children) {
           processNode(child, nextDepth);
         }
+
+        // Auto-prune empty semantic layouts
+        if (isSemanticLayout && formattedText.length === startIndex + 1) {
+           formattedText.pop(); // Remove the layout tag since no printable children were found
+        }
       } else if (node instanceof DOMTextNode) {
-        // Add text only if it doesn't have a highlighted parent
         if (node.hasParentWithHighlightIndex()) {
           return;
         }

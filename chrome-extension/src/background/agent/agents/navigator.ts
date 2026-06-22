@@ -74,7 +74,8 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     try {
       const currentPage = await this.context.browserContext.getCurrentPage().catch(() => null);
       const currentUrl = currentPage?.url() || '';
-      this.modelOutputSchema = this.actionRegistry.setupModelOutputSchema(currentUrl);
+      const macroObjective = this.context.lastMacroObjective;
+      this.modelOutputSchema = this.actionRegistry.setupModelOutputSchema(currentUrl, macroObjective);
       this.jsonSchema = convertZodToJsonSchema(this.modelOutputSchema, 'NavigatorAgentOutput', true);
     } catch (e) {
       logger.error('Failed to dynamically update schema for invoke:', e);
@@ -248,6 +249,37 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     const currentState = await this.context.browserContext.getCachedState();
     if (currentState.screenshot) {
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.SIGHT_UPDATE, 'Sight updated', currentState.screenshot);
+    }
+
+    // Fast-Path Selection: Check memory store for learned selectors
+    try {
+      const currentUrl = currentState.url;
+      if (currentUrl && this.context.lastGoal) {
+        const domain = new URL(currentUrl).hostname;
+        const pagePath = ContextRouter.getPagePath(currentUrl);
+        const layoutHash = this.context.activeLayoutHash;
+        
+        if (domain && pagePath && layoutHash) {
+          const learnedSelectors = await WebGenieMemoryStore.recallSelectors(
+            domain, pagePath, layoutHash
+          );
+          
+          if (learnedSelectors && learnedSelectors.length > 0) {
+            const learnedSelector = learnedSelectors.find(s => s.intentKey === this.context.lastGoal?.toLowerCase().trim()) || learnedSelectors[0];
+
+            if (learnedSelector) {
+              this.context.messageManager.addMessageWithTokens(
+                new HumanMessage(`[Fast-Path] Found proven selector for this goal: ${learnedSelector.selector} (xpath: ${learnedSelector.xpath}). Use this directly instead of exploring.`),
+                PyramidLevel.TRACE,
+                'fast_path_hint'
+              );
+              logger.info(`Injected Fast-Path hint for intent="${this.context.lastGoal}"`);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      logger.error('Failed to inject Fast-Path hint:', e);
     }
   }
 

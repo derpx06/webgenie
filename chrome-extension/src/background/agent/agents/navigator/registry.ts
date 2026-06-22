@@ -36,7 +36,7 @@ export class NavigatorActionRegistry {
       `Please adjust your parameters to avoid repeating this failure.`;
   }
 
-  setupModelOutputSchema(currentUrl?: string): z.ZodType {
+  setupModelOutputSchema(currentUrl?: string, macroObjective?: string): z.ZodType {
     const actions = this.getAllActions().map(action => {
       let description = action.schema.description;
       if (this.refinedDescriptions[action.name()]) {
@@ -55,9 +55,19 @@ export class NavigatorActionRegistry {
     });
 
     const actionSchema = buildDynamicActionSchema(actions);
+    let actionArray = z.array(actionSchema);
+    
+    if (macroObjective === 'NAVIGATE' || macroObjective === 'VERIFY_STATE' || macroObjective === 'BROWSER_CONTROL') {
+      actionArray = actionArray.max(2, 'Only 1 or 2 actions allowed for this macro objective to prevent hallucinations');
+    } else if (macroObjective === 'FORM_FILL' || macroObjective === 'SEARCH' || macroObjective === 'EXTRACT_DATA') {
+      actionArray = actionArray.max(5, 'Maximum of 5 actions allowed for batching');
+    } else {
+      actionArray = actionArray.max(3); // default safe throttle
+    }
+
     return z.object({
       current_state: agentBrainSchema,
-      action: z.array(actionSchema),
+      action: actionArray,
     });
   }
 }

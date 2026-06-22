@@ -155,11 +155,17 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
   async getBookmarksTree(): Promise<chrome.bookmarks.BookmarkTreeNode[]> {
     return chrome.bookmarks.getTree();
   }
-  async searchBookmarks(query: string | any): Promise<chrome.bookmarks.BookmarkTreeNode[]> {
-    return chrome.bookmarks.search(query);
+  async searchBookmarks(query: string | object): Promise<chrome.bookmarks.BookmarkTreeNode[]> {
+    return new Promise((resolve) => chrome.bookmarks.search(query as any, resolve));
+  }
+  async getRecentBookmarks(numberOfItems: number): Promise<chrome.bookmarks.BookmarkTreeNode[]> {
+    return new Promise((resolve) => chrome.bookmarks.getRecent(numberOfItems, resolve));
   }
   async createBookmark(bookmark: any): Promise<chrome.bookmarks.BookmarkTreeNode> {
     return chrome.bookmarks.create(bookmark);
+  }
+  async removeBookmark(id: string): Promise<void> {
+    return new Promise((resolve) => chrome.bookmarks.remove(id, resolve));
   }
 
   // Window Management
