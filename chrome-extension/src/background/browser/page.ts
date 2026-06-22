@@ -274,6 +274,61 @@ export default class Page {
     await this._puppeteerPage.mouse.click(coords.x, coords.y, { delay: 50 });
   }
 
+  public async cdpHover(element: ElementHandle<Element>): Promise<void> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer is not attached to this page');
+    }
+    
+    const coords = await element.evaluate((el) => {
+      const rects = el.getClientRects();
+      if (rects.length > 0) {
+        for (let i = 0; i < rects.length; i++) {
+          const r = rects[i];
+          if (r.width > 0 && r.height > 0) {
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          }
+        }
+      }
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+
+    if (!coords || typeof coords.x !== 'number' || typeof coords.y !== 'number') {
+      throw new Error('Element has no visible layout rectangles');
+    }
+
+    await this._puppeteerPage.bringToFront();
+    await this._puppeteerPage.mouse.move(coords.x, coords.y);
+  }
+
+  public async cdpRightClick(element: ElementHandle<Element>): Promise<void> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer is not attached to this page');
+    }
+    
+    const coords = await element.evaluate((el) => {
+      const rects = el.getClientRects();
+      if (rects.length > 0) {
+        for (let i = 0; i < rects.length; i++) {
+          const r = rects[i];
+          if (r.width > 0 && r.height > 0) {
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          }
+        }
+      }
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+
+    if (!coords || typeof coords.x !== 'number' || typeof coords.y !== 'number') {
+      throw new Error('Element has no visible layout rectangles');
+    }
+
+    await this._puppeteerPage.bringToFront();
+    await this._puppeteerPage.mouse.move(coords.x, coords.y);
+    await this._puppeteerPage.mouse.click(coords.x, coords.y, { button: 'right', delay: 50 });
+  }
+
   public async cdpType(element: ElementHandle<Element>, text: string): Promise<void> {
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not attached to this page');
@@ -2130,6 +2185,86 @@ export default class Page {
     } catch (error) {
       throw new Error(
         `Failed to click element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  async hoverElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer is not connected');
+    }
+
+    try {
+      const element = await this.locateElement(elementNode);
+      if (!element) {
+        throw new Error(`Element at index ${elementNode.highlightIndex} (tag: ${elementNode.tagName}, xpath: ${elementNode.xpath}) was not found in the DOM`);
+      }
+
+      await this._scrollIntoViewIfNeeded(element);
+      await this._waitForElementStability(element, 1000);
+
+      try {
+        logger.info(`Attempting CDP OS-level hover on element: ${elementNode}`);
+        await Promise.race([
+          this.cdpHover(element),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('CDP Hover timeout')), 5000)),
+        ]);
+      } catch (error) {
+        logger.warning('CDP hover failed, trying synthetic MouseEvent dispatch chain on fresh handle', error);
+        const freshElement = await this.locateElement(elementNode);
+        if (!freshElement) {
+          throw new Error('Element no longer found for fallback hover');
+        }
+        await freshElement.evaluate((el: Element) => {
+          const eventOpts = { bubbles: true, cancelable: true, view: window };
+          el.dispatchEvent(new MouseEvent('mouseover', eventOpts));
+          el.dispatchEvent(new MouseEvent('mouseenter', eventOpts));
+          el.dispatchEvent(new MouseEvent('mousemove', eventOpts));
+        });
+      }
+    } catch (error) {
+      throw new Error(
+        `Failed to hover element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  async rightClickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer is not connected');
+    }
+
+    try {
+      const element = await this.locateElement(elementNode);
+      if (!element) {
+        throw new Error(`Element at index ${elementNode.highlightIndex} (tag: ${elementNode.tagName}, xpath: ${elementNode.xpath}) was not found in the DOM`);
+      }
+
+      await this._scrollIntoViewIfNeeded(element);
+      await this._waitForElementStability(element, 1000);
+
+      try {
+        logger.info(`Attempting CDP OS-level right click on element: ${elementNode}`);
+        await Promise.race([
+          this.cdpRightClick(element),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('CDP Right Click timeout')), 5000)),
+        ]);
+      } catch (error) {
+        logger.warning('CDP right click failed, trying synthetic contextmenu dispatch chain on fresh handle', error);
+        const freshElement = await this.locateElement(elementNode);
+        if (!freshElement) {
+          throw new Error('Element no longer found for fallback right click');
+        }
+        await freshElement.evaluate((el: Element) => {
+          const eventOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
+          el.dispatchEvent(new MouseEvent('mousedown', eventOpts));
+          el.dispatchEvent(new MouseEvent('mouseup', eventOpts));
+          el.dispatchEvent(new MouseEvent('contextmenu', eventOpts));
+        });
+      }
+    } catch (error) {
+      throw new Error(
+        `Failed to right click element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }

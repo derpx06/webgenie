@@ -67,6 +67,26 @@ export const clickElementActionSchema: ActionSchema = {
   }),
 };
 
+export const hoverElementActionSchema: ActionSchema = {
+  name: 'hover_element',
+  description: 'Hover mouse over an element by index to reveal hidden CSS menus or tooltips',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    index: z.number().int().describe('index of the element'),
+    xpath: z.string().nullable().optional().describe('xpath of the element'),
+  }),
+};
+
+export const rightClickElementActionSchema: ActionSchema = {
+  name: 'right_click_element',
+  description: 'Right click an element by index to open context menus',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    index: z.number().int().describe('index of the element'),
+    xpath: z.string().nullable().optional().describe('xpath of the element'),
+  }),
+};
+
 export const inputTextActionSchema: ActionSchema = {
   name: 'input_text',
   description: 'Input text into an interactive input element',

@@ -4,6 +4,8 @@ import type {
   inputTextActionSchema,
   getDropdownOptionsActionSchema,
   selectDropdownOptionActionSchema,
+  hoverElementActionSchema,
+  rightClickElementActionSchema,
 } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
@@ -21,6 +23,8 @@ type ResolvablePage = {
   getState(useVision?: boolean, cacheClickableElementsHashes?: boolean): Promise<DOMState>;
   locateElement(element: DOMElementNode): Promise<ElementHandle<Element> | null>;
   clickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void>;
+  hoverElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void>;
+  rightClickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void>;
   inputTextElementNode(useVision: boolean, elementNode: DOMElementNode, text: string): Promise<void>;
   isFileUploader(elementNode: DOMElementNode, maxDepth?: number, currentDepth?: number): boolean;
 };
@@ -157,6 +161,68 @@ export class InteractionHandler extends BaseHandler {
       }
 
       const msg = t('act_errors_elementNoLongerAvailable', [input.index.toString()]);
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async handleHoverElement(input: z.infer<typeof hoverElementActionSchema.schema>): Promise<ActionResult> {
+    const intent = input.intent || `Hovering over element ${input.index}`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+    const page = await this.context.browserContext.getCurrentPage();
+    let elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+
+    if (!elementNode) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+    }
+
+    if (!elementNode) {
+      throw new Error(`Element with index ${input.index} does not exist`);
+    }
+
+    try {
+      await page.hoverElementNode(this.context.options.useVision, elementNode);
+      const msg = `Hovered over element ${input.index}`;
+      logger.info(msg);
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+      return new ActionResult({ extractedContent: msg, includeInMemory: true });
+    } catch (error) {
+      const msg = `Element with index ${input.index} is no longer available`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async handleRightClickElement(input: z.infer<typeof rightClickElementActionSchema.schema>): Promise<ActionResult> {
+    const intent = input.intent || `Right clicking element ${input.index}`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+
+    const page = await this.context.browserContext.getCurrentPage();
+    let elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+
+    if (!elementNode) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+    }
+
+    if (!elementNode) {
+      throw new Error(`Element with index ${input.index} does not exist`);
+    }
+
+    try {
+      await page.rightClickElementNode(this.context.options.useVision, elementNode);
+      const msg = `Right clicked element ${input.index}`;
+      logger.info(msg);
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+      return new ActionResult({ extractedContent: msg, includeInMemory: true });
+    } catch (error) {
+      const msg = `Element with index ${input.index} is no longer available`;
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
       return new ActionResult({
         error: error instanceof Error ? error.message : String(error),

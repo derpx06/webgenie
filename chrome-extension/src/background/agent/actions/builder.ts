@@ -22,6 +22,8 @@ import {
   nextPageActionSchema,
   scrollToTopActionSchema,
   scrollToBottomActionSchema,
+  hoverElementActionSchema,
+  rightClickElementActionSchema,
   askHumanActionSchema,
   getCompletePageContentActionSchema,
   manageBookmarksActionSchema,
@@ -238,6 +240,8 @@ export class ActionBuilder {
   private buildInteractionActions(): Action[] {
     return [
       new Action((input) => this.interactionHandler.handleClickElement(input), clickElementActionSchema, true),
+      new Action((input) => this.interactionHandler.handleHoverElement(input), hoverElementActionSchema, true),
+      new Action((input) => this.interactionHandler.handleRightClickElement(input), rightClickElementActionSchema, true),
       new Action((input) => this.interactionHandler.handleInputText(input), inputTextActionSchema, true),
       new Action(
         (input) => this.interactionHandler.handleGetDropdownOptions(input),
