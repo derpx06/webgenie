@@ -24,7 +24,16 @@ import {
   scrollToBottomActionSchema,
   askHumanActionSchema,
   getCompletePageContentActionSchema,
-  chromeControlActionSchema,
+  manageBookmarksActionSchema,
+  manageReadingListActionSchema,
+  manageHistoryActionSchema,
+  manageDownloadsActionSchema,
+  manageTabsActionSchema,
+  manageWindowsActionSchema,
+  managePrivacyActionSchema,
+  manageExtensionsActionSchema,
+  manageSystemActionSchema,
+  manageSessionsActionSchema
 } from './schemas';
 import { z } from 'zod';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -34,7 +43,16 @@ import { InteractionHandler } from './handlers/interaction';
 import { TabHandler } from './handlers/tabs';
 import { ContentHandler } from './handlers/content';
 import { KeyboardHandler } from './handlers/keyboard';
-import { ChromeControlHandler } from './handlers/chrome-control';
+import { ManageBookmarksHandler } from './handlers/manage-bookmarks';
+import { ManageReadingListHandler } from './handlers/manage-reading-list';
+import { ManageHistoryHandler } from './handlers/manage-history';
+import { ManageDownloadsHandler } from './handlers/manage-downloads';
+import { ManageTabsHandler } from './handlers/manage-tabs';
+import { ManageWindowsHandler } from './handlers/manage-windows';
+import { ManagePrivacyHandler } from './handlers/manage-privacy';
+import { ManageExtensionsHandler } from './handlers/manage-extensions';
+import { ManageSystemHandler } from './handlers/manage-system';
+import { ManageSessionsHandler } from './handlers/manage-sessions';
 
 export class InvalidInputError extends Error {
   constructor(message: string) {
@@ -156,7 +174,16 @@ export class ActionBuilder {
   private readonly tabHandler: TabHandler;
   private readonly contentHandler: ContentHandler;
   private readonly keyboardHandler: KeyboardHandler;
-  private readonly chromeControlHandler: ChromeControlHandler;
+  private readonly manageBookmarksHandler: ManageBookmarksHandler;
+  private readonly manageReadingListHandler: ManageReadingListHandler;
+  private readonly manageHistoryHandler: ManageHistoryHandler;
+  private readonly manageDownloadsHandler: ManageDownloadsHandler;
+  private readonly manageTabsHandler: ManageTabsHandler;
+  private readonly manageWindowsHandler: ManageWindowsHandler;
+  private readonly managePrivacyHandler: ManagePrivacyHandler;
+  private readonly manageExtensionsHandler: ManageExtensionsHandler;
+  private readonly manageSystemHandler: ManageSystemHandler;
+  private readonly manageSessionsHandler: ManageSessionsHandler;
 
   constructor(context: AgentContext, extractorLLM: BaseChatModel) {
     this.systemHandler = new SystemHandler(context, extractorLLM);
@@ -165,7 +192,16 @@ export class ActionBuilder {
     this.tabHandler = new TabHandler(context, extractorLLM);
     this.contentHandler = new ContentHandler(context, extractorLLM);
     this.keyboardHandler = new KeyboardHandler(context, extractorLLM);
-    this.chromeControlHandler = new ChromeControlHandler(context, extractorLLM);
+    this.manageBookmarksHandler = new ManageBookmarksHandler(context, extractorLLM);
+    this.manageReadingListHandler = new ManageReadingListHandler(context, extractorLLM);
+    this.manageHistoryHandler = new ManageHistoryHandler(context, extractorLLM);
+    this.manageDownloadsHandler = new ManageDownloadsHandler(context, extractorLLM);
+    this.manageTabsHandler = new ManageTabsHandler(context, extractorLLM);
+    this.manageWindowsHandler = new ManageWindowsHandler(context, extractorLLM);
+    this.managePrivacyHandler = new ManagePrivacyHandler(context, extractorLLM);
+    this.manageExtensionsHandler = new ManageExtensionsHandler(context, extractorLLM);
+    this.manageSystemHandler = new ManageSystemHandler(context, extractorLLM);
+    this.manageSessionsHandler = new ManageSessionsHandler(context, extractorLLM);
   }
 
   buildDefaultActions(): Action[] {
@@ -242,6 +278,17 @@ export class ActionBuilder {
   }
 
   private buildChromeControlActions(): Action[] {
-    return [new Action((input) => this.chromeControlHandler.handleChromeControl(input), chromeControlActionSchema)];
+    return [
+      new Action((input) => this.manageBookmarksHandler.handleManageBookmarks(input), manageBookmarksActionSchema),
+      new Action((input) => this.manageReadingListHandler.handleManageReadingList(input), manageReadingListActionSchema),
+      new Action((input) => this.manageHistoryHandler.handleManageHistory(input), manageHistoryActionSchema),
+      new Action((input) => this.manageDownloadsHandler.handleManageDownloads(input), manageDownloadsActionSchema),
+      new Action((input) => this.manageTabsHandler.handleManageTabs(input), manageTabsActionSchema),
+      new Action((input) => this.manageWindowsHandler.handleManageWindows(input), manageWindowsActionSchema),
+      new Action((input) => this.managePrivacyHandler.handleManagePrivacy(input), managePrivacyActionSchema),
+      new Action((input) => this.manageExtensionsHandler.handleManageExtensions(input), manageExtensionsActionSchema),
+      new Action((input) => this.manageSystemHandler.handleManageSystem(input), manageSystemActionSchema),
+      new Action((input) => this.manageSessionsHandler.handleManageSessions(input), manageSessionsActionSchema)
+    ];
   }
 }
