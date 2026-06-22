@@ -23,7 +23,7 @@ export const plannerOutputSchema = z.object({
       throw new Error('Invalid boolean string');
     }),
   ]),
-  next_steps: z.string(),
+  macro_objective: z.enum(['NAVIGATE', 'SEARCH', 'FORM_FILL', 'EXTRACT_DATA', 'VERIFY_STATE']),
   final_answer: z.string(),
   reasoning: z.string(),
   web_task: z.union([
@@ -74,8 +74,13 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
 
       const cleanedPlan = cleanPlannerOutput(modelOutput);
 
+      // Save macro objective to context
+      if (!cleanedPlan.done && cleanedPlan.macro_objective) {
+        this.context.lastMacroObjective = cleanedPlan.macro_objective;
+      }
+
       // UI update
-      const eventMessage = cleanedPlan.done ? cleanedPlan.final_answer : cleanedPlan.next_steps;
+      const eventMessage = cleanedPlan.done ? cleanedPlan.final_answer : `Executing Phase: ${cleanedPlan.macro_objective}`;
       const normalizedMessage = eventMessage.trim();
 
       // Reduce noisy repeated planner chatter in UI when the plan hasn't changed.

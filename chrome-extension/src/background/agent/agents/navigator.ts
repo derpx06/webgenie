@@ -325,6 +325,17 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
     await browserContext.removeHighlight();
 
+    // Strict Macro Limits
+    let maxAllowed = 2; // Default strict limit
+    if (this.context.lastMacroObjective === 'FORM_FILL' || this.context.lastMacroObjective === 'SEARCH') {
+      maxAllowed = 5;
+    }
+    
+    if (actions.length > maxAllowed) {
+      logger.warning(`Navigator hallucinated ${actions.length} actions for macro ${this.context.lastMacroObjective}. Slicing to ${maxAllowed}.`);
+      actions = actions.slice(0, maxAllowed);
+    }
+
     for (const [i, action] of actions.entries()) {
       if (this.isTaskInterrupted()) break;
 

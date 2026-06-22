@@ -528,7 +528,7 @@ export class Executor {
       }
       if (planOutput.result) {
         const p = planOutput.result;
-        context.lastGoal = p.next_steps || p.observation || '';
+        context.lastGoal = p.macro_objective || p.observation || '';
         const planDivider = '─'.repeat(60);
         console.log(
           `\n[Planner] ${planDivider}\n` +
@@ -537,7 +537,7 @@ export class Executor {
           `  observation : ${p.observation}\n` +
           `  challenges  : ${p.challenges}\n` +
           `  reasoning   : ${p.reasoning}\n` +
-          `  next_steps  : ${p.next_steps}\n` +
+          `  macro_objective  : ${p.macro_objective}\n` +
           `  final_answer: ${p.final_answer}\n` +
           `[Planner] ${planDivider}`,
         );

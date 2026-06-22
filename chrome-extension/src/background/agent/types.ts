@@ -79,6 +79,7 @@ export class AgentContext {
   lastEvaluation: string;  // evaluation_previous_goal from last navigator step
   lastMemory: string;      // memory scratchpad from last navigator step
   lastGoal?: string;
+  lastMacroObjective?: string; // macro_objective from last planner step
   activeLayoutHash?: string;
   parentRun?: any;
   traceCallbacks?: any;
