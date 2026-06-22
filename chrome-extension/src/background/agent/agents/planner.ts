@@ -23,7 +23,7 @@ export const plannerOutputSchema = z.object({
       throw new Error('Invalid boolean string');
     }),
   ]),
-  macro_objective: z.enum(['NAVIGATE', 'SEARCH', 'FORM_FILL', 'EXTRACT_DATA', 'VERIFY_STATE']),
+  macro_objective: z.enum(['NAVIGATE', 'SEARCH', 'FORM_FILL', 'EXTRACT_DATA', 'VERIFY_STATE', 'BROWSER_CONTROL', 'HANDLE_BLOCKER', 'EXPLORE_PAGE', 'ASK_HUMAN']),
   final_answer: z.string(),
   reasoning: z.string(),
   web_task: z.union([

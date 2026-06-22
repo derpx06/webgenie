@@ -68,6 +68,10 @@ When determining if a task is "done":
 - FORM_FILL: For typing into text inputs, checking boxes, and clicking submit buttons.
 - EXTRACT_DATA: For reading, scraping, or caching text content from the page.
 - VERIFY_STATE: For looking at the screen to confirm a previous action succeeded, or when task is done.
+- BROWSER_CONTROL: For opening/closing tabs, switching tabs, or checking browser history/bookmarks.
+- HANDLE_BLOCKER: For dismissing cookie banners, closing modal popups, or solving captchas before proceeding.
+- EXPLORE_PAGE: For scrolling and visually scanning for elements that are not currently in the viewport.
+- ASK_HUMAN: For pausing execution to ask the user for 2FA codes, passwords, or explicit permission for sensitive actions.
 
 # FINAL ANSWER FORMATTING (when done=true):
 - Use markdown formatting only if required by the task description
@@ -84,7 +88,7 @@ When determining if a task is "done":
     "observation": "[string type], brief analysis of the current state and what has been done so far",
     "done": "[boolean type], whether the ultimate task is fully completed successfully",
     "challenges": "[string type], list any potential challenges or roadblocks",
-    "macro_objective": "[string enum: NAVIGATE | SEARCH | FORM_FILL | EXTRACT_DATA | VERIFY_STATE], the strict macro task for the navigator",
+    "macro_objective": "[string enum: NAVIGATE | SEARCH | FORM_FILL | EXTRACT_DATA | VERIFY_STATE | BROWSER_CONTROL | HANDLE_BLOCKER | EXPLORE_PAGE | ASK_HUMAN], the strict macro task for the navigator",
     "final_answer": "[string type], complete user-friendly answer to the task (MUST be provided when done=true, empty otherwise)",
     "reasoning": "[string type], explain your reasoning for the chosen macro_objective or completion decision",
     "web_task": "[boolean type], whether the ultimate task is related to browsing the web"

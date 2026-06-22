@@ -54,8 +54,8 @@ You may be provided with additional context in <nano_mentions> tags. Inside, you
    }
 
 2. ACTIONS: You can specify multiple actions in the list to be executed in sequence. But always specify only one action name per item. You must obey your macro objective limits:
-- If the current macro is FORM_FILL or SEARCH: You may batch up to 5 actions (e.g., multiple input_text followed by click_element).
-- If the current macro is NAVIGATE, EXTRACT_DATA, or VERIFY_STATE: You must strictly output ONLY 1 or 2 actions. 
+- If the current macro is FORM_FILL, SEARCH, or BROWSER_CONTROL: You may batch up to 5 actions.
+- If the current macro is NAVIGATE, EXTRACT_DATA, VERIFY_STATE, HANDLE_BLOCKER, EXPLORE_PAGE, or ASK_HUMAN: You must strictly output ONLY 1 or 2 actions.
 - Actions are executed in the given order.
 - If the page changes after an action, the sequence will be instantly aborted by the engine.
 - Only provide the action sequence until an action which changes the page state significantly.

@@ -325,12 +325,11 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
     await browserContext.removeHighlight();
 
-    // Strict Macro Limits
-    let maxAllowed = 2; // Default strict limit
-    if (this.context.lastMacroObjective === 'FORM_FILL' || this.context.lastMacroObjective === 'SEARCH') {
+    let maxAllowed = 2;
+    if (this.context.lastMacroObjective === 'FORM_FILL' || this.context.lastMacroObjective === 'SEARCH' || this.context.lastMacroObjective === 'BROWSER_CONTROL') {
       maxAllowed = 5;
     }
-    
+
     if (actions.length > maxAllowed) {
       logger.warning(`Navigator hallucinated ${actions.length} actions for macro ${this.context.lastMacroObjective}. Slicing to ${maxAllowed}.`);
       actions = actions.slice(0, maxAllowed);
@@ -389,9 +388,9 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
                 const intentKey = this.context.lastGoal || '';
                 const xpath = result.interactedElement.xpath;
                 const selector = result.interactedElement.cssSelector ||
-                                 (domElement.attributes?.['id'] ? `#${domElement.attributes['id']}` : '') ||
-                                 (domElement.attributes?.['data-webgenie-id'] ? `[data-webgenie-id="${domElement.attributes['data-webgenie-id']}"]` : '') ||
-                                 domElement.tagName || '';
+                  (domElement.attributes?.['id'] ? `#${domElement.attributes['id']}` : '') ||
+                  (domElement.attributes?.['data-webgenie-id'] ? `[data-webgenie-id="${domElement.attributes['data-webgenie-id']}"]` : '') ||
+                  domElement.tagName || '';
 
                 if (domain && pagePath && layoutHash && xpath && selector) {
                   void WebGenieMemoryStore.learnSelector(
