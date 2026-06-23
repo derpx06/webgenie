@@ -238,7 +238,30 @@ export default class Page {
     return true;
   }
 
+  public async ensurePuppeteerConnected(): Promise<void> {
+    if (!this._validWebPage) {
+      return;
+    }
+    let alive = false;
+    if (this._puppeteerPage) {
+      try {
+        await this._puppeteerPage.evaluate('1');
+        alive = true;
+      } catch (err) {
+        logger.warning('[Page] Puppeteer is detached/inactive, cleaning up before re-attach:', err);
+        this._puppeteerPage = null;
+        this._browser = null;
+        alive = false;
+      }
+    }
+    if (!this._puppeteerPage) {
+      logger.info('[Page] Attaching Puppeteer...');
+      await this.attachPuppeteer();
+    }
+  }
+
   public async sendCDPCommand(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not attached to this page');
     }
@@ -246,6 +269,7 @@ export default class Page {
   }
 
   public async cdpClick(element: ElementHandle<Element>): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not attached to this page');
     }
@@ -275,6 +299,7 @@ export default class Page {
   }
 
   public async cdpHover(element: ElementHandle<Element>): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not attached to this page');
     }
@@ -302,6 +327,7 @@ export default class Page {
   }
 
   public async cdpRightClick(element: ElementHandle<Element>): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not attached to this page');
     }
@@ -330,6 +356,7 @@ export default class Page {
   }
 
   public async cdpType(element: ElementHandle<Element>, text: string): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not attached to this page');
     }
@@ -697,6 +724,7 @@ export default class Page {
   }
 
   async getContent(): Promise<string> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer page is not connected');
     }
@@ -986,6 +1014,7 @@ export default class Page {
   }
 
   async takeScreenshot(fullPage = false): Promise<string | null> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer page is not connected');
     }
@@ -1582,6 +1611,7 @@ export default class Page {
   }
 
   async locateElement(element: DOMElementNode): Promise<ElementHandle | null> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       // throw new Error('Puppeteer page is not connected');
       logger.warning('Puppeteer is not connected');
@@ -1704,6 +1734,7 @@ export default class Page {
   }
 
   async inputTextElementNode(useVision: boolean, elementNode: DOMElementNode, text: string): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
@@ -2084,6 +2115,7 @@ export default class Page {
   }
 
   async clickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
@@ -2190,6 +2222,7 @@ export default class Page {
   }
 
   async hoverElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
@@ -2230,6 +2263,7 @@ export default class Page {
   }
 
   async rightClickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }

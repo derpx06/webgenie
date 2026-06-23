@@ -331,7 +331,7 @@ export const useModelSettings = (_isDarkMode: boolean) => {
       hasInput = Boolean(config?.baseUrl?.trim());
     } else if (providerType === ProviderTypeEnum.AzureOpenAI) {
       hasInput = Boolean(config?.apiKey?.trim()) && Boolean(config?.baseUrl?.trim()) && Boolean(config?.azureDeploymentNames?.length) && Boolean(config?.azureApiVersion?.trim());
-    } else if (providerType === ProviderTypeEnum.OpenRouter || providerType === ProviderTypeEnum.Llama) {
+    } else if (providerType === ProviderTypeEnum.OpenRouter || providerType === ProviderTypeEnum.Llama || providerType === ProviderTypeEnum.VertexAI) {
       hasInput = Boolean(config?.apiKey?.trim()) && Boolean(config?.baseUrl?.trim());
     } else if (providerType === ProviderTypeEnum.Bedrock) {
       hasInput = Boolean(config?.apiKey?.trim()) && Boolean(config?.region?.trim()) && Boolean(config?.bedrockSecretKey?.trim());
@@ -355,6 +355,7 @@ export const useModelSettings = (_isDarkMode: boolean) => {
           providers[provider].type === ProviderTypeEnum.Ollama ||
           providers[provider].type === ProviderTypeEnum.AzureOpenAI ||
           providers[provider].type === ProviderTypeEnum.OpenRouter ||
+          providers[provider].type === ProviderTypeEnum.VertexAI ||
           providers[provider].type === ProviderTypeEnum.Llama) &&
         (!providers[provider].baseUrl || !providers[provider].baseUrl.trim())
       ) {

@@ -188,13 +188,19 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
             providerConfig.type === ProviderTypeEnum.Ollama ||
             providerConfig.type === ProviderTypeEnum.AzureOpenAI ||
             providerConfig.type === ProviderTypeEnum.OpenRouter ||
+            providerConfig.type === ProviderTypeEnum.Gemini ||
+            providerConfig.type === ProviderTypeEnum.VertexAI ||
             providerConfig.type === ProviderTypeEnum.Llama) && (
               <div className="space-y-1.5">
                 <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Base Endpoint</div>
                 <input
                   type="text"
                   className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-bold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
-                  placeholder="https://api.example.com/v1"
+                  placeholder={
+                    providerConfig.type === ProviderTypeEnum.Gemini || providerConfig.type === ProviderTypeEnum.VertexAI
+                      ? "https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1"
+                      : "https://api.example.com/v1"
+                  }
                   value={providerConfig.baseUrl || ''}
                   onChange={e => handleApiKeyChange(providerId, providerConfig.apiKey || '', e.target.value)}
                 />

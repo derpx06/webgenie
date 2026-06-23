@@ -307,24 +307,11 @@ async function enrichWithBoundingBoxes(
   if (mainTargets.length > 0) {
     logger.debug(`[AXTreeExtractor] Fetching main frame bounding boxes for ${mainTargets.length} nodes`);
     let resolvedCount = 0;
-    let puppeteerCDP: any = null;
 
-    if (puppeteerPage) {
-      try {
-        puppeteerCDP = await puppeteerPage.createCDPSession();
-        await puppeteerCDP.send('DOM.enable');
-      } catch (err) {
-        logger.warning('[AXTreeExtractor] Puppeteer CDP session creation failed:', err);
-        puppeteerCDP = null;
-      }
-    }
-
-    if (!puppeteerCDP) {
-      try {
-        await cdpBridge.send(tabId, 'DOM.enable', {}, browserAdapter);
-      } catch (err) {
-        logger.warning('[AXTreeExtractor] Failed to enable DOM via cdpBridge:', err);
-      }
+    try {
+      await cdpBridge.send(tabId, 'DOM.enable', {}, browserAdapter);
+    } catch (err) {
+      logger.warning('[AXTreeExtractor] Failed to enable DOM via cdpBridge:', err);
     }
 
     try {
@@ -332,25 +319,16 @@ async function enrichWithBoundingBoxes(
         mainTargets.map(async axNode => {
           let rawBox: RawBoxModel | null = null;
           
-          if (puppeteerCDP) {
-            try {
-              const res = await puppeteerCDP.send('DOM.getBoxModel', { backendNodeId: axNode.backendDOMNodeId });
-              rawBox = res?.model || null;
-            } catch {
-              // ignore
-            }
-          } else {
-            try {
-              const res = await cdpBridge.send<{ model: RawBoxModel }>(
-                tabId,
-                'DOM.getBoxModel',
-                { backendNodeId: axNode.backendDOMNodeId! },
-                browserAdapter
-              );
-              rawBox = res?.model || null;
-            } catch {
-              // ignore
-            }
+          try {
+            const res = await cdpBridge.send<{ model: RawBoxModel }>(
+              tabId,
+              'DOM.getBoxModel',
+              { backendNodeId: axNode.backendDOMNodeId! },
+              browserAdapter
+            );
+            rawBox = res?.model || null;
+          } catch {
+            // ignore
           }
 
           if (!rawBox) return;
@@ -387,11 +365,9 @@ async function enrichWithBoundingBoxes(
         })
       );
     } finally {
-      if (puppeteerCDP) {
-        try { await puppeteerCDP.detach(); } catch {}
-      } else {
-        try { await cdpBridge.send(tabId, 'DOM.disable', {}, browserAdapter); } catch {}
-      }
+      try {
+        await cdpBridge.send(tabId, 'DOM.disable', {}, browserAdapter);
+      } catch {}
     }
 
     // Safety-net: if getBoxModel failed for ALL nodes (e.g. CSP or CDP session

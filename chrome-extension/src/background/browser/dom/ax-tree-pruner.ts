@@ -44,9 +44,25 @@ const STOP_WORDS = new Set([
  */
 export function pruneAXTree(state: DOMState, goal?: string): DOMState {
   const before = state.selectorMap.size;
+  if (before === 0) {
+    return state;
+  }
+
+  // Back up the state in case goal-directed pruning is too aggressive
+  const backup = cloneDOMState(state);
 
   pruneNode(state.elementTree, goal);
   rebuildSelectorMap(state);
+
+  // If goal-directed pruning removed all interactive nodes, restore from backup
+  // but prune without the goal keyword restriction!
+  if (state.selectorMap.size === 0 && before > 0) {
+    logger.warning(`[AXTreePruner] Goal-directed pruning removed all interactive nodes. Re-trying without goal-directed filtering.`);
+    pruneNode(backup.elementTree, undefined);
+    rebuildSelectorMap(backup);
+    state.elementTree = backup.elementTree;
+    state.selectorMap = backup.selectorMap;
+  }
 
   logger.debug(`[AXTreePruner] ${before} → ${state.selectorMap.size} interactive nodes after pruning`);
   return state;
@@ -224,4 +240,42 @@ function calculateRelevance(node: DOMElementNode, keywords: Set<string>): number
   }
 
   return matchCount / keywords.size;
+}
+
+function cloneNode(node: DOMBaseNode, newParent: DOMElementNode | null = null): DOMBaseNode {
+  if (node instanceof DOMTextNode) {
+    return new DOMTextNode(node.text, node.isVisible, newParent);
+  } else if (node instanceof DOMElementNode) {
+    const elNode = new DOMElementNode({
+      tagName: node.tagName,
+      xpath: node.xpath,
+      attributes: { ...node.attributes },
+      children: [],
+      isVisible: node.isVisible,
+      isInteractive: node.isInteractive,
+      isTopElement: node.isTopElement,
+      isInViewport: node.isInViewport,
+      shadowRoot: node.shadowRoot,
+      highlightIndex: node.highlightIndex,
+      viewportCoordinates: node.viewportCoordinates ? { ...node.viewportCoordinates } : undefined,
+      pageCoordinates: node.pageCoordinates ? { ...node.pageCoordinates } : undefined,
+      viewportInfo: node.viewportInfo ? { ...node.viewportInfo } : undefined,
+      isNew: node.isNew,
+      parent: newParent,
+      backendNodeId: node.backendNodeId,
+    });
+    elNode.children = node.children.map(child => cloneNode(child, elNode));
+    return elNode;
+  }
+  throw new Error('Unknown node type during cloning');
+}
+
+function cloneDOMState(state: DOMState): DOMState {
+  const clonedTree = cloneNode(state.elementTree, null) as DOMElementNode;
+  const clonedState: DOMState = {
+    elementTree: clonedTree,
+    selectorMap: new Map(),
+  };
+  rebuildSelectorMap(clonedState);
+  return clonedState;
 }

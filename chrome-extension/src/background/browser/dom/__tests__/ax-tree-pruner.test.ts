@@ -97,9 +97,19 @@ describe('AXTreePruner V2 - Goal-Directed Pruning', () => {
       parent: root,
       pageCoordinates: offscreenCoords,
     });
-    root.children.push(child);
+    const childInViewport = new DOMElementNode({
+      tagName: 'BUTTON',
+      xpath: '/div/button2',
+      attributes: { 'aria-label': 'In viewport stuff' },
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 4,
+      parent: root,
+    });
+    root.children.push(child, childInViewport);
 
-    const selectorMap = new Map<number, DOMElementNode>([[3, child]]);
+    const selectorMap = new Map<number, DOMElementNode>([[3, child], [4, childInViewport]]);
     const state: DOMState = {
       elementTree: root,
       selectorMap,

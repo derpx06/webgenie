@@ -24,6 +24,7 @@
     "@langchain/core": "0.3.79",
     "@langchain/deepseek": "0.1.0",
     "@langchain/google-genai": "0.2.18",
+    "@langchain/google-vertexai-web": "^0.2.18",
     "@langchain/groq": "0.2.4",
     "@langchain/ollama": "0.2.4",
     "@langchain/openai": "0.6.16",

@@ -95,6 +95,7 @@ export function getProviderTypeByProviderId(providerId: string): ProviderTypeEnu
     case ProviderTypeEnum.Cerebras:
     case ProviderTypeEnum.Llama:
     case ProviderTypeEnum.Bedrock:
+    case ProviderTypeEnum.VertexAI:
       return providerId as ProviderTypeEnum;
     default:
       return ProviderTypeEnum.CustomOpenAI;
@@ -129,6 +130,8 @@ export function getDefaultDisplayNameFromProviderId(providerId: string): string 
       return 'Llama';
     case ProviderTypeEnum.Bedrock:
       return 'AWS Bedrock';
+    case ProviderTypeEnum.VertexAI:
+      return 'Google Vertex AI';
     default:
       return providerId; // Use the provider id as display name for custom providers by default
   }
@@ -147,6 +150,7 @@ export function getDefaultProviderConfig(providerId: string): ProviderConfig {
     case ProviderTypeEnum.Cerebras: // Cerebras uses modelNames
     case ProviderTypeEnum.Llama: // Llama uses modelNames
     case ProviderTypeEnum.Bedrock: // Bedrock uses modelNames
+    case ProviderTypeEnum.VertexAI: // VertexAI uses modelNames
       return {
         apiKey: '',
         name: getDefaultDisplayNameFromProviderId(providerId),
@@ -156,7 +160,9 @@ export function getDefaultProviderConfig(providerId: string): ProviderConfig {
             ? 'https://openrouter.ai/api/v1'
             : providerId === ProviderTypeEnum.Llama
               ? 'https://api.llama.com/v1'
-              : undefined,
+              : providerId === ProviderTypeEnum.VertexAI
+                ? 'https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1'
+                : undefined,
         modelNames: [...(llmProviderModelNames[providerId] || [])],
         createdAt: Date.now(),
         ...(providerId === ProviderTypeEnum.Bedrock ? { region: 'us-east-1' } : {}),
@@ -273,6 +279,7 @@ export const llmProviderStore: LLMProviderStorage = {
       ProviderTypeEnum.AzureOpenAI,
       ProviderTypeEnum.OpenRouter,
       ProviderTypeEnum.Llama,
+      ProviderTypeEnum.VertexAI,
     ]);
 
     let normalizedBaseUrl = config.baseUrl;

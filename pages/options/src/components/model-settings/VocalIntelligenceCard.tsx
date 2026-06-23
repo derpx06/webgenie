@@ -38,7 +38,7 @@ export const VocalIntelligenceCard: React.FC<VocalIntelligenceCardProps> = ({
           >
             <option value="" className="bg-[#1a1c23]">Disabled</option>
             {availableModels
-              .filter(({ provider }) => providers[provider]?.type === ProviderTypeEnum.Gemini)
+              .filter(({ provider }) => providers[provider]?.type === ProviderTypeEnum.Gemini || providers[provider]?.type === ProviderTypeEnum.VertexAI)
               .map(({ provider, providerName, model }) => (
                 <option key={`${provider}>${model}`} value={`${provider}>${model}`} className="bg-[#1a1c23]">
                   {`${providerName} | ${model}`}

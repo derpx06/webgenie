@@ -32,12 +32,12 @@ export function handleAgentError(error: unknown, fallbackPrefix: string): never 
     throw new ChatModelBadRequestError(errorMessage, error);
   }
 
-  if (isRateLimitError(error)) {
-    throw new ChatModelRateLimitError('API Rate Limit Exceeded (429). Please try again in a few moments.', error);
-  }
-
   if (isPaymentRequiredError(error)) {
     throw new ChatModelPaymentRequiredError(errorMessage, error);
+  }
+
+  if (isRateLimitError(error)) {
+    throw new ChatModelRateLimitError('API Rate Limit Exceeded (429). Please try again in a few moments.', error);
   }
 
   if (isAbortedError(error)) {

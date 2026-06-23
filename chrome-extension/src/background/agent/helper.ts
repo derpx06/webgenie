@@ -12,6 +12,7 @@ import { LangChainTracer } from '@langchain/core/tracers/tracer_langchain';
 import { ChatBedrockConverse } from '@langchain/aws';
 import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { Client } from 'langsmith';
+import { ChatVertexAI } from '@langchain/google-vertexai-web';
 
 if (typeof globalThis.process === 'undefined') {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -129,6 +130,7 @@ function createOpenAIChatModel(
   const args: {
     model: string;
     apiKey?: string;
+    maxRetries?: number;
     // Configuration should align with ClientOptions from @langchain/openai
     configuration?: Record<string, unknown>;
     modelKwargs?: {
@@ -141,6 +143,7 @@ function createOpenAIChatModel(
   } = {
     model: modelConfig.modelName,
     apiKey: providerConfig.apiKey,
+    maxRetries: 5,
   };
 
   const configuration: Record<string, unknown> = {};
@@ -249,6 +252,7 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
     azureOpenAIApiVersion: providerConfig.azureApiVersion,
     // For Azure, the model name should be the deployment name itself
     model: deploymentName, // Set model = deployment name to fix Azure requests
+    maxRetries: 5,
     // For O series models, use modelKwargs instead of temperature/topP
     ...(isOSeriesModel
       ? {
@@ -323,6 +327,7 @@ export function createChatModel(
         apiKey: providerConfig.apiKey,
         maxTokens,
         temperature,
+        maxRetries: 5,
         clientOptions: {},
         callbacks,
       };
@@ -334,19 +339,49 @@ export function createChatModel(
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
+        maxRetries: 5,
         callbacks,
       };
       return new ChatDeepSeek(args) as BaseChatModel;
     }
     case ProviderTypeEnum.Gemini: {
-      const args = {
+      const args: any = {
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
+        maxRetries: 5,
         callbacks,
       };
+      if (providerConfig.baseUrl) {
+        let url = providerConfig.baseUrl.trim();
+        if (url.includes('aiplatform.googleapis.com')) {
+          url = url.replace(/\/+$/, '');
+          if (!url.endsWith('publishers/google')) {
+            url = `${url}/publishers/google`;
+          }
+        }
+        args.baseUrl = url;
+      }
       return new ChatGoogleGenerativeAI(args);
+    }
+    case ProviderTypeEnum.VertexAI: {
+      const args: any = {
+        model: modelConfig.modelName,
+        apiKey: providerConfig.apiKey,
+        temperature,
+        topP,
+        maxRetries: 5,
+        callbacks,
+      };
+      if (providerConfig.baseUrl) {
+        const match = providerConfig.baseUrl.match(/projects\/([^/]+)\/locations\/([^/]+)/);
+        if (match) {
+          args.project = match[1];
+          args.location = match[2];
+        }
+      }
+      return new ChatVertexAI(args) as BaseChatModel;
     }
     case ProviderTypeEnum.Grok: {
       const args = {
@@ -355,6 +390,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
+        maxRetries: 5,
         configuration: {},
         callbacks,
       };
@@ -367,6 +403,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
+        maxRetries: 5,
         callbacks,
       };
       return new ChatGroq(args);
@@ -378,6 +415,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
+        maxRetries: 5,
         callbacks,
       };
       return new ChatCerebras(args);
@@ -387,6 +425,7 @@ export function createChatModel(
         model: string;
         apiKey?: string;
         baseUrl: string;
+        maxRetries?: number;
         modelKwargs?: { max_completion_tokens: number };
         topP?: number;
         temperature?: number;
@@ -398,6 +437,7 @@ export function createChatModel(
         // required but ignored by ollama
         apiKey: providerConfig.apiKey === '' ? 'ollama' : providerConfig.apiKey,
         baseUrl: providerConfig.baseUrl ?? 'http://localhost:11434',
+        maxRetries: 5,
         topP,
         temperature,
         maxTokens,
@@ -430,6 +470,7 @@ export function createChatModel(
       const args: {
         model: string;
         apiKey?: string;
+        maxRetries?: number;
         configuration?: Record<string, unknown>;
         topP?: number;
         temperature?: number;
@@ -438,6 +479,7 @@ export function createChatModel(
       } = {
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,
+        maxRetries: 5,
         topP: (modelConfig.parameters?.topP ?? 0.1) as number,
         temperature: (modelConfig.parameters?.temperature ?? 0.1) as number,
         maxTokens,
@@ -464,6 +506,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
+        maxRetries: 5,
         callbacks,
       };
       return new ChatBedrockConverse(args) as unknown as BaseChatModel;

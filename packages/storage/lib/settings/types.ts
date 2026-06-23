@@ -20,6 +20,7 @@ export enum ProviderTypeEnum {
   Cerebras = 'cerebras',
   Llama = 'llama',
   Bedrock = 'bedrock',
+  VertexAI = 'vertex_ai',
   CustomOpenAI = 'custom_openai',
 }
 
@@ -60,6 +61,12 @@ export const llmProviderModelNames = {
     'amazon.titan-text-express-v1',
     'meta.llama3-8b-instruct-v1:0',
     'meta.llama3-70b-instruct-v1:0',
+  ],
+  [ProviderTypeEnum.VertexAI]: [
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro',
   ],
   // Custom OpenAI providers don't have predefined models as they are user-defined
 };
@@ -174,6 +181,16 @@ export const llmProviderParameters = {
     [AgentNameEnum.Navigator]: {
       temperature: 0.2,
       topP: 0.5,
+    },
+  },
+  [ProviderTypeEnum.VertexAI]: {
+    [AgentNameEnum.Planner]: {
+      temperature: 0.7,
+      topP: 0.9,
+    },
+    [AgentNameEnum.Navigator]: {
+      temperature: 0.3,
+      topP: 0.85,
     },
   },
 };

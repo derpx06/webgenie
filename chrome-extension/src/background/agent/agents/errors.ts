@@ -230,8 +230,15 @@ export class ChatModelPaymentRequiredError extends Error {
  */
 export function isPaymentRequiredError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  const msg = error.message;
-  return msg.includes(' 402') || msg.toLowerCase().includes('payment required');
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes(' 402') ||
+    msg.includes('payment required') ||
+    msg.includes('prepayment') ||
+    msg.includes('credits are depleted') ||
+    msg.includes('depleted') ||
+    msg.includes('billing')
+  );
 }
 
 /**

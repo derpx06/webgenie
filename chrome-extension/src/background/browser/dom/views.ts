@@ -235,6 +235,13 @@ export class DOMElementNode extends DOMBaseNode {
       const depthStr = '\t'.repeat(depth);
 
       if (node instanceof DOMElementNode) {
+        if (node.attributes['_collapsible'] === 'true') {
+          for (const child of node.children) {
+            processNode(child, depth);
+          }
+          return;
+        }
+
         const isClickable = node.highlightIndex !== null;
         
         let isSemanticLayout = false;
