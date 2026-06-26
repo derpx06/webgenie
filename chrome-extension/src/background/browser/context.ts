@@ -14,6 +14,7 @@ import type { IBrowserAdapter } from '../adapters/IBrowserAdapter';
 import type { IStorageProvider } from '../adapters/IStorageProvider';
 import { ChromeBrowserAdapter } from '../adapters/ChromeBrowserAdapter';
 import { ChromeStorageProvider } from '../adapters/ChromeStorageProvider';
+import { ensureBrowserObservation } from '../agent/validation/observation';
 
 const logger = createLogger('BrowserContext');
 export default class BrowserContext {
@@ -400,6 +401,7 @@ export default class BrowserContext {
       ...pageState,
       tabs: tabInfos,
     };
+    ensureBrowserObservation(browserState);
     return browserState;
   }
 
@@ -414,6 +416,7 @@ export default class BrowserContext {
       ...pageState,
       tabs: tabInfos,
     };
+    ensureBrowserObservation(browserState);
     return browserState;
   }
 

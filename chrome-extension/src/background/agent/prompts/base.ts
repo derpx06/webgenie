@@ -3,6 +3,7 @@ import type { AgentContext } from '@src/background/agent/types';
 import { wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
 import { ContextRouter } from '../memory';
+import { ensureBrowserObservation, fingerprintFailureKey } from '../validation/observation';
 
 const logger = createLogger('BasePrompt');
 /**
@@ -29,6 +30,8 @@ abstract class BasePrompt {
    */
   async buildBrowserStateUserMessage(context: AgentContext): Promise<HumanMessage> {
     const browserState = await context.browserContext.getState(context.options.useVision);
+    const observation = ensureBrowserObservation(browserState);
+    context.activeObservation = observation;
 
     // Compute page-path and layout fingerprint
     // The URL is passed so the fingerprint is page-path-scoped (not just domain).
@@ -102,6 +105,9 @@ abstract class BasePrompt {
     }
 
     const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
+    const observationTargetsText = observation.targets
+      .map(target => `[${target.index}] obs=${observation.id} backend=${target.backendNodeId ?? '-'} role=${target.role ?? '-'} name=${target.accessibleName ?? '-'} xpath=${target.xpath ?? '-'}`)
+      .join('\n');
 
     // ── DOM SNAPSHOT LOGGING ──────────────────────────────────────────────────
     // When the "Log DOM Snapshot" developer option is enabled, dump the full
@@ -138,10 +144,8 @@ abstract class BasePrompt {
         const domElement = browserState.selectorMap.get(index);
         if (!domElement) return line;
 
-        // Build the same selector key the registry uses
-        const selector = domElement.attributes?.['data-webgenie-id'] ??
-                         domElement.tagName ??
-                         String(index);
+        const target = observation.targets.find(candidate => candidate.index === index);
+        const selector = fingerprintFailureKey(target, currentUrl);
 
         if (context.isSelectorBlocked(selector, currentUrl)) {
           return `⛔ [BLOCKED - repeated no-op] ${line}`;
@@ -232,10 +236,14 @@ ${reflectionPrefix}[Task history memory ends]
 [Current state starts here]
 The following is one-time information - if you need to remember it write it to memory:
 Current tab: ${currentTab}
+Current browser observation id: ${observation.id}
+For indexed actions, include this observationId. If you are uncertain whether the page changed, observe again before acting.
 Other available tabs:
   ${otherTabs.join('\n')}
 Interactive elements from the current page (with offscreen markers for out-of-viewport elements):
 ${formattedElementsText}
+Compact target fingerprints for indexed actions:
+${observationTargetsText || '(none)'}
 ${stepInfoDescription}
 ${actionResultsDescription}
 `;

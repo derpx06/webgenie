@@ -1,5 +1,6 @@
 import type { DOMState } from './dom/views';
 import type { DOMHistoryElement } from './dom/history/view';
+import type { BrowserObservation } from '../agent/validation/types';
 
 export interface BrowserContextWindowSize {
   width: number;
@@ -120,6 +121,7 @@ export interface TabInfo {
 
 export interface BrowserState extends PageState {
   tabs: TabInfo[];
+  observation?: BrowserObservation;
   // browser_errors: string[];
 }
 

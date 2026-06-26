@@ -7,6 +7,14 @@ import type { EventManager } from './event/manager';
 import { type Actors, type ExecutionState, AgentEvent } from './event/types';
 import { AgentStepHistory } from './history';
 import { InChatMemory } from './memory';
+import type {
+  BrowserObservation,
+  ExecutionStatus,
+  Retryability,
+  TargetFingerprint,
+  ValidationEvidence,
+  ValidationStatus,
+} from './validation/types';
 
 /**
  * Records a single failed element interaction.
@@ -81,6 +89,7 @@ export class AgentContext {
   lastGoal?: string;
   lastMacroObjective?: string; // macro_objective from last planner step
   activeLayoutHash?: string;
+  activeObservation?: BrowserObservation;
   parentRun?: any;
   traceCallbacks?: any;
   memory: InChatMemory;
@@ -99,7 +108,7 @@ export class AgentContext {
    * visible page-state change (i.e. nothing happened).
    */
   registerFailure(selector: string, url: string, actionType: string): void {
-    const key = `${url}|${selector}`;
+    const key = selector.includes('|') ? selector : `${url}|${selector}`;
     const existing = this.failureRegistry.get(key);
     if (existing) {
       existing.failCount++;
@@ -115,7 +124,7 @@ export class AgentContext {
    * on the given URL. Safe to call with any string — returns false when unknown.
    */
   isSelectorBlocked(selector: string, url: string): boolean {
-    const key = `${url}|${selector}`;
+    const key = selector.includes('|') ? selector : `${url}|${selector}`;
     const record = this.failureRegistry.get(key);
     return (record?.failCount ?? 0) >= FAILURE_THRESHOLD;
   }
@@ -203,6 +212,14 @@ export class AgentStepInfo {
 }
 
 export class ActionResult {
+  executed: boolean;
+  executionStatus: ExecutionStatus;
+  validated: ValidationStatus;
+  evidence: ValidationEvidence[];
+  retryability: Retryability;
+  failureReason: string | null;
+  observationId: string | null;
+  targetFingerprint: TargetFingerprint | null;
   isDone: boolean;
   success: boolean;
   isWaitingForHuman: boolean;
@@ -212,6 +229,14 @@ export class ActionResult {
   interactedElement: DOMHistoryElement | null;
 
   constructor(params: Partial<ActionResult> = {}) {
+    this.executed = params.executed ?? false;
+    this.executionStatus = params.executionStatus ?? 'not_attempted';
+    this.validated = params.validated ?? 'not_applicable';
+    this.evidence = params.evidence ?? [];
+    this.retryability = params.retryability ?? 'none';
+    this.failureReason = params.failureReason ?? null;
+    this.observationId = params.observationId ?? null;
+    this.targetFingerprint = params.targetFingerprint ?? null;
     this.isDone = params.isDone ?? false;
     this.success = params.success ?? false;
     this.isWaitingForHuman = params.isWaitingForHuman ?? false;

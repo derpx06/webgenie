@@ -1,4 +1,4 @@
-import type { ActionResult, AgentContext } from '@src/background/agent/types';
+import { ActionResult, type AgentContext } from '@src/background/agent/types';
 import {
   clickElementActionSchema,
   doneActionSchema,
@@ -55,7 +55,6 @@ import { ManagePrivacyHandler } from './handlers/manage-privacy';
 import { ManageExtensionsHandler } from './handlers/manage-extensions';
 import { ManageSystemHandler } from './handlers/manage-system';
 import { ManageSessionsHandler } from './handlers/manage-sessions';
-import { from } from 'puppeteer-core/lib/esm/third_party/rxjs/rxjs';
 
 export class InvalidInputError extends Error {
   constructor(message: string) {
@@ -80,7 +79,8 @@ export class Action {
     const schema = this.schema.schema;
 
     if (this.isEmptySchema(schema)) {
-      return await this.handler({});
+      const result = await this.handler({});
+      return new ActionResult({ ...result, executed: true, executionStatus: 'executed' });
     }
 
     const parsedArgs = schema.safeParse(input);
@@ -88,7 +88,8 @@ export class Action {
       throw new InvalidInputError(parsedArgs.error.message);
     }
 
-    return await this.handler(parsedArgs.data);
+    const result = await this.handler(parsedArgs.data);
+    return new ActionResult({ ...result, executed: true, executionStatus: 'executed' });
   }
 
   private isEmptySchema(schema: z.ZodTypeAny): boolean {

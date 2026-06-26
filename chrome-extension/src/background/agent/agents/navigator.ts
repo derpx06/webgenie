@@ -22,6 +22,13 @@ export { NavigatorActionRegistry };
 import { HistoryReplayer } from './navigator/replay';
 import { normalizeActions } from './navigator/utils';
 import { handleAgentError } from './utils/error-handler';
+import { ensureBrowserObservation } from '../validation/observation';
+import {
+  fingerprintFailureKey,
+  normalizeIndexedAction,
+  shouldStopAfterValidation,
+  validateActionOutcome,
+} from '../validation/service';
 
 const logger = createLogger('NavigatorAgent');
 
@@ -364,6 +371,8 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     const errCount = 0;
     const browserContext = this.context.browserContext;
     const browserState = await browserContext.getCachedState(this.context.options.useVision);
+    const initialObservation = ensureBrowserObservation(browserState);
+    this.context.activeObservation = initialObservation;
     const cachedPathHashes = await calcBranchPathHashSet(browserState);
 
     await browserContext.removeHighlight();
@@ -398,6 +407,22 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         if (!actionInstance) throw new Error(`Action ${actionName} not exists`);
 
         const indexArg = actionInstance.getIndexArg(actionArgs);
+        const beforeState = await browserContext.getCachedState(this.context.options.useVision);
+        const beforeObservation = ensureBrowserObservation(beforeState);
+        this.context.activeObservation = beforeObservation;
+
+        if (indexArg !== null) {
+          const normalized = normalizeIndexedAction(actionName, actionArgs, beforeObservation);
+          if (!normalized.ok && normalized.actionResult) {
+            this.context.emitEvent(
+              Actors.NAVIGATOR,
+              ExecutionState.ACT_FAIL,
+              normalized.actionResult.failureReason ?? 'Stale browser observation',
+            );
+            results.push(normalized.actionResult);
+            break;
+          }
+        }
 
         // Check if page state changed significantly between multi-actions
         if (i > 0 && indexArg !== null) {
@@ -410,12 +435,33 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           }
         }
 
-        const result = await actionInstance.call(actionArgs);
+        let result = await actionInstance.call(actionArgs);
         if (!result) throw new Error(`Action ${actionName} returned undefined`);
+        if (indexArg !== null && actionArgs && typeof actionArgs === 'object') {
+          result = new ActionResult({
+            ...result,
+            observationId: beforeObservation.id,
+            targetFingerprint: 'targetFingerprint' in actionArgs ? (actionArgs.targetFingerprint as any) : null,
+          });
+        }
 
         if (actionName !== 'done' && actionName !== 'ask_human') {
           await browserContext.invalidateCache();
         }
+
+        const postActionState = actionName === 'done' || actionName === 'ask_human'
+          ? beforeState
+          : await browserContext.getState(false, false, true);
+        ensureBrowserObservation(postActionState);
+        result = validateActionOutcome({
+          actionName,
+          actionArgs,
+          before: beforeState,
+          after: postActionState,
+          result,
+          recentResults: results,
+        });
+        this.context.activeObservation = postActionState.observation;
 
         if (indexArg !== null) {
           const domElement = browserState.selectorMap.get(indexArg);
@@ -423,7 +469,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
             result.interactedElement = HistoryTreeProcessor.convertDomElementToHistoryElement(domElement);
 
             // Record successful interactions to memory store
-            if (!result.error && result.interactedElement) {
+            if (!result.error && result.validated === 'passed' && result.interactedElement) {
               try {
                 const domain = new URL(browserState.url).hostname;
                 const pagePath = ContextRouter.getPagePath(browserState.url);
@@ -452,6 +498,8 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         const actionLogMsg = `[Action] [${i + 1}/${actions.length}] ${actionName}\n` +
           `  args  : ${JSON.stringify(actionArgs)}\n` +
           `  done  : ${result.isDone}\n` +
+          `  validation: ${result.validated} (${result.retryability})\n` +
+          `  evidence: ${JSON.stringify(result.evidence)}\n` +
           `  error : ${result.error || '(none)'}\n` +
           `  interactedElement: ${result.interactedElement ? JSON.stringify(result.interactedElement) : '(none)'}\n` +
           `  extracted: ${result.extractedContent ? result.extractedContent.slice(0, 500) : '(none)'}`;
@@ -467,37 +515,28 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           break;
         }
 
-        // ── FAILURE REGISTRY ───────────────────────────────────────────────
-        // After executing the action, re-check the DOM path hash. If the page
-        // state has NOT changed AND the action targeted a specific element,
-        // register a failure so the element gets flagged as BLOCKED after
-        // FAILURE_THRESHOLD repeated no-op interactions on the same URL.
-        if (result && !result.isDone && !result.error && indexArg !== null) {
-          const postActionState = await browserContext.getState(false, false, true);
-          const postPathHashes = await calcBranchPathHashSet(postActionState);
-          const pageChanged = !postPathHashes.isSubsetOf(cachedPathHashes) ||
-            postActionState.url !== browserState.url;
+        if (result.validated === 'failed' && indexArg !== null) {
+          const failureKey = fingerprintFailureKey(result.targetFingerprint, browserState.url);
+          this.context.registerFailure(failureKey, browserState.url, actionName);
 
-          if (!pageChanged) {
-            const domElement = browserState.selectorMap.get(indexArg);
-            const selector = domElement?.attributes?.['data-webgenie-id'] ??
-              domElement?.tagName ??
-              String(indexArg);
-            this.context.registerFailure(selector, browserState.url, actionName);
-
-            const failRecord = this.context.failureRegistry.get(`${browserState.url}|${selector}`);
-            if (failRecord && failRecord.failCount >= 2) {
-              const blockMsg = `[FailureRegistry] ⛔ selector="${selector}" is now BLOCKED ` +
-                `(${failRecord.failCount} no-op interactions on ${browserState.url})`;
-              console.warn(blockMsg);
-              logger.warning(blockMsg);
-            }
-          } else if (postActionState.url !== browserState.url) {
-            // Navigated to a new URL — clear stale failures from the old page
-            this.context.clearFailuresForUrl(browserState.url);
+          const failRecord = this.context.failureRegistry.get(failureKey);
+          if (failRecord && failRecord.failCount >= 2) {
+            const blockMsg = `[FailureRegistry] ⛔ target="${failureKey}" is now BLOCKED ` +
+              `(${failRecord.failCount} validated failures on ${browserState.url})`;
+            console.warn(blockMsg);
+            logger.warning(blockMsg);
           }
+        } else if (postActionState.url !== browserState.url) {
+          this.context.clearFailuresForUrl(browserState.url);
         }
-        // ──────────────────────────────────────────────────────────────────
+
+        if (shouldStopAfterValidation(result, actionName)) {
+          logger.warning(`Action ${i + 1} (${actionName}) validation=${result.validated}; stopping queue for re-observe/replan.`);
+          if (result.failureReason) {
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, result.failureReason);
+          }
+          break;
+        }
 
         if (this.isTaskInterrupted()) break;
         const statePreFetchPromise = browserContext.getState(this.context.options.useVision, false, true);

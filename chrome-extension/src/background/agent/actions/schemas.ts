@@ -6,6 +6,11 @@ export interface ActionSchema {
   schema: z.ZodType;
 }
 
+const observationFields = {
+  observationId: z.string().optional().describe('browser observation id used to choose this target'),
+  targetFingerprint: z.any().optional().describe('compact fingerprint of the selected target'),
+};
+
 export const doneActionSchema: ActionSchema = {
   name: 'done',
   description: 'Complete task',
@@ -64,6 +69,7 @@ export const clickElementActionSchema: ActionSchema = {
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().describe('index of the element'),
     xpath: z.string().nullable().optional().describe('xpath of the element'),
+    ...observationFields,
   }),
 };
 
@@ -74,6 +80,7 @@ export const hoverElementActionSchema: ActionSchema = {
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().describe('index of the element'),
     xpath: z.string().nullable().optional().describe('xpath of the element'),
+    ...observationFields,
   }),
 };
 
@@ -84,6 +91,7 @@ export const rightClickElementActionSchema: ActionSchema = {
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().describe('index of the element'),
     xpath: z.string().nullable().optional().describe('xpath of the element'),
+    ...observationFields,
   }),
 };
 
@@ -95,6 +103,7 @@ export const inputTextActionSchema: ActionSchema = {
     index: z.number().int().describe('index of the element'),
     text: z.string().describe('text to input'),
     xpath: z.string().nullable().optional().describe('xpath of the element'),
+    ...observationFields,
   }),
 };
 
@@ -154,6 +163,7 @@ export const scrollToPercentActionSchema: ActionSchema = {
     intent: z.string().default('').describe('purpose of this action'),
     yPercent: z.number().int().describe('percentage to scroll to - min 0, max 100; 0 is top, 100 is bottom'),
     index: z.number().int().nullable().optional().describe('index of the element'),
+    ...observationFields,
   }),
 };
 
@@ -163,6 +173,7 @@ export const scrollToTopActionSchema: ActionSchema = {
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().nullable().optional().describe('index of the element'),
+    ...observationFields,
   }),
 };
 
@@ -172,6 +183,7 @@ export const scrollToBottomActionSchema: ActionSchema = {
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().nullable().optional().describe('index of the element'),
+    ...observationFields,
   }),
 };
 
@@ -182,6 +194,7 @@ export const previousPageActionSchema: ActionSchema = {
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().nullable().optional().describe('index of the element'),
+    ...observationFields,
   }),
 };
 
@@ -192,6 +205,7 @@ export const nextPageActionSchema: ActionSchema = {
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().nullable().optional().describe('index of the element'),
+    ...observationFields,
   }),
 };
 
@@ -226,6 +240,7 @@ export const getDropdownOptionsActionSchema: ActionSchema = {
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().describe('index of the dropdown element'),
+    ...observationFields,
   }),
 };
 
@@ -236,6 +251,7 @@ export const selectDropdownOptionActionSchema: ActionSchema = {
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().describe('index of the dropdown element'),
     text: z.string().describe('text of the option'),
+    ...observationFields,
   }),
 };
 
