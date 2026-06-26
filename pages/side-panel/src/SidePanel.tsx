@@ -9,17 +9,14 @@ import { AgentSight } from './components/AgentSight';
 import WelcomeScreen from './components/WelcomeScreen';
 import { useSidePanelController } from './hooks/useSidePanelController';
 import { NeuralBackground } from './components/shared/NeuralBackground';
-import { TabOrchestrator } from './components/TabOrchestrator';
 
 const SidePanel = () => {
   const {
     messages,
     inputEnabled,
     showStopButton,
-    currentSessionId,
     showHistory,
     chatSessions,
-    isHistoricalSession,
     isDarkMode,
     hasConfiguredModels,
     isRecording,

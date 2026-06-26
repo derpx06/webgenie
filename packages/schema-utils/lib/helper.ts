@@ -340,3 +340,24 @@ export function stringifyCustom(value: JSONSchemaType, indent = '', baseIndent =
       return 'undefined';
   }
 }
+
+
+
+export function optimizeSchemaConstraints(schema: unknown): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map(optimizeSchemaConstraints);
+  }
+  if (!schema || typeof schema !== 'object') {
+    return schema;
+  }
+
+  const optimized = { ...(schema as Record<string, unknown>) };
+  for (const key of ['pattern', 'format', 'minLength', 'maxLength', 'minItems', 'maxItems', 'minimum', 'maximum']) {
+    delete optimized[key];
+  }
+
+  for (const [key, value] of Object.entries(optimized)) {
+    optimized[key] = optimizeSchemaConstraints(value);
+  }
+  return optimized;
+}

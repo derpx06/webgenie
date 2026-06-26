@@ -52,8 +52,18 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
   return (
     <div className={`transition-all duration-300 ${isExpanded ? 'bg-white/[0.01]' : 'hover:bg-white/[0.005]'}`}>
       {/* Header section (always visible) */}
-      <div 
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
+        aria-label={`Toggle ${providerConfig.name || providerId} settings`}
         onClick={() => setIsExpanded(!isExpanded)}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setIsExpanded(!isExpanded);
+          }
+        }}
         className="flex cursor-pointer select-none items-center justify-between p-6"
       >
         <div className="flex items-center gap-3">
@@ -67,19 +77,25 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
             {providerConfig.name || providerId}
           </h3>
         </div>
-        <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3">
           <button
             className={`flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all duration-300 active:scale-95 disabled:opacity-30 ${buttonProps.variant === 'danger'
               ? 'border border-red-500/20 bg-transparent text-red-400 hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-500'
               : 'bg-[#7C3AED] text-white shadow-md shadow-[#7C3AED]/20 hover:bg-[#7C3AED]/90'
               }`}
             disabled={buttonProps.disabled}
-            onClick={() => isInStorage && !isModified ? handleDelete(providerId) : handleSave(providerId)}
+            onClick={event => {
+              event.stopPropagation();
+              isInStorage && !isModified ? handleDelete(providerId) : handleSave(providerId);
+            }}
           >
             {buttonProps.children}
           </button>
           <button 
-            onClick={() => setIsExpanded(!isExpanded)}
+            onClick={event => {
+              event.stopPropagation();
+              setIsExpanded(!isExpanded);
+            }}
             className={`flex size-8 items-center justify-center rounded-lg text-slate-400 transition-all hover:bg-white/5 hover:text-white`}
           >
             {isExpanded ? <FiChevronUp size={16} /> : <FiChevronDown size={16} />}

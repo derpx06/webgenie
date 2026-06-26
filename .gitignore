@@ -22,6 +22,7 @@ build_log.txt
 .env.production.local
 *.env
 
+graphify-out
 # Debug logs
 npm-debug.log*
 yarn-debug.log*

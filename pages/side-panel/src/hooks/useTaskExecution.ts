@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Actors, chatHistoryStore, type Message } from '@extension/storage';
+import { Actors, type Message } from '@extension/storage';
 import { t } from '@extension/i18n';
 
 type OutgoingMessage = Record<string, unknown>;
@@ -11,7 +11,6 @@ interface UseTaskExecutionProps {
     isHistoricalSession: boolean;
     isFollowUpMode: boolean;
     appendMessage: (message: UiMessage, sessionId?: string) => void;
-    setMessages: (messages: Message[]) => void;
     createNewSession: (title: string) => Promise<string>;
     setupConnection: () => void;
     sendMessage: (message: OutgoingMessage) => void;
@@ -37,7 +36,6 @@ export const useTaskExecution = ({
     isHistoricalSession,
     isFollowUpMode,
     appendMessage,
-    setMessages,
     createNewSession,
     setupConnection,
     sendMessage,

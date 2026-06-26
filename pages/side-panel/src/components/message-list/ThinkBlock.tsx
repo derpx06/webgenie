@@ -155,7 +155,7 @@ const deduplicateSteps = (stepsList: Message[], isPhaseActive: boolean): Dedupli
   return deduped;
 };
 
-export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActive, isDarkMode }) => {
+export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActive }) => {
   const isPlanner = actor === Actors.PLANNER;
   const steps = messages.filter(m => m.content !== 'Showing progress...');
   
@@ -195,9 +195,19 @@ export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActiv
       </div>
 
       {/* Phase header labels */}
-      <div 
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
+        aria-label={`Toggle ${isPlanner ? 'planning' : 'acting'} steps`}
         className="phase-label-row" 
         onClick={() => setIsExpanded(!isExpanded)}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setIsExpanded(!isExpanded);
+          }
+        }}
         style={{ cursor: 'pointer', userSelect: 'none' }}
       >
         <span className={`phase-type-label ${isActive ? 'active' : isPlanner ? 'plan' : 'act'}`}>

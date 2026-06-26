@@ -9,10 +9,11 @@ import {
 } from './errors';
 import { calcBranchPathHashSet } from '@src/background/browser/dom/views';
 import { BrowserStateHistory, URLNotAllowedError } from '@src/background/browser/views';
-import { convertZodToJsonSchema } from '@src/background/utils';
+import { convertZodToJsonSchema, optimizeSchemaConstraints } from '@src/background/utils';
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
 import { type BaseMessage, HumanMessage } from '@langchain/core/messages';
+import { ProviderTypeEnum } from '@extension/storage';
 import { WebGenieMemoryStore, ContextRouter, ContextBuilder } from '../memory';
 import { PyramidLevel } from '@src/background/agent/messages/views';
 
@@ -63,7 +64,14 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     super(actionRegistry.setupModelOutputSchema(), options, { ...extraOptions, id: 'navigator' });
     this.actionRegistry = actionRegistry;
     this.historyReplayer = new HistoryReplayer(this.context, actionRegistry, this.doMultiAction.bind(this));
-    this.jsonSchema = convertZodToJsonSchema(this.modelOutputSchema, 'NavigatorAgentOutput', true);
+    this.jsonSchema = this.createResponseSchema();
+  }
+
+  private createResponseSchema(): Record<string, unknown> {
+    const schema = convertZodToJsonSchema(this.modelOutputSchema, 'NavigatorAgentOutput', true);
+    return this.provider === ProviderTypeEnum.Gemini || this.provider === ProviderTypeEnum.VertexAI
+      ? optimizeSchemaConstraints(schema) as Record<string, unknown>
+      : schema;
   }
 
   async invoke(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
@@ -76,7 +84,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       const currentUrl = currentPage?.url() || '';
       const macroObjective = this.context.lastMacroObjective;
       this.modelOutputSchema = this.actionRegistry.setupModelOutputSchema(currentUrl, macroObjective);
-      this.jsonSchema = convertZodToJsonSchema(this.modelOutputSchema, 'NavigatorAgentOutput', true);
+      this.jsonSchema = this.createResponseSchema();
     } catch (e) {
       logger.error('Failed to dynamically update schema for invoke:', e);
     }
@@ -108,7 +116,10 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         );
       }
 
-      if (response.parsed) return response.parsed;
+      if (response.parsed) {
+        const parsed = this.validateModelOutput(response.parsed);
+        if (parsed) return parsed;
+      }
 
       // Manual extraction fallback for JSON-parse failures
       if (typeof response.raw?.content === 'string') {

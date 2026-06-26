@@ -15,13 +15,6 @@ interface EmptyChatProps {
     children?: React.ReactNode;
 }
 
-interface TestToolDefinition {
-    name: string;
-    description?: string;
-    parameters?: Record<string, unknown>;
-    schema?: Record<string, unknown>;
-}
-
 /* ─── Pill data — two rows, opposite scroll directions ─── */
 const ROW_A = [
     { icon: FaSearch, label: 'Search Hacker News' },

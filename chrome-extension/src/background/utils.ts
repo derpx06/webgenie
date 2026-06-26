@@ -125,3 +125,28 @@ export function convertZodToJsonSchema(zodSchema: z.ZodType, name: string, addTi
   // logger.info('Navigator json schema', JSON.stringify(jsonSchema, null, 2));
   return jsonSchema;
 }
+
+/**
+ * Gemini compiles response schemas into a finite-state grammar. Bounds and
+ * format matchers nested in the navigator's large action schema can exceed
+ * that grammar's state limit. Runtime Zod validation still enforces them
+ * after the model returns, so remove them only from Gemini's wire schema.
+ */
+export function optimizeSchemaConstraints(schema: unknown): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map(optimizeSchemaConstraints);
+  }
+  if (!schema || typeof schema !== 'object') {
+    return schema;
+  }
+
+  const optimized = { ...(schema as Record<string, unknown>) };
+  for (const key of ['pattern', 'format', 'minLength', 'maxLength', 'minItems', 'maxItems', 'minimum', 'maximum']) {
+    delete optimized[key];
+  }
+
+  for (const [key, value] of Object.entries(optimized)) {
+    optimized[key] = optimizeSchemaConstraints(value);
+  }
+  return optimized;
+}

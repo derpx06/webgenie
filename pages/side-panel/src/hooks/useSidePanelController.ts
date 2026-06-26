@@ -46,7 +46,6 @@ export const useSidePanelController = () => {
 
   const {
     messages,
-    setMessages,
     currentSessionId,
     sessionIdRef,
     chatSessions,
@@ -102,7 +101,6 @@ export const useSidePanelController = () => {
     isHistoricalSession,
     isFollowUpMode,
     appendMessage,
-    setMessages,
     createNewSession,
     setupConnection,
     sendMessage,

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { HiOutlineChevronUp, HiOutlineX } from 'react-icons/hi';
+import { HiOutlineX } from 'react-icons/hi';
 
 interface AgentSightProps {
     screenshot: string | null;

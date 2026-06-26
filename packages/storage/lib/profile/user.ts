@@ -11,7 +11,7 @@ export interface UserProfile {
     theme?: 'light' | 'dark' | 'system';
     language?: string;
     customInstructions?: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
   facts?: string[];
   lastUpdated?: string;
@@ -129,4 +129,3 @@ export const userStore: UserStorage = {
     });
   },
 };
-

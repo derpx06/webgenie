@@ -55,6 +55,7 @@ import { ManagePrivacyHandler } from './handlers/manage-privacy';
 import { ManageExtensionsHandler } from './handlers/manage-extensions';
 import { ManageSystemHandler } from './handlers/manage-system';
 import { ManageSessionsHandler } from './handlers/manage-sessions';
+import { from } from 'puppeteer-core/lib/esm/third_party/rxjs/rxjs';
 
 export class InvalidInputError extends Error {
   constructor(message: string) {
@@ -73,7 +74,7 @@ export class Action {
     public readonly schema: ActionSchema,
     // Whether this action has an index argument
     public readonly hasIndex: boolean = false,
-  ) {}
+  ) { }
 
   async call(input: unknown): Promise<ActionResult> {
     const schema = this.schema.schema;

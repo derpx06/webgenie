@@ -1,4 +1,4 @@
-import { FaHistory, FaPlus, FaGithub, FaCog, FaChevronLeft } from 'react-icons/fa';
+import { FaHistory, FaPlus, FaCog, FaChevronLeft } from 'react-icons/fa';
 import { t } from '@extension/i18n';
 
 type SidePanelHeaderProps = {

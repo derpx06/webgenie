@@ -1,4 +1,3 @@
-import { useCallback } from 'react';
 import { FaMicrophone, FaPaperclip } from 'react-icons/fa';
 import { AiOutlineLoading3Quarters } from 'react-icons/ai';
 import { AttachmentBar, RecordingOverlay } from './chat-input/Visuals';

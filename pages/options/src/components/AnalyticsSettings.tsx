@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { analyticsSettingsStore, chatHistoryStore } from '@extension/storage';
 import type { AnalyticsSettingsConfig } from '@extension/storage';
-import { FiActivity, FiClock, FiShield } from 'react-icons/fi';
+import { FiActivity, FiShield } from 'react-icons/fi';
 
 import { DashboardSection } from './shared/DashboardSection';
 

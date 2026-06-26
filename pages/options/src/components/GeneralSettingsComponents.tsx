@@ -18,15 +18,15 @@ export const SettingToggle: React.FC<ToggleProps> = ({
   severity,
 }) => {
   // Determine on track color based on severity
-  let onTrackClass = 'peer-checked:bg-[#7C3AED]';
+  let onTrackClass = 'bg-[#7C3AED]';
   if (severity === 'caution') {
-    onTrackClass = 'peer-checked:bg-[#F59E0B]';
+    onTrackClass = 'bg-[#F59E0B]';
   } else if (severity === 'dangerous') {
-    onTrackClass = 'peer-checked:bg-[#F43F5E]';
+    onTrackClass = 'bg-[#F43F5E]';
   }
 
   return (
-    <label className={`group relative flex cursor-pointer items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
+    <div className={`group relative flex items-center justify-between gap-6 border-b px-8 py-6 transition-all duration-300 last:border-0 ${
       isDarkMode ? 'border-white/5 hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50'
     }`}>
       <div className="flex-1">
@@ -49,17 +49,22 @@ export const SettingToggle: React.FC<ToggleProps> = ({
           {desc}
         </p>
       </div>
-      <div className="relative inline-flex shrink-0 cursor-pointer items-center">
-        <input type="checkbox" className="peer sr-only" checked={checked} onChange={e => onChange(e.target.checked)} />
-        <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
-          after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full 
-          peer-focus:outline-none
-          ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-white peer-checked:after:bg-white' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:after:bg-white'} 
-          ${onTrackClass}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={title}
+        onClick={() => onChange(!checked)}
+        className="relative inline-flex shrink-0 cursor-pointer items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
+      >
+        <span className={`h-6 w-11 rounded-full border transition-all duration-300 after:absolute
+          after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-['']
+          ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-white' : 'border-slate-200 bg-slate-200 after:bg-white'}
+          ${checked ? `after:translate-x-full ${onTrackClass}` : ''}
           after:transition-transform`}>
-        </div>
-      </div>
-    </label>
+        </span>
+      </button>
+    </div>
   );
 };
 
