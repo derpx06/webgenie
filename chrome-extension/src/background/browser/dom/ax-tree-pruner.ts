@@ -48,11 +48,14 @@ export function pruneAXTree(state: DOMState, goal?: string): DOMState {
     return state;
   }
 
+  attachOrphanedSelectorNodes(state);
+
   // Back up the state in case goal-directed pruning is too aggressive
   const backup = cloneDOMState(state);
 
   pruneNode(state.elementTree, goal);
   rebuildSelectorMap(state);
+  compactHighlightIndexes(state);
 
   // If goal-directed pruning removed all interactive nodes, restore from backup
   // but prune without the goal keyword restriction!
@@ -60,6 +63,7 @@ export function pruneAXTree(state: DOMState, goal?: string): DOMState {
     logger.warning(`[AXTreePruner] Goal-directed pruning removed all interactive nodes. Re-trying without goal-directed filtering.`);
     pruneNode(backup.elementTree, undefined);
     rebuildSelectorMap(backup);
+    compactHighlightIndexes(backup);
     state.elementTree = backup.elementTree;
     state.selectorMap = backup.selectorMap;
   }
@@ -69,6 +73,41 @@ export function pruneAXTree(state: DOMState, goal?: string): DOMState {
 }
 
 // ── Private ───────────────────────────────────────────────────────────────────
+
+/**
+ * AX extraction can produce valid selectorMap entries whose AX ancestors were
+ * ignored by Chrome. Those nodes are actionable, but not reachable from the
+ * retained elementTree root. Because pruning rebuilds selectorMap by walking
+ * elementTree, leaving them orphaned drops every such action target.
+ */
+function attachOrphanedSelectorNodes(state: DOMState): void {
+  const reachable = new Set<DOMElementNode>();
+
+  function walk(node: DOMElementNode): void {
+    reachable.add(node);
+    for (const child of node.children) {
+      if (child instanceof DOMElementNode) walk(child);
+    }
+  }
+
+  walk(state.elementTree);
+
+  let attachedCount = 0;
+  for (const node of state.selectorMap.values()) {
+    if (node.highlightIndex === null || reachable.has(node) || node === state.elementTree) {
+      continue;
+    }
+
+    node.parent = state.elementTree;
+    state.elementTree.children.push(node);
+    reachable.add(node);
+    attachedCount++;
+  }
+
+  if (attachedCount > 0) {
+    logger.warning(`[AXTreePruner] Attached ${attachedCount} orphaned selectorMap nodes before pruning.`);
+  }
+}
 
 /**
  * Recursively prune a node bottom-up.
@@ -195,6 +234,25 @@ function rebuildSelectorMap(state: DOMState): void {
 
   walk(state.elementTree);
   state.selectorMap = newMap;
+}
+
+function compactHighlightIndexes(state: DOMState): void {
+  const compacted = new Map<number, DOMElementNode>();
+  let nextIndex = 0;
+
+  function walk(node: DOMElementNode): void {
+    if (node.highlightIndex !== null && state.selectorMap.has(node.highlightIndex)) {
+      node.highlightIndex = nextIndex;
+      compacted.set(nextIndex, node);
+      nextIndex++;
+    }
+    for (const child of node.children) {
+      if (child instanceof DOMElementNode) walk(child);
+    }
+  }
+
+  walk(state.elementTree);
+  state.selectorMap = compacted;
 }
 
 function getKeywords(text: string): Set<string> {

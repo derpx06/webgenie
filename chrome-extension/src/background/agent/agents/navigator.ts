@@ -1,19 +1,13 @@
 import type { z } from 'zod';
 import { BaseAgent, type BaseAgentOptions, type ExtraAgentOptions } from './base';
 import { createLogger } from '@src/background/log';
-import { ActionResult, type AgentOutput } from '../types';
+import { ActionResult, type AgentBrain, type AgentOutput } from '../types';
 import { Actors, ExecutionState } from '../event/types';
-import {
-  ResponseParseError,
-  isAbortedError,
-} from './errors';
 import { calcBranchPathHashSet } from '@src/background/browser/dom/views';
-import { BrowserStateHistory, URLNotAllowedError } from '@src/background/browser/views';
-import { convertZodToJsonSchema, optimizeSchemaConstraints } from '@src/background/utils';
+import { BrowserStateHistory, URLNotAllowedError, type BrowserState } from '@src/background/browser/views';
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
 import { type BaseMessage, HumanMessage } from '@langchain/core/messages';
-import { ProviderTypeEnum } from '@extension/storage';
 import { WebGenieMemoryStore, ContextRouter, ContextBuilder } from '../memory';
 import { PyramidLevel } from '@src/background/agent/messages/views';
 
@@ -25,10 +19,16 @@ import { handleAgentError } from './utils/error-handler';
 import { ensureBrowserObservation } from '../validation/observation';
 import {
   fingerprintFailureKey,
+  isMutatingAction,
   normalizeIndexedAction,
   shouldStopAfterValidation,
+  shouldBlockRepeatedAction,
+  hasActionPostconditionSatisfied,
   validateActionOutcome,
 } from '../validation/service';
+import { ProgressLedger } from '../contracts';
+import type { BrowserObservation, TargetFingerprint } from '../validation/types';
+import { waitForActionSettled } from '../validation/settling';
 
 const logger = createLogger('NavigatorAgent');
 
@@ -36,32 +36,16 @@ export interface NavigatorResult {
   done: boolean;
 }
 
-interface TokenUsageLike {
-  input_tokens?: number;
-  output_tokens?: number;
-  promptTokens?: number;
-  completionTokens?: number;
-}
-
-interface NavigatorToolCall {
-  args: {
-    currentState: unknown;
-    action: unknown[];
-  };
-}
-
-interface RawNavigatorResponse {
-  usage_metadata?: TokenUsageLike;
-  additional_kwargs?: {
-    tokenUsage?: TokenUsageLike;
-  };
-  tool_calls?: NavigatorToolCall[];
+function targetFingerprintFromArgs(actionArgs: unknown): TargetFingerprint | null {
+  if (actionArgs === null || typeof actionArgs !== 'object') return null;
+  if (!('targetFingerprint' in actionArgs)) return null;
+  const value = (actionArgs as { targetFingerprint?: unknown }).targetFingerprint;
+  return value && typeof value === 'object' ? value as TargetFingerprint : null;
 }
 
 export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
   private actionRegistry: NavigatorActionRegistry;
   private historyReplayer: HistoryReplayer;
-  private jsonSchema: Record<string, unknown>;
 
   constructor(
     actionRegistry: NavigatorActionRegistry,
@@ -71,96 +55,18 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     super(actionRegistry.setupModelOutputSchema(), options, { ...extraOptions, id: 'navigator' });
     this.actionRegistry = actionRegistry;
     this.historyReplayer = new HistoryReplayer(this.context, actionRegistry, this.doMultiAction.bind(this));
-    this.jsonSchema = this.createResponseSchema();
-  }
-
-  private createResponseSchema(): Record<string, unknown> {
-    const schema = convertZodToJsonSchema(this.modelOutputSchema, 'NavigatorAgentOutput', true);
-    return this.provider === ProviderTypeEnum.Gemini || this.provider === ProviderTypeEnum.VertexAI
-      ? optimizeSchemaConstraints(schema) as Record<string, unknown>
-      : schema;
   }
 
   async invoke(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
-    if (!this.withStructuredOutput) {
-      return super.invoke(inputMessages);
-    }
-
     try {
       const currentPage = await this.context.browserContext.getCurrentPage().catch(() => null);
       const currentUrl = currentPage?.url() || '';
       const macroObjective = this.context.lastMacroObjective;
       this.modelOutputSchema = this.actionRegistry.setupModelOutputSchema(currentUrl, macroObjective);
-      this.jsonSchema = this.createResponseSchema();
-    } catch (e) {
-      logger.error('Failed to dynamically update schema for invoke:', e);
-    }
-
-    const structuredLlm = this.chatLLM.withStructuredOutput(this.jsonSchema, {
-      includeRaw: true,
-      name: this.modelOutputToolName,
-    });
-
-    try {
-      const response = await structuredLlm.invoke(inputMessages, {
-        signal: this.context.controller.signal,
-        callbacks: this.context.traceCallbacks || [],
-        ...this.callOptions,
-      });
-
-      // Record token usage if available
-      const rawResponse = response.raw as RawNavigatorResponse;
-      if (rawResponse?.usage_metadata) {
-        this.context.messageManager.recordTokenUsage(
-          rawResponse.usage_metadata.input_tokens || 0,
-          rawResponse.usage_metadata.output_tokens || 0
-        );
-      } else if (rawResponse?.additional_kwargs?.tokenUsage) {
-        const usage = rawResponse.additional_kwargs.tokenUsage;
-        this.context.messageManager.recordTokenUsage(
-          usage.promptTokens || usage.input_tokens || 0,
-          usage.completionTokens || usage.output_tokens || 0
-        );
-      }
-
-      if (response.parsed) {
-        const parsed = this.validateModelOutput(response.parsed);
-        if (parsed) return parsed;
-      }
-
-      // Manual extraction fallback for JSON-parse failures
-      if (typeof response.raw?.content === 'string') {
-        const parsed = this.manuallyParseResponse(response.raw.content);
-        if (parsed) return parsed;
-      }
-
-      // Tool call fallback
-      const toolCalls = (response.raw as RawNavigatorResponse)?.tool_calls;
-      if (toolCalls && toolCalls.length > 0) {
-        const toolCall = toolCalls[0];
-        return {
-          current_state: toolCall.args.currentState,
-          action: [...toolCall.args.action],
-        };
-      }
-
-      throw new ResponseParseError('Could not parse navigator response');
     } catch (error) {
-      if (isAbortedError(error)) throw error;
-      // Re-throw already-classified agent errors (auth, rate-limit, etc.) immediately
-      if (
-        error instanceof ResponseParseError ||
-        error instanceof Error && [
-          'ChatModelAuthError', 'ChatModelForbiddenError', 'ChatModelBadRequestError',
-          'ChatModelRateLimitError', 'ChatModelPaymentRequiredError',
-          'RequestCancelledError', 'URLNotAllowedError',
-        ].includes(error.constructor?.name ?? '')
-      ) {
-        throw error;
-      }
-      // Classify raw LLM/network errors into typed agent errors
-      handleAgentError(error, `Failed to invoke ${this.modelName} with structured output`);
+      logger.error('Failed to dynamically update schema for invoke:', error);
     }
+    return super.invoke(inputMessages);
   }
 
   async execute(): Promise<AgentOutput<NavigatorResult>> {
@@ -187,7 +93,8 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       const contextPacket = ContextBuilder.buildContextPacket(
         this.context,
         this.prompt.getSystemMessage(),
-        currentStateMsg
+        currentStateMsg,
+        'navigator',
       );
 
       const modelOutput = await this.invoke(contextPacket);
@@ -200,7 +107,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       modelOutputString = JSON.stringify(modelOutput);
 
       // ── SELF-REFLECTION & STRUCTURED MEMORY PROPAGATION ─────────────────
-      const brain = modelOutput.current_state as any;
+      const brain: AgentBrain = modelOutput.current_state;
       if (brain?.evaluation_previous_goal) {
         this.context.lastEvaluation = brain.evaluation_previous_goal;
       }
@@ -242,8 +149,9 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
       // Push actions to RecentActionBuffer
       for (const act of actions) {
-        const name = Object.keys(act)[0];
-        const args = JSON.stringify(act[name]);
+        const entries = Object.entries(act).filter(([, value]) => value !== null && value !== undefined);
+        const name = entries.map(([key]) => key).join('|') || 'invalid_action';
+        const args = JSON.stringify(Object.fromEntries(entries));
         this.context.memory.recentActions.pushAction(`${name} ${args}`);
       }
 
@@ -334,7 +242,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     if (this.context.stateMessageAdded) return;
 
     // Process pending action results
-    this.context.actionResults.forEach((r, i) => {
+    this.context.actionResults.forEach((r) => {
       if (!r.includeInMemory) return;
 
       if (r.extractedContent) {
@@ -352,12 +260,15 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           'action_error'
         );
       }
-      this.context.actionResults[i] = new ActionResult();
     });
 
     const state = await this.prompt.getUserMessage(this.context);
     this.context.messageManager.addStateMessage(state);
     this.context.stateMessageAdded = true;
+    // Results are now represented in the state prompt and trace memory. Keep
+    // the context clean so the same native capability output is not injected
+    // again after the state message is removed on the next step.
+    this.context.actionResults = [];
   }
 
   protected async removeLastStateMessageFromMemory() {
@@ -366,9 +277,46 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     this.context.stateMessageAdded = false;
   }
 
+  public async executePreplannedActions(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
+    return this.doMultiAction(actions);
+  }
+
+  private observationsDiverged(before: BrowserObservation | undefined, after: BrowserObservation | undefined): boolean {
+    if (!before || !after) return false;
+    return before.tabId !== after.tabId ||
+      before.url !== after.url ||
+      before.documentFingerprint !== after.documentFingerprint ||
+      before.layoutFingerprint !== after.layoutFingerprint;
+  }
+
+  private async getSettledPostActionState(
+    actionName: string,
+    actionArgs: unknown,
+    beforeState: BrowserState,
+  ): Promise<BrowserState> {
+    const config = this.context.browserContext.getConfig();
+    const timeoutMs = Math.max(250, config.actionSettleTimeoutMs ?? 2000);
+    const pollIntervalMs = Math.max(50, config.actionPollIntervalMs ?? 100);
+    const startedAt = Date.now();
+    const settleResult = await waitForActionSettled(
+      () => this.context.browserContext.getState(false, false, true),
+      state => hasActionPostconditionSatisfied({ actionName, actionArgs, before: beforeState, after: state }),
+      {
+        timeoutMs,
+        pollIntervalMs,
+        signal: this.context.controller.signal,
+      },
+    );
+
+    logger.info(
+      `[ActionSettle] ${actionName} settled=${settleResult.settled} polls=${settleResult.polls} ` +
+      `elapsed=${settleResult.elapsedMs}ms total=${Date.now() - startedAt}ms`,
+    );
+    return settleResult.state;
+  }
+
   private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
     const results: ActionResult[] = [];
-    const errCount = 0;
     const browserContext = this.context.browserContext;
     const browserState = await browserContext.getCachedState(this.context.options.useVision);
     const initialObservation = ensureBrowserObservation(browserState);
@@ -390,8 +338,36 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     for (const [i, action] of actions.entries()) {
       if (this.isTaskInterrupted()) break;
 
-      const actionName = Object.keys(action)[0];
-      const actionArgs = action[actionName];
+      const contractId = this.context.currentContract?.id ?? null;
+      const actionId = `action_${Date.now().toString(36)}_${i}_${Math.random().toString(36).slice(2, 8)}`;
+      const validationId = `validation_${Date.now().toString(36)}_${i}_${Math.random().toString(36).slice(2, 8)}`;
+      const actionEntries = action && typeof action === 'object'
+        ? Object.entries(action).filter(([, value]) => value !== null && value !== undefined)
+        : [];
+
+      if (actionEntries.length !== 1) {
+        const msg = actionEntries.length === 0
+          ? 'The navigator returned an empty action object; replan with exactly one action per item.'
+          : 'The navigator returned multiple actions in one object; replan with exactly one action per item.';
+        logger.warning(msg);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+        results.push(new ActionResult({
+          executed: false,
+          executionStatus: 'not_attempted',
+          validated: 'failed',
+          retryability: 'replan',
+          failureReason: msg,
+          extractedContent: msg,
+          includeInMemory: true,
+          contractId,
+          actionId,
+          validationId,
+          evidence: [{ kind: 'error', passed: false, message: msg }],
+        }));
+        break;
+      }
+
+      const [actionName, actionArgs] = actionEntries[0];
 
       // Strict verification safeguard: Prevent 'done' from being chained after modifying actions
       if (actionName === 'done' && i > 0) {
@@ -403,6 +379,27 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       }
 
       try {
+        const allowedActions = this.context.currentContract?.allowedActions ?? [];
+        if (allowedActions.length > 0 && !allowedActions.includes(actionName)) {
+          const msg = `Action ${actionName} is not allowed by contract ${contractId ?? 'current contract'}; replan with one of: ${allowedActions.join(', ')}.`;
+          logger.warning(msg);
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          results.push(new ActionResult({
+            executed: false,
+            executionStatus: 'not_attempted',
+            validated: 'failed',
+            retryability: 'replan',
+            failureReason: msg,
+            extractedContent: msg,
+            includeInMemory: true,
+            contractId,
+            actionId,
+            validationId,
+            evidence: [{ kind: 'error', passed: false, message: msg }],
+          }));
+          break;
+        }
+
         const actionInstance = this.actionRegistry.getAction(actionName);
         if (!actionInstance) throw new Error(`Action ${actionName} not exists`);
 
@@ -410,6 +407,18 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         const beforeState = await browserContext.getCachedState(this.context.options.useVision);
         const beforeObservation = ensureBrowserObservation(beforeState);
         this.context.activeObservation = beforeObservation;
+        if (this.context.traceStore) {
+          void this.context.traceStore.append({
+            taskId: this.context.taskId,
+            actor: 'navigator',
+            type: 'action.started',
+            contractId: contractId ?? undefined,
+            observationId: beforeObservation.id,
+            actionId,
+            payload: { actionName, actionArgs },
+            timestamp: Date.now(),
+          });
+        }
 
         if (indexArg !== null) {
           const normalized = normalizeIndexedAction(actionName, actionArgs, beforeObservation);
@@ -419,7 +428,38 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
               ExecutionState.ACT_FAIL,
               normalized.actionResult.failureReason ?? 'Stale browser observation',
             );
-            results.push(normalized.actionResult);
+            results.push(new ActionResult({
+              ...normalized.actionResult,
+              contractId,
+              actionId,
+              validationId,
+            }));
+            break;
+          }
+          if (shouldBlockRepeatedAction({
+            actionName,
+            actionArgs,
+            contractId,
+            recentResults: this.context.actionResults,
+          })) {
+            const msg = `Repeated ${actionName} on the same target did not produce validated progress; forcing replan.`;
+            const blockedResult = new ActionResult({
+              executed: false,
+              executionStatus: 'not_attempted',
+              validated: 'failed',
+              retryability: 'replan',
+              failureReason: msg,
+              extractedContent: msg,
+              includeInMemory: true,
+              observationId: beforeObservation.id,
+              targetFingerprint: targetFingerprintFromArgs(actionArgs),
+              contractId,
+              actionId,
+              validationId,
+              evidence: [{ kind: 'error', passed: false, message: msg }],
+            });
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+            results.push(blockedResult);
             break;
           }
         }
@@ -441,7 +481,10 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           result = new ActionResult({
             ...result,
             observationId: beforeObservation.id,
-            targetFingerprint: 'targetFingerprint' in actionArgs ? (actionArgs.targetFingerprint as any) : null,
+            targetFingerprint: targetFingerprintFromArgs(actionArgs),
+            contractId,
+            actionId,
+            validationId,
           });
         }
 
@@ -451,7 +494,9 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
         const postActionState = actionName === 'done' || actionName === 'ask_human'
           ? beforeState
-          : await browserContext.getState(false, false, true);
+          : result.error
+            ? await browserContext.getState(false, false, true)
+            : await this.getSettledPostActionState(actionName, actionArgs, beforeState);
         ensureBrowserObservation(postActionState);
         result = validateActionOutcome({
           actionName,
@@ -461,7 +506,52 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           result,
           recentResults: results,
         });
+        result = new ActionResult({
+          ...result,
+          contractId,
+          actionId,
+          validationId,
+          observationId: result.observationId ?? beforeObservation.id,
+        });
         this.context.activeObservation = postActionState.observation;
+        if (isMutatingAction(actionName) && contractId) {
+          const progress = ProgressLedger.recordFromActionResult({
+            taskId: this.context.taskId,
+            contractId,
+            observationId: result.observationId,
+            actionId,
+            actionName,
+            result,
+          });
+          this.context.validatedProgress = ProgressLedger.append(this.context.validatedProgress, progress);
+        }
+        if (result.isWaitingForHuman) {
+          this.context.blockedState = {
+            kind: 'needs_human',
+            question: result.extractedContent || 'The agent needs your input.',
+            evidence: result.evidence,
+            resumePolicy: 'replan_after_response',
+          };
+        }
+        if (this.context.traceStore) {
+          void this.context.traceStore.append({
+            taskId: this.context.taskId,
+            actor: 'validator',
+            type: 'action.validated',
+            contractId: contractId ?? undefined,
+            observationId: result.observationId ?? undefined,
+            actionId,
+            validationId,
+            payload: {
+              actionName,
+              validated: result.validated,
+              retryability: result.retryability,
+              evidence: result.evidence,
+              failureReason: result.failureReason,
+            },
+            timestamp: Date.now(),
+          });
+        }
 
         if (indexArg !== null) {
           const domElement = browserState.selectorMap.get(indexArg);
@@ -538,6 +628,15 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           break;
         }
 
+        if (
+          i < actions.length - 1 &&
+          isMutatingAction(actionName) &&
+          this.observationsDiverged(beforeObservation, postActionState.observation)
+        ) {
+          logger.info(`Action ${i + 1} changed observation; aborting remaining queued actions for fresh replan.`);
+          break;
+        }
+
         if (this.isTaskInterrupted()) break;
         const statePreFetchPromise = browserContext.getState(this.context.options.useVision, false, true);
         await this.delayBetweenActions();
@@ -554,7 +653,25 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
 
         this.actionRegistry.refineActionDescription(actionName, msg, actionArgs);
-        results.push(new ActionResult({ error: msg, isDone: false, includeInMemory: true }));
+        results.push(new ActionResult({
+          error: msg,
+          isDone: false,
+          includeInMemory: true,
+          contractId,
+          actionId,
+          validationId,
+          executionStatus: 'threw',
+          validated: 'failed',
+          retryability: /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)/i.test(msg)
+            ? 'replan'
+            : 'retry_reobserve',
+          failureReason: /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)/i.test(msg)
+            ? `${msg}. The DOM changed after this index was selected; re-observe and choose a current target instead of retrying the same index.`
+            : msg,
+          observationId: this.context.activeObservation?.id ?? null,
+          targetFingerprint: targetFingerprintFromArgs(actionArgs),
+          evidence: [{ kind: 'error', passed: false, message: msg }],
+        }));
         // Stop execution immediately on thrown action failures!
         break;
       }

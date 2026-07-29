@@ -128,6 +128,15 @@ export function extractJsonFromModelOutput(content: string): Record<string, unkn
       }
     }
 
+    processedContent = processedContent.trim();
+    if (!processedContent.startsWith('{')) {
+      const firstBrace = processedContent.indexOf('{');
+      const lastBrace = processedContent.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        processedContent = processedContent.slice(firstBrace, lastBrace + 1);
+      }
+    }
+
     // Parse the cleaned content
     try {
       return JSON.parse(processedContent);

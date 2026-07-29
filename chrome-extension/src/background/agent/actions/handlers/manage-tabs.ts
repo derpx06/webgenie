@@ -19,6 +19,14 @@ export class ManageTabsHandler extends BaseHandler {
 
       if (action === 'groupTabs') {
         if (!input.tabIds || input.tabIds.length === 0) throw new Error('tabIds array is required to group tabs');
+        if (input.windowId !== undefined) {
+          const windowTabs = await browser.queryTabs({ windowId: input.windowId });
+          const windowTabIds = new Set(windowTabs.map(tab => tab.id));
+          const outsideWindow = input.tabIds.filter((tabId: number) => !windowTabIds.has(tabId));
+          if (outsideWindow.length > 0) {
+            throw new Error(`Tabs ${outsideWindow.join(', ')} are not in window ${input.windowId}`);
+          }
+        }
         const groupId = await browser.groupTabs({ tabIds: input.tabIds });
         if (input.title || input.color || input.collapsed !== undefined) {
           await browser.updateTabGroup(groupId, { title: input.title, color: input.color as any, collapsed: input.collapsed });

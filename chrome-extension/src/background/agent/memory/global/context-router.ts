@@ -1,5 +1,5 @@
 import { createLogger } from '../../../log';
-import type { DOMState } from '../../../browser/dom/views';
+import type { DOMElementNode, DOMState } from '../../../browser/dom/views';
 import { WebGenieMemoryStore, intentSimilarity, timeDecayFactor } from './memory-store';
 
 const logger = createLogger('ContextRouter');
@@ -313,6 +313,24 @@ export class ContextRouter {
         el.highlightIndex = null;
         maskedCount++;
       }
+    }
+
+    if (maskedCount > 0) {
+      const visibleSelectorMap = new Map<number, DOMElementNode>();
+      let nextIndex = 0;
+      for (const el of interactiveElements) {
+        if (el.highlightIndex !== null) {
+          el.highlightIndex = nextIndex;
+          visibleSelectorMap.set(nextIndex, el);
+          nextIndex++;
+        }
+      }
+      state.selectorMap = visibleSelectorMap;
+
+      // Browser observations are derived from selectorMap. Once masking changes
+      // visible target indexes, force a fresh observation so the navigator,
+      // validator, and action handlers agree on the same index set.
+      delete (state as { observation?: unknown }).observation;
     }
 
     logger.info(`Attention mask complete: masked ${maskedCount}/${interactiveElements.length} elements.`);

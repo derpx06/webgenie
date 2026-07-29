@@ -4,6 +4,11 @@ import { createLogger } from '@src/background/log';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
 const logger = createLogger('Utils');
+type JsonSchemaConverter = (
+  schema: unknown,
+  options?: Record<string, unknown> | string,
+) => Record<string, unknown>;
+const toJsonSchema = zodToJsonSchema as JsonSchemaConverter;
 
 export function getCurrentTimestampStr(): string {
   /**
@@ -105,14 +110,14 @@ function addTitlesToProperties(jsonSchema: Record<string, unknown>): Record<stri
 }
 
 export function convertZodToJsonSchema(zodSchema: z.ZodType, name: string, addTitle = false): Record<string, unknown> {
-  const jsonSchema = zodToJsonSchema(zodSchema, {
+  const jsonSchema = toJsonSchema(zodSchema, {
     name: name,
     nameStrategy: 'title',
     target: 'openApi3',
     allowedAdditionalProperties: undefined,
     rejectedAdditionalProperties: undefined,
     postProcess: addTitle
-      ? schema => {
+      ? (schema: unknown) => {
           // Titles of the properties of the schema will make some models follow the schema better, especially for Haiku
           if (schema && typeof schema === 'object') {
             return addTitlesToProperties(schema as Record<string, unknown>);
@@ -126,27 +131,147 @@ export function convertZodToJsonSchema(zodSchema: z.ZodType, name: string, addTi
   return jsonSchema;
 }
 
+export function isProviderSchemaPayloadError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return (
+    message.includes('generation_config.response_schema') ||
+    message.includes('response_schema') ||
+    message.includes('json_schema') ||
+    message.includes('specified schema') ||
+    message.includes('schema produces a constraint')
+  ) && (
+    message.includes('Invalid JSON payload') ||
+    message.includes('Unknown name') ||
+    message.includes('Cannot find field') ||
+    message.includes('Proto field is not repeating') ||
+    message.includes('too many states') ||
+    message.includes('specified schema produces a constraint') ||
+    message.includes('not supported')
+  );
+}
+
+export function shouldBypassStructuredOutput(
+  provider: string | undefined,
+  chatModelLibrary: string | undefined,
+  modelName?: string,
+): boolean {
+  const normalizedProvider = (provider ?? '').toLowerCase();
+  const normalizedLibrary = (chatModelLibrary ?? '').toLowerCase();
+  const normalizedModel = (modelName ?? '').toLowerCase();
+
+  const providerSupportsStructuredOutput =
+    normalizedProvider.includes('openai') ||
+    normalizedProvider.includes('azure') ||
+    normalizedProvider.includes('gemini') ||
+    normalizedProvider.includes('google') ||
+    normalizedProvider.includes('vertex') ||
+    normalizedLibrary.includes('chatopenai') ||
+    normalizedLibrary.includes('azurechatopenai') ||
+    normalizedLibrary.includes('chatgooglegenerativeai') ||
+    normalizedLibrary.includes('chatvertexai') ||
+    normalizedModel.includes('gpt-') ||
+    normalizedModel.includes('gemini');
+
+  return !providerSupportsStructuredOutput;
+}
+
 /**
- * Gemini compiles response schemas into a finite-state grammar. Bounds and
- * format matchers nested in the navigator's large action schema can exceed
- * that grammar's state limit. Runtime Zod validation still enforces them
- * after the model returns, so remove them only from Gemini's wire schema.
+ * Some providers accept only a subset of JSON Schema for structured output.
+ * Runtime Zod validation still enforces stripped constraints after the model
+ * returns, so this function intentionally optimizes only the wire schema.
+ */
+function decodeJsonPointerSegment(segment: string): string {
+  return segment.replace(/~1/g, '/').replace(/~0/g, '~');
+}
+
+function resolveLocalJsonRef(root: unknown, ref: string): unknown {
+  if (!ref.startsWith('#/')) return undefined;
+  let current = root;
+  for (const rawSegment of ref.slice(2).split('/')) {
+    if (!current || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[decodeJsonPointerSegment(rawSegment)];
+  }
+  return current;
+}
+
+/**
+ * Structured-output providers do not all support the same JSON Schema dialect.
+ * In addition to removing bounds/format constraints, inline local JSON Schema
+ * refs produced by zod-to-json-schema and normalize nullable type arrays.
+ * Runtime Zod parsing remains the source of truth after the model returns.
  */
 export function optimizeSchemaConstraints(schema: unknown): unknown {
-  if (Array.isArray(schema)) {
-    return schema.map(optimizeSchemaConstraints);
-  }
-  if (!schema || typeof schema !== 'object') {
-    return schema;
-  }
+  const root = schema;
+  const visiting = new Set<string>();
 
-  const optimized = { ...(schema as Record<string, unknown>) };
-  for (const key of ['pattern', 'format', 'minLength', 'maxLength', 'minItems', 'maxItems', 'minimum', 'maximum']) {
-    delete optimized[key];
-  }
+  const optimize = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      return value.map(optimize);
+    }
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
 
-  for (const [key, value] of Object.entries(optimized)) {
-    optimized[key] = optimizeSchemaConstraints(value);
-  }
-  return optimized;
+    const source = value as Record<string, unknown>;
+    if (typeof source.$ref === 'string') {
+      if (visiting.has(source.$ref)) {
+        return {};
+      }
+      const resolved = resolveLocalJsonRef(root, source.$ref);
+      if (resolved) {
+        visiting.add(source.$ref);
+        const optimizedResolved = optimize(resolved);
+        visiting.delete(source.$ref);
+        const siblings = { ...source };
+        delete siblings.$ref;
+        return optimize({ ...(optimizedResolved as Record<string, unknown>), ...siblings });
+      }
+    }
+
+    const optimized = { ...source };
+    if (Array.isArray(optimized.type)) {
+      const types = optimized.type.filter((type): type is string => typeof type === 'string');
+      const nonNullTypes = types.filter(type => type !== 'null');
+      if (types.includes('null')) {
+        optimized.nullable = true;
+      }
+      if (nonNullTypes.length === 1) {
+        optimized.type = nonNullTypes[0];
+      } else {
+        delete optimized.type;
+      }
+    }
+
+    for (const key of [
+      '$schema',
+      '$ref',
+      'definitions',
+      '$defs',
+      'pattern',
+      'format',
+      'minLength',
+      'maxLength',
+      'minItems',
+      'maxItems',
+      'minimum',
+      'maximum',
+    ]) {
+      delete optimized[key];
+    }
+
+    for (const [key, child] of Object.entries(optimized)) {
+      optimized[key] = optimize(child);
+    }
+    return optimized;
+  };
+
+  return optimize(schema);
+}
+
+export function buildProviderSafeJsonSchema(
+  zodSchema: z.ZodType,
+  name: string,
+  addTitle = false,
+): Record<string, unknown> {
+  return optimizeSchemaConstraints(convertZodToJsonSchema(zodSchema, name, addTitle)) as Record<string, unknown>;
 }

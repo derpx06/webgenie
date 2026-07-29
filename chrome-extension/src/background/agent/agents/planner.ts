@@ -4,46 +4,44 @@ import { createLogger } from '@src/background/log';
 import type { AgentOutput } from '../types';
 import { Actors, ExecutionState } from '../event/types';
 import { handleAgentError } from './utils/error-handler';
-import { preparePlannerMessages, cleanPlannerOutput } from './planner/utils';
+import { preparePlannerMessages, cleanPlannerOutput, createPlannerParseFallbackOutput } from './planner/utils';
 import { ContextBuilder } from '../memory';
 import type { HumanMessage } from '@langchain/core/messages';
+import { plannerLLMOutputSchema } from '../contracts';
+import { ResponseParseError } from './errors';
 
 const logger = createLogger('PlannerAgent');
 
-// Define Zod schema for planner output
-export const plannerOutputSchema = z.object({
-  observation: z.string(),
-  challenges: z.string(),
-  done: z.union([
-    z.boolean(),
-    z.string().transform(val => {
-      const low = val.toLowerCase();
-      if (low === 'true') return true;
-      if (low === 'false') return false;
-      throw new Error('Invalid boolean string');
-    }),
-  ]),
-  macro_objective: z.enum(['NAVIGATE', 'SEARCH', 'FORM_FILL', 'EXTRACT_DATA', 'VERIFY_STATE', 'BROWSER_CONTROL', 'HANDLE_BLOCKER', 'EXPLORE_PAGE', 'ASK_HUMAN']),
-  final_answer: z.string(),
-  reasoning: z.string(),
-  web_task: z.union([
-    z.boolean(),
-    z.string().transform(val => {
-      const low = val.toLowerCase();
-      if (low === 'true') return true;
-      if (low === 'false') return false;
-      throw new Error('Invalid boolean string');
-    }),
-  ]),
-});
+export const PLANNER_JSON_OUTPUT_INSTRUCTION = `Return ONLY this JSON object, no markdown:
+{"observation":"","challenges":"","done":false,"macro_objective":"NAVIGATE","final_answer":"","reasoning":"","web_task":true,"mode":"single_browser_action","next_goal":"","allowed_actions":["click_element"],"success_condition":"","failure_signals":[],"target_indexes":[]}
+Rules: done and web_task are booleans. Do not include next_step_contract, id, createdAt, or observationId.`;
 
-export type PlannerOutput = z.infer<typeof plannerOutputSchema>;
+export const plannerOutputSchema = plannerLLMOutputSchema.strict();
+
+export type PlannerOutput = z.infer<typeof plannerOutputSchema> & {
+  next_step_contract?: import('../contracts').NextStepContract | null;
+};
 
 export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerOutput> {
   private lastBroadcastPlan = '';
 
   constructor(options: BaseAgentOptions, extraOptions?: Partial<ExtraAgentOptions>) {
-    super(plannerOutputSchema, options, { ...extraOptions, id: 'planner' });
+    super(
+      plannerOutputSchema,
+      {
+        ...options,
+        useProviderStructuredOutput: false,
+      },
+      { ...extraOptions, id: 'planner' },
+    );
+  }
+
+  protected override getManualJsonOutputInstruction(): string {
+    return PLANNER_JSON_OUTPUT_INSTRUCTION;
+  }
+
+  protected override getManualJsonRetryInstruction(): string {
+    return `Your previous planner response did not match the required JSON. ${PLANNER_JSON_OUTPUT_INSTRUCTION}`;
   }
 
   async execute(): Promise<AgentOutput<PlannerOutput>> {
@@ -58,7 +56,8 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
       const contextPacket = ContextBuilder.buildContextPacket(
         this.context,
         this.prompt.getSystemMessage(),
-        currentStateMsg
+        currentStateMsg,
+        'planner',
       );
 
       const plannerMessages = preparePlannerMessages(
@@ -72,11 +71,27 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
         throw new Error('Failed to validate planner output');
       }
 
-      const cleanedPlan = cleanPlannerOutput(modelOutput);
+      const cleanedPlan = cleanPlannerOutput(modelOutput, {
+        goal: this.context.memory.goalManager.getCurrentGoal() || this.context.memory.goalManager.getPrimaryGoal() || '',
+        currentObservation: this.context.activeObservation ?? null,
+      });
 
       // Save macro objective to context
       if (!cleanedPlan.done && cleanedPlan.macro_objective) {
         this.context.lastMacroObjective = cleanedPlan.macro_objective;
+      }
+      this.context.currentContract = cleanedPlan.next_step_contract ?? null;
+      if (this.context.traceStore) {
+        void this.context.traceStore.append({
+          taskId: this.context.taskId,
+          actor: 'planner',
+          type: 'plan.created',
+          planId: cleanedPlan.next_step_contract?.id,
+          contractId: cleanedPlan.next_step_contract?.id,
+          observationId: cleanedPlan.next_step_contract?.expectedObservation.observationId ?? this.context.activeObservation?.id,
+          payload: { output: cleanedPlan },
+          timestamp: Date.now(),
+        });
       }
 
       // UI update
@@ -101,6 +116,10 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
   }
 
   private handleExecutionError(error: unknown): AgentOutput<PlannerOutput> {
+    if (error instanceof ResponseParseError) {
+      return this.handleParseFallback(error);
+    }
+
     try {
       handleAgentError(error, 'Planning failed');
     } catch (e) {
@@ -115,5 +134,53 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
     }
     // handleAgentError always throws, but TypeScript needs this
     return { id: this.id, error: 'Planning failed: unknown error' };
+  }
+
+  private handleParseFallback(error: ResponseParseError): AgentOutput<PlannerOutput> {
+    const goal = this.context.memory.goalManager.getCurrentGoal() || this.context.memory.goalManager.getPrimaryGoal() || '';
+    const fallbackPlan = createPlannerParseFallbackOutput({
+      goal,
+      currentObservation: this.context.activeObservation ?? null,
+      reason: error.message,
+    });
+
+    if (!fallbackPlan.done && fallbackPlan.macro_objective) {
+      this.context.lastMacroObjective = fallbackPlan.macro_objective;
+    }
+    this.context.currentContract = fallbackPlan.next_step_contract ?? null;
+
+    if (this.context.traceStore) {
+      void this.context.traceStore.append({
+        taskId: this.context.taskId,
+        actor: 'planner',
+        type: 'plan.created',
+        planId: fallbackPlan.next_step_contract?.id,
+        contractId: fallbackPlan.next_step_contract?.id,
+        observationId: fallbackPlan.next_step_contract?.expectedObservation.observationId ?? this.context.activeObservation?.id,
+        payload: {
+          output: fallbackPlan,
+          fallbackReason: error.message,
+        },
+        timestamp: Date.now(),
+      });
+    }
+
+    const eventMessage = `Planner output was invalid JSON; continuing with a safe fallback contract: ${fallbackPlan.macro_objective}`;
+    const normalizedMessage = eventMessage.trim();
+    if (normalizedMessage !== this.lastBroadcastPlan) {
+      this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_OK, eventMessage);
+      this.lastBroadcastPlan = normalizedMessage;
+    }
+
+    logger.warning('Planner parse failed; using fallback contract', {
+      reason: error.message,
+      contractId: fallbackPlan.next_step_contract?.id,
+      observationId: fallbackPlan.next_step_contract?.expectedObservation.observationId,
+    });
+
+    return {
+      id: this.id,
+      result: fallbackPlan,
+    };
   }
 }

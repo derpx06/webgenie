@@ -16,6 +16,8 @@ export interface ValidationEvidence {
     | 'scroll_boundary'
     | 'focus_change'
     | 'modal_or_menu_change'
+    | 'target_state'
+    | 'auth_blocker'
     | 'accepted_noop'
     | 'done_supported'
     | 'done_blocked'

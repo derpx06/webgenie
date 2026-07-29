@@ -34,6 +34,18 @@ export interface BrowserContextConfig {
   waitBetweenActions: number;
 
   /**
+   * Maximum time to wait for a dynamic page to expose an action postcondition.
+   * @default 2000
+   */
+  actionSettleTimeoutMs: number;
+
+  /**
+   * Poll interval while waiting for a dynamic action postcondition.
+   * @default 100
+   */
+  actionPollIntervalMs: number;
+
+  /**
    * Default browser window size
    * @default { width: 1280, height: 1100 }
    */
@@ -79,6 +91,12 @@ export interface BrowserContextConfig {
   displayHighlights: boolean;
 
   /**
+   * Log the complete DOM snapshot sent to the model.
+   * @default false
+   */
+  logDOMSnapshot: boolean;
+
+  /**
    * DOM perception mode for the agent observation loop.
    *  'axtree'   — Native CDP Accessibility tree (SOTA: token-efficient, CSP-proof, semantic)
    *  'snapshot' — Native CDP DOMSnapshot (current default: coordinate-rich, high fidelity)
@@ -93,6 +111,8 @@ export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   waitForNetworkIdlePageLoadTime: 0.25,
   maximumWaitPageLoadTime: 5.0,
   waitBetweenActions: 0.15,
+  actionSettleTimeoutMs: 2000,
+  actionPollIntervalMs: 100,
   browserWindowSize: { width: 1280, height: 1100 },
   viewportExpansion: 0,
   allowedUrls: [],
@@ -100,6 +120,7 @@ export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   includeDynamicAttributes: true,
   homePageUrl: 'about:blank',
   displayHighlights: true,
+  logDOMSnapshot: false,
   domPerceptionMode: 'axtree',
 };
 

@@ -17,6 +17,11 @@ import { ChromeStorageProvider } from '../adapters/ChromeStorageProvider';
 import { ensureBrowserObservation } from '../agent/validation/observation';
 
 const logger = createLogger('BrowserContext');
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export default class BrowserContext {
   private _config: BrowserContextConfig;
   private _currentTabId: number | null = null;
@@ -92,6 +97,50 @@ export default class BrowserContext {
     const page = await creation;
     this._creatingPages.delete(tab.id);
     return page;
+  }
+
+  private isInspectableUrl(url: string | undefined): boolean {
+    if (!url) return false;
+    return /^https?:\/\//i.test(url) && isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls);
+  }
+
+  private isSameUrl(a: string | undefined, b: string | undefined): boolean {
+    if (!a || !b) return false;
+    try {
+      return new URL(a).href === new URL(b).href;
+    } catch {
+      return a === b;
+    }
+  }
+
+  private async waitForInspectableNavigation(
+    tabId: number,
+    previousUrl: string | undefined,
+    requestedUrl: string,
+    timeoutMs = 8000,
+    intervalMs = 100,
+  ): Promise<chrome.tabs.Tab> {
+    const startedAt = Date.now();
+    let latest = await this._browserAdapter.getTab(tabId);
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const liveUrl = latest.url;
+      const previousWasInspectable = this.isInspectableUrl(previousUrl);
+      const urlChanged = Boolean(liveUrl && liveUrl !== previousUrl);
+      const requestedSameAsLive = this.isSameUrl(liveUrl, requestedUrl);
+
+      if (
+        this.isInspectableUrl(liveUrl) &&
+        (!previousWasInspectable || urlChanged || requestedSameAsLive)
+      ) {
+        return latest;
+      }
+
+      await sleep(intervalMs);
+      latest = await this._browserAdapter.getTab(tabId);
+    }
+
+    return latest;
   }
 
 
@@ -300,23 +349,27 @@ export default class BrowserContext {
     // If page is already puppeteer-attached, use puppeteer's navigation which
     // handles its own internal wait — no need for tab-event polling.
     if (page.attached) {
-      await page.navigateTo(url);
-      // Refresh the Page object so _validWebPage reflects the new URL.
       const tabId = page.tabId;
-      const updatedTab = await this._browserAdapter.getTab(tabId).catch(() => null);
-      if (updatedTab) {
-        await page.refreshValidWebPage(updatedTab.url ?? '');
-      }
+      const previousUrl = page.url();
+      await page.navigateTo(url);
+      const updatedTab = await this.waitForInspectableNavigation(tabId, previousUrl, url);
+      const updatedPage = await this._getOrCreatePage(updatedTab, true);
+      await this.attachPage(updatedPage);
+      this._currentTabId = tabId;
       return;
     }
     // Use chrome.tabs.update only if the page is not yet puppeteer-attached
     const tabId = page.tabId;
+    const previousTab = await this._browserAdapter.getTab(tabId).catch(() => null);
+    const navigationSettled = this.waitForTabEvents(tabId, { skipCurrentStateCheck: true }).catch(() => { /* timeout is non-fatal */ });
     await this._browserAdapter.updateTab(tabId, { url, active: true });
-    // skipCurrentStateCheck=true: avoid false-resolve on old URL's 'complete' state
-    await this.waitForTabEvents(tabId, { skipCurrentStateCheck: true }).catch(() => { /* timeout is non-fatal */ });
+    await navigationSettled;
 
-    // Reattach the page after navigation completes so the new URL is picked up.
-    const updatedPage = await this._getOrCreatePage(await this._browserAdapter.getTab(tabId), true);
+    // Reattach only after chrome.tabs.get reports an inspectable URL. This
+    // avoids validating against the old chrome:// page while slow redirects are
+    // still settling.
+    const updatedTab = await this.waitForInspectableNavigation(tabId, previousTab?.url, url);
+    const updatedPage = await this._getOrCreatePage(updatedTab, true);
     await this.attachPage(updatedPage);
     this._currentTabId = tabId;
   }

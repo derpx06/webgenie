@@ -9,6 +9,7 @@ vi.mock('webextension-polyfill', () => {
 vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   return {
     connect: vi.fn().mockResolvedValue({
+      disconnect: vi.fn(),
       pages: vi.fn().mockResolvedValue([{
         on: vi.fn(),
         off: vi.fn(),
@@ -127,6 +128,68 @@ describe('BrowserContext with Adapter Dependency Injection', () => {
     expect(page).toBeDefined();
     expect(page.tabId).toBe(2);
     expect(mockAdapter.createTab).toHaveBeenCalledWith({ url: 'https://foo.com', active: true });
+  });
+
+  it('waits for a real navigated URL before attaching after navigating from an internal page', async () => {
+    tabsMap.set(1, {
+      ...tabsMap.get(1)!,
+      url: 'chrome://extensions/',
+      title: 'Extensions',
+      status: 'complete',
+    } as chrome.tabs.Tab);
+
+    let updateListener: ((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void) | null = null;
+    let postUpdateGetTabCalls = 0;
+    mockAdapter.addTabUpdatedListener.mockImplementation((listener: typeof updateListener) => {
+      updateListener = listener;
+    });
+    mockAdapter.updateTab.mockImplementation(async (tabId: number, updateProperties: chrome.tabs.UpdateProperties) => {
+      const tab = tabsMap.get(tabId);
+      if (!tab) throw new Error(`Tab ${tabId} not found`);
+      if (updateProperties.active !== undefined) tab.active = updateProperties.active;
+      updateListener?.(tabId, { status: 'complete' }, tab);
+      return tab;
+    });
+    mockAdapter.getTab.mockImplementation(async (tabId: number) => {
+      const tab = tabsMap.get(tabId);
+      if (!tab) throw new Error(`Tab ${tabId} not found`);
+      postUpdateGetTabCalls += 1;
+      if (postUpdateGetTabCalls >= 3) {
+        tab.url = 'https://x.com/home';
+        tab.title = 'X Home';
+      }
+      return tab;
+    });
+
+    await context.navigateTo('https://twitter.com');
+
+    const attachedPage = context.getPageForTab(1);
+    expect(attachedPage).toBeDefined();
+    expect(attachedPage?.validWebPage).toBe(true);
+    expect(attachedPage?.url()).toBe('https://x.com/home');
+  });
+
+  it('refreshes an already attached page after puppeteer navigation settles on a new URL', async () => {
+    tabsMap.set(1, {
+      ...tabsMap.get(1)!,
+      url: 'https://x.com/thedankoe/status/2073418764058825045',
+      title: 'Old X Page',
+      status: 'complete',
+    } as chrome.tabs.Tab);
+    const page = await context.getCurrentPage();
+    vi.spyOn(page, 'navigateTo').mockImplementation(async (url: string) => {
+      const tab = tabsMap.get(1);
+      if (!tab) throw new Error('Tab 1 not found');
+      tab.url = url;
+      tab.title = 'Google Search';
+    });
+
+    await context.navigateTo('https://www.google.com/search?q=contniue%20now');
+
+    const attachedPage = context.getPageForTab(1);
+    expect(attachedPage).toBeDefined();
+    expect(attachedPage).not.toBe(page);
+    expect(attachedPage?.url()).toBe('https://www.google.com/search?q=contniue%20now');
   });
 
   it('uses injected browser adapter to close a tab', async () => {

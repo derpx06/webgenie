@@ -17,7 +17,7 @@
  *   page.ts → getClickableElements() when domPerceptionMode === 'axtree'
  */
 
-import { DOMElementNode, type DOMState } from '../dom/views';
+import { DOMElementNode, DOMTextNode, type DOMState } from '../dom/views';
 import { type CoordinateSet } from '../dom/history/view';
 import { cdpBridge, type AXNode, type BoxModel } from './cdp-bridge';
 import { createLogger } from '@src/background/log';
@@ -239,13 +239,23 @@ export async function getAXTreeState(
       children:       [],
       isVisible:      true,
       isInteractive,
-      isTopElement:   false,
+      isTopElement:   !isInteractive,
       isInViewport:   false,
       shadowRoot:     false,
       highlightIndex,
       parent:         null,
       backendNodeId:  axNode.backendDOMNodeId ?? undefined,
     });
+
+    // Accessibility trees carry visible headings, labels, and static copy in
+    // the node name rather than as DOM text children. Preserve that text in
+    // the semantic tree so the model can read page context even when it is not
+    // itself actionable; only interactive roles receive selector indexes.
+    const roleLower = role.toLowerCase();
+    const exposesText = Boolean(name.trim()) && !['webarea', 'rootwebarea', 'generic', 'group', 'none'].includes(roleLower);
+    if (exposesText) {
+      domNode.children.push(new DOMTextNode(name.trim(), true, domNode));
+    }
 
     domNodeMap.set(axNode.nodeId, domNode);
     if (highlightIndex !== null) selectorMap.set(highlightIndex, domNode);
@@ -476,4 +486,3 @@ async function safeDetach(targetId: string, browserAdapter: IBrowserAdapter): Pr
     // Ignore detach errors
   }
 }
-

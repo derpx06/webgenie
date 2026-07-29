@@ -695,7 +695,10 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
 
   browserContext.updateConfig({
     minimumWaitPageLoadTime: generalSettings.minWaitPageLoad / 1000.0,
+    actionSettleTimeoutMs: generalSettings.actionSettleTimeoutMs ?? 2000,
+    waitBetweenActions: (generalSettings.actionDelayMs ?? 150) / 1000.0,
     displayHighlights: generalSettings.displayHighlights,
+    logDOMSnapshot: advancedSettings.enableDeveloperOptions && advancedSettings.logDOMSnapshot,
   });
 
 

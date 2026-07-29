@@ -1,6 +1,11 @@
 import type { IBrowserAdapter } from './IBrowserAdapter';
 
 export class ChromeBrowserAdapter implements IBrowserAdapter {
+  private getLastRuntimeError(): Error | null {
+    const lastError = chrome.runtime?.lastError;
+    return lastError ? new Error(lastError.message) : null;
+  }
+
   async getCurrentUrl(): Promise<string | undefined> {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     return tabs[0]?.url;
@@ -109,8 +114,12 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
   }
 
   async getDebuggerTargets(): Promise<chrome.debugger.TargetInfo[]> {
-    return new Promise<chrome.debugger.TargetInfo[]>((resolve) => {
-      chrome.debugger.getTargets(resolve);
+    return new Promise<chrome.debugger.TargetInfo[]>((resolve, reject) => {
+      chrome.debugger.getTargets((targets) => {
+        const error = this.getLastRuntimeError();
+        if (error) reject(error);
+        else resolve(targets);
+      });
     });
   }
   // Scripting & Navigation Management
@@ -140,15 +149,46 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
 
   // Reading List
   async queryReadingList(queryInfo?: { hasBeenRead?: boolean }): Promise<any[]> {
-    return new Promise((resolve) => {
-      (chrome as any).readingList.query(queryInfo || {}, resolve);
+    return new Promise((resolve, reject) => {
+      const readingList = (chrome as any).readingList;
+      if (!readingList) {
+        reject(new Error('chrome.readingList API not available'));
+        return;
+      }
+      readingList.query(queryInfo || {}, (items: any[]) => {
+        const error = this.getLastRuntimeError();
+        if (error) reject(error);
+        else resolve(items);
+      });
     });
   }
   async addReadingListItem(entry: any): Promise<void> {
-    return new Promise((resolve) => (chrome as any).readingList.addEntry(entry, resolve));
+    return new Promise((resolve, reject) => {
+      const readingList = (chrome as any).readingList;
+      if (!readingList) {
+        reject(new Error('chrome.readingList API not available'));
+        return;
+      }
+      readingList.addEntry(entry, () => {
+        const error = this.getLastRuntimeError();
+        if (error) reject(error);
+        else resolve();
+      });
+    });
   }
   async updateReadingListItem(entry: { url: string, hasBeenRead?: boolean }): Promise<void> {
-    return new Promise((resolve) => (chrome as any).readingList.updateEntry(entry, resolve));
+    return new Promise((resolve, reject) => {
+      const readingList = (chrome as any).readingList;
+      if (!readingList) {
+        reject(new Error('chrome.readingList API not available'));
+        return;
+      }
+      readingList.updateEntry(entry, () => {
+        const error = this.getLastRuntimeError();
+        if (error) reject(error);
+        else resolve();
+      });
+    });
   }
 
   // Bookmarks Management
@@ -156,16 +196,28 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
     return chrome.bookmarks.getTree();
   }
   async searchBookmarks(query: string | object): Promise<chrome.bookmarks.BookmarkTreeNode[]> {
-    return new Promise((resolve) => chrome.bookmarks.search(query as any, resolve));
+    return new Promise((resolve, reject) => chrome.bookmarks.search(query as any, (results) => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve(results);
+    }));
   }
   async getRecentBookmarks(numberOfItems: number): Promise<chrome.bookmarks.BookmarkTreeNode[]> {
-    return new Promise((resolve) => chrome.bookmarks.getRecent(numberOfItems, resolve));
+    return new Promise((resolve, reject) => chrome.bookmarks.getRecent(numberOfItems, (results) => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve(results);
+    }));
   }
   async createBookmark(bookmark: any): Promise<chrome.bookmarks.BookmarkTreeNode> {
     return chrome.bookmarks.create(bookmark);
   }
   async removeBookmark(id: string): Promise<void> {
-    return new Promise((resolve) => chrome.bookmarks.remove(id, resolve));
+    return new Promise((resolve, reject) => chrome.bookmarks.remove(id, () => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve();
+    }));
   }
 
   // Window Management
@@ -206,37 +258,66 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
 
   // System & Performance
   async getSystemMemory(): Promise<chrome.system.memory.MemoryInfo> {
-    return new Promise((resolve) => chrome.system.memory.getInfo(resolve));
+    return new Promise((resolve, reject) => chrome.system.memory.getInfo((info) => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve(info);
+    }));
   }
   async getSystemCpu(): Promise<chrome.system.cpu.CpuInfo> {
-    return new Promise((resolve) => chrome.system.cpu.getInfo(resolve));
+    return new Promise((resolve, reject) => chrome.system.cpu.getInfo((info) => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve(info);
+    }));
   }
 
   // Sessions
   async getRecentlyClosed(filter?: chrome.sessions.Filter): Promise<chrome.sessions.Session[]> {
-    return new Promise((resolve) => chrome.sessions.getRecentlyClosed(filter || {}, resolve));
+    return new Promise((resolve, reject) => chrome.sessions.getRecentlyClosed(filter || {}, (sessions) => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve(sessions);
+    }));
   }
   async restoreSession(sessionId?: string): Promise<chrome.sessions.Session> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      const callback = (session: chrome.sessions.Session) => {
+        const error = this.getLastRuntimeError();
+        if (error) reject(error);
+        else resolve(session);
+      };
       if (sessionId) {
-        chrome.sessions.restore(sessionId, resolve);
+        chrome.sessions.restore(sessionId, callback);
       } else {
-        chrome.sessions.restore(resolve);
+        chrome.sessions.restore(callback);
       }
     });
   }
 
   // Browsing Data
   async removeBrowsingData(options: chrome.browsingData.RemovalOptions, dataToRemove: chrome.browsingData.DataTypeSet): Promise<void> {
-    return new Promise((resolve) => chrome.browsingData.remove(options, dataToRemove, resolve));
+    return new Promise((resolve, reject) => chrome.browsingData.remove(options, dataToRemove, () => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve();
+    }));
   }
 
   // Management (Extensions)
   async getAllExtensions(): Promise<chrome.management.ExtensionInfo[]> {
-    return new Promise((resolve) => chrome.management.getAll(resolve));
+    return new Promise((resolve, reject) => chrome.management.getAll((extensions) => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve(extensions);
+    }));
   }
   async setExtensionEnabled(id: string, enabled: boolean): Promise<void> {
-    return new Promise((resolve) => chrome.management.setEnabled(id, enabled, resolve));
+    return new Promise((resolve, reject) => chrome.management.setEnabled(id, enabled, () => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve();
+    }));
   }
 
   // Context Menus
@@ -257,9 +338,17 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
     });
   }
   async removeContextMenu(menuItemId: string | number): Promise<void> {
-    return new Promise((resolve) => chrome.contextMenus.remove(menuItemId, resolve));
+    return new Promise((resolve, reject) => chrome.contextMenus.remove(menuItemId, () => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve();
+    }));
   }
   async removeAllContextMenus(): Promise<void> {
-    return new Promise((resolve) => chrome.contextMenus.removeAll(resolve));
+    return new Promise((resolve, reject) => chrome.contextMenus.removeAll(() => {
+      const error = this.getLastRuntimeError();
+      if (error) reject(error);
+      else resolve();
+    }));
   }
 }

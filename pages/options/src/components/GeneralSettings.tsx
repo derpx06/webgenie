@@ -58,6 +58,8 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
         contentClassName="flex flex-col"
       >
         <SettingInlineUnitInput title="Planning Interval" desc="Model refresh rate in seconds" value={settings.planningInterval} unit="s" isDarkMode={isDarkMode} onChange={val => updateSetting('planningInterval', val)} min={1} max={20} />
+        <SettingInlineUnitInput title="Action Settle Timeout" desc="Maximum time to wait for dynamic page updates after an action" value={settings.actionSettleTimeoutMs} unit="ms" isDarkMode={isDarkMode} onChange={val => updateSetting('actionSettleTimeoutMs', val)} min={500} max={5000} step={100} />
+        <SettingInlineUnitInput title="Action Delay" desc="Small pause between sequential browser actions" value={settings.actionDelayMs} unit="ms" isDarkMode={isDarkMode} onChange={val => updateSetting('actionDelayMs', val)} min={0} max={1000} step={25} />
         <SettingInlineUnitInput title="Page Load Buffer" desc="Network latency compensation in milliseconds" value={settings.minWaitPageLoad} unit="ms" isDarkMode={isDarkMode} onChange={val => updateSetting('minWaitPageLoad', val)} min={250} max={5000} step={50} />
         <SettingToggle title="Visual Analysis" desc="Enable multi-modal environment analysis (Vision)" checked={settings.useVision} isDarkMode={isDarkMode} onChange={val => updateSetting('useVision', val)} />
       </DashboardSection>

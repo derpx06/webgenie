@@ -1,5 +1,5 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { type ActionResult, AgentContext, type AgentOptions, type AgentOutput } from './types';
+import { ActionResult, AgentContext, type AgentOptions, type AgentOutput } from './types';
 import { HumanMessage } from '@langchain/core/messages';
 import { t } from '@extension/i18n';
 import { NavigatorAgent, NavigatorActionRegistry } from './agents/navigator';
@@ -32,8 +32,25 @@ import type { GeneralSettingsConfig } from '@extension/storage';
 import { analytics } from '../services/analytics';
 import { Client, RunTree } from 'langsmith';
 import { getLangchainCallbacks } from 'langsmith/langchain';
+import {
+  ExecutionRouter,
+  TaskCheckpointStore,
+  TraceStore,
+  getReplanDecision,
+  isCheckpointResumable,
+  shouldForceReplanAfterResume,
+} from './contracts';
+import { ensureBrowserObservation } from './validation/observation';
 
 const logger = createLogger('Executor');
+
+function formatExecutionError(error: unknown): string {
+  if (error instanceof MaxFailuresReachedError && error.cause) {
+    const cause = error.cause instanceof Error ? error.cause.message : String(error.cause);
+    return `${error.message}: ${cause}`;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
 
 export interface ExecutorExtraArgs {
   plannerLLM?: BaseChatModel;
@@ -94,6 +111,8 @@ export class Executor {
     });
 
     this.context = context;
+    this.context.checkpointStore = new TaskCheckpointStore();
+    this.context.traceStore = new TraceStore();
     // Initialize message history
     this.context.messageManager.initTaskMessages(this.navigatorPrompt.getSystemMessage(), task);
   }
@@ -151,6 +170,7 @@ export class Executor {
     const context = this.context;
     context.nSteps = 0;
     const allowedMaxSteps = this.context.options.maxSteps;
+    await this.restoreCheckpointIfPresent(taskText);
 
     // Intent Classification Layer
     let intent: UserIntent = 'NEW_TASK';
@@ -204,13 +224,20 @@ export class Executor {
     );
     logger.info(`🚀 Executing task: ${taskText}`);
 
+    await this.saveCheckpoint(taskText, 'running');
+
     if (this.generalSettings?.enableTracing && this.generalSettings.langsmithApiKey) {
       try {
         const client = new Client({
           apiKey: this.generalSettings.langsmithApiKey,
+          apiUrl: this.generalSettings.langsmithEndpoint || 'https://api.smith.langchain.com',
         });
 
         if (typeof globalThis.process !== 'undefined' && globalThis.process.env) {
+          globalThis.process.env.LANGSMITH_TRACING = 'true';
+          globalThis.process.env.LANGSMITH_ENDPOINT = this.generalSettings.langsmithEndpoint || 'https://api.smith.langchain.com';
+          globalThis.process.env.LANGSMITH_API_KEY = this.generalSettings.langsmithApiKey;
+          globalThis.process.env.LANGSMITH_PROJECT = this.generalSettings.langsmithProject || 'web-surfer';
           globalThis.process.env.LANGCHAIN_TRACING_V2 = 'true';
           globalThis.process.env.LANGCHAIN_API_KEY = this.generalSettings.langsmithApiKey;
           globalThis.process.env.LANGCHAIN_PROJECT = this.generalSettings.langsmithProject || 'web-surfer';
@@ -243,6 +270,17 @@ export class Executor {
       let step = 0;
       let latestPlanOutput: AgentOutput<PlannerOutput> | null = null;
       let navigatorDone = false;
+      const deterministicRoute = ExecutionRouter.routeTask(taskText);
+      if (deterministicRoute) {
+        context.currentContract = deterministicRoute.contract;
+        await this.trace('executor', 'contract.activated', {
+          contractId: deterministicRoute.contract.id,
+          payload: { source: 'deterministic_route', contract: deterministicRoute.contract },
+        });
+        context.actionResults = await this.navigator.executePreplannedActions(deterministicRoute.actions);
+        await this.saveCheckpoint(taskText, 'running');
+        navigatorDone = context.actionResults.some(result => result.validated === 'passed');
+      }
 
       for (step = 0; step < allowedMaxSteps; step++) {
         context.stepInfo = {
@@ -266,9 +304,15 @@ export class Executor {
         }
 
         // Run planner on cadence, completion handoff, or stagnation
-        if (this.planner && this.shouldRunPlanning(step, navigatorDone)) {
+        const replanDecision = this.getReplanDecision(step, navigatorDone);
+        await this.trace('executor', 'replan.decided', {
+          contractId: context.currentContract?.id,
+          payload: { ...replanDecision },
+        });
+        if (this.planner && replanDecision.shouldReplan) {
           navigatorDone = false;
           latestPlanOutput = await this.runPlanner();
+          await this.saveCheckpoint(taskText, 'running');
 
           // Check if task is complete after planner run
           if (this.checkTaskCompletion(latestPlanOutput)) {
@@ -278,9 +322,11 @@ export class Executor {
 
         // Execute navigator
         navigatorDone = await this.navigate();
+        await this.saveCheckpoint(taskText, context.waitingForHuman ? 'waiting_human' : 'running');
 
         // Compact history at the end of each step
         context.messageManager.compactHistory();
+        context.messageManager.cutMessages();
 
         // If navigator indicates completion, the next periodic planner run will validate it
         if (navigatorDone) {
@@ -297,6 +343,7 @@ export class Executor {
           status: 'cancelled'
         });
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
+        await this.saveCheckpoint(taskText, 'failed');
 
         // Track task cancellation
         void analytics.trackTaskCancelled(this.context.taskId);
@@ -346,6 +393,7 @@ export class Executor {
         // Emit final answer if available, otherwise use task ID
         const finalMessage = this.context.finalAnswer || this.context.taskId;
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, finalMessage);
+        await this.saveCheckpoint(taskText, 'completed');
 
         // Track task completion
         void analytics.trackTaskComplete(this.context.taskId);
@@ -356,6 +404,7 @@ export class Executor {
         });
         logger.error('❌ Task failed: Max steps reached');
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_errors_maxStepsReached'));
+        await this.saveCheckpoint(taskText, 'failed');
 
         // Track task failure with specific error category
         const maxStepsError = new MaxStepsReachedError(t('exec_errors_maxStepsReached'));
@@ -363,13 +412,14 @@ export class Executor {
         void analytics.trackTaskFailed(this.context.taskId, errorCategory);
       } else {
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_PAUSE, t('exec_task_pause'));
+        await this.saveCheckpoint(taskText, 'paused');
         // Note: We don't track pause as it's not a final state
       }
 
       if (this.context.parentRun) {
         try {
           let finalStatus = 'failed';
-          let finalOutput: Record<string, any> = {};
+          let finalOutput: Record<string, unknown> = {};
           if (this.context.stopped) {
             finalStatus = 'cancelled';
             finalOutput = { status: 'cancelled' };
@@ -382,7 +432,7 @@ export class Executor {
             finalStatus = 'paused';
             finalOutput = { status: 'paused' };
           }
-          await this.context.parentRun.end(finalOutput, undefined, undefined, finalStatus);
+          await this.context.parentRun.end(finalOutput, undefined, undefined, { status: finalStatus });
           await this.context.parentRun.patchRun();
         } catch (err) {
           logger.error('Failed to end parent run:', err);
@@ -394,9 +444,9 @@ export class Executor {
           const errorMsg = error instanceof Error ? error.message : String(error);
           await this.context.parentRun.end(
             { error: errorMsg },
-            error instanceof Error ? error : new Error(errorMsg),
+            errorMsg,
             undefined,
-            'failed'
+            { status: 'failed' },
           );
           await this.context.parentRun.patchRun();
         } catch (err) {
@@ -409,7 +459,7 @@ export class Executor {
         // Track task cancellation
         void analytics.trackTaskCancelled(this.context.taskId);
       } else {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = formatExecutionError(error);
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_task_fail', [errorMessage]));
 
         // Track task failure with detailed error categorization
@@ -437,49 +487,128 @@ export class Executor {
     }
   }
 
-  private shouldRunPlanning(step: number, navigatorDone: boolean): boolean {
-    if (step === 0) return true;
-    if (navigatorDone) return true;
+  private getReplanDecision(step: number, navigatorDone: boolean) {
+    const contractId = this.context.currentContract?.id ?? null;
+    const retryAttempts = contractId ? (this.context.retrySameAttemptsByContract[contractId] ?? 0) : 0;
+    const decision = getReplanDecision({
+      step,
+      navigatorDone,
+      latestResults: this.context.actionResults,
+      stepsSinceLastPlan: step - this.lastPlanningStep,
+      planningInterval: this.context.options.planningInterval,
+      progressStalled: this.hasRecentProgressStall() || this.hasHostChangedSinceLastPlan(),
+      retrySameAttemptsForContract: retryAttempts,
+      currentContractId: contractId,
+    });
 
-    // Trigger 1: Action execution failure
-    const actionFailed = this.context.actionResults.some(r => r.error);
-    if (actionFailed) {
-      logger.info('[Planner] Triggered planning: Last action returned an error.');
-      return true;
+    const latest = [...this.context.actionResults].reverse().find(result => result.executed);
+    if (contractId && latest?.retryability === 'retry_same' && !decision.shouldReplan) {
+      this.context.retrySameAttemptsByContract[contractId] = retryAttempts + 1;
     }
 
-    // Trigger 2: Domain/Host navigation shift
+    logger.info(`[Planner] Replan decision: ${decision.shouldReplan} trigger=${decision.trigger} reason=${decision.reason}`);
+    return decision;
+  }
+
+  private hasHostChangedSinceLastPlan(): boolean {
     const currentTabId = this.context.browserContext.getCurrentTabId();
-    if (currentTabId) {
-      const page = this.context.browserContext.getPageForTab(currentTabId);
-      const currentUrl = page?.url();
-      if (currentUrl && this.lastPlanningUrl) {
-        try {
-          const currentHost = new URL(currentUrl).hostname;
-          const lastHost = new URL(this.lastPlanningUrl).hostname;
-          if (currentHost !== lastHost) {
-            logger.info(`[Planner] Triggered planning: Host changed from ${lastHost} to ${currentHost}`);
-            return true;
-          }
-        } catch (e) {
-          // Ignored
-        }
+    if (!currentTabId) return false;
+    const page = this.context.browserContext.getPageForTab(currentTabId);
+    const currentUrl = page?.url();
+    if (!currentUrl || !this.lastPlanningUrl) return false;
+    try {
+      const currentHost = new URL(currentUrl).hostname;
+      const lastHost = new URL(this.lastPlanningUrl).hostname;
+      return currentHost !== lastHost;
+    } catch {
+      return false;
+    }
+  }
+
+  private async trace(
+    actor: 'executor' | 'planner' | 'navigator' | 'validator' | 'checkpoint',
+    type: Parameters<TraceStore['append']>[0]['type'],
+    params: {
+      contractId?: string | null;
+      observationId?: string | null;
+      actionId?: string;
+      validationId?: string;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    if (!this.context.traceStore) return;
+    await this.context.traceStore.append({
+      taskId: this.context.taskId,
+      actor,
+      type,
+      contractId: params.contractId ?? undefined,
+      observationId: params.observationId ?? undefined,
+      actionId: params.actionId,
+      validationId: params.validationId,
+      payload: params.payload,
+      timestamp: Date.now(),
+    });
+  }
+
+  private async saveCheckpoint(
+    task: string,
+    status: 'running' | 'waiting_human' | 'paused' | 'completed' | 'failed',
+  ): Promise<void> {
+    if (!this.context.checkpointStore) return;
+    const checkpoint = {
+      taskId: this.context.taskId,
+      task,
+      status,
+      step: this.context.nSteps,
+      currentContract: this.context.currentContract ?? null,
+      lastObservationId: this.context.activeObservation?.id ?? null,
+      validatedProgress: this.context.validatedProgress,
+      blockedState: this.context.blockedState,
+      updatedAt: Date.now(),
+    };
+    await this.context.checkpointStore.save(checkpoint);
+    await this.trace('checkpoint', 'checkpoint.saved', {
+      contractId: checkpoint.currentContract?.id,
+      observationId: checkpoint.lastObservationId,
+      payload: { status, step: checkpoint.step },
+    });
+  }
+
+  private async restoreCheckpointIfPresent(task: string): Promise<void> {
+    if (!this.context.checkpointStore) return;
+    const checkpoint = await this.context.checkpointStore.load(this.context.taskId);
+    if (!isCheckpointResumable(checkpoint)) return;
+
+    this.context.currentContract = checkpoint.currentContract;
+    this.context.validatedProgress = checkpoint.validatedProgress;
+    this.context.blockedState = checkpoint.blockedState;
+    this.context.nSteps = checkpoint.step;
+    await this.trace('checkpoint', 'checkpoint.restored', {
+      contractId: checkpoint.currentContract?.id,
+      observationId: checkpoint.lastObservationId,
+      payload: { status: checkpoint.status, step: checkpoint.step, task },
+    });
+
+    try {
+      const state = await this.context.browserContext.getState(false);
+      const currentObservation = ensureBrowserObservation(state);
+      this.context.activeObservation = currentObservation;
+      if (shouldForceReplanAfterResume({
+        checkpointObservationId: checkpoint.lastObservationId,
+        currentObservationId: currentObservation.id,
+      })) {
+        this.context.actionResults = [new ActionResult({
+          executed: false,
+          validated: 'unknown',
+          retryability: 'retry_reobserve',
+          failureReason: 'Checkpoint observation differed from fresh browser observation after resume.',
+          observationId: currentObservation.id,
+          includeInMemory: true,
+        })];
       }
+    } catch (err) {
+      logger.error('Failed to capture fresh observation while restoring checkpoint:', err);
     }
-
-    // Trigger 3: Fallback check for progress stalls
-    if (this.hasRecentProgressStall()) {
-      logger.info('[Planner] Triggered planning: Progress stall or loop detected.');
-      return true;
-    }
-
-    // Trigger 4: Interval fallback
-    const stepsSinceLastPlan = step - this.lastPlanningStep;
-    if (stepsSinceLastPlan >= this.context.options.planningInterval) {
-      return true;
-    }
-
-    return false;
   }
 
   /**
@@ -554,14 +683,15 @@ export class Executor {
         error instanceof ChatModelPaymentRequiredError ||
         error instanceof URLNotAllowedError ||
         error instanceof RequestCancelledError ||
-        error instanceof ExtensionConflictError
+        error instanceof ExtensionConflictError ||
+        error instanceof MaxFailuresReachedError
       ) {
         throw error;
       }
       context.consecutiveFailures++;
       logger.error(`Failed to execute planner: ${error}`);
       if (context.consecutiveFailures >= context.options.maxFailures) {
-        throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'));
+        throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'), error);
       }
       return null;
     }
@@ -585,10 +715,10 @@ export class Executor {
       if (navOutput.error) {
         throw new Error(navOutput.error);
       }
-      context.consecutiveFailures = 0;
 
       // Check if navigator is waiting for human
       const results = context.actionResults;
+      const latestResult = [...results].reverse().find(result => result.executed || result.validated !== 'not_applicable');
       if (results.some(r => r.isWaitingForHuman)) {
         const lastWaitingResult = [...results].reverse().find(r => r.isWaitingForHuman);
         if (lastWaitingResult) {
@@ -604,6 +734,22 @@ export class Executor {
           context.humanQuestion = questionText;
           logger.info(`Agent is waiting for human: ${context.humanQuestion}`);
           return false;
+        }
+      }
+
+      if (latestResult?.validated === 'passed' || navOutput.result?.done) {
+        context.consecutiveFailures = 0;
+      } else if (latestResult && (latestResult.validated === 'failed' || latestResult.validated === 'unknown')) {
+        const failureDetail = latestResult.failureReason ?? latestResult.error ?? latestResult.validated;
+        const isTransientRecovery = latestResult.retryability === 'retry_reobserve' || latestResult.retryability === 'retry_same';
+        logger.warning(`Navigator action did not validate (${latestResult.retryability}): ${failureDetail}`);
+        if (isTransientRecovery) {
+          logger.info(`Transient navigator failure will be recovered by re-observation without consuming the failure budget: ${failureDetail}`);
+        } else {
+          context.consecutiveFailures++;
+          if (context.consecutiveFailures >= context.options.maxFailures) {
+            throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'), failureDetail);
+          }
         }
       }
 
@@ -627,7 +773,7 @@ export class Executor {
       context.consecutiveFailures++;
       logger.error(`Failed to execute step: ${error}`);
       if (context.consecutiveFailures >= context.options.maxFailures) {
-        throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'));
+        throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'), error);
       }
     }
     return false;
@@ -756,7 +902,7 @@ export class Executor {
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, t('exec_replay_ok'));
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = formatExecutionError(error);
       replayLogger.error(`Replay failed: ${errorMessage}`);
       this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_replay_fail', [errorMessage]));
     }

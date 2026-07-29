@@ -15,6 +15,7 @@ import { createLogger } from '@src/background/log';
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import type { DOMElementNode, DOMState } from '@src/background/browser/dom/views';
 import type { ElementHandle } from 'puppeteer-core/lib/esm/puppeteer/api/ElementHandle.js';
+import type { TargetFingerprint } from '../../validation/types';
 
 const logger = createLogger('Action');
 
@@ -61,24 +62,54 @@ export class InteractionHandler extends BaseHandler {
     return null;
   }
 
+  private targetMatchesElement(element: DOMElementNode, target?: TargetFingerprint | null): boolean {
+    if (!target) return true;
+    const attributes = element.attributes ?? {};
+    const accessibleName = attributes['aria-label'] ?? attributes.title ?? attributes.placeholder ??
+      element.getAllTextTillNextClickableElement(1).trim();
+    return Boolean(
+      (target.backendNodeId != null && element.backendNodeId === target.backendNodeId) ||
+      (target.xpath && this.normalizeXPath(element.xpath) === this.normalizeXPath(target.xpath)) ||
+      (target.cssSelector && element.getEnhancedCssSelector?.() === target.cssSelector) ||
+      (target.role && attributes.role === target.role && target.accessibleName && accessibleName === target.accessibleName),
+    );
+  }
+
+  private findByTargetFingerprintInSelectorMap(
+    selectorMap: Map<number, DOMElementNode>,
+    target?: TargetFingerprint | null,
+  ): DOMElementNode | null {
+    if (!target) return null;
+    return Array.from(selectorMap.values()).find(element => this.targetMatchesElement(element, target)) ?? null;
+  }
+
   private async resolveElementNode(
     page: ResolvablePage,
     index: number,
     xpath?: string | null,
+    targetFingerprint?: TargetFingerprint | null,
   ): Promise<DOMElementNode | null> {
     const cachedState = page.getCachedState();
-    const cachedElement = cachedState?.selectorMap.get(index) ?? null;
+    const cachedTarget = this.findByTargetFingerprintInSelectorMap(cachedState?.selectorMap ?? new Map(), targetFingerprint);
+    const cachedElement = cachedTarget ?? (
+      targetFingerprint
+        ? null
+        : this.findByXPathInSelectorMap(cachedState?.selectorMap ?? new Map(), xpath) ?? cachedState?.selectorMap.get(index) ?? null
+    );
+    if (cachedElement) return cachedElement;
 
     const latestState = await page.getState();
-    let resolved = latestState?.selectorMap.get(index) ?? null;
+    let resolved = this.findByTargetFingerprintInSelectorMap(latestState.selectorMap, targetFingerprint);
     if (resolved) return resolved;
 
-    resolved = this.findByXPathInSelectorMap(latestState.selectorMap, xpath);
+    resolved = targetFingerprint
+      ? null
+      : this.findByXPathInSelectorMap(latestState.selectorMap, xpath) ?? latestState.selectorMap.get(index) ?? null;
     if (resolved) return resolved;
 
     if (cachedElement && latestState.elementTree) {
       const remapped = await this.remapElementInState(latestState.elementTree, cachedElement);
-      if (remapped) {
+      if (remapped && this.targetMatchesElement(remapped, targetFingerprint)) {
         logger.info(
           `Resolved stale index ${index} -> ${remapped.highlightIndex ?? 'unknown'} via history remap`,
         );
@@ -94,11 +125,11 @@ export class InteractionHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+    let elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
 
     if (!elementNode) {
       await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+      elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
     }
 
     if (!elementNode) {
@@ -133,7 +164,7 @@ export class InteractionHandler extends BaseHandler {
       return new ActionResult({ extractedContent: msg, includeInMemory: true });
     } catch (error) {
       try {
-        const relocated = await this.resolveElementNode(page, input.index, input.xpath);
+        const relocated = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
         if (relocated) {
           const initialTabIds = await this.context.browserContext.getAllTabIds();
           await page.clickElementNode(this.context.options.useVision, relocated);
@@ -173,11 +204,11 @@ export class InteractionHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+    let elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
 
     if (!elementNode) {
       await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+      elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
     }
 
     if (!elementNode) {
@@ -204,11 +235,11 @@ export class InteractionHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+    let elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
 
     if (!elementNode) {
       await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+      elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
     }
 
     if (!elementNode) {
@@ -235,11 +266,11 @@ export class InteractionHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+    let elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
 
     if (!elementNode) {
       await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index, input.xpath);
+      elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
     }
 
     if (!elementNode) {
@@ -259,11 +290,11 @@ export class InteractionHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index);
+    let elementNode = await this.resolveElementNode(page, input.index, undefined, input.targetFingerprint);
 
     if (!elementNode) {
       await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index);
+      elementNode = await this.resolveElementNode(page, input.index, undefined, input.targetFingerprint);
     }
 
     if (!elementNode) {
@@ -317,11 +348,11 @@ export class InteractionHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index);
+    let elementNode = await this.resolveElementNode(page, input.index, undefined, input.targetFingerprint);
 
     if (!elementNode) {
       await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index);
+      elementNode = await this.resolveElementNode(page, input.index, undefined, input.targetFingerprint);
     }
 
     if (!elementNode) {

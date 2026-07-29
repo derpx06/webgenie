@@ -32,8 +32,8 @@ describe('AXTreePruner V2 - Goal-Directed Pruning', () => {
     };
 
     const pruned = pruneAXTree(state, 'Search shipping cost');
-    expect(pruned.selectorMap.has(1)).toBe(true);
-    expect(child.highlightIndex).toBe(1);
+    expect(pruned.selectorMap.has(0)).toBe(true);
+    expect(child.highlightIndex).toBe(0);
   });
 
   it('should keep off-screen interactive elements that match the goal', () => {
@@ -64,8 +64,8 @@ describe('AXTreePruner V2 - Goal-Directed Pruning', () => {
     };
 
     const pruned = pruneAXTree(state, 'Find the shipping cost');
-    expect(pruned.selectorMap.has(2)).toBe(true);
-    expect(child.highlightIndex).toBe(2);
+    expect(pruned.selectorMap.has(0)).toBe(true);
+    expect(child.highlightIndex).toBe(0);
   });
 
   it('should prune off-screen interactive elements that do not match the goal', () => {
@@ -119,6 +119,8 @@ describe('AXTreePruner V2 - Goal-Directed Pruning', () => {
     // It should be pruned from selectorMap and its highlightIndex set to null/or return false (so removed from children)
     expect(pruned.selectorMap.has(3)).toBe(false);
     expect(root.children.includes(child)).toBe(false);
+    expect(pruned.selectorMap.has(0)).toBe(true);
+    expect(childInViewport.highlightIndex).toBe(0);
   });
 
   it('should keep off-screen interactive elements if their child text matches the goal', () => {
@@ -151,7 +153,8 @@ describe('AXTreePruner V2 - Goal-Directed Pruning', () => {
     };
 
     const pruned = pruneAXTree(state, 'Find shipping cost');
-    expect(pruned.selectorMap.has(4)).toBe(true);
+    expect(pruned.selectorMap.has(0)).toBe(true);
+    expect(child.highlightIndex).toBe(0);
   });
 
   it('should keep off-screen interactive elements if their custom attributes match the goal', () => {
@@ -182,6 +185,87 @@ describe('AXTreePruner V2 - Goal-Directed Pruning', () => {
     };
 
     const pruned = pruneAXTree(state, 'Enter billing address');
-    expect(pruned.selectorMap.has(5)).toBe(true);
+    expect(pruned.selectorMap.has(0)).toBe(true);
+    expect(child.highlightIndex).toBe(0);
+  });
+
+  it('should attach orphaned selectorMap nodes before rebuilding so pruning cannot empty a valid AX selector map', () => {
+    const root = new DOMElementNode({
+      tagName: 'DIV',
+      xpath: '/div',
+      attributes: {},
+      children: [],
+      isVisible: true,
+    });
+
+    // AX extraction can produce this shape when Chrome marks a parent as
+    // ignored: the interactive node is valid and selectable, but not reachable
+    // from the retained elementTree root. Pruning must not drop it.
+    const orphanedButton = new DOMElementNode({
+      tagName: 'BUTTON',
+      xpath: null,
+      attributes: { 'aria-label': 'Search' },
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 7,
+      parent: null,
+      backendNodeId: 777,
+    });
+
+    const state: DOMState = {
+      elementTree: root,
+      selectorMap: new Map([[7, orphanedButton]]),
+    };
+
+    const pruned = pruneAXTree(state, 'follow sam altman on twitter');
+
+    expect(pruned.selectorMap.has(0)).toBe(true);
+    expect(root.children).toContain(orphanedButton);
+    expect(orphanedButton.parent).toBe(root);
+    expect(orphanedButton.highlightIndex).toBe(0);
+    expect(pruned.elementTree.clickableElementsToString()).toContain('[0]<BUTTON');
+  });
+
+  it('should compact surviving highlight indexes after pruning', () => {
+    const root = new DOMElementNode({
+      tagName: 'DIV',
+      xpath: '/div',
+      attributes: {},
+      children: [],
+      isVisible: true,
+    });
+    const first = new DOMElementNode({
+      tagName: 'BUTTON',
+      xpath: '/div/button[1]',
+      attributes: { 'aria-label': 'Follow @sama' },
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 42,
+      parent: root,
+    });
+    const second = new DOMElementNode({
+      tagName: 'BUTTON',
+      xpath: '/div/button[2]',
+      attributes: { 'aria-label': 'Search' },
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 99,
+      parent: root,
+    });
+    root.children.push(first, second);
+
+    const pruned = pruneAXTree({
+      elementTree: root,
+      selectorMap: new Map([[42, first], [99, second]]),
+    });
+
+    expect([...pruned.selectorMap.keys()]).toEqual([0, 1]);
+    expect(first.highlightIndex).toBe(0);
+    expect(second.highlightIndex).toBe(1);
+    expect(pruned.elementTree.clickableElementsToString()).toContain('[0]<BUTTON');
+    expect(pruned.elementTree.clickableElementsToString()).toContain('[1]<BUTTON');
   });
 });

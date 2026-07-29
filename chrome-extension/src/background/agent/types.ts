@@ -7,6 +7,8 @@ import type { EventManager } from './event/manager';
 import { type Actors, type ExecutionState, AgentEvent } from './event/types';
 import { AgentStepHistory } from './history';
 import { InChatMemory } from './memory';
+import type { RunTree } from 'langsmith';
+import type { Callbacks } from '@langchain/core/callbacks/manager';
 import type {
   BrowserObservation,
   ExecutionStatus,
@@ -15,6 +17,14 @@ import type {
   ValidationEvidence,
   ValidationStatus,
 } from './validation/types';
+import type {
+  BlockedState,
+  ContextBudgetReport,
+  NextStepContract,
+  ValidatedProgressRecord,
+} from './contracts/types';
+import type { TaskCheckpointStore } from './contracts/checkpoint';
+import type { TraceStore } from './contracts/trace';
 
 /**
  * Records a single failed element interaction.
@@ -90,8 +100,15 @@ export class AgentContext {
   lastMacroObjective?: string; // macro_objective from last planner step
   activeLayoutHash?: string;
   activeObservation?: BrowserObservation;
-  parentRun?: any;
-  traceCallbacks?: any;
+  currentContract?: NextStepContract | null;
+  validatedProgress: ValidatedProgressRecord[];
+  blockedState: BlockedState | null;
+  retrySameAttemptsByContract: Record<string, number>;
+  checkpointStore?: TaskCheckpointStore;
+  traceStore?: TraceStore;
+  contextBudgetReports: ContextBudgetReport[];
+  parentRun?: RunTree;
+  traceCallbacks?: Callbacks;
   memory: InChatMemory;
 
   /**
@@ -171,6 +188,11 @@ export class AgentContext {
     this.lastMemory = '';
     this.memory = new InChatMemory();
     this.failureRegistry = this.memory.failureRegistry;
+    this.currentContract = null;
+    this.validatedProgress = [];
+    this.blockedState = null;
+    this.retrySameAttemptsByContract = {};
+    this.contextBudgetReports = [];
   }
 
   async emitEvent(actor: Actors, state: ExecutionState, eventDetails: string, screenshot?: string) {
@@ -220,6 +242,9 @@ export class ActionResult {
   failureReason: string | null;
   observationId: string | null;
   targetFingerprint: TargetFingerprint | null;
+  contractId: string | null;
+  actionId: string | null;
+  validationId: string | null;
   isDone: boolean;
   success: boolean;
   isWaitingForHuman: boolean;
@@ -237,6 +262,9 @@ export class ActionResult {
     this.failureReason = params.failureReason ?? null;
     this.observationId = params.observationId ?? null;
     this.targetFingerprint = params.targetFingerprint ?? null;
+    this.contractId = params.contractId ?? null;
+    this.actionId = params.actionId ?? null;
+    this.validationId = params.validationId ?? null;
     this.isDone = params.isDone ?? false;
     this.success = params.success ?? false;
     this.isWaitingForHuman = params.isWaitingForHuman ?? false;

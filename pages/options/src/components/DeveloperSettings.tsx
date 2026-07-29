@@ -107,6 +107,14 @@ export const DeveloperSettings = ({ isDarkMode = false }: DeveloperSettingsProps
               onChange={val => updateGeneralSetting('langsmithApiKey', val)}
             />
             <SettingTextInput
+              title="Langsmith Endpoint"
+              desc="Langsmith API endpoint"
+              value={generalSettings.langsmithEndpoint}
+              placeholder="https://api.smith.langchain.com"
+              isDarkMode={isDarkMode}
+              onChange={val => updateGeneralSetting('langsmithEndpoint', val)}
+            />
+            <SettingTextInput
               title="Langsmith Project"
               desc="The project name to group these traces under"
               value={generalSettings.langsmithProject}

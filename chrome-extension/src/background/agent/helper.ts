@@ -284,9 +284,14 @@ export function createChatModel(
     try {
       const client = new Client({
         apiKey: generalSettings.langsmithApiKey,
+        apiUrl: generalSettings.langsmithEndpoint || 'https://api.smith.langchain.com',
       });
 
       if (typeof globalThis.process !== 'undefined' && globalThis.process.env) {
+        globalThis.process.env.LANGSMITH_TRACING = 'true';
+        globalThis.process.env.LANGSMITH_ENDPOINT = generalSettings.langsmithEndpoint || 'https://api.smith.langchain.com';
+        globalThis.process.env.LANGSMITH_API_KEY = generalSettings.langsmithApiKey;
+        globalThis.process.env.LANGSMITH_PROJECT = generalSettings.langsmithProject || 'web-surfer';
         globalThis.process.env.LANGCHAIN_TRACING_V2 = 'true';
         globalThis.process.env.LANGCHAIN_API_KEY = generalSettings.langsmithApiKey;
         globalThis.process.env.LANGCHAIN_PROJECT = generalSettings.langsmithProject || 'web-surfer';

@@ -230,3 +230,30 @@ describe('ChromeStorageProvider', () => {
     expect(chrome.storage.local.remove).toHaveBeenCalledWith('myKey');
   });
 });
+
+describe('ChromeBrowserAdapter callback errors', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects bookmark callbacks when Chrome reports runtime.lastError', async () => {
+    const runtime = { lastError: undefined as { message: string } | undefined };
+    const search = vi.fn((_query: unknown, callback: (results: unknown[]) => void) => {
+      runtime.lastError = { message: 'Bookmarks permission denied' };
+      callback([]);
+      runtime.lastError = undefined;
+    });
+    vi.stubGlobal('chrome', {
+      runtime,
+      bookmarks: { search },
+    });
+
+    await expect(new ChromeBrowserAdapter().searchBookmarks('webgenie')).rejects.toThrow('Bookmarks permission denied');
+  });
+
+  it('reports unsupported reading-list APIs instead of returning an empty success', async () => {
+    vi.stubGlobal('chrome', { runtime: {}, });
+
+    await expect(new ChromeBrowserAdapter().queryReadingList()).rejects.toThrow('chrome.readingList API not available');
+  });
+});

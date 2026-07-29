@@ -12,6 +12,8 @@ interface EmptyChatProps {
     isDarkMode: boolean;
     recentSessions?: ChatSessionMetadata[];
     onSelectSession?: (sessionId: string) => void;
+    onDebugExtractDom?: () => void;
+    isDebugExtractingDom?: boolean;
     children?: React.ReactNode;
 }
 
@@ -187,7 +189,15 @@ const SessionCard: React.FC<{ session: ChatSessionMetadata; isDarkMode: boolean;
 };
 
 /* ─── Main EmptyChat ─── */
-const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recentSessions = [], onSelectSession, children }) => {
+const EmptyChat: React.FC<EmptyChatProps> = ({
+    onSelectPrompt,
+    isDarkMode,
+    recentSessions = [],
+    onSelectSession,
+    onDebugExtractDom,
+    isDebugExtractingDom = false,
+    children,
+}) => {
     const [scrollTop, setScrollTop] = React.useState(0);
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
@@ -256,6 +266,23 @@ const EmptyChat: React.FC<EmptyChatProps> = ({ onSelectPrompt, isDarkMode, recen
                 {/* ── Chat input slot ── */}
                 <div className="mb-5 w-full px-4">
                     {children}
+                    {onDebugExtractDom && (
+                        <div className="mt-2 flex justify-center">
+                            <button
+                                type="button"
+                                onClick={onDebugExtractDom}
+                                disabled={isDebugExtractingDom}
+                                className={`rounded-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] transition-all duration-200 active:scale-95 disabled:cursor-wait disabled:opacity-60 ${
+                                    isDarkMode
+                                        ? 'border border-cyan-400/20 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/15'
+                                        : 'border border-indigo-500/20 bg-indigo-500/10 text-indigo-700 hover:bg-indigo-500/15'
+                                }`}
+                                title="Extract the current active page DOM through the background browser-state pipeline and log it to this side-panel console."
+                            >
+                                {isDebugExtractingDom ? 'Extracting DOM…' : 'Log Current Page DOM'}
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* ── Dual-direction pill marquee ── */}

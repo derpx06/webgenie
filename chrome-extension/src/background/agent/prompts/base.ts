@@ -6,6 +6,28 @@ import { ContextRouter } from '../memory';
 import { ensureBrowserObservation, fingerprintFailureKey } from '../validation/observation';
 
 const logger = createLogger('BasePrompt');
+
+const MAX_INTERACTIVE_ELEMENTS_CHARS = 26000;
+const MAX_TARGET_FINGERPRINT_CHARS = 12000;
+const MAX_ACTION_RESULTS_CHARS = 16000;
+const MAX_REFLECTION_CHARS = 6000;
+
+export function capPromptSection(text: string, maxChars: number, label: string): string {
+  if (text.length <= maxChars) return text;
+  const marker = `\n...[${label} truncated to keep the browser context bounded; re-observe or use a narrower action if needed]...\n`;
+  if (maxChars <= marker.length + 2) return marker.slice(0, maxChars);
+  const available = Math.max(0, maxChars - marker.length);
+  const headLength = Math.ceil(available * 0.72);
+  const tailLength = Math.max(0, available - headLength);
+  return `${text.slice(0, headLength)}${marker}${tailLength > 0 ? text.slice(-tailLength) : ''}`;
+}
+
+export function scrollViewportPercentage(scrollHeight: number, viewportHeight: number): number | null {
+  const scrollableDistance = scrollHeight - viewportHeight;
+  if (!Number.isFinite(scrollableDistance) || scrollableDistance <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((viewportHeight / scrollableDistance) * 100)));
+}
+
 /**
  * Abstract base class for all prompt types
  */
@@ -30,8 +52,6 @@ abstract class BasePrompt {
    */
   async buildBrowserStateUserMessage(context: AgentContext): Promise<HumanMessage> {
     const browserState = await context.browserContext.getState(context.options.useVision);
-    const observation = ensureBrowserObservation(browserState);
-    context.activeObservation = observation;
 
     // Compute page-path and layout fingerprint
     // The URL is passed so the fingerprint is page-path-scoped (not just domain).
@@ -70,6 +90,9 @@ abstract class BasePrompt {
       logger.error('Failed to apply DOM attention mask:', err);
     }
 
+    const observation = ensureBrowserObservation(browserState);
+    context.activeObservation = observation;
+
     // JIT Selector Hint Recall — pagePath-scoped (no cross-page pollution)
     let memoryHints = '';
     if (layoutHash && domain) {
@@ -105,9 +128,13 @@ abstract class BasePrompt {
     }
 
     const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
-    const observationTargetsText = observation.targets
-      .map(target => `[${target.index}] obs=${observation.id} backend=${target.backendNodeId ?? '-'} role=${target.role ?? '-'} name=${target.accessibleName ?? '-'} xpath=${target.xpath ?? '-'}`)
-      .join('\n');
+    const observationTargetsText = capPromptSection(
+      observation.targets
+        .map(target => `[${target.index}] obs=${observation.id} backend=${target.backendNodeId ?? '-'} role=${target.role ?? '-'} name=${target.accessibleName ?? '-'} xpath=${target.xpath ?? '-'}`)
+        .join('\n'),
+      MAX_TARGET_FINGERPRINT_CHARS,
+      'target fingerprints',
+    );
 
     // ── DOM SNAPSHOT LOGGING ──────────────────────────────────────────────────
     // When the "Log DOM Snapshot" developer option is enabled, dump the full
@@ -126,7 +153,8 @@ abstract class BasePrompt {
 
     let formattedElementsText = '';
     if (rawElementsText !== '') {
-      const scrollInfo = `[Scroll info of current page] window.scrollY: ${browserState.scrollY}, document.body.scrollHeight: ${browserState.scrollHeight}, window.visualViewport.height: ${browserState.visualViewportHeight}, visual viewport height as percentage of scrollable distance: ${Math.round((browserState.visualViewportHeight / (browserState.scrollHeight - browserState.visualViewportHeight)) * 100)}%\n`;
+      const scrollPercentage = scrollViewportPercentage(browserState.scrollHeight, browserState.visualViewportHeight);
+      const scrollInfo = `[Scroll info of current page] window.scrollY: ${browserState.scrollY}, document.body.scrollHeight: ${browserState.scrollHeight}, window.visualViewport.height: ${browserState.visualViewportHeight}, visual viewport height as percentage of scrollable distance: ${scrollPercentage === null ? 'not scrollable' : `${scrollPercentage}%`}\n`;
       logger.info(scrollInfo);
 
       // ── FAILURE REGISTRY — annotate blocked elements ─────────────────────────
@@ -159,7 +187,10 @@ abstract class BasePrompt {
       // shaped text found in page content (e.g. Gmail To: field, WhatsApp chat).
       // The `nano_untrusted_content` wrapper + system prompt already tell the LLM
       // to ignore injections — strict pattern-matching here causes more harm than good.
-      const elementsText = wrapUntrustedContent(annotatedText, /* filterFirst= */ false);
+      const elementsText = wrapUntrustedContent(
+        capPromptSection(annotatedText, MAX_INTERACTIVE_ELEMENTS_CHARS, 'interactive DOM'),
+        /* filterFirst= */ false,
+      );
 
       formattedElementsText = `${scrollInfo}[Start of page]\n${elementsText}\n[End of page]\n`;
     } else {
@@ -179,15 +210,26 @@ abstract class BasePrompt {
       for (let i = 0; i < context.actionResults.length; i++) {
         const result = context.actionResults[i];
         if (result.extractedContent) {
-          actionResultsDescription += `\nAction result ${i + 1}/${context.actionResults.length}: ${result.extractedContent}`;
+          actionResultsDescription += `\nAction result ${i + 1}/${context.actionResults.length}: ${capPromptSection(result.extractedContent, 6000, 'action result')}`;
         }
         if (result.error) {
           // only use last line of error
           const error = result.error.split('\n').pop();
           actionResultsDescription += `\nAction error ${i + 1}/${context.actionResults.length}: ...${error}`;
         }
+        if (result.failureReason) {
+          actionResultsDescription += `\nAction failure ${i + 1}/${context.actionResults.length}: ${capPromptSection(result.failureReason, 2000, 'action failure')}`;
+        }
+        if (result.retryability && result.retryability !== 'none') {
+          actionResultsDescription += `\nAction retry policy ${i + 1}/${context.actionResults.length}: ${result.retryability}`;
+        }
+        if (result.targetFingerprint?.index !== undefined) {
+          actionResultsDescription += `\nFailed/used target index ${i + 1}/${context.actionResults.length}: ${result.targetFingerprint.index}`;
+        }
       }
     }
+
+    actionResultsDescription = capPromptSection(actionResultsDescription, MAX_ACTION_RESULTS_CHARS, 'action results');
 
     const currentTab = `{id: ${browserState.tabId}, url: ${browserState.url}, title: ${browserState.title}}`;
     const otherTabs = browserState.tabs
@@ -227,7 +269,7 @@ abstract class BasePrompt {
       reflectionPrefix += memoryHints;
     }
     if (reflectionPrefix) {
-      reflectionPrefix += '\n';
+      reflectionPrefix = `${capPromptSection(reflectionPrefix, MAX_REFLECTION_CHARS, 'agent memory')}\n`;
     }
     // ─────────────────────────────────────────────────────────────────────────
 

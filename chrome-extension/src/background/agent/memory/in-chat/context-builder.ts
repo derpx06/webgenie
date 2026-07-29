@@ -1,6 +1,7 @@
 import { SystemMessage } from '@langchain/core/messages';
 import type { HumanMessage, BaseMessage } from '@langchain/core/messages';
 import type { AgentContext } from '../../types';
+import { ContextBudgetReporter } from '../../contracts';
 
 export class ContextBuilder {
   private static capCharacters(text: string, maxChars: number): string {
@@ -29,7 +30,8 @@ export class ContextBuilder {
   public static buildContextPacket(
     context: AgentContext,
     systemMessage: SystemMessage,
-    currentStateMessage: HumanMessage
+    currentStateMessage: HumanMessage,
+    actor: 'planner' | 'navigator' = 'navigator',
   ): BaseMessage[] {
     const memory = context.memory;
     const goalManager = memory.goalManager;
@@ -72,6 +74,31 @@ export class ContextBuilder {
     const records = memory.taskArchive.getRecords().map(r => `- Goal: "${r.goal}" | Outcome: "${r.outcome}" | Summary: ${r.summary}`);
     const taskArchiveBlock = this.formatLinesWithBudget(records, 900);
 
+    const currentContractBlock = context.currentContract
+      ? this.capCharacters(JSON.stringify({
+        id: context.currentContract.id,
+        mode: context.currentContract.mode,
+        goal: context.currentContract.goal,
+        macroObjective: context.currentContract.macroObjective,
+        allowedActions: context.currentContract.allowedActions,
+        expectedObservation: context.currentContract.expectedObservation,
+        successCondition: context.currentContract.successCondition,
+        failureSignals: context.currentContract.failureSignals,
+        replanTrigger: context.currentContract.replanTrigger,
+      }), 1200)
+      : 'None';
+
+    const validatedProgressBlock = this.formatLinesWithBudget(
+      (context.validatedProgress ?? []).slice(-12).map(record =>
+        `- ${record.status}: ${record.summary} | contract=${record.contractId} observation=${record.observationId ?? 'none'}`
+      ),
+      1000,
+    );
+
+    const blockedStateBlock = context.blockedState
+      ? this.capCharacters(JSON.stringify(context.blockedState), 700)
+      : 'None';
+
     // Assemble the structured memory content
     const memoryStateContent = `
 <structured_memory>
@@ -99,9 +126,40 @@ ${actionsBlock}
 [COMPLETED TASK REFERENCES]
 ${taskArchiveBlock}
 </structured_memory>
+
+<current_contract>
+${currentContractBlock}
+</current_contract>
+
+<validated_progress>
+${validatedProgressBlock}
+</validated_progress>
+
+<blocked_state>
+${blockedStateBlock}
+</blocked_state>
 `.trim();
 
     const combinedSystemContent = `${systemMessage.content}\n\n${memoryStateContent}`;
+    const stateContent = typeof currentStateMessage.content === 'string'
+      ? currentStateMessage.content
+      : JSON.stringify(currentStateMessage.content);
+    if (!context.contextBudgetReports) context.contextBudgetReports = [];
+    context.contextBudgetReports.push(ContextBudgetReporter.build({
+      taskId: context.taskId,
+      callId: `context_${Date.now().toString(36)}`,
+      actor,
+      outputTokens: 0,
+      sections: {
+        systemPrompt: String(systemMessage.content ?? ''),
+        structuredMemory: memoryStateContent,
+        currentContract: currentContractBlock,
+        validatedProgress: validatedProgressBlock,
+        compactBrowserState: stateContent,
+        interactiveElements: stateContent.match(/Interactive elements[\s\S]*/i)?.[0] ?? stateContent,
+        screenshots: stateContent.includes('image_url') ? '[vision payload]' : '',
+      },
+    }));
     const mergedSystemMessage = new SystemMessage({
       content: combinedSystemContent
     });

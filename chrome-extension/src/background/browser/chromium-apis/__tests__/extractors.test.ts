@@ -47,13 +47,20 @@ describe('Chromium APIs Dependency Injection Tests', () => {
                 nodeId: '1',
                 role: { value: 'WebArea' },
                 name: { value: 'Test AX Page' },
-                childIds: ['2'],
+                childIds: ['2', '3'],
               },
               {
                 nodeId: '2',
+                parentId: '1',
                 role: { value: 'button' },
                 name: { value: 'Click Me' },
                 backendDOMNodeId: 101,
+              },
+              {
+                nodeId: '3',
+                parentId: '1',
+                role: { value: 'heading' },
+                name: { value: 'Visible page heading' },
               },
             ],
           };
@@ -108,6 +115,8 @@ describe('Chromium APIs Dependency Injection Tests', () => {
       const state = await getAXTreeState(123, 1024, 768, mockAdapter);
       expect(state).toBeDefined();
       expect(state.selectorMap.size).toBe(1); // 1 interactive element (button)
+      expect(state.elementTree.clickableElementsToString()).toContain('Visible page heading');
+      expect(state.elementTree.clickableElementsToString()).toContain('Click Me');
       expect(mockAdapter.sendDebuggerCommand).toHaveBeenCalledWith(
         { tabId: 123 },
         'Accessibility.getFullAXTree',

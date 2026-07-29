@@ -2,7 +2,6 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import type { UserIntent } from './types';
 import { createLogger } from '@src/background/log';
-import { z } from 'zod';
 
 const logger = createLogger('IntentClassifier');
 
@@ -29,30 +28,8 @@ Respond ONLY with a JSON object in this format:
       new HumanMessage({ content: `Classify this message: "${userMessage}"` }),
     ];
 
-    // Try structured output
-    try {
-      if (typeof chatLLM.withStructuredOutput === 'function') {
-        const intentSchema = z.object({
-          intent: z.enum([
-            'CONTINUE_TASK',
-            'MODIFY_TASK',
-            'NEW_TASK',
-            'QUESTION',
-            'REFERENCE_PREVIOUS_TASK',
-          ]),
-        });
-        const structuredLlm = chatLLM.withStructuredOutput(intentSchema);
-        const res = await structuredLlm.invoke(messages) as any;
-        if (res && res.intent) {
-          logger.info(`Classified intent (structured): ${res.intent}`);
-          return res.intent as UserIntent;
-        }
-      }
-    } catch (structuredErr) {
-      logger.warning('Structured intent classification failed, falling back', structuredErr);
-    }
-
-    // Fallback: raw invoke and parse
+    // Raw invoke and parse. Provider response_schema/json_schema is deliberately
+    // avoided here to prevent cross-provider schema dialect failures.
     const response = await chatLLM.invoke(messages);
     const content = typeof response.content === 'string' ? response.content : '';
 

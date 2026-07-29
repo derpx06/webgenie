@@ -10,12 +10,15 @@ export interface GeneralSettingsConfig {
   useVision: boolean;
   useVisionForPlanner: boolean;
   planningInterval: number;
+  actionSettleTimeoutMs: number;
+  actionDelayMs: number;
   displayHighlights: boolean;
   minWaitPageLoad: number;
   showAmbientBorder: boolean;
   showStatusCapsule: boolean;
   enableTracing: boolean;
   langsmithApiKey: string;
+  langsmithEndpoint: string;
   langsmithProject: string;
   /** Whether to use chrome.tabGroups to visually group AI-managed tabs by task. */
   enableTabGrouping: boolean;
@@ -37,12 +40,15 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   useVision: false,
   useVisionForPlanner: false,
   planningInterval: 3,
+  actionSettleTimeoutMs: 2000,
+  actionDelayMs: 150,
   displayHighlights: true,
   minWaitPageLoad: 250,
   showAmbientBorder: true,
   showStatusCapsule: true,
   enableTracing: false,
   langsmithApiKey: '',
+  langsmithEndpoint: 'https://api.smith.langchain.com',
   langsmithProject: 'web-surfer',
   enableTabGrouping: true,
   autoCloseEphemeralTabs: false,

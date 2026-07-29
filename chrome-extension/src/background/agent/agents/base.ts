@@ -2,12 +2,16 @@ import type { z } from 'zod';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { AgentContext, AgentOutput } from '../types';
 import type { BasePrompt } from '../prompts/base';
-import type { BaseMessage } from '@langchain/core/messages';
+import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { createLogger } from '@src/background/log';
+import {
+  buildProviderSafeJsonSchema,
+  isProviderSchemaPayloadError,
+  shouldBypassStructuredOutput,
+} from '@src/background/utils';
 import type { Action } from '../actions/builder';
 import { convertInputMessages, extractJsonFromModelOutput, removeThinkTags } from '../messages/utils';
-import { isAbortedError, ResponseParseError } from './errors';
-import { ProviderTypeEnum } from '@extension/storage';
+import { ResponseParseError } from './errors';
 
 const logger = createLogger('agent');
 
@@ -27,12 +31,20 @@ interface RawResponseWithUsage {
   };
 }
 
+const MANUAL_JSON_OUTPUT_INSTRUCTION =
+  'Return ONLY one valid JSON object matching the requested response format. Do not include markdown, code fences, prose, comments, or any text before or after the JSON.';
+
+const MANUAL_JSON_RETRY_INSTRUCTION =
+  'Your previous response was not valid JSON for the required schema. Retry now with ONLY one valid JSON object. No markdown, no explanation, no code fence.';
+const STRUCTURED_OUTPUT_SCHEMA_BYTE_LIMIT = 12000;
+
 // Update options to use Zod schema
 export interface BaseAgentOptions {
   chatLLM: BaseChatModel;
   context: AgentContext;
   prompt: BasePrompt;
   provider?: string;
+  useProviderStructuredOutput?: boolean;
 }
 export interface ExtraAgentOptions {
   id?: string;
@@ -56,9 +68,11 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
   protected chatModelLibrary: string;
   protected modelName: string;
   protected provider: string;
+  protected useProviderStructuredOutput: boolean;
   protected withStructuredOutput: boolean;
   protected callOptions?: CallOptions;
   protected modelOutputToolName: string;
+  private providerSafeSchema: Record<string, unknown> | null = null;
   declare ModelOutput: z.infer<T>;
 
   constructor(modelOutputSchema: T, options: BaseAgentOptions, extraOptions?: Partial<ExtraAgentOptions>) {
@@ -68,15 +82,16 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
     this.prompt = options.prompt;
     this.context = options.context;
     this.provider = options.provider || '';
+    this.useProviderStructuredOutput = options.useProviderStructuredOutput ?? true;
     // TODO: fix this, the name is not correct in production environment
     this.chatModelLibrary = this.chatLLM.constructor.name;
     this.modelName = this.getModelName();
-    this.withStructuredOutput = this.setWithStructuredOutput();
     // extra options
     this.id = extraOptions?.id || 'agent';
     this.toolCallingMethod = this.setToolCallingMethod(extraOptions?.toolCallingMethod);
     this.callOptions = extraOptions?.callOptions;
     this.modelOutputToolName = `${this.id}_output`;
+    this.withStructuredOutput = this.setWithStructuredOutput();
   }
 
   public getChatLLM(): BaseChatModel {
@@ -115,113 +130,146 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
     return toolCallingMethod || null;
   }
 
-  // Check if model is a Llama model (only for Llama-specific handling)
-  private isLlamaModel(modelName: string): boolean {
-    return modelName.includes('Llama-4') || modelName.includes('Llama-3.3') || modelName.includes('llama-3.3');
-  }
-
-  // Set whether to use structured output based on the model name
+  // Provider structured output is only used for small, fixed schemas. Browser
+  // navigator action schemas are often too large or provider-dialect-sensitive,
+  // so those calls automatically stay in manual JSON mode.
   private setWithStructuredOutput(): boolean {
-    if (this.modelName === 'deepseek-reasoner' || this.modelName === 'deepseek-r1') {
+    if (!this.useProviderStructuredOutput) {
+      logger.debug(`[${this.modelName}] Structured output disabled for ${this.id}`);
+      return false;
+    }
+    if (shouldBypassStructuredOutput(this.provider, this.chatModelLibrary, this.modelName)) {
+      logger.debug(`[${this.modelName}] Structured output bypassed for provider/model`);
+      return false;
+    }
+    if (!this.chatLLM || typeof (this.chatLLM as { withStructuredOutput?: unknown }).withStructuredOutput !== 'function') {
+      logger.debug(`[${this.modelName}] Structured output unavailable on chat model`);
       return false;
     }
 
-    // Llama API models don't support json_schema response format
-    if (this.provider === ProviderTypeEnum.Llama || this.isLlamaModel(this.modelName)) {
-      logger.debug(`[${this.modelName}] Llama API doesn't support structured output, using manual JSON extraction`);
+    try {
+      const schema = buildProviderSafeJsonSchema(this.modelOutputSchema, this.modelOutputToolName, true);
+      const schemaBytes = JSON.stringify(schema).length;
+      if (schemaBytes > STRUCTURED_OUTPUT_SCHEMA_BYTE_LIMIT) {
+        logger.info(`[${this.modelName}] Structured output bypassed because schema is too large`, {
+          schemaBytes,
+          limit: STRUCTURED_OUTPUT_SCHEMA_BYTE_LIMIT,
+          toolName: this.modelOutputToolName,
+        });
+        return false;
+      }
+      this.providerSafeSchema = schema;
+      logger.debug(`[${this.modelName}] Structured output enabled`, {
+        schemaBytes,
+        toolName: this.modelOutputToolName,
+      });
+      return true;
+    } catch (error) {
+      logger.warning(`[${this.modelName}] Structured output schema build failed; using manual JSON`, error);
       return false;
     }
-
-    return true;
   }
 
   async invoke(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
-    // Use structured output
     if (this.withStructuredOutput) {
-      logger.debug(`[${this.modelName}] Preparing structured output call with schema:`, {
-        schemaName: this.modelOutputToolName,
-        messageCount: inputMessages.length,
-        modelProvider: this.provider,
-      });
-
-      const structuredLlm = this.chatLLM.withStructuredOutput(this.modelOutputSchema, {
-        includeRaw: true,
-        name: this.modelOutputToolName,
-      });
-
-      let response = undefined;
-      try {
-        logger.debug(`[${this.modelName}] Invoking LLM with structured output...`);
-        response = await structuredLlm.invoke(inputMessages, {
-          signal: this.context.controller.signal,
-          callbacks: this.context.traceCallbacks || [],
-          ...this.callOptions,
-        });
-
-        logger.debug(`[${this.modelName}] LLM response received:`, {
-          hasParsed: !!response.parsed,
-          hasRaw: !!response.raw,
-          rawContent: response.raw?.content?.slice(0, 500) + (response.raw?.content?.length > 500 ? '...' : ''),
-        });
-
-        if (response.parsed) {
-          logger.debug(`[${this.modelName}] Successfully parsed structured output`);
-
-          // Record token usage if available in raw response
-          const rawResponse = response.raw as RawResponseWithUsage;
-          if (rawResponse?.usage_metadata) {
-            this.context.messageManager.recordTokenUsage(
-              rawResponse.usage_metadata.input_tokens || 0,
-              rawResponse.usage_metadata.output_tokens || 0
-            );
-          } else if (rawResponse?.additional_kwargs?.tokenUsage) {
-            // Fallback for some providers using additional_kwargs
-            const usage = rawResponse.additional_kwargs.tokenUsage;
-            this.context.messageManager.recordTokenUsage(
-              usage.promptTokens || usage.input_tokens || 0,
-              usage.completionTokens || usage.output_tokens || 0
-            );
-          }
-
-          return response.parsed;
-        }
-        logger.error('Failed to parse response', response);
-        throw new Error('Could not parse response with structured output');
-      } catch (error) {
-        if (isAbortedError(error)) {
-          throw error;
-        }
-
-        // Try to extract JSON from raw response manually if possible
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        if (
-          errorMessage.includes('is not valid JSON') &&
-          response?.raw?.content &&
-          typeof response.raw.content === 'string'
-        ) {
-          const parsed = this.manuallyParseResponse(response.raw.content);
-          if (parsed) {
-            return parsed;
-          }
-        }
-        logger.error(`[${this.modelName}] LLM call failed with error: \n${errorMessage}`);
-        throw new Error(`Failed to invoke ${this.modelName} with structured output: \n${errorMessage}`);
-      }
+      return this.invokeWithStructuredOutput(inputMessages);
     }
+    return this.invokeWithoutStructuredOutput(inputMessages);
+  }
 
-    // Fallback: Without structured output support, need to extract JSON from model output manually
-    logger.debug(`[${this.modelName}] Using manual JSON extraction fallback method`);
+  private async invokeWithStructuredOutput(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
     const convertedInputMessages = convertInputMessages(inputMessages, this.modelName);
-
     try {
-      const response = await this.chatLLM.invoke(convertedInputMessages, {
+      const structuredModel = (this.chatLLM as unknown as {
+        withStructuredOutput: (schema: unknown, options?: Record<string, unknown>) => {
+          invoke: (messages: BaseMessage[], options?: CallOptions) => Promise<unknown>;
+        };
+      }).withStructuredOutput(this.providerSafeSchema ?? this.modelOutputSchema, {
+        name: this.modelOutputToolName,
+        method: this.toolCallingMethod ?? undefined,
+      });
+      const response = await structuredModel.invoke(convertedInputMessages, {
         signal: this.context.controller.signal,
         callbacks: this.context.traceCallbacks || [],
         ...this.callOptions,
       });
+      return this.validateModelOutput(response);
+    } catch (error) {
+      if (isProviderSchemaPayloadError(error)) {
+        logger.warning(`[${this.modelName}] Provider structured output rejected schema; downgrading to manual JSON`, {
+          provider: this.provider,
+          chatModelLibrary: this.chatModelLibrary,
+          modelName: this.modelName,
+          schemaBytes: this.providerSafeSchema ? JSON.stringify(this.providerSafeSchema).length : 0,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        this.withStructuredOutput = false;
+        return this.invokeWithoutStructuredOutput(inputMessages);
+      }
+      logger.error(`[${this.modelName}] LLM call failed in structured output mode:`, error);
+      throw error;
+    }
+  }
 
-      if (typeof response.content === 'string') {
-        const parsed = this.manuallyParseResponse(response.content);
+  protected async invokeWithoutStructuredOutput(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
+    // Fallback: Without structured output support, need to extract JSON from model output manually
+    logger.debug(`[${this.modelName}] Using manual JSON extraction fallback method`);
+    const convertedInputMessages = this.buildManualJsonMessages(inputMessages);
+
+    try {
+      const response = await this.invokeRawModel(convertedInputMessages);
+
+      const parsed = this.parseRawResponseContent(response);
+      if (parsed) {
+        return parsed;
+      }
+
+      logger.warning(`[${this.modelName}] Manual JSON extraction failed; retrying once with stricter JSON instruction`);
+      const retryResponse = await this.invokeRawModel([
+        ...convertedInputMessages,
+        new HumanMessage({ content: this.getManualJsonRetryInstruction() }),
+      ]);
+      const retryParsed = this.parseRawResponseContent(retryResponse);
+      if (retryParsed) {
+        return retryParsed;
+      }
+    } catch (error) {
+      logger.error(`[${this.modelName}] LLM call failed in manual extraction mode:`, error);
+      throw error;
+    }
+    const errorMessage = `Failed to parse response from ${this.modelName}`;
+    logger.error(errorMessage);
+    throw new ResponseParseError('Could not parse response');
+  }
+
+  private buildManualJsonMessages(inputMessages: BaseMessage[]): BaseMessage[] {
+    return [
+      ...convertInputMessages(inputMessages, this.modelName),
+      new HumanMessage({ content: this.getManualJsonOutputInstruction() }),
+    ];
+  }
+
+  protected getManualJsonOutputInstruction(): string {
+    return MANUAL_JSON_OUTPUT_INSTRUCTION;
+  }
+
+  protected getManualJsonRetryInstruction(): string {
+    return MANUAL_JSON_RETRY_INSTRUCTION;
+  }
+
+  private async invokeRawModel(inputMessages: BaseMessage[]): Promise<unknown> {
+    return this.chatLLM.invoke(inputMessages, {
+        signal: this.context.controller.signal,
+        callbacks: this.context.traceCallbacks || [],
+        ...this.callOptions,
+      });
+  }
+
+  private parseRawResponseContent(response: unknown): this['ModelOutput'] | undefined {
+    if (response && typeof response === 'object' && 'content' in response) {
+      const content = (response as { content?: unknown }).content;
+      if (typeof content === 'string') {
+        const parsed = this.manuallyParseResponse(content);
         if (parsed) {
           // Record token usage for fallback response
           const typedResponse = response as RawResponseWithUsage;
@@ -234,13 +282,8 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
           return parsed;
         }
       }
-    } catch (error) {
-      logger.error(`[${this.modelName}] LLM call failed in manual extraction mode:`, error);
-      throw error;
     }
-    const errorMessage = `Failed to parse response from ${this.modelName}`;
-    logger.error(errorMessage);
-    throw new ResponseParseError('Could not parse response');
+    return undefined;
   }
 
   // Execute the agent and return the result
@@ -262,9 +305,20 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
     const cleanedContent = removeThinkTags(content);
     try {
       const extractedJson = extractJsonFromModelOutput(cleanedContent);
-      return this.validateModelOutput(extractedJson);
+      const parsed = this.modelOutputSchema.safeParse(extractedJson);
+      if (parsed.success) {
+        return parsed.data;
+      }
+      logger.warning(`[${this.modelName}] Manual JSON output failed schema validation; retrying if possible`, {
+        issues: parsed.error.issues.map(issue => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+        preview: JSON.stringify(extractedJson).slice(0, 1000),
+      });
+      return undefined;
     } catch (error) {
-      logger.warning('manuallyParseResponse failed', error);
+      logger.warning(`[${this.modelName}] Manual JSON extraction failed; retrying if possible`);
       return undefined;
     }
   }

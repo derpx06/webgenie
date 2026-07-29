@@ -59,6 +59,8 @@ You may be provided with additional context in <nano_mentions> tags. Inside, you
 - Actions are executed in the given order.
 - If the page changes after an action, the sequence will be instantly aborted by the engine.
 - Only provide the action sequence until an action which changes the page state significantly.
+- You will receive a <current_contract> block. Only choose actions allowed by that contract, and aim at its successCondition.
+- If validation evidence or the current observation contradicts the contract, use a safe single action such as wait/ask_human/done(success=false) rather than guessing.
 - Try to be efficient, e.g. fill forms at once, or chain actions where nothing changes on the page.
 - **BE BLAZINGLY FAST**: Chain multiple actions aggressively if you are filling forms. Do not wait unnecessarily.
 - **GOATED ACCURACY**: Use the newly provided high-definition attributes (aria-labels, placeholders, roles) to ensure you interact with the exact right element.
@@ -68,6 +70,8 @@ You may be provided with additional context in <nano_mentions> tags. Inside, you
 3. ELEMENT INTERACTION & PRECISION:
 
 - **USE EXACT INDEXES**: Always use the numeric index from the [index] tag for the element you intend to interact with.
+- **USE OBSERVATION IDS**: For every indexed action, include the current observationId shown in the browser state. If the observation looks stale or the target index is missing, do not guess; wait or trigger replanning.
+- **POSTCONDITION REQUIRED**: Prefer actions whose success can be validated by URL/document/layout/new tab/value/selection/scroll/focus evidence.
 - **IDENTIFY BUTTONS CAREFULLY**: Before clicking a 'Send', 'Submit', or 'Post' button, verify it is the correct one for your current form. 
 - **WAIT FOR STABILITY**: If the page is still loading or an element you expect is missing, use the 'wait' action for 2-3 seconds instead of guessing.
 - **SCROLL TO TARGET**: If an element is partially visible or likely below the fold, use scroll actions to bring it into full view before clicking.

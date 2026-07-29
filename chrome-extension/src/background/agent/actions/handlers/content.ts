@@ -35,7 +35,7 @@ export class ContentHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
 
-    if (input.index) {
+    if (input.index != null) {
       const state = await page.getCachedState();
       const elementNode = state?.selectorMap.get(input.index);
       if (!elementNode) {
@@ -57,7 +57,7 @@ export class ContentHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
 
-    if (input.index) {
+    if (input.index != null) {
       const state = await page.getCachedState();
       const elementNode = state?.selectorMap.get(input.index);
       if (!elementNode) {
@@ -78,7 +78,7 @@ export class ContentHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
 
-    if (input.index) {
+    if (input.index != null) {
       const state = await page.getCachedState();
       const elementNode = state?.selectorMap.get(input.index);
       if (!elementNode) {
@@ -99,7 +99,7 @@ export class ContentHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
 
-    if (input.index) {
+    if (input.index != null) {
       const state = await page.getCachedState();
       const elementNode = state?.selectorMap.get(input.index);
       if (!elementNode) {
@@ -138,7 +138,7 @@ export class ContentHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
 
-    if (input.index) {
+    if (input.index != null) {
       const state = await page.getCachedState();
       const elementNode = state?.selectorMap.get(input.index);
       if (!elementNode) {
@@ -198,7 +198,11 @@ export class ContentHandler extends BaseHandler {
     const page = await this.context.browserContext.getCurrentPage();
     try {
       const content = await page.getCompletePageContent();
-      const sanitized = wrapUntrustedContent(content, false);
+      const maxContentChars = 20000;
+      const boundedContent = content.length > maxContentChars
+        ? `${content.slice(0, maxContentChars)}\n[page content truncated; use a narrower extraction or search action for the remaining content]`
+        : content;
+      const sanitized = wrapUntrustedContent(boundedContent, false);
       const msg = `Successfully extracted ${content.length} characters of page content.`;
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
       return new ActionResult({ extractedContent: sanitized, includeInMemory: true });
@@ -209,4 +213,3 @@ export class ContentHandler extends BaseHandler {
     }
   }
 }
-

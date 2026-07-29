@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { t } from '@extension/i18n';
 import ChatHistoryList from './components/ChatHistoryList';
 import ChatInput from './components/ChatInput';
@@ -9,6 +9,13 @@ import { AgentSight } from './components/AgentSight';
 import WelcomeScreen from './components/WelcomeScreen';
 import { useSidePanelController } from './hooks/useSidePanelController';
 import { NeuralBackground } from './components/shared/NeuralBackground';
+import { extractCurrentPageDomForTesting } from './devtools/domDebug';
+
+declare global {
+  interface Window {
+    extractCurrentPageDomForTesting?: typeof extractCurrentPageDomForTesting;
+  }
+}
 
 const SidePanel = () => {
   const {
@@ -37,6 +44,23 @@ const SidePanel = () => {
 
   // Declare chrome API types
   const pendingOmniboxPrompt = useRef<string | null>(null);
+  const [isDebugExtractingDom, setIsDebugExtractingDom] = useState(false);
+
+  const handleDebugExtractDom = useCallback(async () => {
+    setIsDebugExtractingDom(true);
+    try {
+      await extractCurrentPageDomForTesting();
+    } finally {
+      setIsDebugExtractingDom(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.extractCurrentPageDomForTesting = extractCurrentPageDomForTesting;
+    return () => {
+      delete window.extractCurrentPageDomForTesting;
+    };
+  }, []);
 
   useEffect(() => {
     const PENDING_KEY = 'pendingOmniboxPrompt';
@@ -129,6 +153,8 @@ const SidePanel = () => {
                   <EmptyChat
                     isDarkMode={isDarkMode}
                     recentSessions={chatSessions}
+                    isDebugExtractingDom={isDebugExtractingDom}
+                    onDebugExtractDom={handleDebugExtractDom}
                     onSelectPrompt={text => {
                       if (setInputTextRef.current) {
                         setInputTextRef.current(text);

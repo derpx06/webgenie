@@ -81,6 +81,7 @@ export default class MessageManager {
       if (data && data[this.sessionId]) {
         logger.info(`Loaded message history from session storage for key: ${this.sessionId}`);
         this.history = deserializeHistory(data[this.sessionId]);
+        this.trimPinnedExtractions();
         
         // Restore toolId count based on existing messages
         let maxId = 0;
@@ -561,6 +562,23 @@ export default class MessageManager {
     void this.saveToSession();
   }
 
+  private trimPinnedExtractions(maxPins = 20): void {
+    const pinnedIndices = this.history.messages
+      .map((message, index) => message.metadata.message_type === 'pinned_extraction' ? index : -1)
+      .filter(index => index >= 0);
+
+    while (pinnedIndices.length > maxPins) {
+      const oldestIndex = pinnedIndices.shift();
+      if (oldestIndex === undefined) break;
+      const [removed] = this.history.messages.splice(oldestIndex, 1);
+      if (removed) this.history.totalTokens -= removed.metadata.tokens;
+      for (let i = 0; i < pinnedIndices.length; i++) {
+        if (pinnedIndices[i] > oldestIndex) pinnedIndices[i]--;
+      }
+      logger.info(`Pinned extraction cap (${maxPins}) exceeded — evicted oldest extraction`);
+    }
+  }
+
   /**
    * Compacts the TRACE history messages when they exceed the budget.
    * Finds the oldest TRACE messages (AIMessage tool calls & ToolMessages),
@@ -712,6 +730,8 @@ export default class MessageManager {
         }
       }
     }
+
+    this.trimPinnedExtractions();
 
     void this.saveToSession();
   }

@@ -1,4 +1,4 @@
-import { type BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
+import { type BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolMessage, type MessageContent } from '@langchain/core/messages';
 
 export interface ToolCall {
   name: string;
@@ -111,7 +111,7 @@ export class MessageHistory {
 
 export interface SerializedMessage {
   type: string;
-  content: string | unknown;
+  content: MessageContent;
   id?: string;
   name?: string;
   additional_kwargs?: Record<string, unknown>;
@@ -187,12 +187,11 @@ export function deserializeHistory(data: unknown): MessageHistory {
       const msgData = m.message || {};
       const type = msgData.type || msgData._type;
       
-      let content: string;
-      if (typeof msgData.content === 'string') {
-        content = msgData.content;
-      } else {
-        content = '';
-      }
+      const content: MessageContent = typeof msgData.content === 'string'
+        ? msgData.content
+        : Array.isArray(msgData.content)
+          ? msgData.content as MessageContent
+          : '';
 
       const kwargs = {
         id: msgData.id,

@@ -35,6 +35,10 @@ import { ChromeStorageProvider } from '../adapters/ChromeStorageProvider';
 
 const logger = createLogger('Page');
 
+export function getAdaptiveDomRetryDelayMs(attempt: number): number {
+  return Math.min(750, Math.max(250, attempt * 250));
+}
+
 export function build_initial_state(tabId?: number, url?: string, title?: string): PageState {
   return {
     elementTree: new DOMElementNode({
@@ -768,24 +772,29 @@ export default class Page {
 
       // SPA-aware DOM extraction: retry up to 3 times if the page returns an empty
       // selector map. Gmail and other SPAs paint the shell first then hydrate the
-      // inbox asynchronously — network-idle fires too early. Retrying with a short
-      // delay gives the JS framework time to finish rendering.
+      // inbox asynchronously — network-idle fires too early. Retrying with an
+      // adaptive short delay gives the JS framework time to finish rendering
+      // without imposing several fixed 1.5-second pauses on every action.
       const MAX_DOM_RETRIES = 3;
-      const DOM_RETRY_DELAY_MS = 1500;
       let updatedState = await this._updateState(useVision);
 
       for (let attempt = 1; attempt < MAX_DOM_RETRIES; attempt++) {
         if (updatedState.selectorMap.size > 0) break; // got elements — done
+        const retryDelayMs = getAdaptiveDomRetryDelayMs(attempt);
         logger.warning(
-          `[getState] Empty DOM on attempt ${attempt}/${MAX_DOM_RETRIES} for ${updatedState.url} — retrying in ${DOM_RETRY_DELAY_MS}ms`,
+          `[getState] Empty DOM on attempt ${attempt}/${MAX_DOM_RETRIES} for ${updatedState.url} — retrying in ${retryDelayMs}ms`,
         );
-        await new Promise(resolve => setTimeout(resolve, DOM_RETRY_DELAY_MS));
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
         updatedState = await this._updateState(useVision);
       }
 
       if (updatedState.selectorMap.size === 0) {
         logger.warning(`[getState] DOM still empty after ${MAX_DOM_RETRIES} attempts — serving cached state if available`);
-        if (this._cachedState && this._cachedState.selectorMap.size > 0) {
+        if (
+          this._cachedState &&
+          this._cachedState.selectorMap.size > 0 &&
+          this._cachedState.url === updatedState.url
+        ) {
           return this._cachedState;
         }
       }
@@ -914,7 +923,7 @@ export default class Page {
       // Full structured dump of every interactive element sent to the LLM.
       // Open the background service worker DevTools to see this output.
       // NO elements are trimmed — the agent sees exactly what is logged here.
-      {
+      if (this._config.logDOMSnapshot) {
         const elementCount = this._state.selectorMap.size;
         const logTime = new Date().toISOString();
         const divider = '─'.repeat(60);
@@ -997,7 +1006,7 @@ export default class Page {
       // re-navigating to Gmail in a loop.
       //
       // Fix: on frame-transition errors, wipe the selectorMap so getState DOES
-      // retry (up to 3×1500ms), giving the new frame time to become ready.
+      // retry using the bounded adaptive delay, giving the new frame time to become ready.
       if (
         errMsg.includes('showing error page') ||
         errMsg.includes('Cannot find context') ||
@@ -1698,7 +1707,13 @@ export default class Page {
             )}, Matched by: ${healed.matchedBy.join(', ')})`,
           );
           const healedCss = healed.node.enhancedCssSelectorForElement(this._config.includeDynamicAttributes);
-          elementHandle = await currentFrame.$(healedCss);
+          if (healedCss) {
+            try {
+              elementHandle = await currentFrame.$(healedCss);
+            } catch (healedCssError) {
+              logger.debug('Healed CSS lookup failed:', healedCssError);
+            }
+          }
           if (!elementHandle && healed.node.xpath) {
             try {
               const fullXpath = healed.node.xpath.startsWith('/') ? healed.node.xpath : `/${healed.node.xpath}`;
