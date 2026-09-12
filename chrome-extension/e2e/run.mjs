@@ -182,12 +182,23 @@ class Harness {
               resolve([]);
               return;
             }
-            const request = db.transaction('records').objectStore('records').getAll();
-            request.onsuccess = () => {
-              db.close();
-              resolve(request.result.filter(record => record.taskId === id));
+            // Only this task's records, removed once read: loading the whole store every task grew the
+            // control page's memory until Chromium stopped responding.
+            const tx = db.transaction('records', 'readwrite');
+            const cursor = tx.objectStore('records').index('taskId').openCursor(IDBKeyRange.only(id));
+            const records = [];
+            cursor.onsuccess = () => {
+              const current = cursor.result;
+              if (!current) return;
+              records.push(current.value);
+              current.delete();
+              current.continue();
             };
-            request.onerror = () => reject(request.error);
+            tx.oncomplete = () => {
+              db.close();
+              resolve(records);
+            };
+            tx.onerror = () => reject(tx.error);
           };
         }),
       taskId,
@@ -322,6 +333,37 @@ class Harness {
   }
 }
 
+/** Every browser gets a fresh profile: Chromium keeps a cached service-worker script for a reused one. */
+async function launchSession(fixtures) {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'webgenie-e2e-'));
+  const browser = await puppeteer.launch({
+    executablePath: CHROMIUM,
+    headless: process.env.E2E_HEADLESS ? true : false,
+    userDataDir: profile,
+    defaultViewport: null,
+    // A hung page call fails in a minute instead of the default three.
+    protocolTimeout: 60_000,
+    ignoreDefaultArgs: ['--disable-extensions'],
+    args: [`--disable-extensions-except=${DIST}`, `--load-extension=${DIST}`, '--no-first-run', '--no-default-browser-check', '--window-size=1400,900'],
+  });
+  try {
+    const worker = await browser.waitForTarget(t => t.type() === 'service_worker' && t.url().startsWith('chrome-extension://'), { timeout: 30_000 });
+    return { browser, profile, harness: new Harness(browser, new URL(worker.url()).host, fixtures) };
+  } catch (error) {
+    await browser.close().catch(() => {});
+    fs.rmSync(profile, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function closeSession(session) {
+  await session.browser.close().catch(() => {});
+  fs.rmSync(session.profile, { recursive: true, force: true });
+}
+
+/** Tasks per browser: a long run in one Chromium accumulates memory on a machine that is already swapping. */
+const TASKS_PER_BROWSER = Math.max(1, Number(process.env.E2E_TASKS_PER_BROWSER ?? 10));
+
 async function main() {
   if (!fs.existsSync(path.join(DIST, 'manifest.json'))) throw new Error(`No build at ${DIST}; run pnpm build first`);
   const suite = process.env.E2E_SUITE ?? 'core';
@@ -335,22 +377,10 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true });
 
   const fixtures = await startFixtures();
-  // A fresh profile per run: Chromium keeps a cached service-worker script for a reused profile.
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'webgenie-e2e-'));
-  const browser = await puppeteer.launch({
-    executablePath: CHROMIUM,
-    headless: process.env.E2E_HEADLESS ? true : false,
-    userDataDir: profile,
-    defaultViewport: null,
-    ignoreDefaultArgs: ['--disable-extensions'],
-    args: [`--disable-extensions-except=${DIST}`, `--load-extension=${DIST}`, '--no-first-run', '--no-default-browser-check', '--window-size=1400,900'],
-  });
-
   const results = [];
+  let session = await launchSession(fixtures);
+  let tasksInSession = 0;
   try {
-    const worker = await browser.waitForTarget(t => t.type() === 'service_worker' && t.url().startsWith('chrome-extension://'), { timeout: 30_000 });
-    const harness = new Harness(browser, new URL(worker.url()).host, fixtures);
-
     let spentInputTokens = 0;
     for (let repeat = 0; repeat < repeats; repeat++) {
       for (const task of tasks) {
@@ -359,21 +389,36 @@ async function main() {
           results.push({ ...base, outcome: 'skipped_budget', detail: `run token cap ${RUN_TOKEN_CAP} reached` });
           continue;
         }
-        try {
-          const result = await harness.runTask(task, runId, repeat, outDir);
-          spentInputTokens += result.metrics.tokens.input;
-          results.push(result);
-        } catch (error) {
-          console.log(`HARNESS ERROR: ${error.message}`);
-          results.push({ ...base, outcome: 'harness_error', detail: error.message });
-          for (const page of await harness.webPages().catch(() => [])) await page.close().catch(() => {});
+        if (tasksInSession >= TASKS_PER_BROWSER) {
+          await closeSession(session);
+          session = await launchSession(fixtures);
+          tasksInSession = 0;
         }
+        // A harness error usually means a wedged or dead browser, which would fail every later task too:
+        // start a new browser and give the task one more try.
+        for (let tries = 1; ; tries++) {
+          try {
+            const result = await session.harness.runTask(task, runId, repeat, outDir);
+            spentInputTokens += result.metrics.tokens.input;
+            results.push(result);
+            break;
+          } catch (error) {
+            console.log(`HARNESS ERROR (try ${tries}): ${error.message}`);
+            await closeSession(session);
+            session = await launchSession(fixtures);
+            tasksInSession = 0;
+            if (tries === 2) {
+              results.push({ ...base, outcome: 'harness_error', detail: error.message });
+              break;
+            }
+          }
+        }
+        tasksInSession++;
       }
     }
   } finally {
-    await browser.close().catch(() => {});
+    await closeSession(session);
     await fixtures.close();
-    fs.rmSync(profile, { recursive: true, force: true });
   }
 
   const health = suiteHealth(results);
