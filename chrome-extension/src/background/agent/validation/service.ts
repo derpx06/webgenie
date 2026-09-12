@@ -47,6 +47,11 @@ export function changesUserValue(previous: string | undefined, next: string, use
   return chars(before) !== chars(after);
 }
 
+/** Whether an answer quotes the agent's own action results ("Clicked button with index 2", "Input … into index 3") instead of page text. */
+export function echoesActionResult(text: string): boolean {
+  return /\b(with|into) index \d+\b/i.test(text);
+}
+
 /** Affirmative answers to a confirmation; anything else counts as no. */
 export function isApproval(answer: string): boolean {
   return /^\s*(yes|y|yeah|yep|ok|okay|sure|confirm(ed)?|approve(d)?|go ahead|proceed|do it|place it|buy it|pay)\b/i.test(answer);

@@ -4,7 +4,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type { BrowserState } from '../../../browser/views';
 import { createBrowserObservation } from '../observation';
 import type { ValidationEvidence } from '../types';
-import { changesUserValue, commitActionLabel, currentIndexFor, isApproval, normalizeIndexedAction, validateActionOutcome } from '../service';
+import { changesUserValue, commitActionLabel, echoesActionResult, currentIndexFor, isApproval, normalizeIndexedAction, validateActionOutcome } from '../service';
 
 function element(index: number, params: Partial<ConstructorParameters<typeof DOMElementNode>[0]> = {}) {
   return new DOMElementNode({
@@ -404,5 +404,14 @@ describe('changesUserValue', () => {
     expect(changesUserValue('someone@example', 'someone@example.org', user)).toBe(false);
     expect(changesUserValue(undefined, 'anything', user)).toBe(false);
     expect(changesUserValue('draft text', 'better text', user)).toBe(false);
+  });
+});
+
+describe('echoesActionResult', () => {
+  it('recognises action-result wording and leaves page text alone', () => {
+    expect(echoesActionResult('The status message is: Clicked button with index 1: Save')).toBe(true);
+    expect(echoesActionResult('Input WebGenie into index 3')).toBe(true);
+    expect(echoesActionResult('Saved: hello frames')).toBe(false);
+    expect(echoesActionResult('The book index lists 3 chapters')).toBe(false);
   });
 });

@@ -43,7 +43,7 @@ import {
   shouldForceReplanAfterResume,
 } from './contracts';
 import { ensureBrowserObservation } from './validation/observation';
-import { isApproval } from './validation/service';
+import { echoesActionResult, isApproval } from './validation/service';
 import type { ValidationStatus } from './validation/types';
 
 const logger = createLogger('Executor');
@@ -158,9 +158,25 @@ export class Executor {
    */
   private checkTaskCompletion(planOutput: AgentOutput<PlannerOutput> | null): boolean {
     if (planOutput?.result?.done) {
+      const answer = planOutput.result.final_answer || this.context.finalAnswer || '';
+      if (echoesActionResult(answer)) {
+        // An answer quoting "Clicked button with index 2" reports what the agent did, not what the page shows.
+        const msg = 'The answer repeats an action result instead of text from the page. Read the requested text from the current page (wait if it is still loading) and answer with it.';
+        logger.warning(`Completion rejected: ${msg}`);
+        this.context.finalAnswer = null;
+        this.context.actionResults = [new ActionResult({
+          executed: false,
+          validated: 'unknown',
+          retryability: 'replan',
+          failureReason: msg,
+          extractedContent: msg,
+          includeInMemory: true,
+        })];
+        return false;
+      }
       logger.info('✅ Planner confirms task completion');
       // The navigator's done text is the provisional answer; a planner final_answer replaces it.
-      this.context.finalAnswer = planOutput.result.final_answer || this.context.finalAnswer;
+      this.context.finalAnswer = answer || null;
       return true;
     }
     return false;
