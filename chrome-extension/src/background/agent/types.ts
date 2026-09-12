@@ -79,6 +79,8 @@ export class AgentContext {
   commitDecision: 'approved' | 'declined' | null;
   /** Text typed into each field this task (frame key and backend node id), to catch replacing a value the user gave. */
   typedValues = new Map<string, string>();
+  /** The tab's address when the current task began; relative instructions ("the next page") refer to it. */
+  taskStartUrl: string | null = null;
   /** The page read shown to the models this step; element indexes in their actions refer to it. */
   promptState?: BrowserState;
   currentContract?: NextStepContract | null;

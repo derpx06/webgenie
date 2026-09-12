@@ -96,6 +96,7 @@ export class ContextBuilder {
   private static stateSections(context: AgentContext): string[] {
     const memory = context.memory;
     const sections: string[] = [];
+    if (context.taskStartUrl) sections.push(`[TASK STARTED ON]\n${context.taskStartUrl}`);
     const addList = (title: string, lines: string[], maxChars: number) => {
       if (lines.length > 0) sections.push(`[${title}]\n${this.formatLinesWithBudget(lines, maxChars)}`);
     };

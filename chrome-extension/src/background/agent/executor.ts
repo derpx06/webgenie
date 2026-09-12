@@ -222,6 +222,11 @@ export class Executor {
       `[Executor] ${execDivider}`,
     );
     logger.info(`🚀 Executing task: ${taskText}`);
+    try {
+      this.context.taskStartUrl = (await this.context.browserContext.getCurrentPage()).url() || null;
+    } catch {
+      this.context.taskStartUrl = null;
+    }
 
     await this.saveCheckpoint(taskText, 'running');
 
