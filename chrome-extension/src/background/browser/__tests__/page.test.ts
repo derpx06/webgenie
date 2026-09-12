@@ -13,7 +13,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   };
 });
 
-import Page, { build_initial_state, getAdaptiveDomRetryDelayMs, normalizeKeyCombo } from '../page';
+import Page, { build_initial_state, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, typingMethod } from '../page';
 import { DOMElementNode } from '../dom/views';
 import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
@@ -152,5 +152,37 @@ describe('Page with an open dialog', () => {
     await page.removeHighlight();
 
     expect(adapter.executeScript).not.toHaveBeenCalled();
+  });
+});
+
+describe('Page read retries', () => {
+  it('accepts a read with text but no interactive elements instead of retrying it', async () => {
+    const adapter = { getTab: vi.fn().mockResolvedValue({ url: 'https://example.com/done', title: 'Done' }) };
+    const page = new Page(1, 'https://example.com/done', 'Done', {}, adapter as unknown as IBrowserAdapter);
+    const textOnly = build_initial_state(1, 'https://example.com/done', 'Done');
+    textOnly.elementTree.children.push(new DOMElementNode({ tagName: 'h1', xpath: null, attributes: {}, children: [], isVisible: true }));
+    const updateState = vi.fn().mockResolvedValue(textOnly);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _validWebPage: true,
+      _lastReadUrl: 'https://example.com/done',
+      _updateState: updateState,
+      _waitForDomStability: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const state = await page.getState();
+
+    expect(state.url).toBe('https://example.com/done');
+    expect(updateState).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('typingMethod', () => {
+  it('types with key presses unless the text is very long or has a line break for a single-line field', () => {
+    expect(typingMethod('05/20/2024', 'text')).toBe('keys');
+    expect(typingMethod('S3cret!', 'password')).toBe('keys');
+    expect(typingMethod('line one\nline two', 'textarea')).toBe('keys');
+    expect(typingMethod('line one\nline two', 'contenteditable')).toBe('keys');
+    expect(typingMethod('line one\nline two', 'text')).toBe('insert');
+    expect(typingMethod('x'.repeat(301), 'textarea')).toBe('insert');
   });
 });

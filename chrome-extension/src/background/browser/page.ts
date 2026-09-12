@@ -129,6 +129,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * How text goes into a field. Key presses by default: widgets such as datepickers, masks and autocompletes read
+ * what was typed from keyboard events and can overwrite a value that arrived without them. One insert for very
+ * long text (speed), and for line breaks in a single-line input (Enter would submit the form).
+ */
+export function typingMethod(text: string, fieldType: string): 'keys' | 'insert' {
+  if (text.length > 300) return 'insert';
+  const multiline = fieldType === 'textarea' || fieldType === 'contenteditable';
+  return text.includes('\n') && !multiline ? 'insert' : 'keys';
+}
+
 /** The value an <input type=date> needs for a date typed the way a user would (mm/dd/yyyy). */
 function toDateInputValue(text: string): string {
   const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text.trim());
@@ -661,10 +672,11 @@ export default class Page {
       }
     };
 
-    // SPAs paint a shell and hydrate later, and frames briefly fail mid-navigation: retry briefly.
+    // SPAs paint a shell and hydrate later, and frames briefly fail mid-navigation: retry a read with no content at
+    // all. A page with text but no controls (a confirmation, an article) is a complete read.
     const MAX_DOM_RETRIES = 3;
     let state = await read();
-    for (let attempt = 1; attempt < MAX_DOM_RETRIES && !(state && state.selectorMap.size > 0); attempt++) {
+    for (let attempt = 1; attempt < MAX_DOM_RETRIES && !(state && state.elementTree.children.length > 0); attempt++) {
       const retryDelayMs = getAdaptiveDomRetryDelayMs(attempt);
       logger.warning(
         `[getState] Empty DOM on attempt ${attempt}/${MAX_DOM_RETRIES} for ${state?.url ?? this._state.url} — retrying in ${retryDelayMs}ms`,
@@ -1216,7 +1228,8 @@ export default class Page {
         return { mode: 'setter', type: input.type, secret: false };
       }
       if (tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable) {
-        return { mode: 'insert', type: tag === 'input' ? input.type : tag, secret: tag === 'input' && input.type === 'password' };
+        const type = tag === 'input' ? input.type : tag === 'textarea' ? 'textarea' : 'contenteditable';
+        return { mode: 'insert', type, secret: tag === 'input' && input.type === 'password' };
       }
       return { error: `A <${tag}> does not accept text; type into an input, textarea or editable element` };
     });
@@ -1251,11 +1264,16 @@ export default class Page {
         selection?.removeAllRanges();
         selection?.addRange(range);
       });
-      await withTimeout(
-        text ? this._pageClient().send('Input.insertText', { text }) : this._puppeteerPage!.keyboard.press('Backspace'),
-        2000,
-        'typing',
-      );
+      const keyboard = this._puppeteerPage!.keyboard;
+      if (!text) {
+        await withTimeout(keyboard.press('Backspace'), 2000, 'typing');
+      } else if (typingMethod(text, field.type) === 'keys') {
+        await withTimeout(keyboard.type(text), 2000 + text.length * 50, 'typing');
+      } else {
+        await withTimeout(this._pageClient().send('Input.insertText', { text }), 2000, 'typing');
+        // Key listeners still see input: End moves the caret without changing the text.
+        await withTimeout(keyboard.press('End'), 2000, 'typing');
+      }
     }
 
     const readBack = () =>
