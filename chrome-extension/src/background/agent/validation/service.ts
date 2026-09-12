@@ -22,8 +22,10 @@ const COMMIT_LABEL = /^((place|submit) (my |the |your )?order|order now|buy (it 
 
 export function commitActionLabel(node: DOMElementNode | undefined): string | null {
   if (!node) return null;
-  const label = [node.attributes['aria-label'], node.attributes.value, node.getAllTextTillNextClickableElement(2)]
+  const parts = [node.attributes['aria-label'], node.attributes.value, node.getAllTextTillNextClickableElement(2)]
     .filter((part): part is string => typeof part === 'string' && part.trim() !== '')
+    .map(part => part.trim());
+  const label = [...new Set(parts)]
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();
