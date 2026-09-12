@@ -236,7 +236,8 @@ ${taskDescription}`,
         ),
       ];
 
-      const response = await invokeLLM(chatModel, prompt, { component: 'TabOrchestrator', model: plannerModel.modelName });
+      // A cosmetic title never waits out a rate limit: its retries would compete with the planner for quota at task start.
+      const response = await invokeLLM(chatModel, prompt, { component: 'TabOrchestrator', model: plannerModel.modelName, rateLimitDelaysMs: [] });
       const raw = response.text;
 
       const sanitized = raw
