@@ -63,8 +63,6 @@ describe('browser prompt budgeting', () => {
       actionResults: [actionResult],
       stateMessageAdded: false,
       lastGoal: undefined,
-      lastMemory: '',
-      lastEvaluation: '',
       messageManager: {
         getWorkingMemory: vi.fn().mockReturnValue(''),
         addMessageWithTokens: vi.fn(),

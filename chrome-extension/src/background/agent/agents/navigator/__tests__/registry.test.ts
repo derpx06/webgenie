@@ -1,32 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { NavigatorActionRegistry } from '../registry';
 import { Action } from '../../../actions/builder';
-import { manageHistoryActionSchema } from '../../../actions/schemas';
+import { doneActionSchema, manageHistoryActionSchema } from '../../../actions/schemas';
 import { ActionResult } from '../../../types';
-import type { z } from 'zod';
 
-describe('NavigatorActionRegistry DRAFT & Tool Availability', () => {
-  it('keeps manage_history available at all times and refines descriptions on failure', () => {
-    const mockAction = new Action(
-      async () => new ActionResult(),
-      manageHistoryActionSchema
-    );
-    const registry = new NavigatorActionRegistry([mockAction]);
+describe('NavigatorActionRegistry tools', () => {
+  it('memoizes tool definitions and rebuilds them when actions change', () => {
+    const handler = async () => new ActionResult();
+    const registry = new NavigatorActionRegistry([new Action(handler, manageHistoryActionSchema)]);
 
-    // 1. Verify schema has history actions on a public page
-    const publicSchema = registry.setupModelOutputSchema('https://google.com') as z.ZodObject<any>;
-    const publicActionSchema = publicSchema.shape.action.element.shape.manage_history.unwrap().unwrap() as any;
-    const publicActions = publicActionSchema.shape.action._def.values;
-    expect(publicActions).toEqual(['getRecent', 'getFrequentDomains']);
+    const tools = registry.getTools();
+    expect(tools.map(tool => tool.function.name)).toEqual(['manage_history']);
+    expect(registry.getTools()).toBe(tools);
 
-    // 2. Refine description on failure (DRAFT)
-    registry.refineActionDescription('manage_history', 'Invalid query', {});
+    registry.registerAction(new Action(handler, doneActionSchema));
+    expect(registry.getTools().map(tool => tool.function.name)).toEqual(['manage_history', 'done']);
+    expect(registry.getValidators().done.safeParse({ text: 'x', success: true, memory: 'm' }).success).toBe(true);
 
-    // 3. Verify refined description contains the warning details
-    const refinedSchema = registry.setupModelOutputSchema('https://google.com') as z.ZodObject<any>;
-    const refinedDescription = refinedSchema.shape.action.element.shape.manage_history.description;
-
-    expect(refinedDescription).toContain('[DRAFT WARNING]');
-    expect(refinedDescription).toContain('Invalid query');
+    registry.unregisterAction('manage_history');
+    expect(registry.getTools().map(tool => tool.function.name)).toEqual(['done']);
   });
 });

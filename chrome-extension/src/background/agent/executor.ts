@@ -4,6 +4,7 @@ import { HumanMessage } from '@langchain/core/messages';
 import { t } from '@extension/i18n';
 import { NavigatorAgent, NavigatorActionRegistry } from './agents/navigator';
 import { PlannerAgent, type PlannerOutput } from './agents/planner';
+import type { ToolMode } from './agents/base';
 import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
@@ -13,7 +14,7 @@ import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
 import { EventManager } from './event/manager';
 import { Actors, type EventCallback, EventType, ExecutionState } from './event/types';
-import { ContextRouter, classifyIntent, type UserIntent } from './memory';
+import { ContextRouter } from './memory';
 import {
   ChatModelAuthError,
   ChatModelBadRequestError,
@@ -55,6 +56,8 @@ function formatExecutionError(error: unknown): string {
 
 export interface ExecutorExtraArgs {
   plannerLLM?: BaseChatModel;
+  navigatorToolMode?: ToolMode;
+  plannerToolMode?: ToolMode;
   agentOptions?: Partial<AgentOptions>;
   generalSettings?: GeneralSettingsConfig;
 }
@@ -101,12 +104,14 @@ export class Executor {
       chatLLM: navigatorLLM,
       context: context,
       prompt: this.navigatorPrompt,
+      toolMode: extraArgs?.navigatorToolMode,
     });
 
     this.planner = new PlannerAgent({
       chatLLM: plannerLLM,
       context: context,
       prompt: this.plannerPrompt,
+      toolMode: extraArgs?.plannerToolMode,
     });
 
     this.context = context;
@@ -147,9 +152,8 @@ export class Executor {
   private checkTaskCompletion(planOutput: AgentOutput<PlannerOutput> | null): boolean {
     if (planOutput?.result?.done) {
       logger.info('✅ Planner confirms task completion');
-      if (planOutput.result.final_answer) {
-        this.context.finalAnswer = planOutput.result.final_answer;
-      }
+      // The navigator's done text is the provisional answer; a planner final_answer replaces it.
+      this.context.finalAnswer = planOutput.result.final_answer || this.context.finalAnswer;
       return true;
     }
     return false;
@@ -172,40 +176,12 @@ export class Executor {
     const allowedMaxSteps = this.context.options.maxSteps;
     await this.restoreCheckpointIfPresent(taskText);
 
-    // Intent Classification Layer
-    let intent: UserIntent = 'NEW_TASK';
-    try {
-      intent = await classifyIntent(this.navigator.getChatLLM(), taskText);
-      logger.info(`[IntentClassification] Intent classified as: ${intent}`);
-    } catch (err) {
-      logger.error('Failed to classify user message intent:', err);
-    }
-
-    // Update goals based on intent
-    const goalManager = this.context.memory.goalManager;
-    if (this.context.nSteps === 0 || intent === 'NEW_TASK') {
-      goalManager.updateGoals(taskText, taskText, 'Initialize task execution');
-    } else if (intent === 'MODIFY_TASK') {
-      goalManager.updateGoals(undefined, taskText, 'Modify task context');
-      // Extract fact/constraint from modified task text as a best-effort fallback
-      if (taskText.toLowerCase().includes('budget') || taskText.toLowerCase().includes('under') || taskText.toLowerCase().includes('avoid')) {
-        this.context.memory.addConstraint(taskText, 'HIGH');
-      } else {
-        this.context.memory.addFact(taskText, 'MEDIUM');
-      }
-    } else if (intent === 'CONTINUE_TASK') {
-      goalManager.updateGoals(undefined, undefined, taskText);
-    } else if (intent === 'REFERENCE_PREVIOUS_TASK') {
-      goalManager.updateGoals(undefined, undefined, `Querying archives: ${taskText}`);
-    } else if (intent === 'QUESTION') {
-      goalManager.updateGoals(undefined, undefined, `Answering question: ${taskText}`);
-    }
+    this.context.memory.goalManager.updateGoals(taskText, taskText, 'Initialize task execution');
 
     // Add task start event to conversation timeline
     this.context.memory.addTimelineEvent('TASK_STARTED', `Started task: "${taskText}"`, {
       taskId: this.context.taskId,
       task: taskText,
-      intent,
     });
 
     // De-duplicate/supersede conflicting items
@@ -217,7 +193,6 @@ export class Executor {
       `  TASK START\n` +
       `  taskId  : ${this.context.taskId}\n` +
       `  task    : ${taskText}\n` +
-      `  intent  : ${intent}\n` +
       `  maxSteps: ${this.context.options.maxSteps}\n` +
       `  time    : ${new Date().toISOString()}\n` +
       `[Executor] ${execDivider}`,
@@ -296,7 +271,6 @@ export class Executor {
           `  time: ${new Date().toISOString()}\n` +
           `  consecutiveFailures: ${context.consecutiveFailures}\n` +
           `  memory: ${(context.messageManager.getWorkingMemory() || '(none)').slice(0, 200)}\n` +
-          `  lastEval: ${(context.lastEvaluation || '(none)').slice(0, 200)}\n` +
           `[Executor] ${stepDivider}`,
         );
         logger.info(`🔄 Step ${step + 1} / ${allowedMaxSteps}`);
@@ -620,10 +594,15 @@ export class Executor {
     const records = this.context.history.history;
     if (records.length < 3) return false;
 
-    const lastThree = records.slice(-3).map(r => (r.modelOutput || '').trim());
-    if (lastThree.some(v => v.length === 0)) return false;
-
-    // Exact output repetition is a strong signal of being stuck.
+    // Compare actions only: the memory text differs between outputs even when the agent is stuck.
+    const lastThree = records.slice(-3).map(r => {
+      try {
+        return JSON.stringify((JSON.parse(r.modelOutput || '{}') as { action?: unknown }).action ?? null);
+      } catch {
+        return 'null';
+      }
+    });
+    if (lastThree.some(v => v === 'null')) return false;
     return lastThree[0] === lastThree[1] && lastThree[1] === lastThree[2];
   }
 
@@ -634,13 +613,9 @@ export class Executor {
     const context = this.context;
     try {
       // Add current browser state to memory
-      let positionForPlan = 0;
-      if (this.tasks.length > 1 || this.context.nSteps > 0) {
-        await this.navigator.addStateMessageToMemory();
-        positionForPlan = this.context.messageManager.length() - 1;
-      } else {
-        positionForPlan = this.context.messageManager.length();
-      }
+      // The planner needs the page on every run, including the first; without it it plans blind.
+      await this.navigator.addStateMessageToMemory();
+      const positionForPlan = this.context.messageManager.length() - 1;
 
       // Execute planner
       console.log(`\n[Planner] ── invoking LLM ── ${new Date().toISOString()}`);
@@ -658,15 +633,12 @@ export class Executor {
       }
       if (planOutput.result) {
         const p = planOutput.result;
-        context.lastGoal = p.macro_objective || p.observation || '';
+        context.lastGoal = p.next_goal || p.macro_objective || '';
         const planDivider = '─'.repeat(60);
         console.log(
           `\n[Planner] ${planDivider}\n` +
           `  done        : ${p.done}\n` +
-          `  web_task    : ${p.web_task}\n` +
-          `  observation : ${p.observation}\n` +
-          `  challenges  : ${p.challenges}\n` +
-          `  reasoning   : ${p.reasoning}\n` +
+          `  next_goal   : ${p.next_goal}\n` +
           `  macro_objective  : ${p.macro_objective}\n` +
           `  final_answer: ${p.final_answer}\n` +
           `[Planner] ${planDivider}`,

@@ -252,15 +252,9 @@ abstract class BasePrompt {
     if (domainPrime) {
       reflectionPrefix += domainPrime;
     }
-    if (context.lastEvaluation) {
-      reflectionPrefix += `[Previous goal evaluation]: ${context.lastEvaluation}\n`;
-    }
     const durableMemory = context.messageManager.getWorkingMemory();
     if (durableMemory) {
       reflectionPrefix += `[Agent memory]: ${durableMemory}\n`;
-    } else if (context.lastMemory) {
-      // Fallback to lastMemory for backward compatibility on first step
-      reflectionPrefix += `[Agent memory]: ${context.lastMemory}\n`;
     }
     if (episodicContext) {
       reflectionPrefix += episodicContext;

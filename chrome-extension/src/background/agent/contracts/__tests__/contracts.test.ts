@@ -18,9 +18,9 @@ import {
   getReplanDecision,
   normalizeNextStepContract,
   normalizePlannerOutputContract,
+  plannerLLMOutputSchema,
   shouldForceReplanAfterResume,
 } from '..';
-import { plannerOutputSchema } from '../../agents/planner';
 
 class MemoryStorage {
   private values = new Map<string, unknown>();
@@ -101,82 +101,17 @@ function contextStub() {
 }
 
 describe('P1 contracts', () => {
-  it('planner output schema accepts compact DTO fields and rejects internal contract fields', () => {
-    const parsed = plannerOutputSchema.parse({
-      observation: 'Need navigation',
-      challenges: 'None',
+  it('plan tool schema requires the compact planner fields and strips internal contract fields', () => {
+    const parsed = plannerLLMOutputSchema.parse({
       done: false,
       macro_objective: 'NAVIGATE',
-      final_answer: '',
-      reasoning: 'Open direct URL',
-      web_task: true,
-      mode: 'single_browser_action',
       next_goal: 'open example',
       allowed_actions: ['go_to_url'],
-      success_condition: 'URL changed',
-      failure_signals: ['URL unchanged'],
-      target_indexes: [],
+      next_step_contract: { id: 'contract-schema', createdAt: 1000 },
     });
 
-    expect(parsed.mode).toBe('single_browser_action');
-    expect(parsed.next_goal).toBe('open example');
-    expect(() => plannerOutputSchema.parse({
-      ...parsed,
-      next_step_contract: {
-        id: 'contract-schema',
-        createdAt: 1000,
-      },
-    })).toThrow();
-  });
-
-  it('planner output schema accepts minimal DTO fields before normalization', () => {
-    const parsed = plannerOutputSchema.parse({
-      observation: 'Need navigation',
-      challenges: 'None',
-      done: false,
-      macro_objective: 'NAVIGATE',
-      final_answer: '',
-      reasoning: 'Open direct URL',
-      web_task: true,
-      mode: 'single_browser_action',
-      next_goal: 'open example',
-      allowed_actions: ['go_to_url'],
-      success_condition: 'URL changed',
-      failure_signals: ['URL unchanged'],
-      target_indexes: [],
-    });
-
-    const cleaned = normalizePlannerOutputContract(parsed, {
-      goal: 'open example',
-      currentObservation: observation(),
-    });
-
-    expect(cleaned.next_step_contract).toMatchObject({
-      mode: 'single_browser_action',
-      macroObjective: 'NAVIGATE',
-      allowedActions: ['go_to_url'],
-    });
-  });
-
-  it('planner output schema fills safe top-level defaults before normalization', () => {
-    const parsed = plannerOutputSchema.parse({
-      done: false,
-      macro_objective: 'NAVIGATE',
-      web_task: true,
-    });
-
-    expect(parsed).toMatchObject({
-      observation: '',
-      challenges: '',
-      final_answer: '',
-      reasoning: '',
-      mode: 'multi_step_task',
-      next_goal: '',
-      allowed_actions: [],
-      success_condition: '',
-      failure_signals: [],
-      target_indexes: [],
-    });
+    expect(parsed).toEqual({ done: false, macro_objective: 'NAVIGATE', next_goal: 'open example', allowed_actions: ['go_to_url'] });
+    expect(plannerLLMOutputSchema.safeParse({ done: false, macro_objective: 'NAVIGATE' }).success).toBe(false);
   });
 
   it('normalizes invalid planner contracts into a safe blocked contract', () => {
@@ -191,30 +126,35 @@ describe('P1 contracts', () => {
     expect(normalized.expectedObservation.observationId).toBe(observation().id);
   });
 
-  it('builds a strict next-step contract from compact planner DTO output', () => {
+  it('builds a next-step contract from compact planner output', () => {
     const obs = observation();
     const cleaned = normalizePlannerOutputContract({
-      observation: 'Need to click',
-      challenges: 'None',
       done: false,
       macro_objective: 'NAVIGATE',
-      final_answer: '',
-      reasoning: 'Go there',
-      web_task: true,
-      mode: 'single_browser_action',
       next_goal: 'open example',
       allowed_actions: ['go_to_url', 'input_text'],
       success_condition: 'URL is open',
-      failure_signals: ['URL unchanged'],
-      target_indexes: [1, 999],
     } satisfies Record<string, unknown>, { goal: 'open example', currentObservation: obs });
 
-    expect(cleaned.mode).toBe('single_browser_action');
+    expect(cleaned.mode).toBe('multi_step_task');
+    expect(cleaned.next_step_contract).toMatchObject({
+      mode: 'multi_step_task',
+      goal: 'open example',
+      macroObjective: 'NAVIGATE',
+      allowedActions: ['go_to_url'],
+      successCondition: 'URL is open',
+      expectedObservation: { observationId: obs.id },
+    });
     expect(cleaned.next_step_contract?.id).toMatch(/^contract_/);
-    expect(cleaned.next_step_contract?.createdAt).toBeGreaterThan(0);
-    expect(cleaned.next_step_contract?.expectedObservation.observationId).toBe(obs.id);
-    expect(cleaned.next_step_contract?.expectedObservation.requiredTargetIndexes).toEqual([1]);
-    expect(cleaned.next_step_contract?.allowedActions).toEqual(['go_to_url']);
+  });
+
+  it('returns no contract when the planner reports the task done', () => {
+    const cleaned = normalizePlannerOutputContract(
+      { done: true, macro_objective: 'VERIFY_STATE', next_goal: '', final_answer: 'Example Domain' },
+      { goal: 'read heading', currentObservation: observation() },
+    );
+
+    expect(cleaned).toMatchObject({ mode: 'direct_answer', next_step_contract: null, final_answer: 'Example Domain' });
   });
 });
 

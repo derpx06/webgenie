@@ -1,7 +1,15 @@
-import { type ProviderConfig, type ModelConfig, ProviderTypeEnum, type GeneralSettingsConfig } from '@extension/storage';
+import {
+  type ProviderConfig,
+  type ModelConfig,
+  ProviderTypeEnum,
+  type GeneralSettingsConfig,
+  geminiThinkingBudget,
+  getLlmCapabilities,
+  isOpenAIReasoningModel,
+} from '@extension/storage';
 import { ChatOpenAI, AzureChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { ChatGoogle } from '@langchain/google-webauth';
 import { ChatXAI } from '@langchain/xai';
 import { ChatGroq } from '@langchain/groq';
 import { ChatCerebras } from '@langchain/cerebras';
@@ -23,6 +31,15 @@ if (typeof globalThis.process === 'undefined') {
 
 
 const maxTokens = 1024 * 4;
+
+// Gemini 2.5+ thinking tokens count against maxOutputTokens, so the answer budget is added on top.
+function googleLimits(modelConfig: ModelConfig): { maxOutputTokens: number; maxReasoningTokens?: number } {
+  if (getLlmCapabilities(ProviderTypeEnum.Gemini, modelConfig.modelName).reasoning !== 'gemini_budget') {
+    return { maxOutputTokens: maxTokens };
+  }
+  const budget = geminiThinkingBudget(modelConfig.reasoningEffort, modelConfig.modelName);
+  return { maxOutputTokens: maxTokens + budget, maxReasoningTokens: budget };
+}
 
 type ChatLlamaConstructorArgs = ConstructorParameters<typeof ChatOpenAI>[0];
 
@@ -108,18 +125,6 @@ class ChatLlama extends ChatOpenAI {
   }
 }
 
-// O series models or GPT-5 models that support reasoning
-function isOpenAIReasoningModel(modelName: string): boolean {
-  let modelNameWithoutProvider = modelName;
-  if (modelName.startsWith('openai/')) {
-    modelNameWithoutProvider = modelName.substring(7);
-  }
-  return (
-    modelNameWithoutProvider.startsWith('o') ||
-    (modelNameWithoutProvider.startsWith('gpt-5') && !modelNameWithoutProvider.startsWith('gpt-5-chat'))
-  );
-}
-
 function createOpenAIChatModel(
   providerConfig: ProviderConfig,
   modelConfig: ModelConfig,
@@ -143,7 +148,7 @@ function createOpenAIChatModel(
   } = {
     model: modelConfig.modelName,
     apiKey: providerConfig.apiKey,
-    maxRetries: 5,
+    maxRetries: 3,
   };
 
   const configuration: Record<string, unknown> = {};
@@ -252,7 +257,7 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
     azureOpenAIApiVersion: providerConfig.azureApiVersion,
     // For Azure, the model name should be the deployment name itself
     model: deploymentName, // Set model = deployment name to fix Azure requests
-    maxRetries: 5,
+    maxRetries: 3,
     // For O series models, use modelKwargs instead of temperature/topP
     ...(isOSeriesModel
       ? {
@@ -332,7 +337,7 @@ export function createChatModel(
         apiKey: providerConfig.apiKey,
         maxTokens,
         temperature,
-        maxRetries: 5,
+        maxRetries: 3,
         clientOptions: {},
         callbacks,
       };
@@ -344,31 +349,23 @@ export function createChatModel(
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
-        maxRetries: 5,
+        maxRetries: 3,
         callbacks,
       };
       return new ChatDeepSeek(args) as BaseChatModel;
     }
     case ProviderTypeEnum.Gemini: {
-      const args: any = {
+      return new ChatGoogle({
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
-        maxRetries: 5,
+        maxRetries: 3,
         callbacks,
-      };
-      if (providerConfig.baseUrl) {
-        let url = providerConfig.baseUrl.trim();
-        if (url.includes('aiplatform.googleapis.com')) {
-          url = url.replace(/\/+$/, '');
-          if (!url.endsWith('publishers/google')) {
-            url = `${url}/publishers/google`;
-          }
-        }
-        args.baseUrl = url;
-      }
-      return new ChatGoogleGenerativeAI(args);
+        ...googleLimits(modelConfig),
+        // ponytail: only the host of a custom base URL is used; Vertex endpoints belong to the Vertex AI provider.
+        ...(providerConfig.baseUrl ? { endpoint: new URL(providerConfig.baseUrl).host } : {}),
+      });
     }
     case ProviderTypeEnum.VertexAI: {
       const args: any = {
@@ -376,8 +373,9 @@ export function createChatModel(
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
-        maxRetries: 5,
+        maxRetries: 3,
         callbacks,
+        ...googleLimits(modelConfig),
       };
       if (providerConfig.baseUrl) {
         const match = providerConfig.baseUrl.match(/projects\/([^/]+)\/locations\/([^/]+)/);
@@ -402,7 +400,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
-        maxRetries: 5,
+        maxRetries: 3,
         configuration: {},
         callbacks,
       };
@@ -415,7 +413,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
-        maxRetries: 5,
+        maxRetries: 3,
         callbacks,
       };
       return new ChatGroq(args);
@@ -427,7 +425,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
-        maxRetries: 5,
+        maxRetries: 3,
         callbacks,
       };
       return new ChatCerebras(args);
@@ -441,7 +439,7 @@ export function createChatModel(
         modelKwargs?: { max_completion_tokens: number };
         topP?: number;
         temperature?: number;
-        maxTokens?: number;
+        numPredict?: number;
         numCtx: number;
         callbacks: BaseCallbackHandler[];
       } = {
@@ -449,10 +447,10 @@ export function createChatModel(
         // required but ignored by ollama
         apiKey: providerConfig.apiKey === '' ? 'ollama' : providerConfig.apiKey,
         baseUrl: providerConfig.baseUrl ?? 'http://localhost:11434',
-        maxRetries: 5,
+        maxRetries: 3,
         topP,
         temperature,
-        maxTokens,
+        numPredict: maxTokens,
         // ollama usually has a very small context window, so we need to set a large number for agent to work
         // It was set to 128000 in the original code, but it will cause ollama reload the models frequently if you have multiple models working together
         // not sure why, but setting it to 64000 seems to work fine
@@ -491,7 +489,7 @@ export function createChatModel(
       } = {
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,
-        maxRetries: 5,
+        maxRetries: 3,
         topP: (modelConfig.parameters?.topP ?? 0.1) as number,
         temperature: (modelConfig.parameters?.temperature ?? 0.1) as number,
         maxTokens,
@@ -518,7 +516,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
-        maxRetries: 5,
+        maxRetries: 3,
         callbacks,
       };
       return new ChatBedrockConverse(args) as unknown as BaseChatModel;

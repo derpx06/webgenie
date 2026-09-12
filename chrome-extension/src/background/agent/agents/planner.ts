@@ -1,47 +1,38 @@
-import { z } from 'zod';
 import { BaseAgent, type BaseAgentOptions, type ExtraAgentOptions } from './base';
 import { createLogger } from '@src/background/log';
 import type { AgentOutput } from '../types';
 import { Actors, ExecutionState } from '../event/types';
-import { handleAgentError } from './utils/error-handler';
+import { handleAgentError, isFatalAgentError } from './utils/error-handler';
 import { preparePlannerMessages, cleanPlannerOutput, createPlannerParseFallbackOutput } from './planner/utils';
 import { ContextBuilder } from '../memory';
 import type { HumanMessage } from '@langchain/core/messages';
-import { plannerLLMOutputSchema } from '../contracts';
+import { plannerLLMOutputSchema, type NextStepContract, type PlannerLLMOutput, type PlanningMode } from '../contracts';
+import { buildToolDefinitions, buildToolValidators } from '../actions/builder';
+import type { ActionSchema } from '../actions/schemas';
 import { ResponseParseError } from './errors';
 
 const logger = createLogger('PlannerAgent');
 
-export const PLANNER_JSON_OUTPUT_INSTRUCTION = `Return ONLY this JSON object, no markdown:
-{"observation":"","challenges":"","done":false,"macro_objective":"NAVIGATE","final_answer":"","reasoning":"","web_task":true,"mode":"single_browser_action","next_goal":"","allowed_actions":["click_element"],"success_condition":"","failure_signals":[],"target_indexes":[]}
-Rules: done and web_task are booleans. Do not include next_step_contract, id, createdAt, or observationId.`;
-
-export const plannerOutputSchema = plannerLLMOutputSchema.strict();
-
-export type PlannerOutput = z.infer<typeof plannerOutputSchema> & {
-  next_step_contract?: import('../contracts').NextStepContract | null;
+export const planToolSchema: ActionSchema = {
+  name: 'plan',
+  description:
+    'Report whether the user task is complete and, if it is not, the next phase for the browser navigator. Call it exactly once.',
+  schema: plannerLLMOutputSchema,
 };
 
-export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerOutput> {
+const PLAN_TOOLS = buildToolDefinitions([planToolSchema]);
+const PLAN_VALIDATORS = buildToolValidators([planToolSchema]);
+
+export type PlannerOutput = PlannerLLMOutput & {
+  mode?: PlanningMode;
+  next_step_contract?: NextStepContract | null;
+};
+
+export class PlannerAgent extends BaseAgent<PlannerOutput> {
   private lastBroadcastPlan = '';
 
   constructor(options: BaseAgentOptions, extraOptions?: Partial<ExtraAgentOptions>) {
-    super(
-      plannerOutputSchema,
-      {
-        ...options,
-        useProviderStructuredOutput: false,
-      },
-      { ...extraOptions, id: 'planner' },
-    );
-  }
-
-  protected override getManualJsonOutputInstruction(): string {
-    return PLANNER_JSON_OUTPUT_INSTRUCTION;
-  }
-
-  protected override getManualJsonRetryInstruction(): string {
-    return `Your previous planner response did not match the required JSON. ${PLANNER_JSON_OUTPUT_INSTRUCTION}`;
+    super(options, { ...extraOptions, id: 'planner' });
   }
 
   async execute(): Promise<AgentOutput<PlannerOutput>> {
@@ -63,15 +54,12 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
       const plannerMessages = preparePlannerMessages(
         contextPacket,
         this.context.options.useVision,
-        this.context.options.useVisionForPlanner
+        this.context.options.useVisionForPlanner,
       );
 
-      const modelOutput = await this.invoke(plannerMessages);
-      if (!modelOutput) {
-        throw new Error('Failed to validate planner output');
-      }
+      const { calls } = await this.invokeWithTools(plannerMessages, PLAN_TOOLS, PLAN_VALIDATORS);
 
-      const cleanedPlan = cleanPlannerOutput(modelOutput, {
+      const cleanedPlan = cleanPlannerOutput(calls[0].args as unknown as PlannerLLMOutput, {
         goal: this.context.memory.goalManager.getCurrentGoal() || this.context.memory.goalManager.getPrimaryGoal() || '',
         currentObservation: this.context.activeObservation ?? null,
       });
@@ -95,7 +83,9 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
       }
 
       // UI update
-      const eventMessage = cleanedPlan.done ? cleanedPlan.final_answer : `Executing Phase: ${cleanedPlan.macro_objective}`;
+      const eventMessage = cleanedPlan.done
+        ? cleanedPlan.final_answer || this.context.finalAnswer || ''
+        : `Executing Phase: ${cleanedPlan.macro_objective}`;
       const normalizedMessage = eventMessage.trim();
 
       // Reduce noisy repeated planner chatter in UI when the plan hasn't changed.
@@ -123,7 +113,8 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
     try {
       handleAgentError(error, 'Planning failed');
     } catch (e) {
-      // Safe string extraction — handleAgentError may re-throw non-Error objects
+      // Auth, bad request, billing, rate limit, cancel and blocked-URL errors end the task.
+      if (isFatalAgentError(e)) throw e;
       const msg = e instanceof Error ? e.message : String(e ?? 'Unknown planning error');
       logger.error(msg);
       this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_FAIL, msg);
@@ -165,7 +156,7 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
       });
     }
 
-    const eventMessage = `Planner output was invalid JSON; continuing with a safe fallback contract: ${fallbackPlan.macro_objective}`;
+    const eventMessage = `Planner returned no valid plan; continuing with a safe fallback contract: ${fallbackPlan.macro_objective}`;
     const normalizedMessage = eventMessage.trim();
     if (normalizedMessage !== this.lastBroadcastPlan) {
       this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_OK, eventMessage);

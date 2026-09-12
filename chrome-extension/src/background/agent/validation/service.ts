@@ -350,7 +350,7 @@ export function isMutatingAction(actionName: string): boolean {
 }
 
 export function validateActionOutcome(input: ValidateActionOutcomeInput): ActionResult {
-  const { actionName, actionArgs, before, after, result, recentResults = [] } = input;
+  const { actionName, actionArgs, before, after, result } = input;
 
   if (result.error) {
     const staleElement = isStaleElementError(result.error);
@@ -520,30 +520,6 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
       actionName === 'click_element' ? 'replan' : 'retry_reobserve',
       [evidence('document_change', false, 'No URL, document, layout, or tab change was observed after the action.')],
       `${actionName} produced no observable postcondition.`,
-    );
-  }
-
-  if (actionName === 'done') {
-    const unresolved = recentResults.some(previous =>
-      previous.executed && (previous.validated === 'unknown' || previous.validated === 'failed')
-    );
-    const success = args.success === true;
-    if (!success) {
-      return cloneWithValidation(
-        result,
-        'passed',
-        'none',
-        [evidence('done_blocked', true, 'Done reports an explicit unsuccessful or blocked final state.')],
-      );
-    }
-    const hasSupport = recentResults.some(previous => previous.validated === 'passed');
-    const passed = !unresolved && hasSupport;
-    return cloneWithValidation(
-      result,
-      passed ? 'passed' : 'failed',
-      passed ? 'none' : 'replan',
-      [evidence('done_supported', passed, passed ? 'Done is supported by recent validated evidence.' : 'Done lacks recent successful validated evidence or has unresolved failures.')],
-      passed ? null : 'Done cannot be accepted without validated success evidence.',
     );
   }
 

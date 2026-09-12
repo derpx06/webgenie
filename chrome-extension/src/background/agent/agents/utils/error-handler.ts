@@ -58,3 +58,8 @@ export function handleAgentError(error: unknown, fallbackPrefix: string): never 
 
   throw new Error(`${fallbackPrefix}: ${errorMessage}`);
 }
+
+/** Typed errors (auth, bad request, billing, rate limit, cancel, conflict, blocked URL) end the task; plain errors count as a failed step. */
+export function isFatalAgentError(error: unknown): boolean {
+  return error instanceof Error && Object.getPrototypeOf(error) !== Error.prototype;
+}

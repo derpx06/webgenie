@@ -26,6 +26,7 @@ describe('LLM capability table', () => {
 
   it('maps reasoning controls per provider family', () => {
     expect(getLlmCapabilities(ProviderTypeEnum.VertexAI, 'gemini-2.5-flash')).toMatchObject({ reasoning: 'gemini_budget', audioInput: true });
+    expect(getLlmCapabilities(ProviderTypeEnum.Gemini, 'gemini-2.0-flash').reasoning).toBe('none');
     expect(getLlmCapabilities(ProviderTypeEnum.OpenAI, 'o3').reasoning).toBe('openai_effort');
     expect(getLlmCapabilities(ProviderTypeEnum.OpenAI, 'gpt-4.1').reasoning).toBe('none');
     expect(getLlmCapabilities(ProviderTypeEnum.Anthropic, 'claude-sonnet-4-5').reasoning).toBe('none');

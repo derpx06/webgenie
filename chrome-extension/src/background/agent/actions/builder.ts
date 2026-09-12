@@ -137,20 +137,6 @@ export class Action {
   }
 }
 
-// TODO: can not make every action optional, don't know why
-export function buildDynamicActionSchema(actions: Action[]): z.ZodType {
-  let schema = z.object({});
-  for (const action of actions) {
-    // create a schema for the action, it could be action.schema.schema or null
-    // but don't use default: null as it causes issues with Google Generative AI
-    const actionSchema = action.schema.schema;
-    schema = schema.extend({
-      [action.name()]: actionSchema.nullable().optional().describe(action.schema.description),
-    });
-  }
-  return schema;
-}
-
 /** OpenAI-format tool definition; every LangChain chat adapter accepts this shape in bindTools. */
 export interface ToolDefinition {
   type: 'function';

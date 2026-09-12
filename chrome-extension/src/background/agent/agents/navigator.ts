@@ -1,22 +1,20 @@
-import type { z } from 'zod';
 import { BaseAgent, type BaseAgentOptions, type ExtraAgentOptions } from './base';
 import { createLogger } from '@src/background/log';
 import { record } from '@src/background/trace';
-import { ActionResult, type AgentBrain, type AgentOutput } from '../types';
+import { ActionResult, type AgentOutput } from '../types';
 import { Actors, ExecutionState } from '../event/types';
 import { calcBranchPathHashSet } from '@src/background/browser/dom/views';
 import { BrowserStateHistory, URLNotAllowedError, type BrowserState } from '@src/background/browser/views';
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
-import { type BaseMessage, HumanMessage } from '@langchain/core/messages';
+import { HumanMessage } from '@langchain/core/messages';
 import { WebGenieMemoryStore, ContextRouter, ContextBuilder } from '../memory';
 import { PyramidLevel } from '@src/background/agent/messages/views';
 
 import { NavigatorActionRegistry } from './navigator/registry';
 export { NavigatorActionRegistry };
 import { HistoryReplayer } from './navigator/replay';
-import { normalizeActions } from './navigator/utils';
-import { handleAgentError } from './utils/error-handler';
+import { handleAgentError, isFatalAgentError } from './utils/error-handler';
 import { ensureBrowserObservation } from '../validation/observation';
 import {
   fingerprintFailureKey,
@@ -27,7 +25,7 @@ import {
   hasActionPostconditionSatisfied,
   validateActionOutcome,
 } from '../validation/service';
-import { ProgressLedger } from '../contracts';
+import { ALWAYS_ALLOWED_ACTIONS, ProgressLedger } from '../contracts';
 import type { BrowserObservation, TargetFingerprint } from '../validation/types';
 import { waitForActionSettled } from '../validation/settling';
 
@@ -44,7 +42,7 @@ function targetFingerprintFromArgs(actionArgs: unknown): TargetFingerprint | nul
   return value && typeof value === 'object' ? value as TargetFingerprint : null;
 }
 
-export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
+export class NavigatorAgent extends BaseAgent<NavigatorResult> {
   private actionRegistry: NavigatorActionRegistry;
   private historyReplayer: HistoryReplayer;
 
@@ -53,21 +51,9 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     options: BaseAgentOptions,
     extraOptions?: Partial<ExtraAgentOptions>,
   ) {
-    super(actionRegistry.setupModelOutputSchema(), options, { ...extraOptions, id: 'navigator' });
+    super(options, { ...extraOptions, id: 'navigator' });
     this.actionRegistry = actionRegistry;
     this.historyReplayer = new HistoryReplayer(this.context, actionRegistry, this.doMultiAction.bind(this));
-  }
-
-  async invoke(inputMessages: BaseMessage[]): Promise<this['ModelOutput']> {
-    try {
-      const currentPage = await this.context.browserContext.getCurrentPage().catch(() => null);
-      const currentUrl = currentPage?.url() || '';
-      const macroObjective = this.context.lastMacroObjective;
-      this.modelOutputSchema = this.actionRegistry.setupModelOutputSchema(currentUrl, macroObjective);
-    } catch (error) {
-      logger.error('Failed to dynamically update schema for invoke:', error);
-    }
-    return super.invoke(inputMessages);
   }
 
   async execute(): Promise<AgentOutput<NavigatorResult>> {
@@ -98,49 +84,31 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         'navigator',
       );
 
-      const modelOutput = await this.invoke(contextPacket);
+      const contractActions = this.context.currentContract?.allowedActions ?? [];
+      const { calls } = await this.invokeWithTools(
+        contextPacket,
+        this.actionRegistry.getTools(),
+        this.actionRegistry.getValidators(),
+        contractActions.length > 0 ? [...new Set([...contractActions, ...ALWAYS_ALLOWED_ACTIONS])] : undefined,
+      );
 
       if (this.isTaskInterrupted()) return agentOutput;
 
-      // Process actions
-      const actions = normalizeActions(modelOutput.action);
-      modelOutput.action = actions;
+      const memory = calls
+        .map(call => call.args.memory)
+        .find((value): value is string => typeof value === 'string' && value.trim() !== '') ?? '';
+      const actions = calls.slice(0, this.context.options.maxActionsPerStep).map(({ name, args }) => {
+        const actionArgs = { ...args };
+        delete actionArgs.memory;
+        return { [name]: actionArgs };
+      });
+      // Stored in the AgentOutput shape that saved histories and HistoryReplayer read.
+      const modelOutput = { current_state: { memory, next_goal: this.context.lastGoal ?? '' }, action: actions };
       modelOutputString = JSON.stringify(modelOutput);
-
-      // ── SELF-REFLECTION & STRUCTURED MEMORY PROPAGATION ─────────────────
-      const brain: AgentBrain = modelOutput.current_state;
-      if (brain?.evaluation_previous_goal) {
-        this.context.lastEvaluation = brain.evaluation_previous_goal;
+      logger.info(`[Memory] ${memory || '(none)'}`);
+      if (memory) {
+        void this.context.messageManager.setWorkingMemory(memory);
       }
-      if (brain?.memory) {
-        this.context.lastMemory = brain.memory;
-      }
-
-      // Import facts, constraints, decisions, and progress from Navigator LLM response
-      this.context.memory.importFromLLMResponse(brain);
-
-      // Full brain state log (untruncated)
-      const brainDivider = '─'.repeat(60);
-      console.log(
-        `\n[Navigator:Brain] ${brainDivider}\n` +
-        `  evaluation_previous_goal:\n    ${brain?.evaluation_previous_goal || '(none)'}\n` +
-        `  memory:\n    ${brain?.memory || '(none)'}\n` +
-        `  actions requested: ${(modelOutput.action as unknown[]).length}\n` +
-        `  actions: ${JSON.stringify(modelOutput.action, null, 2)}\n` +
-        `[Navigator:Brain] ${brainDivider}`,
-      );
-      logger.info(`[Brain] evaluation: ${brain?.evaluation_previous_goal || '(none)'}`);
-      logger.info(`[Brain] memory: ${brain?.memory || '(none)'}`);
-      // ─────────────────────────────────────────────────────────────────────
-
-      // ── Persist durable working memory scratchpad ─────────────────────────
-      if (brain?.memory) {
-        void this.context.messageManager.setWorkingMemory(brain.memory);
-      }
-      if (brain?.evaluation_previous_goal) {
-        this.context.lastEvaluation = brain.evaluation_previous_goal;
-      }
-      // ─────────────────────────────────────────────────────────────────────
 
       this.removeLastStateMessageFromMemory();
       this.context.messageManager.addModelOutput(modelOutput);
@@ -158,10 +126,13 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
       if (this.isTaskInterrupted()) return agentOutput;
 
+      const lastResult = actionResults[actionResults.length - 1];
+      if (lastResult?.isDone && lastResult.extractedContent) {
+        // Provisional answer; the planner confirms completion and may replace it.
+        this.context.finalAnswer = lastResult.extractedContent;
+      }
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_OK, 'Navigation done');
-      agentOutput.result = {
-        done: actionResults.length > 0 && actionResults[actionResults.length - 1].isDone
-      };
+      agentOutput.result = { done: !!lastResult?.isDone };
 
       return agentOutput;
     } catch (error) {
@@ -219,6 +190,8 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     try {
       handleAgentError(error, 'Navigation failed');
     } catch (e) {
+      // Auth, bad request, billing, rate limit, cancel and blocked-URL errors end the task.
+      if (isFatalAgentError(e)) throw e;
       const msg = e instanceof Error ? e.message : String(e ?? 'Unknown navigation error');
       logger.error(msg);
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_FAIL, msg);
@@ -326,16 +299,6 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
 
     await browserContext.removeHighlight();
 
-    let maxAllowed = 2;
-    if (this.context.lastMacroObjective === 'FORM_FILL' || this.context.lastMacroObjective === 'SEARCH' || this.context.lastMacroObjective === 'BROWSER_CONTROL') {
-      maxAllowed = 5;
-    }
-
-    if (actions.length > maxAllowed) {
-      logger.warning(`Navigator hallucinated ${actions.length} actions for macro ${this.context.lastMacroObjective}. Slicing to ${maxAllowed}.`);
-      actions = actions.slice(0, maxAllowed);
-    }
-
     for (const [i, action] of actions.entries()) {
       if (this.isTaskInterrupted()) break;
 
@@ -380,27 +343,6 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       }
 
       try {
-        const allowedActions = this.context.currentContract?.allowedActions ?? [];
-        if (allowedActions.length > 0 && !allowedActions.includes(actionName)) {
-          const msg = `Action ${actionName} is not allowed by contract ${contractId ?? 'current contract'}; replan with one of: ${allowedActions.join(', ')}.`;
-          logger.warning(msg);
-          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
-          results.push(new ActionResult({
-            executed: false,
-            executionStatus: 'not_attempted',
-            validated: 'failed',
-            retryability: 'replan',
-            failureReason: msg,
-            extractedContent: msg,
-            includeInMemory: true,
-            contractId,
-            actionId,
-            validationId,
-            evidence: [{ kind: 'error', passed: false, message: msg }],
-          }));
-          break;
-        }
-
         const actionInstance = this.actionRegistry.getAction(actionName);
         if (!actionInstance) throw new Error(`Action ${actionName} not exists`);
 
@@ -618,7 +560,6 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         // If the action returned an error, halt immediately to prevent execution on incorrect page state
         if (result.error) {
           logger.warning(`Action ${i + 1} (${actionName}) returned an error. Halting remaining queue.`);
-          this.actionRegistry.refineActionDescription(actionName, result.error, actionArgs);
           break;
         }
 
@@ -669,7 +610,6 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         logger.error(failMsg);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
 
-        this.actionRegistry.refineActionDescription(actionName, msg, actionArgs);
         results.push(new ActionResult({
           error: msg,
           isDone: false,

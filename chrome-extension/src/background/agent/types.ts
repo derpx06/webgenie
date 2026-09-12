@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import type BrowserContext from '../browser/context';
 import { DEFAULT_INCLUDE_ATTRIBUTES } from '../browser/dom/views';
 import type { DOMHistoryElement } from '../browser/dom/history/view';
@@ -58,7 +57,7 @@ export interface AgentOptions {
 
 export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   maxSteps: 100,
-  maxActionsPerStep: 10,
+  maxActionsPerStep: 5,
   maxFailures: 3,
   retryDelay: 10,
   maxInputTokens: 128000,
@@ -88,14 +87,6 @@ export class AgentContext {
   finalAnswer: string | null;
   waitingForHuman: boolean;
   humanQuestion: string | null;
-  /**
-   * Self-reflection fields persisted across steps.
-   * The navigator LLM fills these in every response; we carry them forward
-   * so the agent knows what it just evaluated and what it remembered.
-   * Without these, the agent "forgets" completed sub-goals and loops.
-   */
-  lastEvaluation: string;  // evaluation_previous_goal from last navigator step
-  lastMemory: string;      // memory scratchpad from last navigator step
   lastGoal?: string;
   lastMacroObjective?: string; // macro_objective from last planner step
   activeLayoutHash?: string;
@@ -184,8 +175,6 @@ export class AgentContext {
     this.finalAnswer = null;
     this.waitingForHuman = false;
     this.humanQuestion = null;
-    this.lastEvaluation = '';
-    this.lastMemory = '';
     this.memory = new InChatMemory();
     this.failureRegistry = this.memory.failureRegistry;
     this.currentContract = null;
@@ -299,23 +288,6 @@ export class StepMetadata {
     return this.stepEndTime - this.stepStartTime;
   }
 }
-
-export const agentBrainSchema = z
-  .object({
-    evaluation_previous_goal: z.string(),
-    memory: z.string(),
-    next_goal: z.string(),
-    extracted_facts: z.array(z.string()).optional(),
-    extracted_constraints: z.array(z.string()).optional(),
-    extracted_decisions: z.array(z.string()).optional(),
-    progress_completed: z.array(z.string()).optional(),
-    progress_remaining: z.array(z.string()).optional(),
-    progress_current: z.array(z.string()).optional(),
-    pinned_items: z.array(z.string()).optional(),
-  })
-  .describe('Current state of the agent');
-
-export type AgentBrain = z.infer<typeof agentBrainSchema>;
 
 // Make AgentOutput generic with Zod schema
 export interface AgentOutput<T = unknown> {

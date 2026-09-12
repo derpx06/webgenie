@@ -2,7 +2,7 @@ import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import type { PlannerOutput } from '../planner';
 import { createFallbackContract, normalizePlannerOutputContract } from '../../contracts';
 import type { BrowserObservation } from '../../validation/types';
-import type { MacroObjective, NextStepContract } from '../../contracts';
+import type { MacroObjective } from '../../contracts';
 
 type PlannerOutputInput = Omit<PlannerOutput, 'next_step_contract'> & {
   next_step_contract?: unknown;
@@ -70,7 +70,7 @@ export function cleanPlannerOutput(
   context?: { goal?: string; currentObservation?: BrowserObservation | null },
 ): PlannerOutput {
   return normalizePlannerOutputContract(output, {
-    goal: context?.goal ?? output.observation ?? 'Continue task safely',
+    goal: context?.goal ?? output.next_goal ?? 'Continue task safely',
     currentObservation: context?.currentObservation ?? null,
   });
 }
@@ -149,25 +149,13 @@ export function createPlannerParseFallbackOutput(context: {
   });
 
   return {
-    observation: currentObservation
-      ? `Planner response was invalid. Current page is ${currentObservation.title || currentObservation.url || 'unknown page'} at ${currentObservation.url || 'unknown URL'}.`
-      : 'Planner response was invalid and no browser observation is available.',
-    challenges: reason,
     done: false,
-    macro_objective: macroObjective,
     final_answer: '',
-    reasoning: 'Using a conservative fallback contract instead of failing the task because planner JSON parsing failed.',
-    web_task: true,
-    mode: 'multi_step_task',
+    macro_objective: macroObjective,
     next_goal: goal,
     allowed_actions: fallbackAllowedActions(macroObjective),
     success_condition: 'Continue the task using validated browser actions and replan if validation is unknown or failed.',
-    failure_signals: [
-      reason,
-      'Current observation does not contain enough actionable state.',
-      'The next browser action validates as failed or unknown.',
-    ],
-    target_indexes: [],
+    mode: 'multi_step_task',
     next_step_contract: contract,
   };
 }

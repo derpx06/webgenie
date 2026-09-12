@@ -40,7 +40,7 @@ export function getLlmCapabilities(providerType: string | undefined, modelName: 
       return { ...tools(true), reasoning: isOpenAIReasoningModel(modelName) ? 'openai_effort' : 'none' };
     case ProviderTypeEnum.Gemini:
     case ProviderTypeEnum.VertexAI:
-      return { ...tools(true), reasoning: 'gemini_budget', audioInput: true };
+      return { ...tools(true), reasoning: /gemini-(2\.5|[3-9])/.test(modelName) ? 'gemini_budget' : 'none', audioInput: true };
     case ProviderTypeEnum.DeepSeek:
       return tools(!(modelName === 'deepseek-reasoner' || modelName.includes('deepseek-r1')));
     case ProviderTypeEnum.Ollama:

@@ -49,19 +49,12 @@ export interface NextStepContract {
 }
 
 export interface PlannerLLMOutput {
-  observation: string;
-  challenges: string;
   done: boolean;
+  final_answer?: string;
   macro_objective: MacroObjective;
-  final_answer: string;
-  reasoning: string;
-  web_task: boolean;
-  mode: PlanningMode;
   next_goal: string;
-  allowed_actions: string[];
-  success_condition: string;
-  failure_signals: string[];
-  target_indexes: number[];
+  allowed_actions?: string[];
+  success_condition?: string;
 }
 
 export interface ReplanDecision {

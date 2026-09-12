@@ -1,5 +1,5 @@
 import type { BrowserObservation } from '../validation/types';
-import { macroObjectiveSchema, nextStepContractSchema, planningModeSchema } from './schema';
+import { macroObjectiveSchema, nextStepContractSchema } from './schema';
 import type { MacroObjective, NextStepContract, PlannerContractContext, PlannerLLMOutput, PlanningMode } from './types';
 
 function safeId(prefix: string): string {
@@ -14,11 +14,35 @@ function stringField(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value : fallback;
 }
 
+/** Actions the navigator may use whatever the current contract allows. */
+export const ALWAYS_ALLOWED_ACTIONS = ['done', 'ask_human', 'wait', 'go_back'];
+
 const ALLOWED_ACTIONS_BY_MACRO_OBJECTIVE: Record<MacroObjective, string[]> = {
   NAVIGATE: ['go_to_url', 'search_google', 'search_web', 'open_tab', 'switch_tab', 'click_element', 'wait', 'done'],
   SEARCH: ['search_web', 'search_google', 'input_text', 'click_element', 'send_keys', 'wait', 'done'],
-  FORM_FILL: ['input_text', 'click_element', 'select_dropdown_option', 'get_dropdown_options', 'send_keys', 'wait', 'done'],
-  EXTRACT_DATA: ['get_complete_page_content', 'cache_content', 'scroll_to_text', 'scroll_to_percent', 'wait', 'done'],
+  FORM_FILL: [
+    'input_text',
+    'click_element',
+    'hover_element',
+    'right_click_element',
+    'select_dropdown_option',
+    'get_dropdown_options',
+    'send_keys',
+    'wait',
+    'done',
+  ],
+  EXTRACT_DATA: [
+    'get_complete_page_content',
+    'cache_content',
+    'scroll_to_text',
+    'scroll_to_percent',
+    'scroll_to_top',
+    'scroll_to_bottom',
+    'next_page',
+    'previous_page',
+    'wait',
+    'done',
+  ],
   VERIFY_STATE: ['wait', 'get_complete_page_content', 'done'],
   BROWSER_CONTROL: [
     'open_tab',
@@ -37,8 +61,20 @@ const ALLOWED_ACTIONS_BY_MACRO_OBJECTIVE: Record<MacroObjective, string[]> = {
     'wait',
     'done',
   ],
-  HANDLE_BLOCKER: ['click_element', 'input_text', 'wait', 'ask_human', 'done'],
-  EXPLORE_PAGE: ['scroll_to_percent', 'scroll_to_top', 'scroll_to_bottom', 'scroll_to_text', 'click_element', 'wait', 'done'],
+  HANDLE_BLOCKER: ['click_element', 'input_text', 'send_keys', 'hover_element', 'wait', 'ask_human', 'done'],
+  EXPLORE_PAGE: [
+    'scroll_to_percent',
+    'scroll_to_top',
+    'scroll_to_bottom',
+    'scroll_to_text',
+    'next_page',
+    'previous_page',
+    'get_complete_page_content',
+    'click_element',
+    'hover_element',
+    'wait',
+    'done',
+  ],
   ASK_HUMAN: ['ask_human', 'wait', 'done'],
 };
 
@@ -50,9 +86,8 @@ function filterAllowedActions(macroObjective: MacroObjective, requested: string[
 }
 
 function contractMode(output: PlannerLLMOutput): PlanningMode {
-  if (output.done || !output.web_task) return 'direct_answer';
-  if (output.macro_objective === 'ASK_HUMAN') return 'blocked_human_needed';
-  return output.mode === 'direct_answer' ? 'single_browser_action' : output.mode;
+  if (output.done) return 'direct_answer';
+  return output.macro_objective === 'ASK_HUMAN' ? 'blocked_human_needed' : 'multi_step_task';
 }
 
 export function buildNextStepContractFromPlannerOutput(
@@ -63,30 +98,17 @@ export function buildNextStepContractFromPlannerOutput(
   if (mode === 'direct_answer') return null;
 
   const macroObjective = output.macro_objective;
-  const requestedActions = Array.isArray(output.allowed_actions) ? output.allowed_actions : [];
-  const requestedTargetIndexes = Array.isArray(output.target_indexes) ? output.target_indexes : [];
-  const filteredActions = filterAllowedActions(macroObjective, requestedActions);
-  const targetIndexes = requestedTargetIndexes.filter(index =>
-    Number.isInteger(index) && (context.currentObservation?.targets.some(target => target.index === index) ?? false)
-  );
-
   return {
     id: safeId('contract'),
     mode,
     goal: stringField(output.next_goal, stringField(context.goal, 'Continue task safely')),
     macroObjective,
-    allowedActions: filteredActions,
+    allowedActions: filterAllowedActions(macroObjective, Array.isArray(output.allowed_actions) ? output.allowed_actions : []),
     expectedObservation: {
       observationId: observationId(context.currentObservation),
-      ...(targetIndexes.length > 0 ? { requiredTargetIndexes: targetIndexes } : {}),
     },
-    successCondition: stringField(
-      output.success_condition,
-      stringField(output.reasoning, stringField(output.observation, 'Complete the next planned step.')),
-    ),
-    failureSignals: Array.isArray(output.failure_signals) && output.failure_signals.length > 0
-      ? output.failure_signals
-      : (output.challenges ? [output.challenges] : ['Validation failed or became unknown.']),
+    successCondition: stringField(output.success_condition, stringField(output.next_goal, 'Complete the next planned step.')),
+    failureSignals: ['Validation failed or became unknown.'],
     replanTrigger: mode === 'blocked_human_needed' ? 'human_needed' : 'validation_failed',
     createdAt: Date.now(),
   };
@@ -143,40 +165,30 @@ export function normalizePlannerOutputContract<T extends Record<string, unknown>
   output: T,
   context: PlannerContractContext,
 ): T & { mode: PlanningMode; next_step_contract: NextStepContract | null } {
-  const modeParsed = planningModeSchema.safeParse(output.mode);
+  const plannerOutput = output as unknown as PlannerLLMOutput;
   const macroParsed = macroObjectiveSchema.safeParse(output.macro_objective);
-  const mode = modeParsed.success ? modeParsed.data : (output.done ? 'direct_answer' : 'multi_step_task');
+  const mode: PlanningMode = output.done === true
+    ? 'direct_answer'
+    : macroParsed.success ? contractMode(plannerOutput) : 'multi_step_task';
 
-  if (output.done === true && mode === 'direct_answer') {
-    return {
-      ...output,
-      mode,
-      next_step_contract: null,
-    };
+  if (mode === 'direct_answer') {
+    return { ...output, mode, next_step_contract: null };
   }
 
-  const currentObservation = context.currentObservation;
   const fallbackContext = {
-    goal: stringField(context.goal, stringField(output.observation, 'Continue task safely')),
-    currentObservation,
+    goal: stringField(context.goal, stringField(output.next_goal, 'Continue task safely')),
+    currentObservation: context.currentObservation,
   };
-  const plannerOutput = output as unknown as PlannerLLMOutput;
-  const normalizedContract = macroParsed.success
+  const nextStepContract = macroParsed.success
     ? buildNextStepContractFromPlannerOutput(plannerOutput, fallbackContext)
     : createFallbackContract({
       ...fallbackContext,
       mode,
       macroObjective: 'EXPLORE_PAGE',
       allowedActions: [],
-      successCondition: stringField(output.reasoning, stringField(output.observation, 'Complete the next planned step.')),
-      failureSignals: typeof output.challenges === 'string' && output.challenges
-        ? [output.challenges]
-        : ['Validation failed or became unknown.'],
+      successCondition: stringField(output.next_goal, 'Complete the next planned step.'),
+      failureSignals: ['Validation failed or became unknown.'],
     });
 
-  return {
-    ...output,
-    mode,
-    next_step_contract: normalizedContract,
-  };
+  return { ...output, mode, next_step_contract: nextStepContract };
 }

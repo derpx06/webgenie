@@ -3,7 +3,8 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { describe, expect, it } from 'vitest';
 import type BrowserContext from '../../../browser/context';
 import { ResponseParseError } from '../errors';
-import { PLANNER_JSON_OUTPUT_INSTRUCTION, PlannerAgent, type PlannerOutput } from '../planner';
+import { PlannerAgent, planToolSchema } from '../planner';
+import { buildToolDefinitions } from '../../actions/builder';
 import { createPlannerParseFallbackOutput } from '../planner/utils';
 import type { BasePrompt } from '../../prompts/base';
 import { AgentContext } from '../../types';
@@ -14,7 +15,7 @@ import type { BrowserObservation } from '../../validation/types';
 import { plannerSystemPromptTemplate } from '../../prompts/templates/planner';
 
 class ParseFailingPlannerAgent extends PlannerAgent {
-  override async invoke(): Promise<PlannerOutput> {
+  protected override async invokeWithTools(): Promise<never> {
     throw new ResponseParseError('Could not parse response');
   }
 }
@@ -64,7 +65,6 @@ describe('PlannerAgent parse fallback', () => {
       chatLLM: {} as BaseChatModel,
       context,
       prompt,
-      provider: 'google',
     });
 
     const output = await agent.execute();
@@ -72,7 +72,6 @@ describe('PlannerAgent parse fallback', () => {
     expect(output.error).toBeUndefined();
     expect(output.result).toMatchObject({
       done: false,
-      web_task: true,
       mode: 'multi_step_task',
     });
     expect(output.result?.next_step_contract).toMatchObject({
@@ -113,12 +112,15 @@ describe('PlannerAgent parse fallback', () => {
 });
 
 describe('PlannerAgent response shape', () => {
-  it('instructs the model to emit compact planner DTO fields instead of internal contracts', () => {
-    expect(PLANNER_JSON_OUTPUT_INSTRUCTION).toContain('"next_goal"');
-    expect(PLANNER_JSON_OUTPUT_INSTRUCTION).toContain('"allowed_actions"');
-    expect(PLANNER_JSON_OUTPUT_INSTRUCTION).not.toContain('"next_step_contract":');
-    expect(PLANNER_JSON_OUTPUT_INSTRUCTION).toContain('Do not include next_step_contract');
-    expect(plannerSystemPromptTemplate).toContain('Do NOT output internal contract fields');
-    expect(plannerSystemPromptTemplate).not.toContain('"next_step_contract": {');
+  it('exposes one flat plan tool with only the compact planner fields', () => {
+    const [tool] = buildToolDefinitions([planToolSchema]);
+    const parameters = tool.function.parameters as { properties: Record<string, unknown>; required: string[] };
+
+    expect(tool.function.name).toBe('plan');
+    expect(Object.keys(parameters.properties).sort()).toEqual([
+      'allowed_actions', 'done', 'final_answer', 'macro_objective', 'next_goal', 'success_condition',
+    ]);
+    expect([...parameters.required].sort()).toEqual(['done', 'macro_objective', 'next_goal']);
+    expect(plannerSystemPromptTemplate).toContain('plan tool');
   });
 });

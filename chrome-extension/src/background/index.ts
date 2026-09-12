@@ -17,8 +17,7 @@ import {
   generalSettingsStore,
   advancedSettingsStore,
   llmProviderStore,
-  analyticsSettingsStore,
-} from '@extension/storage';
+  analyticsSettingsStore, getLlmCapabilities } from '@extension/storage';
 import { t } from '@extension/i18n';
 import BrowserContext from './browser/context';
 import { ChromeBrowserAdapter } from './adapters/ChromeBrowserAdapter';
@@ -258,8 +257,7 @@ ${rawElementsText}
           taskId: ctx.taskId,
           nSteps: ctx.nSteps,
           consecutiveFailures: ctx.consecutiveFailures,
-          lastEvaluation: ctx.lastEvaluation || '(none)',
-          lastMemory: ctx.lastMemory || '(none)',
+          workingMemory: ctx.messageManager.getWorkingMemory() || '(none)',
           messageCount: ctx.messageManager.length(),
           paused: ctx.paused,
           stopped: ctx.stopped
@@ -706,8 +704,12 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
   });
 
 
+  const toolModeOf = (model: typeof navigatorModel) =>
+    getLlmCapabilities(providers[model.provider].type ?? model.provider, model.modelName);
   const executor = new Executor(task, taskId, browserContext, navigatorLLM, {
     plannerLLM: plannerLLM ?? navigatorLLM,
+    navigatorToolMode: toolModeOf(navigatorModel),
+    plannerToolMode: toolModeOf(plannerModel ?? navigatorModel),
     agentOptions: {
       maxSteps: generalSettings.maxSteps,
       maxFailures: generalSettings.maxFailures,

@@ -337,8 +337,8 @@ describe('action outcome validation', () => {
     }).validated).toBe('failed');
   });
 
-  it('rejects successful done after unresolved unknown or failed mutating actions', () => {
-    const rejected = validateActionOutcome({
+  it('leaves done to the planner instead of validating it against earlier actions', () => {
+    const outcome = validateActionOutcome({
       actionName: 'done',
       actionArgs: { success: true, text: 'finished' },
       before: state(),
@@ -347,8 +347,8 @@ describe('action outcome validation', () => {
       recentResults: [new ActionResult({ executed: true, validated: 'unknown', retryability: 'retry_reobserve' })],
     });
 
-    expect(rejected.validated).toBe('failed');
-    expect(rejected.retryability).toBe('replan');
+    expect(outcome.validated).toBe('not_applicable');
+    expect(outcome.retryability).toBe('none');
   });
 
   it('blocks repeated identical indexed actions without validated progress', () => {

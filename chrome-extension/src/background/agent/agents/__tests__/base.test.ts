@@ -1,162 +1,77 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { BaseAgent } from '../base';
 import type { AgentContext, AgentOutput } from '../../types';
 import type { BasePrompt } from '../../prompts/base';
+import type { ToolDefinition } from '../../actions/builder';
 
-const outputSchema = z.object({
-  answer: z.string(),
-});
+const validators = { done: z.object({ text: z.string() }) };
+const tools: ToolDefinition[] = [
+  { type: 'function', function: { name: 'done', description: 'finish', parameters: { type: 'object', properties: {} } } },
+];
 
-type TestOutput = z.infer<typeof outputSchema>;
-
-class TestAgent extends BaseAgent<typeof outputSchema, TestOutput> {
-  constructor(
-    chatLLM: BaseChatModel,
-    context: AgentContext,
-    provider = 'test-provider',
-    useProviderStructuredOutput?: boolean,
-  ) {
-    super(
-      outputSchema,
-      {
-        chatLLM,
-        context,
-        prompt: {} as BasePrompt,
-        provider,
-        ...(useProviderStructuredOutput === undefined ? {} : { useProviderStructuredOutput }),
-      },
-      { id: 'test' },
-    );
-  }
-
-  async execute(): Promise<AgentOutput<TestOutput>> {
-    return { id: 'test' };
+class TestAgent extends BaseAgent<string> {
+  async execute(): Promise<AgentOutput<string>> {
+    const { calls } = await this.invokeWithTools([new HumanMessage('finish')], tools, validators);
+    return { id: this.id, result: String(calls[0].args.text) };
   }
 }
 
-function createContext(): AgentContext {
-  return {
+function createContext() {
+  const recordTokenUsage = vi.fn();
+  const context = {
     controller: new AbortController(),
     traceCallbacks: [],
-    messageManager: {
-      recordTokenUsage: vi.fn(),
-    },
+    messageManager: { recordTokenUsage },
   } as unknown as AgentContext;
+  return { context, recordTokenUsage };
 }
 
-function createChatModel(responses: string[]): {
-  chatLLM: BaseChatModel;
-  invoke: ReturnType<typeof vi.fn>;
-  withStructuredOutput: ReturnType<typeof vi.fn>;
-} {
-  const pending = [...responses];
-  const invoke = vi.fn(async () => new AIMessage({ content: pending.shift() ?? '{}' }));
-  const withStructuredOutput = vi.fn();
-  const chatLLM = {
-    modelName: 'test-model',
-    invoke,
-    withStructuredOutput,
-  } as unknown as BaseChatModel;
+describe('BaseAgent tool calling', () => {
+  it('records token usage for every model call', async () => {
+    const bound = {
+      invoke: vi.fn(async () =>
+        new AIMessage({
+          content: '',
+          tool_calls: [{ id: 'a', name: 'done', args: { text: 'ok' }, type: 'tool_call' }],
+          usage_metadata: { input_tokens: 50, output_tokens: 5, total_tokens: 55 },
+        }),
+      ),
+    };
+    const chatLLM = { model: 'test-model', bindTools: vi.fn(() => bound), invoke: vi.fn() } as unknown as BaseChatModel;
+    const { context, recordTokenUsage } = createContext();
+    const agent = new TestAgent({ chatLLM, context, prompt: {} as BasePrompt }, { id: 'test' });
 
-  return { chatLLM, invoke, withStructuredOutput };
-}
-
-function createStructuredChatModel(params: {
-  structuredResponse?: unknown;
-  structuredError?: Error;
-  manualResponses?: string[];
-}): {
-  chatLLM: BaseChatModel;
-  invoke: ReturnType<typeof vi.fn>;
-  structuredInvoke: ReturnType<typeof vi.fn>;
-  withStructuredOutput: ReturnType<typeof vi.fn>;
-} {
-  const pendingManual = [...(params.manualResponses ?? [])];
-  const invoke = vi.fn(async () => new AIMessage({ content: pendingManual.shift() ?? '{"answer":"manual"}' }));
-  const structuredInvoke = vi.fn(async () => {
-    if (params.structuredError) throw params.structuredError;
-    return params.structuredResponse ?? { answer: 'structured' };
-  });
-  const withStructuredOutput = vi.fn(() => ({ invoke: structuredInvoke }));
-  const chatLLM = {
-    modelName: 'gpt-4.1',
-    invoke,
-    withStructuredOutput,
-  } as unknown as BaseChatModel;
-
-  return { chatLLM, invoke, structuredInvoke, withStructuredOutput };
-}
-
-describe('BaseAgent manual JSON invocation', () => {
-  it('does not call provider structured output and still validates JSON with Zod', async () => {
-    const { chatLLM, invoke, withStructuredOutput } = createChatModel(['{"answer":"ok"}']);
-    const agent = new TestAgent(chatLLM, createContext());
-
-    const result = await agent.invoke([new HumanMessage({ content: 'answer now' })]);
-
-    expect(result).toEqual({ answer: 'ok' });
-    expect(invoke).toHaveBeenCalledTimes(1);
-    expect(withStructuredOutput).not.toHaveBeenCalled();
+    expect((await agent.execute()).result).toBe('ok');
+    expect(recordTokenUsage).toHaveBeenCalledWith(50, 5);
   });
 
-  it('retries once with a strict JSON repair instruction when raw output is malformed', async () => {
-    const { chatLLM, invoke, withStructuredOutput } = createChatModel(['not json', '{"answer":"fixed"}']);
-    const agent = new TestAgent(chatLLM, createContext());
+  it('switches to prompt-rendered tools for the rest of the task when the provider rejects tools', async () => {
+    const rejected = Object.assign(new Error('400 "tool_choice" is not supported by this model'), { name: 'BadRequestError' });
+    const bindTools = vi.fn(() => ({ invoke: vi.fn(async () => Promise.reject(rejected)) }));
+    const chatLLM = {
+      model: 'custom-model',
+      bindTools,
+      invoke: vi.fn(async () => new AIMessage({ content: '{"tool_calls":[{"name":"done","args":{"text":"fallback"}}]}' })),
+    } as unknown as BaseChatModel;
+    const agent = new TestAgent({ chatLLM, context: createContext().context, prompt: {} as BasePrompt }, { id: 'test' });
 
-    const result = await agent.invoke([new HumanMessage({ content: 'answer now' })]);
-
-    expect(result).toEqual({ answer: 'fixed' });
-    expect(invoke).toHaveBeenCalledTimes(2);
-    expect(withStructuredOutput).not.toHaveBeenCalled();
-
-    const retryMessages = invoke.mock.calls[1]?.[0] as BaseMessage[];
-    const retryInstruction = retryMessages[retryMessages.length - 1];
-    expect(retryInstruction.content).toContain('previous response was not valid JSON');
+    expect((await agent.execute()).result).toBe('fallback');
+    expect((await agent.execute()).result).toBe('fallback');
+    expect(bindTools).toHaveBeenCalledTimes(1);
   });
 
-  it('uses provider structured output for small supported schemas', async () => {
-    const { chatLLM, invoke, structuredInvoke, withStructuredOutput } = createStructuredChatModel({
-      structuredResponse: { answer: 'structured' },
-    });
-    const agent = new TestAgent(chatLLM, createContext(), 'openai');
+  it('does not downgrade on bad requests unrelated to tools', async () => {
+    const rejected = Object.assign(new Error('400 invalid temperature'), { name: 'BadRequestError' });
+    const chatLLM = {
+      model: 'test-model',
+      bindTools: vi.fn(() => ({ invoke: vi.fn(async () => Promise.reject(rejected)) })),
+      invoke: vi.fn(),
+    } as unknown as BaseChatModel;
+    const agent = new TestAgent({ chatLLM, context: createContext().context, prompt: {} as BasePrompt }, { id: 'test' });
 
-    const result = await agent.invoke([new HumanMessage({ content: 'answer now' })]);
-
-    expect(result).toEqual({ answer: 'structured' });
-    expect(withStructuredOutput).toHaveBeenCalledTimes(1);
-    expect(structuredInvoke).toHaveBeenCalledTimes(1);
-    expect(invoke).not.toHaveBeenCalled();
-  });
-
-  it('can opt out of provider structured output for small supported schemas', async () => {
-    const { chatLLM, invoke, structuredInvoke, withStructuredOutput } = createStructuredChatModel({
-      manualResponses: ['{"answer":"manual"}'],
-    });
-    const agent = new TestAgent(chatLLM, createContext(), 'openai', false);
-
-    const result = await agent.invoke([new HumanMessage({ content: 'answer now' })]);
-
-    expect(result).toEqual({ answer: 'manual' });
-    expect(withStructuredOutput).not.toHaveBeenCalled();
-    expect(structuredInvoke).not.toHaveBeenCalled();
-    expect(invoke).toHaveBeenCalledTimes(1);
-  });
-
-  it('downgrades provider schema payload errors to manual JSON extraction', async () => {
-    const { chatLLM, invoke, structuredInvoke, withStructuredOutput } = createStructuredChatModel({
-      structuredError: new Error('Invalid JSON payload received. Unknown name "$ref" at generation_config.response_schema'),
-      manualResponses: ['{"answer":"manual"}'],
-    });
-    const agent = new TestAgent(chatLLM, createContext(), 'openai');
-
-    const result = await agent.invoke([new HumanMessage({ content: 'answer now' })]);
-
-    expect(result).toEqual({ answer: 'manual' });
-    expect(withStructuredOutput).toHaveBeenCalledTimes(1);
-    expect(structuredInvoke).toHaveBeenCalledTimes(1);
-    expect(invoke).toHaveBeenCalledTimes(1);
+    await expect(agent.execute()).rejects.toBe(rejected);
   });
 });

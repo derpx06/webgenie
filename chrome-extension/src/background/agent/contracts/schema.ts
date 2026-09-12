@@ -51,28 +51,24 @@ export const nextStepContractSchema = z.object({
   createdAt: z.number(),
 });
 
-const booleanLikeSchema = z.union([
-  z.boolean(),
-  z.string().transform(val => {
-    const low = val.toLowerCase();
-    if (low === 'true') return true;
-    if (low === 'false') return false;
-    throw new Error('Invalid boolean string');
-  }),
-]);
-
 export const plannerLLMOutputSchema = z.object({
-  observation: z.string().default(''),
-  challenges: z.string().default(''),
-  done: booleanLikeSchema.default(false),
-  macro_objective: macroObjectiveSchema.default('NAVIGATE'),
-  final_answer: z.string().default(''),
-  reasoning: z.string().default(''),
-  web_task: booleanLikeSchema.default(true),
-  mode: planningModeSchema.default('multi_step_task'),
-  next_goal: z.string().default(''),
-  allowed_actions: z.array(z.string()).default([]),
-  success_condition: z.string().default(''),
-  failure_signals: z.array(z.string()).default([]),
-  target_indexes: z.array(z.number()).default([]),
+  done: z
+    .boolean()
+    .describe('true only when the whole user task is complete and verified on the current page, or needs no browsing at all'),
+  final_answer: z
+    .string()
+    .optional()
+    .describe('When done is true: the complete answer for the user, including every requested value. Omit otherwise.'),
+  macro_objective: macroObjectiveSchema.describe(
+    'Kind of work for the next phase. NAVIGATE: open URLs or top-level links. SEARCH: search or filter. FORM_FILL: type, select, check, hover or submit. EXTRACT_DATA: read page content. VERIFY_STATE: confirm a result, or finish. BROWSER_CONTROL: tabs, windows, bookmarks, history, downloads and other browser features. HANDLE_BLOCKER: dismiss popups, cookie banners or modals. EXPLORE_PAGE: scroll to find content. ASK_HUMAN: the user must act or decide.',
+  ),
+  next_goal: z.string().describe('The immediate goal for the navigator in one sentence, using exact values from the task'),
+  allowed_actions: z
+    .array(z.string())
+    .optional()
+    .describe('Optional: names of the actions the navigator should use for this phase'),
+  success_condition: z
+    .string()
+    .optional()
+    .describe('Optional: observable evidence on the page that the next phase succeeded'),
 });

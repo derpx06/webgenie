@@ -11,6 +11,7 @@ export class SystemHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, input.text);
     return new ActionResult({
       isDone: true,
+      success: input.success,
       extractedContent: input.text,
     });
   }
