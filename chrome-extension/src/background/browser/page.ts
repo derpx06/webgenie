@@ -1607,9 +1607,9 @@ export default class Page {
     this._puppeteerPage.on('request', onRequest);
     this._puppeteerPage.on('response', onResponse);
 
+    const startTime = Date.now();
+    let timedOut = false;
     try {
-      const startTime = Date.now();
-
       // eslint-disable-next-line no-constant-condition
       while (true) {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -1623,10 +1623,7 @@ export default class Page {
 
         const elapsedTime = (now - startTime) / 1000; // Convert to seconds
         if (elapsedTime > this._config.maximumWaitPageLoadTime) {
-          console.debug(
-            `Network timeout after ${this._config.maximumWaitPageLoadTime}s with ${pendingRequests.size} pending requests:`,
-            Array.from(pendingRequests).map(r => (r as HTTPRequest).url()),
-          );
+          timedOut = true;
           break;
         }
       }
@@ -1635,7 +1632,22 @@ export default class Page {
       this._puppeteerPage.off('request', onRequest);
       this._puppeteerPage.off('response', onResponse);
     }
-    console.debug(`Network stabilized for ${this._config.waitForNetworkIdlePageLoadTime} seconds`);
+    // Which hosts keep a page from going idle decides whether the ignore list or the cap needs changing.
+    const pendingHosts = [...new Set(Array.from(pendingRequests).map(r => {
+      try {
+        return new URL((r as HTTPRequest).url()).hostname;
+      } catch {
+        return 'unknown';
+      }
+    }))].slice(0, 10);
+    record({
+      level: 'info',
+      kind: 'span',
+      component: 'Page',
+      msg: 'network idle',
+      durationMs: Date.now() - startTime,
+      data: { timedOut, pending: pendingRequests.size, pendingHosts },
+    });
   }
 
   async waitForPageAndFramesLoad(timeoutOverwrite?: number): Promise<void> {
