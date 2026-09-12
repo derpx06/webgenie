@@ -18,7 +18,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * The label of an element whose activation commits money or an account change (placing an order, paying,
  * subscribing, deleting an account), from the element's own name. These never run without the user's confirmation.
  */
-const COMMIT_LABEL = /^(place (my |the |your )?order|order now|buy (it )?now|purchase( now)?$|pay( now)?( \S*\d\S*)?$|complete (purchase|order|payment|checkout)|confirm (and pay|order|purchase|payment)|submit (order and )?payment|subscribe( now)?$|start (my |your |a )?(free )?(trial|subscription)|(delete|close) (my |your )?account|transfer (funds|money)|donate( now)?$)/i;
+const COMMIT_LABEL = /^((place|submit) (my |the |your )?order|order now|buy (it )?now|purchase( now)?$|pay( now)?( \S*\d\S*)?$|complete (purchase|order|payment|checkout)|confirm (and pay|order|purchase|payment)|submit (order and )?payment|subscribe( now)?$|start (my |your |a )?(free )?(trial|subscription)|(delete|close) (my |your )?account|transfer (funds|money)|donate( now)?$)/i;
 
 export function commitActionLabel(node: DOMElementNode | undefined): string | null {
   if (!node) return null;

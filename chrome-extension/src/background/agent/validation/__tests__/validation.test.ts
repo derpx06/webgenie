@@ -378,7 +378,7 @@ describe('committing actions', () => {
   const button = (label: string) => element(1, { attributes: { 'aria-label': label } });
 
   it('recognises orders, payments, subscriptions and account deletion by the element label', () => {
-    for (const label of ['Place order', 'Buy now', 'Pay $40.00', 'Complete purchase', 'Confirm order', 'Subscribe', 'Delete account']) {
+    for (const label of ['Place order', 'Submit order', 'Buy now', 'Pay $40.00', 'Complete purchase', 'Confirm order', 'Subscribe', 'Delete account']) {
       expect(commitActionLabel(button(label))).toBe(label);
     }
     for (const label of ['Add to cart', 'Checkout', 'Send', 'Submit', 'Delete', 'Log in', 'Order history', 'Payment methods', 'Buy', 'Purchase history', 'Subscribe to our newsletter']) {

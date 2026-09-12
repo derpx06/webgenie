@@ -373,6 +373,12 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         if (actionName !== 'done' && actionName !== 'ask_human') {
           await browserContext.invalidateCache();
         }
+        // Typing often changes the page after a short delay (suggestions, inline validation). The read after a step's
+        // last typing action is what the next model call sees, so it waits for that instead of costing a wait step.
+        // ponytail: fixed 500 ms, covers common debounces; a mutation-quiet wait if slower widgets need it.
+        if (actionName === 'input_text' && i === actions.length - 1 && !result.error) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
         const postActionState = !mutating
           ? beforeState
           : result.error
