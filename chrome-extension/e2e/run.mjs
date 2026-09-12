@@ -206,13 +206,13 @@ class Harness {
   }
 
   /** Runs the task over the port until a terminal state, a human request, or a limit. */
-  async drive({ taskId, tabId, task, maxMs, maxSteps, allowHuman, human = [] }) {
+  async drive({ taskId, tabId, task, maxMs, maxSteps, allowHuman, human = [], type = 'new_task' }) {
     await this.ctl.evaluate(
-      ({ task, taskId, tabId }) => {
+      ({ type, task, taskId, tabId }) => {
         window.__ev = [];
-        window.__port.postMessage({ type: 'new_task', task, taskId, tabId });
+        window.__port.postMessage({ type, task, taskId, tabId });
       },
-      { task, taskId, tabId },
+      { type, task, taskId, tabId },
     );
 
     const started = Date.now();
@@ -297,15 +297,16 @@ class Harness {
     if (!tabId) throw new Error(`no tab found for ${web.url()}`);
 
     process.stdout.write(`${attempt} ${task.title} ... `);
-    const run = await this.drive({
-      taskId,
-      tabId,
-      task: task.task,
-      maxMs: (task.maxSeconds ?? 180) * 1000,
-      maxSteps: task.maxSteps ?? 25,
-      allowHuman: task.allowHuman,
-      human: task.human,
-    });
+    const limits = { taskId, tabId, maxMs: (task.maxSeconds ?? 180) * 1000, maxSteps: task.maxSteps ?? 25, allowHuman: task.allowHuman };
+    let run = await this.drive({ ...limits, task: typeof task.task === 'function' ? task.task(this.fixtures) : task.task, human: task.human });
+    // Follow-up messages in the same conversation, each sent after the previous one finished.
+    const answers = [run.answer];
+    for (const followUp of task.followUps ?? []) {
+      if (run.outcome !== 'task.ok') break;
+      const next = await this.drive({ ...limits, task: followUp, type: 'follow_up_task' });
+      run = { ...next, events: [...run.events, ...next.events], questions: [...run.questions, ...next.questions], seconds: +(run.seconds + next.seconds).toFixed(1) };
+      answers.push(next.answer);
+    }
     await sleep(2000); // let the trace sink flush its last batch
 
     const records = await this.readTraces(taskId).catch(() => []);
@@ -316,6 +317,7 @@ class Harness {
     try {
       const verdict = await task.check({
         answer: run.answer,
+        answers,
         outcome: run.outcome,
         evalOn: (...args) => this.evalOn(...args),
         evalFrame: (...args) => this.evalFrame(...args),

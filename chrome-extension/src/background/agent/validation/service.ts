@@ -14,6 +14,27 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
 
+/**
+ * The label of an element whose activation commits money or an account change (placing an order, paying,
+ * subscribing, deleting an account), from the element's own name. These never run without the user's confirmation.
+ */
+const COMMIT_LABEL = /^(place (my |the |your )?order|order now|buy (it )?now|purchase( now)?$|pay( now)?( \S*\d\S*)?$|complete (purchase|order|payment|checkout)|confirm (and pay|order|purchase|payment)|submit (order and )?payment|subscribe( now)?$|start (my |your |a )?(free )?(trial|subscription)|(delete|close) (my |your )?account|transfer (funds|money)|donate( now)?$)/i;
+
+export function commitActionLabel(node: DOMElementNode | undefined): string | null {
+  if (!node) return null;
+  const label = [node.attributes['aria-label'], node.attributes.value, node.getAllTextTillNextClickableElement(2)]
+    .filter((part): part is string => typeof part === 'string' && part.trim() !== '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return label.length <= 60 && COMMIT_LABEL.test(label) ? label : null;
+}
+
+/** Affirmative answers to a confirmation; anything else counts as no. */
+export function isApproval(answer: string): boolean {
+  return /^\s*(yes|y|yeah|yep|ok|okay|sure|confirm(ed)?|approve(d)?|go ahead|proceed|do it|place it|buy it|pay)\b/i.test(answer);
+}
+
 export function staleIndexResult(index: number, observationId: string): ActionResult {
   return new ActionResult({
     executed: false,

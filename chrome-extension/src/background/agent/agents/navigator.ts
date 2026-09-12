@@ -15,6 +15,7 @@ import { HistoryReplayer } from './navigator/replay';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
 import { ensureBrowserObservation } from '../validation/observation';
 import {
+  commitActionLabel,
   currentIndexFor,
   isMutatingAction,
   normalizeIndexedAction,
@@ -317,6 +318,31 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
             }));
             break;
           }
+
+        }
+
+        // Orders, payments and account changes are the user's decision: never without their confirmation.
+        const commitLabel = actionName === 'click_element'
+          ? commitActionLabel(beforeState.selectorMap.get((actionArgs as { index?: number }).index ?? -1))
+          : null;
+        if (commitLabel && this.context.commitDecision !== 'approved') {
+          const msg = this.context.commitDecision === 'declined'
+            ? `The user declined this: "${commitLabel}" was not done and must not be done. Report that to the user.`
+            : `"${commitLabel}" commits an order, a payment or an account change. First ask the user to confirm with ask_human (type "confirmation"), naming what it is for and the total; do it only after they agree.`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          results.push(new ActionResult({
+            executed: false,
+            executionStatus: 'not_attempted',
+            validated: 'unknown',
+            retryability: 'replan',
+            failureReason: msg,
+            extractedContent: msg,
+            includeInMemory: true,
+            contractId,
+            actionId,
+            validationId,
+          }));
+          break;
         }
 
         const actionStartedAt = Date.now();

@@ -43,6 +43,7 @@ import {
   shouldForceReplanAfterResume,
 } from './contracts';
 import { ensureBrowserObservation } from './validation/observation';
+import { isApproval } from './validation/service';
 import type { ValidationStatus } from './validation/types';
 
 const logger = createLogger('Executor');
@@ -774,6 +775,10 @@ export class Executor {
   async submitHumanResponse(response: string, secrets: string[] = []): Promise<void> {
     for (const secret of secrets) registerSecret(secret);
     logger.info(`Submitting human response: ${response}`);
+    if (this.context.pendingQuestion?.type === 'confirmation') {
+      this.context.commitDecision = isApproval(response) ? 'approved' : 'declined';
+    }
+    this.context.pendingQuestion = null;
     this.context.messageManager.addHumanAnswer(response);
     this.context.blockedState = null;
     this.context.waitingForHuman = false;

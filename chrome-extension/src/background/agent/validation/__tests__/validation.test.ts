@@ -4,7 +4,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type { BrowserState } from '../../../browser/views';
 import { createBrowserObservation } from '../observation';
 import type { ValidationEvidence } from '../types';
-import { currentIndexFor, normalizeIndexedAction, validateActionOutcome } from '../service';
+import { commitActionLabel, currentIndexFor, isApproval, normalizeIndexedAction, validateActionOutcome } from '../service';
 
 function element(index: number, params: Partial<ConstructorParameters<typeof DOMElementNode>[0]> = {}) {
   return new DOMElementNode({
@@ -371,5 +371,23 @@ describe('action outcome validation', () => {
     expect(result.validated).toBe('failed');
     expect(result.retryability).toBe('replan');
     expect(result.failureReason).toContain('re-observe');
+  });
+});
+
+describe('committing actions', () => {
+  const button = (label: string) => element(1, { attributes: { 'aria-label': label } });
+
+  it('recognises orders, payments, subscriptions and account deletion by the element label', () => {
+    for (const label of ['Place order', 'Buy now', 'Pay $40.00', 'Complete purchase', 'Confirm order', 'Subscribe', 'Delete account']) {
+      expect(commitActionLabel(button(label))).toBe(label);
+    }
+    for (const label of ['Add to cart', 'Checkout', 'Send', 'Submit', 'Delete', 'Log in', 'Order history', 'Payment methods', 'Buy', 'Purchase history', 'Subscribe to our newsletter']) {
+      expect(commitActionLabel(button(label))).toBeNull();
+    }
+  });
+
+  it('reads yes-like answers as approval and anything else as a decline', () => {
+    for (const answer of ['Yes', 'yes please', 'OK', 'Go ahead', 'Confirm']) expect(isApproval(answer)).toBe(true);
+    for (const answer of ['No', "Don't", 'not now', 'Cancel', '']) expect(isApproval(answer)).toBe(false);
   });
 });

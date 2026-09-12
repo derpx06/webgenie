@@ -73,6 +73,10 @@ export class AgentContext {
   lastGoal?: string;
   lastMacroObjective?: string; // macro_objective from last planner step
   activeObservation?: BrowserObservation;
+  /** The last question to the user, so their answer can be read as a decision. */
+  pendingQuestion: { type: string; question: string } | null;
+  /** The user's answer to the last confirmation: committing actions (orders, payments) wait for 'approved'. */
+  commitDecision: 'approved' | 'declined' | null;
   /** The page read shown to the models this step; element indexes in their actions refer to it. */
   promptState?: BrowserState;
   currentContract?: NextStepContract | null;
@@ -108,6 +112,8 @@ export class AgentContext {
     this.finalAnswer = null;
     this.waitingForHuman = false;
     this.humanQuestion = null;
+    this.pendingQuestion = null;
+    this.commitDecision = null;
     this.memory = new InChatMemory();
     this.currentContract = null;
     this.validatedProgress = [];

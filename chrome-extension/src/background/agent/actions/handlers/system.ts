@@ -42,6 +42,7 @@ export class SystemHandler extends BaseHandler {
       type,
       actionType: input.actionType,
     });
+    this.context.pendingQuestion = { type, question: input.question };
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_ASK_HUMAN, details);
     return new ActionResult({
       isWaitingForHuman: true,

@@ -111,7 +111,9 @@ export const inputTextActionSchema: ActionSchema = {
   description: 'Input text into an interactive input element',
   schema: z.object({
     index: elementIndex,
-    text: z.string().describe('text to input'),
+    text: z
+      .string()
+      .describe('text to input: only values from the task, the user\'s answers or the page. Never make up personal details (names, phone numbers, emails, addresses, payment details); ask_human for missing ones'),
   }),
 };
 
@@ -247,7 +249,7 @@ export const waitActionSchema: ActionSchema = {
 
 export const askHumanActionSchema: ActionSchema = {
   name: 'ask_human',
-  description: 'Ask the human a question or request confirmation for sensitive actions.',
+  description: 'Ask the user to decide or provide something: confirm an order, payment or other important action (with the item and total), give information the task and page do not (never invent it), or choose between items that differ when the task does not say which.',
   schema: z.object({
     question: z.string().describe('The question or confirmation message to show the human'),
     options: z.array(z.string()).optional().describe('Optional list of choices (buttons) for the human to pick from'),

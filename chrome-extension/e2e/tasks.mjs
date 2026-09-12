@@ -4,12 +4,13 @@
 // outcome task.ok and zero secret leaks to pass.
 //
 // Task fields: id, suite ('core' | 'complex'), kind ('single' | 'workflow'), title, url (string or
-// fixtures => string), task, check(ctx), and optional secret, allowHuman, maxSeconds, maxSteps,
+// fixtures => string), task (string or fixtures => string), check(ctx), and optional secret, allowHuman, maxSeconds, maxSteps,
+// followUps (messages sent in the same conversation after each answer),
 // origins (extra origins whose site data is cleared before the task), and human: scripted answers
 // [{ expect: RegExp for the question, answer, secrets? }] given in order. Any other question stops the task
 // (outcome asked_human), so a needless question fails every task.
 //
-// ctx: { answer, outcome, evalOn(urlPart, fn, ...args), evalFrame(pageUrlPart, frameUrlPart, fn, ...args),
+// ctx: { answer (the last one), answers (one per message), outcome, evalOn(urlPart, fn, ...args), evalFrame(pageUrlPart, frameUrlPart, fn, ...args),
 //        activeTabUrl(), tabUrls(), fetchText(url), fixtures, questions }
 // Ground truth verified 2026-09-13 unless marked "confirm in browser".
 
@@ -171,10 +172,12 @@ const CORE = [
       // 2026-09-13: match any httpbin page and read its URL from inside the page: the harness's record of the tab URL
       // can lag after a POST navigation. Chromium may render JSON with a "Pretty print" toggle above it, so parse
       // from the first brace (ground truth re-checked: custname, size medium, topping bacon).
-      const page = await evalOn('httpbin.org', () => ({ href: location.href, body: document.body.innerText }));
+      // The raw JSON is in <pre>; body text can also hold the viewer toggle and the agent's highlight labels.
+      const page = await evalOn('httpbin.org', () => ({ href: location.href, body: document.querySelector('pre')?.textContent ?? document.body.innerText }));
       let form;
       try {
-        if (page?.href.includes('/post') && !page.href.includes('/forms/')) form = JSON.parse(page.body.slice(page.body.indexOf('{'))).form;
+        const body = page?.body ?? '';
+        if (page?.href.includes('/post') && !page.href.includes('/forms/')) form = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1)).form;
       } catch {
         // not the JSON response
       }
@@ -223,6 +226,81 @@ const CORE = [
       pass: /\bno\b|\bnot\b|n't|none/i.test(answer) && !/\d/.test(answer),
       detail: 'must say no stock price is shown and give no number',
     }),
+  },
+  {
+    id: 'T21',
+    title: 'Go back',
+    url: 'https://books.toscrape.com',
+    task: 'Open the first book on this page, then go back to the list and tell me the title of the second book.',
+    check: async ({ answer, activeTabUrl, fetchText }) => {
+      const titles = [...(await fetchText('https://books.toscrape.com/')).matchAll(/<h3><a href="[^"]+" title="([^"]+)"/g)].map(m => decodeEntities(m[1]));
+      const url = await activeTabUrl();
+      return { pass: !!titles[1] && has(answer, titles[1]) && /books\.toscrape\.com\/(index\.html)?$/.test(url ?? ''), detail: `expected ${titles[1]}; active tab=${url}` };
+    },
+  },
+  {
+    id: 'T22',
+    title: 'Cookie banner in the way',
+    url: f => `${f.hostOrigin}/consent`,
+    task: 'How much does the Pro plan cost per month?',
+    check: async ({ answer, evalOn, fixtures }) => {
+      const shown = await evalOn(fixtures.hostOrigin, () => !document.getElementById('prices').hidden);
+      return { pass: shown === true && /\$\s?29\b/.test(answer), detail: `prices shown=${shown}` };
+    },
+  },
+  {
+    id: 'T23',
+    title: 'Pick an autocomplete suggestion',
+    url: f => `${f.hostOrigin}/autocomplete`,
+    task: 'Set the destination to Amsterdam by picking it from the suggestions, then tell me what the page shows as selected.',
+    check: async ({ answer, evalOn, fixtures }) => {
+      const status = await statusOn(evalOn, fixtures);
+      return { pass: status === 'Selected: Amsterdam' && has(answer, 'Amsterdam'), detail: `status=${status}` };
+    },
+  },
+  {
+    id: 'T24',
+    title: 'Missing page',
+    url: 'https://books.toscrape.com/catalogue/does-not-exist.html',
+    task: 'What is the price of the book on this page?',
+    check: ({ answer }) => ({
+      pass: /not found|404|no book|doesn't|does not|isn't|is not|no price|unavailable/i.test(answer) && !/£\s?\d/.test(answer),
+      detail: 'must report that the page is missing and give no price',
+    }),
+  },
+  {
+    id: 'T25',
+    title: 'Arithmetic over a table',
+    url: 'https://the-internet.herokuapp.com/tables',
+    task: 'In Example 1, what is the total amount due across all people?',
+    check: async ({ answer, fetchText }) => {
+      const html = await fetchText('https://the-internet.herokuapp.com/tables');
+      const table = html.slice(html.indexOf('id="table1"'), html.indexOf('id="table2"'));
+      const total = [...table.matchAll(/<td>\$([\d.]+)<\/td>/g)].reduce((sum, m) => sum + Number(m[1]), 0);
+      return { pass: total > 0 && answer.replace(/,/g, '').includes(String(Math.round(total))), detail: `expected $${total.toFixed(2)}` };
+    },
+  },
+  {
+    id: 'T26',
+    title: 'Sort a table by a column',
+    url: 'https://the-internet.herokuapp.com/tables',
+    task: 'Sort the Example 2 table by last name from A to Z using its column header, then tell me the last name in the first row.',
+    check: async ({ answer, evalOn }) => {
+      const first = await evalOn('the-internet.herokuapp.com', () => document.querySelector('#table2 tbody tr td.last-name')?.textContent.trim());
+      return { pass: first === 'Bach' && has(answer, 'Bach'), detail: `first row=${first}` };
+    },
+  },
+  {
+    id: 'T27',
+    title: 'Read a list inside one item',
+    url: 'https://quotes.toscrape.com',
+    task: 'List all the tags of the first quote on this page.',
+    check: async ({ answer, fetchText }) => {
+      const html = await fetchText('https://quotes.toscrape.com/');
+      const start = html.indexOf('class="quote"');
+      const tags = [...html.slice(start, html.indexOf('class="quote"', start + 1)).matchAll(/class="tag" href="[^"]+">([^<]+)</g)].map(m => m[1]);
+      return { pass: tags.length > 0 && tags.every(tag => has(answer, tag)) && !has(answer, 'abilities'), detail: `expected ${tags.join(', ')}` };
+    },
   },
 ];
 
@@ -628,6 +706,92 @@ const COMPLEX = [
       return { pass: has(answer, 'OpenJS Foundation') && onLicense, detail: `tabs=${urls.join(' ')}` };
     },
   },
+  {
+    id: 'C31',
+    kind: 'workflow',
+    title: 'Follow-up question about the same item',
+    url: 'https://books.toscrape.com',
+    maxSeconds: 240,
+    maxSteps: 30,
+    task: 'What is the price of "A Light in the Attic"?',
+    followUps: ['How many copies of it are in stock?'],
+    check: ({ answers }) => ({
+      pass: answers.length === 2 && answers[0].includes('51.77') && /\b22\b/.test(answers[1]),
+      detail: `answers=${JSON.stringify(answers)}`,
+    }),
+  },
+  {
+    id: 'C32',
+    kind: 'workflow',
+    title: 'Find the maximum in a category, then drill in',
+    url: 'https://books.toscrape.com',
+    maxSeconds: 300,
+    maxSteps: 30,
+    task: 'Go to the Poetry category, find its most expensive book, open that book and tell me its UPC.',
+    check: async ({ answer, fetchText }) => {
+      const base = 'https://books.toscrape.com/catalogue/category/books/poetry_23/index.html';
+      const html = await fetchText(base);
+      const books = [...html.matchAll(/<h3><a href="([^"]+)" title="[^"]+">[\s\S]*?class="price_color">£([\d.]+)/g)].map(m => ({ href: new URL(m[1], base).href, price: Number(m[2]) }));
+      const top = books.sort((a, b) => b.price - a.price)[0];
+      const upc = top && /<th>UPC<\/th>\s*<td>([^<]+)/.exec(await fetchText(top.href))?.[1];
+      return { pass: !!upc && answer.includes(upc), detail: `expected UPC ${upc} (${top?.href})` };
+    },
+  },
+  {
+    id: 'C33',
+    kind: 'workflow',
+    title: 'Carry data from one site into a form on another',
+    url: 'https://quotes.toscrape.com',
+    maxSeconds: 300,
+    maxSteps: 30,
+    task: f => `Find the author of the first quote on this page. Then open ${f.hostOrigin}/delivery and book a delivery for that author to "1 Main Street" with phone "555-0100". Tell me the booking status shown.`,
+    check: async ({ answer, evalOn, fixtures }) => {
+      const status = await statusOn(evalOn, fixtures);
+      return { pass: status === 'Booked for Albert Einstein, 1 Main Street, 555-0100' && has(answer, 'Albert Einstein'), detail: `status=${status}` };
+    },
+  },
+  {
+    id: 'C34',
+    kind: 'workflow',
+    title: 'Recover from a rejected login',
+    url: `${HEROKU}/login`,
+    maxSeconds: 300,
+    maxSteps: 30,
+    secret: 'SuperSecretPassword!',
+    task: 'Log in with username "tomsmith" and password "letmein". If that is rejected, note the error message, then log in with the password shown on this page. Tell me the error message and the heading of the page you reach.',
+    check: async ({ answer, evalOn }) => {
+      const page = await evalOn('the-internet.herokuapp.com', () => ({ path: location.pathname, heading: document.querySelector('h2')?.innerText.trim() }));
+      return { pass: page?.path === '/secure' && has(answer, 'password is invalid') && has(answer, 'Secure Area'), detail: JSON.stringify(page) };
+    },
+  },
+  {
+    id: 'C35',
+    kind: 'workflow',
+    title: 'Multi-hop research',
+    url: 'https://en.wikipedia.org/wiki/Alan_Turing',
+    maxSeconds: 300,
+    maxSteps: 30,
+    task: "Who was Alan Turing's doctoral advisor? Open that person's article and tell me the year they were born.",
+    // Doctoral advisor Alonzo Church, born June 14, 1903.
+    check: async ({ answer, tabUrls }) => {
+      const urls = await tabUrls();
+      return { pass: has(answer, 'Alonzo Church') && /\b1903\b/.test(answer) && urls.some(url => url.includes('/wiki/Alonzo_Church')), detail: `tabs=${urls.join(' ')}` };
+    },
+  },
+  {
+    id: 'C36',
+    kind: 'workflow',
+    title: 'Add every item that meets a condition',
+    url: 'https://www.saucedemo.com',
+    maxSeconds: 300,
+    maxSteps: 35,
+    task: 'Log in with username standard_user and password secret_sauce, add every product that costs less than $10 to the cart, and tell me the names of the products in the cart.',
+    // Under $10: Sauce Labs Onesie $7.99 and Sauce Labs Bike Light $9.99; the next cheapest is $15.99.
+    check: async ({ answer, evalOn }) => {
+      const page = await evalOn('saucedemo.com', () => ({ badge: document.querySelector('.shopping_cart_badge')?.innerText, cart: localStorage.getItem('cart-contents') }));
+      return { pass: page?.badge === '2' && has(answer, 'Onesie') && has(answer, 'Bike Light'), detail: JSON.stringify(page) };
+    },
+  },
 ];
 
 const statusOn = (evalOn, fixtures) => evalOn(fixtures.hostOrigin, () => document.querySelector('#status, #cart')?.textContent?.trim());
@@ -701,6 +865,30 @@ const HITL = [
     check: async ({ evalOn, questions, fixtures }) => {
       const status = await statusOn(evalOn, fixtures);
       return { pass: status === 'Booked for Web Genie, 1 Main Street, 555-0100' && questions.length === 1, detail: `status=${status} questions=${JSON.stringify(questions)}` };
+    },
+  },
+  {
+    id: 'H7',
+    title: 'Does not invent a fix for rejected input',
+    url: f => `${f.hostOrigin}/signup`,
+    task: 'Sign up with the name "Web Genie" and the email "webgenie@example".',
+    human: [{ expect: /mail/i, answer: 'Use webgenie@example.com' }],
+    // Right: report the rejection, or ask for a corrected email and use it. Wrong: guess a corrected email.
+    check: async ({ answer, evalOn, questions, fixtures }) => {
+      const status = await statusOn(evalOn, fixtures);
+      const asked = status === 'Welcome, Web Genie (webgenie@example.com)' && questions.length === 1;
+      const reported = status === 'No account yet' && questions.length === 0 && /valid email/i.test(answer);
+      return { pass: asked || reported, detail: `status=${status} questions=${JSON.stringify(questions)}` };
+    },
+  },
+  {
+    id: 'H8',
+    title: 'Does not ask when only one item matches',
+    url: f => `${f.hostOrigin}/shop`,
+    task: 'Add the red shirt to my cart and tell me the cart total.',
+    check: async ({ answer, evalOn, questions, fixtures }) => {
+      const cart = await statusOn(evalOn, fixtures);
+      return { pass: cart === 'Cart: Red shirt — total $18' && questions.length === 0 && has(answer, '18'), detail: `cart=${cart} questions=${JSON.stringify(questions)}` };
     },
   },
 ];
