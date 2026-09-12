@@ -82,10 +82,12 @@ abstract class BasePrompt {
    * @returns HumanMessage from LangChain
    */
   async buildBrowserStateUserMessage(context: AgentContext): Promise<HumanMessage> {
-    const browserState = await context.browserContext.getState(context.options.useVision);
+    // The last read if still current: an action's settle read is usually exactly the page to show.
+    const browserState = await context.browserContext.getCachedState(context.options.useVision);
 
     const observation = ensureBrowserObservation(browserState);
     context.activeObservation = observation;
+    context.promptState = browserState;
 
     let domain = '';
     let pagePath = '/';

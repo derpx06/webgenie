@@ -120,7 +120,7 @@ describe('BrowserContext with Adapter Dependency Injection', () => {
     tabsMap.set(20, { id: 20, url: 'https://b.com', active: false } as any);
     const tabIds = await context.getAllTabIds();
     expect(tabIds).toEqual(new Set([1, 10, 20]));
-    expect(mockAdapter.queryTabs).toHaveBeenCalledWith({ currentWindow: true });
+    expect(mockAdapter.queryTabs).toHaveBeenCalledWith({});
   });
 
   it('uses injected browser adapter to open a new tab', async () => {
@@ -169,27 +169,61 @@ describe('BrowserContext with Adapter Dependency Injection', () => {
     expect(attachedPage?.url()).toBe('https://x.com/home');
   });
 
-  it('refreshes an already attached page after puppeteer navigation settles on a new URL', async () => {
-    tabsMap.set(1, {
-      ...tabsMap.get(1)!,
-      url: 'https://x.com/thedankoe/status/2073418764058825045',
-      title: 'Old X Page',
-      status: 'complete',
-    } as chrome.tabs.Tab);
+  it('navigates an attached page in place without re-attaching', async () => {
     const page = await context.getCurrentPage();
-    vi.spyOn(page, 'navigateTo').mockImplementation(async (url: string) => {
-      const tab = tabsMap.get(1);
-      if (!tab) throw new Error('Tab 1 not found');
-      tab.url = url;
-      tab.title = 'Google Search';
-    });
+    expect(page.attached).toBe(true);
+    const navigate = vi.spyOn(page, 'navigateTo').mockResolvedValue(undefined);
 
-    await context.navigateTo('https://www.google.com/search?q=contniue%20now');
+    await context.navigateTo('https://www.example.org/next');
 
-    const attachedPage = context.getPageForTab(1);
-    expect(attachedPage).toBeDefined();
-    expect(attachedPage).not.toBe(page);
-    expect(attachedPage?.url()).toBe('https://www.google.com/search?q=contniue%20now');
+    expect(navigate).toHaveBeenCalledWith('https://www.example.org/next');
+    expect(context.getPageForTab(1)).toBe(page);
+  });
+
+  it('keeps an unattached page when the debugger cannot attach', async () => {
+    const puppeteer = await import('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js');
+    vi.mocked(puppeteer.connect).mockRejectedValueOnce(new Error('Cannot access a chrome-extension:// URL of different extension'));
+
+    const page = await context.getCurrentPage();
+
+    expect(page.attached).toBe(false);
+    expect(context.getPageForTab(1)).toBe(page);
+  });
+
+  it('uses the tab the task was started from', async () => {
+    tabsMap.set(5, { ...tabsMap.get(1)!, id: 5, url: 'https://five.example/', active: false } as chrome.tabs.Tab);
+    context.updateCurrentTabId(5);
+
+    expect((await context.getCurrentPage()).tabId).toBe(5);
+    expect(mockAdapter.queryTabs).not.toHaveBeenCalled();
+  });
+
+  it('removes its tab listeners when waiting for a new tab times out', async () => {
+    vi.useFakeTimers();
+    try {
+      mockAdapter.getTab.mockImplementation(async (tabId: number) => ({ ...tabsMap.get(tabId)!, status: 'loading', active: false }));
+      const opening = context.openTab('https://slow.example/');
+      await vi.advanceTimersByTimeAsync(3100);
+      await opening;
+
+      expect(mockAdapter.removeTabUpdatedListener).toHaveBeenCalledWith(mockAdapter.addTabUpdatedListener.mock.calls[0][0]);
+      expect(mockAdapter.removeTabActivatedListener).toHaveBeenCalledWith(mockAdapter.addTabActivatedListener.mock.calls[0][0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cleans up the pages it holds without querying tabs', async () => {
+    const page = await context.getCurrentPage();
+    const detach = vi.spyOn(page, 'detachPuppeteer');
+    mockAdapter.queryTabs.mockClear();
+    mockAdapter.getTab.mockClear();
+
+    await context.cleanup();
+
+    expect(detach).toHaveBeenCalled();
+    expect(mockAdapter.queryTabs).not.toHaveBeenCalled();
+    expect(mockAdapter.getTab).not.toHaveBeenCalled();
   });
 
   it('uses injected browser adapter to close a tab', async () => {

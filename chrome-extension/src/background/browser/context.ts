@@ -26,7 +26,8 @@ function sleep(ms: number): Promise<void> {
 export default class BrowserContext {
   private _config: BrowserContextConfig;
   private _currentTabId: number | null = null;
-  private _attachedPages: Map<number, Page> = new Map();
+  /** One Page per tab, attached or not: a tab that cannot be attached still has a Page, so actions can say why. */
+  private _pages: Map<number, Page> = new Map();
   private _browserAdapter: IBrowserAdapter;
   private _storageProvider: IStorageProvider;
 
@@ -40,7 +41,6 @@ export default class BrowserContext {
     this._storageProvider = storageProvider || new ChromeStorageProvider();
   }
 
-  
   public getConfig(): BrowserContextConfig {
     return this._config;
   }
@@ -53,8 +53,8 @@ export default class BrowserContext {
     this._config = { ...this._config, ...config };
   }
 
+  /** Makes the tab current without attaching; the next use attaches. */
   public updateCurrentTabId(tabId: number): void {
-    // only update tab id, but don't attach it.
     this._currentTabId = tabId;
   }
 
@@ -62,41 +62,19 @@ export default class BrowserContext {
     return this._currentTabId;
   }
 
-  // Per-tab in-flight promise: prevents multiple concurrent callers from each
-  // spawning a new Page for the same tabId (the source of "creating new page ×7" logs).
-  private _creatingPages: Map<number, Promise<Page>> = new Map();
-
-  private async _getOrCreatePage(tab: chrome.tabs.Tab, forceUpdate = false): Promise<Page> {
+  /** The tab's Page, created once, updated to the tab's URL and attached if possible. */
+  private async _getPage(tab: chrome.tabs.Tab): Promise<Page> {
     if (!tab.id) {
       throw new Error('Tab ID is not available');
     }
-
-    const existingPage = this._attachedPages.get(tab.id);
-    if (existingPage) {
-      logger.info('getOrCreatePage', tab.id, 'already attached');
-      if (!forceUpdate) {
-        return existingPage;
-      }
-      // detach the page and remove it from the attached pages if forceUpdate is true
-      await existingPage.detachPuppeteer();
-      this._attachedPages.delete(tab.id);
+    let page = this._pages.get(tab.id);
+    if (!page) {
+      page = new Page(tab.id, tab.url || '', tab.title || '', this._config, this._browserAdapter, this._storageProvider);
+      this._pages.set(tab.id, page);
+    } else if (tab.url) {
+      page.updateUrl(tab.url);
     }
-
-    // If a creation is already in-flight for this tab, wait for it instead of
-    // creating yet another Page object for the same tab.
-    const inFlight = this._creatingPages.get(tab.id);
-    if (inFlight && !forceUpdate) {
-      logger.info('getOrCreatePage', tab.id, 'waiting for in-flight creation');
-      return inFlight;
-    }
-
-    logger.info('getOrCreatePage', tab.id, 'creating new page');
-    const creation = Promise.resolve(
-      new Page(tab.id, tab.url || '', tab.title || '', this._config, this._browserAdapter, this._storageProvider)
-    );
-    this._creatingPages.set(tab.id, creation);
-    const page = await creation;
-    this._creatingPages.delete(tab.id);
+    await this.attachPage(page);
     return page;
   }
 
@@ -144,192 +122,106 @@ export default class BrowserContext {
     return latest;
   }
 
-
+  /** Detaches every page this context holds; never queries or attaches tabs. */
   public async cleanup(): Promise<void> {
-    const currentPage = await this.getCurrentPage();
-    currentPage?.removeHighlight();
-    // detach all pages
-    for (const page of this._attachedPages.values()) {
+    for (const page of this._pages.values()) {
+      await page.removeHighlight().catch(() => undefined);
       await page.detachPuppeteer();
     }
-    this._attachedPages.clear();
+    this._pages.clear();
     this._currentTabId = null;
   }
 
+  /** Keeps the page and tries to attach it; a failure (DevTools open, browser page) is logged, not thrown. */
   public async attachPage(page: Page): Promise<boolean> {
-    // check if page is already attached
-    if (this._attachedPages.has(page.tabId)) {
-      logger.info('attachPage', page.tabId, 'already attached');
-      return true;
+    this._pages.set(page.tabId, page);
+    try {
+      return await page.attachPuppeteer();
+    } catch (error) {
+      logger.warning(`Cannot attach to tab ${page.tabId}: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
     }
-
-    if (await page.attachPuppeteer()) {
-      logger.info('attachPage', page.tabId, 'attached');
-      // add page to managed pages
-      this._attachedPages.set(page.tabId, page);
-      return true;
-    }
-    return false;
   }
 
   public async detachPage(tabId: number): Promise<void> {
-    // detach page
-    const page = this._attachedPages.get(tabId);
+    const page = this._pages.get(tabId);
     if (page) {
       await page.detachPuppeteer();
-      // remove page from managed pages
-      this._attachedPages.delete(tabId);
+      this._pages.delete(tabId);
     }
   }
 
   public getPageForTab(tabId: number): Page | undefined {
-    return this._attachedPages.get(tabId);
+    return this._pages.get(tabId);
   }
 
   public async getCurrentPage(): Promise<Page> {
-    // 1. If _currentTabId not set, query the active tab and attach it
-    if (!this._currentTabId) {
-      let activeTab: chrome.tabs.Tab;
-      const [tab] = await this._browserAdapter.queryTabs({ active: true, currentWindow: true });
-      if (!tab?.id) {
-        // open a new tab with blank page
-        const newTab = await this._browserAdapter.createTab({ url: this._config.homePageUrl });
-        if (!newTab.id) {
-          throw new Error('No tab ID available');
-        }
-        activeTab = newTab;
-      } else {
-        activeTab = tab;
+    if (this._currentTabId) {
+      const existing = this._pages.get(this._currentTabId);
+      if (existing?.attached) {
+        return existing;
       }
-      logger.info('active tab', activeTab.id, activeTab.url, activeTab.title);
-      const page = await this._getOrCreatePage(activeTab);
-      this._currentTabId = activeTab.id || null;
-      // Attempt puppeteer attach but don't block if it fails (e.g. newtab).
-      // _revalidateFromTab() inside getState() will re-try when the tab navigates.
-      await this.attachPage(page);
-      return page;
+      const tab = await this._browserAdapter.getTab(this._currentTabId).catch(() => null);
+      if (tab) {
+        return this._getPage(tab);
+      }
+      // The tab was closed.
+      this._currentTabId = null;
     }
 
-    // 2. If _currentTabId is set but not in attachedPages, try to attach
-    const existingPage = this._attachedPages.get(this._currentTabId);
-    if (!existingPage) {
-      const tab = await this._browserAdapter.getTab(this._currentTabId);
-      const page = await this._getOrCreatePage(tab);
-      // Attempt attach; if it fails (e.g. still on newtab) we still return the
-      // page so getState() can call _revalidateFromTab() and promote it once
-      // the real URL is available.
-      await this.attachPage(page);
-      return page;
+    const [active] = await this._browserAdapter.queryTabs({ active: true, currentWindow: true });
+    const tab = active?.id ? active : await this._browserAdapter.createTab({ url: this._config.homePageUrl });
+    if (!tab.id) {
+      throw new Error('No tab ID available');
     }
-
-    // 3. Return existing page from attachedPages
-    return existingPage;
+    logger.info('active tab', tab.id, tab.url, tab.title);
+    this._currentTabId = tab.id;
+    return this._getPage(tab);
   }
 
-  /**
-   * Get all tab IDs from the browser and the current window.
-   * @returns A set of tab IDs.
-   */
+  /** Tab ids across all windows. */
   public async getAllTabIds(): Promise<Set<number>> {
-    const tabs = await this._browserAdapter.queryTabs({ currentWindow: true });
-    return new Set(tabs.map(tab => tab.id).filter(id => id !== undefined));
+    const tabs = await this._browserAdapter.queryTabs({});
+    return new Set(tabs.map(tab => tab.id).filter((id): id is number => id !== undefined));
   }
 
-  /**
-   * Wait for tab events to occur after a tab is created or updated.
-   * @param tabId - The ID of the tab to wait for events on.
-   * @param options - An object containing options for the wait.
-   * @returns A promise that resolves when the tab events occur.
-   */
-  private async waitForTabEvents(
-    tabId: number,
-    options: {
-      waitForUpdate?: boolean;
-      waitForActivation?: boolean;
-      timeoutMs?: number;
-      /** When true, skip the pre-check of current tab status and only listen
-       *  for the next onUpdated event. Use for chrome.tabs.update navigations
-       *  where the tab may still be 'complete' at the OLD URL. */
-      skipCurrentStateCheck?: boolean;
-    } = {},
-  ): Promise<void> {
-    const { waitForUpdate = true, waitForActivation = true, timeoutMs = 3000, skipCurrentStateCheck = false } = options;
+  /** Resolves when the tab has loaded and is active; its listeners are removed however it ends. */
+  private async waitForTabEvents(tabId: number, timeoutMs = 3000): Promise<void> {
+    let onUpdated: ((updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) => void) | undefined;
+    let onActivated: ((activeInfo: chrome.tabs.TabActiveInfo) => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const promises: Promise<void>[] = [];
+    const loaded = new Promise<void>(resolve => {
+      onUpdated = (updatedTabId, changeInfo) => {
+        if (updatedTabId === tabId && changeInfo.status === 'complete') resolve();
+      };
+      this._browserAdapter.addTabUpdatedListener(onUpdated);
+      this._browserAdapter.getTab(tabId).then(tab => tab.status === 'complete' && resolve(), () => resolve());
+    });
+    const activated = new Promise<void>(resolve => {
+      onActivated = activeInfo => {
+        if (activeInfo.tabId === tabId) resolve();
+      };
+      this._browserAdapter.addTabActivatedListener(onActivated);
+      this._browserAdapter.getTab(tabId).then(tab => tab.active && resolve(), () => resolve());
+    });
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Tab operation timed out after ${timeoutMs} ms`)), timeoutMs);
+    });
 
-    if (waitForUpdate) {
-      // Resolve as soon as the tab reaches 'complete' status — url/title may
-      // arrive in separate events (especially on SPA navigations like Gmail).
-      const updatePromise = new Promise<void>(resolve => {
-        const onUpdatedHandler = (updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
-          if (updatedTabId !== tabId) return;
-          if (changeInfo.status === 'complete') {
-            this._browserAdapter.removeTabUpdatedListener(onUpdatedHandler);
-            resolve();
-          }
-        };
-        this._browserAdapter.addTabUpdatedListener(onUpdatedHandler);
-
-        // Only pre-check current state for cases like openTab where the tab
-        // is freshly created and already at the final URL. For navigateTo via
-        // chrome.tabs.update, skip this to avoid resolving on the OLD URL's
-        // 'complete' state before the navigation even starts.
-        if (!skipCurrentStateCheck) {
-          this._browserAdapter.getTab(tabId).then(tab => {
-            if (tab.status === 'complete') {
-              this._browserAdapter.removeTabUpdatedListener(onUpdatedHandler);
-              resolve();
-            }
-          }).catch(() => {
-            this._browserAdapter.removeTabUpdatedListener(onUpdatedHandler);
-            resolve(); // Tab closed; resolve gracefully
-          });
-        }
-      });
-      promises.push(updatePromise);
+    try {
+      await Promise.race([Promise.all([loaded, activated]), timeout]);
+    } finally {
+      clearTimeout(timer);
+      if (onUpdated) this._browserAdapter.removeTabUpdatedListener(onUpdated);
+      if (onActivated) this._browserAdapter.removeTabActivatedListener(onActivated);
     }
-
-    if (waitForActivation) {
-      const activatedPromise = new Promise<void>(resolve => {
-        const onActivatedHandler = (activeInfo: chrome.tabs.TabActiveInfo) => {
-          if (activeInfo.tabId === tabId) {
-            this._browserAdapter.removeTabActivatedListener(onActivatedHandler);
-            resolve();
-          }
-        };
-        this._browserAdapter.addTabActivatedListener(onActivatedHandler);
-
-        // Always pre-check activation state — it can only transition one way.
-        this._browserAdapter.getTab(tabId).then(tab => {
-          if (tab.active) {
-            this._browserAdapter.removeTabActivatedListener(onActivatedHandler);
-            resolve();
-          }
-        }).catch(() => {
-          this._browserAdapter.removeTabActivatedListener(onActivatedHandler);
-          resolve();
-        });
-      });
-      promises.push(activatedPromise);
-    }
-
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Tab operation timed out after ${timeoutMs} ms`)), timeoutMs),
-    );
-
-    await Promise.race([Promise.all(promises), timeoutPromise]);
   }
 
   public async switchTab(tabId: number): Promise<Page> {
     logger.info('switchTab', tabId);
-
     await this._browserAdapter.updateTab(tabId, { active: true });
-    await this.waitForTabEvents(tabId, { waitForUpdate: false });
-
-    // Force-recreate the page so we always get the current URL/title, not a
-    // stale cached one from when the tab was first opened.
-    const page = await this._getOrCreatePage(await this._browserAdapter.getTab(tabId), true);
-    await this.attachPage(page);
+    const page = await this._getPage(await this._browserAdapter.getTab(tabId));
     this._currentTabId = tabId;
     return page;
   }
@@ -339,39 +231,21 @@ export default class BrowserContext {
       throw new URLNotAllowedError(`URL: ${url} is not allowed`);
     }
 
-    // Track domain visit for analytics
     void analytics.trackDomainVisit(url);
 
     const page = await this.getCurrentPage();
-    if (!page) {
-      await this.openTab(url);
-      return;
-    }
-    // If page is already puppeteer-attached, use puppeteer's navigation which
-    // handles its own internal wait — no need for tab-event polling.
     if (page.attached) {
-      const tabId = page.tabId;
-      const previousUrl = page.url();
+      // Same tab, same session: the page follows the navigation itself.
       await page.navigateTo(url);
-      const updatedTab = await this.waitForInspectableNavigation(tabId, previousUrl, url);
-      const updatedPage = await this._getOrCreatePage(updatedTab, true);
-      await this.attachPage(updatedPage);
-      this._currentTabId = tabId;
       return;
     }
-    // Use chrome.tabs.update only if the page is not yet puppeteer-attached
+
+    // Browser pages (new tab, chrome://) cannot be attached: navigate the tab, then attach once it shows a web page.
     const tabId = page.tabId;
     const previousTab = await this._browserAdapter.getTab(tabId).catch(() => null);
-    const navigationSettled = this.waitForTabEvents(tabId, { skipCurrentStateCheck: true }).catch(() => { /* timeout is non-fatal */ });
     await this._browserAdapter.updateTab(tabId, { url, active: true });
-    await navigationSettled;
-
-    // Reattach only after chrome.tabs.get reports an inspectable URL. This
-    // avoids validating against the old chrome:// page while slow redirects are
-    // still settling.
     const updatedTab = await this.waitForInspectableNavigation(tabId, previousTab?.url, url);
-    const updatedPage = await this._getOrCreatePage(updatedTab, true);
-    await this.attachPage(updatedPage);
+    await this._getPage(updatedTab);
     this._currentTabId = tabId;
   }
 
@@ -380,44 +254,31 @@ export default class BrowserContext {
       throw new URLNotAllowedError(`Open tab failed. URL: ${url} is not allowed`);
     }
 
-    // Create the new tab
     const tab = await this._browserAdapter.createTab({ url, active: true });
     if (!tab.id) {
       throw new Error('No tab ID available');
     }
-    // Wait for the tab to finish loading. Non-fatal: even if the timeout fires
-    // (e.g. Gmail takes >3 s), we still proceed and get whatever state the tab
-    // is in — the agent will re-read the DOM on the next step.
+    // A slow page is still usable; the next read waits for it to settle.
     await this.waitForTabEvents(tab.id).catch(() => {
       logger.warning('openTab: waitForTabEvents timed out, continuing anyway');
     });
 
-    // Get updated tab information (may still be loading, that's OK)
-    const updatedTab = await this._browserAdapter.getTab(tab.id);
-    // Create and attach the page after tab is fully loaded and activated
-    const page = await this._getOrCreatePage(updatedTab);
-    await this.attachPage(page);
+    const page = await this._getPage(await this._browserAdapter.getTab(tab.id));
     this._currentTabId = tab.id;
-
     return page;
   }
 
   public async closeTab(tabId: number): Promise<void> {
     await this.detachPage(tabId);
     await this._browserAdapter.removeTab(tabId);
-    // update current tab id if needed
     if (this._currentTabId === tabId) {
       this._currentTabId = null;
     }
   }
 
-  /**
-   * Remove a tab from the attached pages map. This will not run detachPuppeteer.
-   * @param tabId - The ID of the tab to remove.
-   */
+  /** Forgets a closed tab's page without detaching (the session is already gone). */
   public removeAttachedPage(tabId: number): void {
-    this._attachedPages.delete(tabId);
-    // update current tab id if needed
+    this._pages.delete(tabId);
     if (this._currentTabId === tabId) {
       this._currentTabId = null;
     }
@@ -425,18 +286,9 @@ export default class BrowserContext {
 
   public async getTabInfos(): Promise<TabInfo[]> {
     const tabs = await this._browserAdapter.queryTabs({});
-    const tabInfos: TabInfo[] = [];
-
-    for (const tab of tabs) {
-      if (tab.id && tab.url && tab.title) {
-        tabInfos.push({
-          id: tab.id,
-          url: tab.url,
-          title: tab.title,
-        });
-      }
-    }
-    return tabInfos;
+    return tabs
+      .filter((tab): tab is chrome.tabs.Tab & { id: number; url: string } => Boolean(tab.id && tab.url))
+      .map(tab => ({ id: tab.id, url: tab.url, title: tab.title || tab.url }));
   }
 
   /** The last page read while it is still current (not invalidated, same URL); otherwise a new read. */
@@ -453,13 +305,11 @@ export default class BrowserContext {
     return browserState;
   }
 
-  public async getState(useVision = false, skipNetworkIdle = false): Promise<BrowserState> {
+  public async getState(useVision = false): Promise<BrowserState> {
     const startedAt = Date.now();
     const currentPage = await this.getCurrentPage();
 
-    const pageState = !currentPage
-      ? build_initial_state()
-      : await currentPage.getState(useVision, skipNetworkIdle);
+    const pageState = !currentPage ? build_initial_state() : await currentPage.getState(useVision);
     const tabInfos = await this.getTabInfos();
     const browserState: BrowserState = {
       ...pageState,
@@ -472,7 +322,7 @@ export default class BrowserContext {
       component: 'BrowserContext',
       msg: 'getState',
       durationMs: Date.now() - startedAt,
-      data: { url: browserState.url, elements: browserState.selectorMap?.size, tabs: tabInfos.length, useVision, skipNetworkIdle },
+      data: { url: browserState.url, elements: browserState.selectorMap?.size, tabs: tabInfos.length, useVision },
     });
     return browserState;
   }

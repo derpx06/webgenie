@@ -3,7 +3,6 @@ import { createLogger } from '@src/background/log';
 import { record } from '@src/background/trace';
 import { ActionResult, type AgentOutput } from '../types';
 import { Actors, ExecutionState } from '../event/types';
-import { calcBranchPathHashSet } from '@src/background/browser/dom/views';
 import { BrowserStateHistory, URLNotAllowedError, type BrowserState } from '@src/background/browser/views';
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
@@ -16,13 +15,15 @@ import { HistoryReplayer } from './navigator/replay';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
 import { ensureBrowserObservation } from '../validation/observation';
 import {
+  currentIndexFor,
   isMutatingAction,
   normalizeIndexedAction,
   shouldStopAfterValidation,
+  staleIndexResult,
   validateActionOutcome,
 } from '../validation/service';
 import { ProgressLedger } from '../contracts';
-import type { BrowserObservation, TargetFingerprint } from '../validation/types';
+import type { TargetFingerprint } from '../validation/types';
 import { waitForActionSettled } from '../validation/settling';
 
 const logger = createLogger('NavigatorAgent');
@@ -152,14 +153,6 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     return this.doMultiAction(actions);
   }
 
-  private observationsDiverged(before: BrowserObservation | undefined, after: BrowserObservation | undefined): boolean {
-    if (!before || !after) return false;
-    return before.tabId !== after.tabId ||
-      before.url !== after.url ||
-      before.documentFingerprint !== after.documentFingerprint ||
-      before.layoutFingerprint !== after.layoutFingerprint;
-  }
-
   private async getSettledPostActionState(
     actionName: string,
     actionArgs: unknown,
@@ -167,10 +160,10 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
   ): Promise<BrowserState> {
     const config = this.context.browserContext.getConfig();
     const timeoutMs = Math.max(250, config.actionSettleTimeoutMs ?? 2000);
-    const pollIntervalMs = Math.max(50, config.actionPollIntervalMs ?? 100);
+    const pollIntervalMs = Math.max(50, config.actionPollIntervalMs ?? 150);
     const startedAt = Date.now();
     const settleResult = await waitForActionSettled(
-      () => this.context.browserContext.getState(false, true),
+      () => this.context.browserContext.getState(false),
       // Polls until the action validates; an action with nothing to validate settles at once.
       state => {
         const { validated } = validateActionOutcome({
@@ -199,15 +192,11 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
   private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
     const results: ActionResult[] = [];
     const browserContext = this.context.browserContext;
-    const browserState = await browserContext.getCachedState(this.context.options.useVision);
-    const initialObservation = ensureBrowserObservation(browserState);
-    this.context.activeObservation = initialObservation;
-    const cachedPathHashes = await calcBranchPathHashSet(browserState);
-
     await browserContext.removeHighlight();
 
     for (const [i, action] of actions.entries()) {
       if (this.isTaskInterrupted()) break;
+      if (i > 0) await this.delayBetweenActions();
 
       const contractId = this.context.currentContract?.id ?? null;
       const actionId = `action_${Date.now().toString(36)}_${i}_${Math.random().toString(36).slice(2, 8)}`;
@@ -271,7 +260,12 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         }
 
         if (indexArg !== null) {
-          const normalized = normalizeIndexedAction(actionName, actionArgs, beforeObservation);
+          // The index refers to the page in the prompt; a read taken after an earlier action may number it differently.
+          const currentIndex = currentIndexFor(this.context.promptState, beforeState, indexArg);
+          if (currentIndex !== null) (actionArgs as { index: number }).index = currentIndex;
+          const normalized = currentIndex === null
+            ? { ok: false, actionResult: staleIndexResult(indexArg, beforeObservation.id) }
+            : normalizeIndexedAction(actionName, actionArgs, beforeObservation);
           if (!normalized.ok && normalized.actionResult) {
             this.context.emitEvent(
               Actors.NAVIGATOR,
@@ -284,17 +278,6 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
               actionId,
               validationId,
             }));
-            break;
-          }
-        }
-
-        // Check if page state changed significantly between multi-actions
-        if (i > 0 && indexArg !== null) {
-          const newState = await browserContext.getCachedState(this.context.options.useVision);
-          const newPathHashes = await calcBranchPathHashSet(newState);
-          if (!newPathHashes.isSubsetOf(cachedPathHashes)) {
-            const msg = `Something new appeared after action ${i} / ${actions.length}`;
-            results.push(new ActionResult({ extractedContent: msg, includeInMemory: true }));
             break;
           }
         }
@@ -321,14 +304,16 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           });
         }
 
+        // Any action may change the page, so the cached read is dropped; only page-changing actions pay for a
+        // new read now (it becomes the cache the next action and the next prompt use).
+        const mutating = isMutatingAction(actionName);
         if (actionName !== 'done' && actionName !== 'ask_human') {
           await browserContext.invalidateCache();
         }
-
-        const postActionState = actionName === 'done' || actionName === 'ask_human'
+        const postActionState = !mutating
           ? beforeState
           : result.error
-            ? await browserContext.getState(false, true)
+            ? await browserContext.getState(false)
             : await this.getSettledPostActionState(actionName, actionArgs, beforeState);
         ensureBrowserObservation(postActionState);
         result = validateActionOutcome({
@@ -353,7 +338,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           observationId: result.observationId ?? beforeObservation.id,
         });
         this.context.activeObservation = postActionState.observation;
-        if (isMutatingAction(actionName) && contractId) {
+        if (mutating && contractId) {
           const progress = ProgressLedger.recordFromActionResult({
             taskId: this.context.taskId,
             contractId,
@@ -393,7 +378,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         }
 
         if (indexArg !== null) {
-          const domElement = browserState.selectorMap.get(indexArg);
+          const domElement = beforeState.selectorMap.get(actionInstance.getIndexArg(actionArgs) ?? indexArg);
           if (domElement) {
             result.interactedElement = HistoryTreeProcessor.convertDomElementToHistoryElement(domElement);
           }
@@ -427,22 +412,11 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           break;
         }
 
-        if (
-          i < actions.length - 1 &&
-          isMutatingAction(actionName) &&
-          this.observationsDiverged(beforeObservation, postActionState.observation)
-        ) {
-          logger.info(`Action ${i + 1} changed observation; aborting remaining queued actions for fresh replan.`);
+        // Later actions were chosen for the page the model saw; a new URL or tab makes them meaningless.
+        if (mutating && (postActionState.url !== beforeState.url || postActionState.tabId !== beforeState.tabId)) {
+          logger.info(`Action ${i + 1} (${actionName}) moved to another page; the remaining actions wait for the next step.`);
           break;
         }
-
-        if (this.isTaskInterrupted()) break;
-        const statePreFetchPromise = browserContext.getState(this.context.options.useVision, true);
-        await this.delayBetweenActions();
-        await statePreFetchPromise.catch(err => {
-          logger.warning(`State pre-fetch failed: ${err.message}`);
-        });
-
       } catch (error) {
         if (error instanceof URLNotAllowedError) throw error;
         const msg = error instanceof Error ? error.message : String(error);
@@ -473,13 +447,6 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // Stop execution immediately on thrown action failures!
         break;
       }
-    }
-
-    if (!this.isTaskInterrupted()) {
-      logger.info('Starting background pre-fetch of final state for next turn...');
-      void browserContext.getState(this.context.options.useVision, true).catch(err => {
-        logger.warning(`Final state pre-fetch failed: ${err.message}`);
-      });
     }
 
     return results;

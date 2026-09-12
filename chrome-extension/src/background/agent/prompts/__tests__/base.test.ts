@@ -71,7 +71,7 @@ describe('browser prompt budgeting', () => {
       includeInMemory: true,
     });
     const context = {
-      browserContext: { getState: vi.fn().mockResolvedValue(browserState) },
+      browserContext: { getCachedState: vi.fn().mockResolvedValue(browserState) },
       options: { useVision: false, includeAttributes: [], logDOMSnapshot: false },
       actionResults: [actionResult],
       lastGoal: undefined,

@@ -349,7 +349,7 @@ export class Executor {
           taskId: context.taskId,
           status: 'cancelled'
         });
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
+        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
         await this.saveCheckpoint(taskText, 'failed');
 
         // Track task cancellation
@@ -399,7 +399,7 @@ export class Executor {
 
         // Emit final answer if available, otherwise use task ID
         const finalMessage = this.context.finalAnswer || this.context.taskId;
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, finalMessage);
+        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, finalMessage);
         await this.saveCheckpoint(taskText, 'completed');
 
         // Track task completion
@@ -410,7 +410,7 @@ export class Executor {
           status: 'failed'
         });
         logger.error('❌ Task failed: Max steps reached');
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_errors_maxStepsReached'));
+        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_errors_maxStepsReached'));
         await this.saveCheckpoint(taskText, 'failed');
 
         // Track task failure with specific error category
@@ -421,7 +421,7 @@ export class Executor {
         // The loop only stops early on the failure budget.
         const failureMessage = t('exec_errors_maxFailuresReached');
         logger.error(`❌ Task failed: ${failureMessage}`);
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_task_fail', [failureMessage]));
+        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_task_fail', [failureMessage]));
         await this.saveCheckpoint(taskText, 'failed');
         void analytics.trackTaskFailed(this.context.taskId, analytics.categorizeError(new MaxFailuresReachedError(failureMessage)));
       }
@@ -463,13 +463,13 @@ export class Executor {
         }
       }
       if (this.context.stopped || error instanceof RequestCancelledError || isAbortedError(error)) {
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
+        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
 
         // Track task cancellation
         void analytics.trackTaskCancelled(this.context.taskId);
       } else {
         const errorMessage = formatExecutionError(error);
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_task_fail', [errorMessage]));
+        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_task_fail', [errorMessage]));
 
         // Track task failure with detailed error categorization
         const errorCategory = analytics.categorizeError(error instanceof Error ? error : errorMessage);
@@ -526,6 +526,11 @@ export class Executor {
     status: 'running' | 'waiting_human' | 'paused' | 'completed' | 'failed',
   ): Promise<void> {
     if (!this.context.checkpointStore) return;
+    // A finished task has nothing to resume.
+    if (status === 'completed' || status === 'failed') {
+      await this.context.checkpointStore.clear(this.context.taskId);
+      return;
+    }
     const checkpoint = {
       taskId: this.context.taskId,
       task,
@@ -850,14 +855,14 @@ export class Executor {
       }
 
       if (this.context.stopped) {
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_replay_cancel'));
+        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_replay_cancel'));
       } else {
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, t('exec_replay_ok'));
+        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, t('exec_replay_ok'));
       }
     } catch (error) {
       const errorMessage = formatExecutionError(error);
       replayLogger.error(`Replay failed: ${errorMessage}`);
-      this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_replay_fail', [errorMessage]));
+      await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_replay_fail', [errorMessage]));
     }
 
     return results;

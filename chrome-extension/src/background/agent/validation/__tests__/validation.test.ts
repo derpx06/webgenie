@@ -3,7 +3,7 @@ import { ActionResult } from '../../types';
 import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type { BrowserState } from '../../../browser/views';
 import { createBrowserObservation } from '../observation';
-import { normalizeIndexedAction, validateActionOutcome } from '../service';
+import { currentIndexFor, normalizeIndexedAction, validateActionOutcome } from '../service';
 
 function element(index: number, params: Partial<ConstructorParameters<typeof DOMElementNode>[0]> = {}) {
   return new DOMElementNode({
@@ -130,6 +130,20 @@ describe('indexed action normalization', () => {
     expect(result.actionResult?.executed).toBe(false);
     expect(result.actionResult?.validated).toBe('unknown');
     expect(result.actionResult?.retryability).toBe('retry_reobserve');
+  });
+});
+
+describe('prompt index mapping', () => {
+  it('follows the chosen element to its index in a later read, and reports it gone otherwise', () => {
+    const save = element(3, { backendNodeId: 555, attributes: { 'aria-label': 'Save' } });
+    const prompt = state({ selectorMap: new Map([[3, save]]) });
+    const inserted = element(3, { backendNodeId: 777 });
+    const later = state({ selectorMap: new Map([[3, inserted], [4, element(4, { backendNodeId: 555 })]]) });
+
+    expect(currentIndexFor(prompt, prompt, 3)).toBe(3);
+    expect(currentIndexFor(prompt, later, 3)).toBe(4);
+    expect(currentIndexFor(prompt, state({ selectorMap: new Map([[3, inserted]]) }), 3)).toBeNull();
+    expect(currentIndexFor(undefined, later, 4)).toBe(4);
   });
 });
 

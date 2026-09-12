@@ -85,13 +85,13 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(details => {
 
 // Listen for debugger detached event
 // if canceled_by_user, remove the tab from the browser context
-chrome.debugger.onDetach.addListener(async (source, reason) => {
-  console.log('Debugger detached:', source, reason);
+chrome.debugger.onDetach.addListener((source, reason) => {
+  logger.info(`Debugger detached from tab ${source.tabId}: ${reason}`);
+  // A child session (an iframe) detaching leaves the tab's own session intact.
+  if (!source.tabId || (source as { sessionId?: string }).sessionId) return;
+  browserContext.getPageForTab(source.tabId)?.markDetached();
   if (reason === 'canceled_by_user') {
-    if (source.tabId) {
-      currentExecutor?.cancel();
-      await browserContext.cleanup();
-    }
+    currentExecutor?.cancel();
   }
 });
 
@@ -281,6 +281,7 @@ chrome.runtime.onConnect.addListener(port => {
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
 
             logger.info('new_task', message.tabId, message.task);
+            browserContext.updateCurrentTabId(message.tabId);
             currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
             subscribeToExecutorEvents(currentExecutor);
 
@@ -308,6 +309,7 @@ chrome.runtime.onConnect.addListener(port => {
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
 
             logger.info('follow_up_task', message.tabId, message.task);
+            browserContext.updateCurrentTabId(message.tabId);
             await keepAliveManager.startKeepAlive();
 
             // If executor exists, add follow-up task

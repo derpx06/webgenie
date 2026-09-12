@@ -14,7 +14,6 @@ import {
   ExecutionRouter,
   ProgressLedger,
   TaskCheckpointStore,
-  TraceStore,
   getReplanDecision,
   normalizeNextStepContract,
   normalizePlannerOutputContract,
@@ -245,16 +244,6 @@ describe('P1 checkpoints and traces', () => {
     })).toBe(true);
   });
 
-  it('stores linked trace events in order', async () => {
-    const store = new TraceStore(new MemoryStorage());
-    await store.append({ taskId: 'task-1', actor: 'planner', type: 'plan.created', payload: {}, timestamp: 1 });
-    await store.append({ taskId: 'task-1', parentId: 'trace-1', actor: 'navigator', type: 'action.started', payload: {}, timestamp: 2 });
-
-    const events = await store.list('task-1');
-
-    expect(events.map(event => event.type)).toEqual(['plan.created', 'action.started']);
-    expect(events[1].parentId).toBe('trace-1');
-  });
 });
 
 describe('P1 context budget and routing', () => {

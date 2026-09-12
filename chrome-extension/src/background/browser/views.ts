@@ -103,7 +103,7 @@ export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   maximumWaitPageLoadTime: 5.0,
   waitBetweenActions: 0.15,
   actionSettleTimeoutMs: 2000,
-  actionPollIntervalMs: 100,
+  actionPollIntervalMs: 150,
   browserWindowSize: { width: 1280, height: 1100 },
   viewportExpansion: 0,
   allowedUrls: [],

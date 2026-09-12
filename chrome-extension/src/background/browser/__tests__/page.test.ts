@@ -15,6 +15,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
 
 import Page, { build_initial_state, getAdaptiveDomRetryDelayMs } from '../page';
 import { DOMElementNode } from '../dom/views';
+import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
 
 describe('Page locateElement', () => {
@@ -105,5 +106,17 @@ describe('Page state cache', () => {
 
     adapter.getTab.mockResolvedValue({ url: 'https://example.com/b' });
     expect((await page.getCurrentState()).url).toBe('https://example.com/b');
+  });
+});
+
+describe('Page firewall', () => {
+  it('refuses to read a page whose live URL is not allowed and leaves it', async () => {
+    const adapter = { getTab: vi.fn().mockResolvedValue({ url: 'file:///etc/passwd', title: 'passwd' }) };
+    const page = new Page(1, 'https://ok.example/', 'OK', {}, adapter as unknown as IBrowserAdapter);
+    const goto = vi.fn().mockResolvedValue(null);
+    Object.assign(page as unknown as Record<string, unknown>, { _puppeteerPage: { goto, url: () => 'file:///etc/passwd' } });
+
+    await expect(page._updateState()).rejects.toBeInstanceOf(URLNotAllowedError);
+    expect(goto).toHaveBeenCalledWith('about:blank');
   });
 });

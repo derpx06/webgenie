@@ -1,4 +1,5 @@
 import type BrowserContext from '../browser/context';
+import type { BrowserState } from '../browser/views';
 import { DEFAULT_INCLUDE_ATTRIBUTES } from '../browser/dom/views';
 import type { DOMHistoryElement } from '../browser/dom/history/view';
 import type MessageManager from './messages/service';
@@ -73,6 +74,8 @@ export class AgentContext {
   lastGoal?: string;
   lastMacroObjective?: string; // macro_objective from last planner step
   activeObservation?: BrowserObservation;
+  /** The page read shown to the models this step; element indexes in their actions refer to it. */
+  promptState?: BrowserState;
   currentContract?: NextStepContract | null;
   validatedProgress: ValidatedProgressRecord[];
   blockedState: BlockedState | null;

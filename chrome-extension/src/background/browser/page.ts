@@ -10,6 +10,7 @@ import {
 import type { Browser } from 'puppeteer-core/lib/esm/puppeteer/api/Browser.js';
 import type { Page as PuppeteerPage } from 'puppeteer-core/lib/esm/puppeteer/api/Page.js';
 import type { ElementHandle } from 'puppeteer-core/lib/esm/puppeteer/api/ElementHandle.js';
+import type { CDPSession } from 'puppeteer-core/lib/esm/puppeteer/api/CDPSession.js';
 import {
   removeHighlights as _removeHighlights,
   getScrollInfo as _getScrollInfo,
@@ -21,7 +22,6 @@ import { createLogger } from '@src/background/log';
 import { isUrlAllowed, isNewTabPage } from './util';
 import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
 import { pruneAXTree } from './dom/ax-tree-pruner';
-import { cdpBridge } from './chromium-apis/cdp-bridge';
 import type { IBrowserAdapter } from '../adapters/IBrowserAdapter';
 import type { IStorageProvider } from '../adapters/IStorageProvider';
 import { ChromeBrowserAdapter } from '../adapters/ChromeBrowserAdapter';
@@ -29,6 +29,9 @@ import { ChromeStorageProvider } from '../adapters/ChromeStorageProvider';
 
 
 const logger = createLogger('Page');
+
+/** Navigations wait for the document to be parsed; the next page read waits for the network to go idle. */
+const NAVIGATION_OPTIONS = { waitUntil: 'domcontentloaded' as const, timeout: 15000 };
 
 export function getAdaptiveDomRetryDelayMs(attempt: number): number {
   return Math.min(750, Math.max(250, attempt * 250));
@@ -66,6 +69,8 @@ export default class Page {
   /** Bumped by every invalidation: a read started under an older generation is never cached or joined. */
   private _generation = 0;
   private _pendingState: { generation: number; useVision: boolean; promise: Promise<PageState> } | null = null;
+  /** URL of the last successful read; a read at a different URL waits for the page to load first. */
+  private _lastReadUrl: string | null = null;
   private _browserAdapter: IBrowserAdapter;
   private _storageProvider: IStorageProvider;
 
@@ -82,7 +87,6 @@ export default class Page {
     this._state = build_initial_state(tabId, url, title);
     this._browserAdapter = browserAdapter || new ChromeBrowserAdapter();
     this._storageProvider = storageProvider || new ChromeStorageProvider();
-    cdpBridge.setBrowserAdapter(this._browserAdapter);
     // chrome://newtab/, chrome://newtab/extensions, https://chromewebstore.google.com/ are not valid web pages, can't be attached
     const lowerCaseUrl = url.trim().toLowerCase();
     this._validWebPage =
@@ -172,31 +176,39 @@ export default class Page {
     if (!this._validWebPage) {
       return false;
     }
-
     if (this._puppeteerPage) {
       return true;
     }
 
     logger.info('attaching puppeteer', this._tabId);
+    const connectTab = async () =>
+      connect({
+        transport: await ExtensionTransport.connectTab(this._tabId),
+        defaultViewport: null,
+        protocol: 'cdp' as ProtocolType,
+      });
+    let browser: Browser;
     try {
-      await this._browserAdapter.detachDebugger({ tabId: this._tabId });
-      logger.info('Detached existing debugger session on tab', this._tabId);
-    } catch (err) {
-      // Ignore if debugger was not attached
+      browser = await connectTab();
+    } catch (error) {
+      // A session left behind by an earlier service worker blocks a new attach: release it once and retry.
+      if (!/already attached/i.test(error instanceof Error ? error.message : String(error))) throw error;
+      await this._browserAdapter.detachDebugger({ tabId: this._tabId }).catch(() => undefined);
+      browser = await connectTab();
     }
-
-    const browser = await connect({
-      transport: await ExtensionTransport.connectTab(this._tabId),
-      defaultViewport: null,
-      protocol: 'cdp' as ProtocolType,
-    });
-    this._browser = browser;
-
     const [page] = await browser.pages();
+    this._browser = browser;
     this._puppeteerPage = page;
 
-    // Add anti-detection scripts
-    await this._addAntiDetectionScripts();
+    try {
+      const client = (page.mainFrame() as unknown as { client: CDPSession }).client;
+      // Focus and :focus behave as in a focused window even while the user works in another one.
+      await client.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+      // A native file picker would block the tab; the agent is told about the chooser instead.
+      await client.send('Page.setInterceptFileChooserDialog', { enabled: true });
+    } catch (error) {
+      logger.warning('Could not configure the page session:', error);
+    }
 
     // ── DIALOG WATCHDOG ──────────────────────────────────────────────────────
     // Auto-dismiss unexpected native dialogs (alert/confirm/prompt/beforeunload).
@@ -207,39 +219,41 @@ export default class Page {
         `[DialogWatchdog] Auto-dismissing ${dialog.type()} dialog: "${dialog.message().slice(0, 120)}"`
       );
       try {
-        // For confirm/beforeunload, accept is usually the safer action
-        // (allows navigation/submission to proceed).
-        // For alert/prompt, accept or dismiss are equivalent for unblocking.
         await dialog.accept();
       } catch {
         try { await dialog.dismiss(); } catch { /* ignore — dialog may have closed itself */ }
       }
     });
-    // ────────────────────────────────────────────────────────────────────────
 
     return true;
   }
 
+  /** Attaches on first use; throws when this tab cannot be controlled. */
   public async ensurePuppeteerConnected(): Promise<void> {
-    if (!this._validWebPage) {
+    if (this._puppeteerPage) {
       return;
     }
-    let alive = false;
-    if (this._puppeteerPage) {
-      try {
-        await this._puppeteerPage.evaluate('1');
-        alive = true;
-      } catch (err) {
-        logger.warning('[Page] Puppeteer is detached/inactive, cleaning up before re-attach:', err);
-        this._puppeteerPage = null;
-        this._browser = null;
-        alive = false;
-      }
+    if (!this._validWebPage) {
+      throw new Error(`Cannot control this tab (${this._state.url || 'no page loaded'}): only web pages can be automated`);
     }
-    if (!this._puppeteerPage) {
-      logger.info('[Page] Attaching Puppeteer...');
+    try {
       await this.attachPuppeteer();
+    } catch (error) {
+      throw new Error(
+        `Cannot control this tab (DevTools may be open on it): ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
+  }
+
+  /** Forgets the debugger session (closed by the browser or the user); the next use attaches again. */
+  markDetached(): void {
+    const browser = this._browser;
+    if (browser) void Promise.resolve().then(() => browser.disconnect()).catch(() => undefined);
+    this._browser = null;
+    this._puppeteerPage = null;
+    this._pendingState = null;
+    this._lastReadUrl = null;
+    this.invalidateCache();
   }
 
   public async sendCDPCommand(method: string, params?: Record<string, unknown>): Promise<unknown> {
@@ -361,56 +375,12 @@ export default class Page {
   }
 
 
-  private async _addAntiDetectionScripts(): Promise<void> {
-    if (!this._puppeteerPage) {
-      return;
-    }
-
-    await this._puppeteerPage.evaluateOnNewDocument(`
-      // Webdriver property
-      Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined
-      });
-
-      // Languages
-      // Object.defineProperty(navigator, 'languages', {
-      //   get: () => ['en-US']
-      // });
-
-      // Plugins
-      // Object.defineProperty(navigator, 'plugins', {
-      //   get: () => [1, 2, 3, 4, 5]
-      // });
-
-      // Chrome runtime
-      window.chrome = { runtime: {} };
-
-      // Permissions
-      const originalQuery = window.navigator.permissions.query;
-      window.navigator.permissions.query = (parameters) => (
-        parameters.name === 'notifications' ?
-          Promise.resolve({ state: Notification.permission }) :
-          originalQuery(parameters)
-      );
-
-      // Shadow DOM
-      (function () {
-        const originalAttachShadow = Element.prototype.attachShadow;
-        Element.prototype.attachShadow = function attachShadow(options) {
-          return originalAttachShadow.call(this, { ...options, mode: "open" });
-        };
-      })();
-    `);
-  }
-
   async detachPuppeteer(): Promise<void> {
-    if (this._browser) {
-      await this._browser.disconnect();
-      this._browser = null;
-      this._puppeteerPage = null;
-      // reset the state
-      this._state = build_initial_state(this._tabId);
-    }
+    const browser = this._browser;
+    if (browser) await Promise.resolve().then(() => browser.disconnect()).catch(() => undefined);
+    this._browser = null;
+    this.markDetached();
+    this._state = build_initial_state(this._tabId, this._state.url, this._state.title);
   }
 
   async removeHighlight(): Promise<void> {
@@ -457,55 +427,32 @@ export default class Page {
     }
   }
 
-  /**
-   * Non-blocking node count monitor that waits for DOM stabilization before parsing.
-   */
-  private async _waitForDomStability(maxWaitMs = 1500, checkIntervalMs = 100): Promise<void> {
-    let prevNodeCount = 0;
+  /** Waits until the element count of every frame holds still for two checks, at most maxWaitMs. */
+  private async _waitForDomStability(maxWaitMs = 1000, checkIntervalMs = 50): Promise<void> {
+    const page = this._puppeteerPage;
+    if (!page) {
+      return;
+    }
+    const countIn = (frame: ReturnType<PuppeteerPage['frames']>[number]) =>
+      Promise.race([
+        frame.evaluate(() => document.getElementsByTagName('*').length).catch(() => 0),
+        // A frame blocked by a dialog or busy script must not hold up the read.
+        new Promise<number>(resolve => setTimeout(() => resolve(0), 300)),
+      ]);
+    let previous = -1;
     let stableTicks = 0;
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < maxWaitMs) {
-      try {
-        let nodeCount = 0;
-        if (this._puppeteerPage) {
-          const frames = this._puppeteerPage.frames();
-          const counts = await Promise.all(
-            frames.map(async (frame) => {
-              try {
-                return await frame.evaluate(() => document.getElementsByTagName('*').length);
-              } catch {
-                return 0;
-              }
-            })
-          );
-          nodeCount = counts.reduce((sum, c) => sum + c, 0);
-        } else {
-          const mainCount = await cdpBridge.evaluate<number>(
-            this._tabId,
-            "document.getElementsByTagName('*').length"
-          );
-          nodeCount = mainCount ?? 0;
-        }
-
-        if (nodeCount > 0) {
-          if (nodeCount === prevNodeCount) {
-            stableTicks++;
-            if (stableTicks >= 2) {
-              logger.info(`[waitForDomStability] DOM stabilized at ${nodeCount} elements across all frames.`);
-              return;
-            }
-          } else {
-            stableTicks = 0;
-            prevNodeCount = nodeCount;
-          }
-        }
-      } catch {
-        // Continue
+    const deadline = Date.now() + maxWaitMs;
+    while (Date.now() < deadline) {
+      const counts = await Promise.all(page.frames().filter(frame => !frame.detached).map(countIn));
+      const count = counts.reduce((sum, value) => sum + value, 0);
+      if (count > 0 && count === previous) {
+        if (++stableTicks >= 2) return;
+      } else {
+        stableTicks = 0;
+        previous = count;
       }
       await new Promise(resolve => setTimeout(resolve, checkIntervalMs));
     }
-    logger.info(`[waitForDomStability] Timeout reached before absolute stability.`);
   }
 
   // Get scroll position information for the current page.
@@ -518,6 +465,7 @@ export default class Page {
 
   // Get scroll position information for a specific element.
   async getElementScrollInfo(elementNode: DOMElementNode): Promise<[number, number, number]> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
@@ -675,14 +623,14 @@ export default class Page {
     this._cachedState = null;
   }
 
-  async getState(useVision = false, skipNetworkIdle = false): Promise<PageState> {
+  async getState(useVision = false): Promise<PageState> {
     const pending = this._pendingState;
     // A read started before an invalidation may predate the change the caller is waiting for.
     if (pending && pending.generation === this._generation && (pending.useVision || !useVision)) {
       return pending.promise;
     }
     const generation = this._generation;
-    const promise = this._readState(useVision, skipNetworkIdle).then(state => {
+    const promise = this._readState(useVision).then(state => {
       if (generation === this._generation) this._cachedState = state;
       return state;
     });
@@ -695,27 +643,28 @@ export default class Page {
     }
   }
 
-  private async _readState(useVision: boolean, skipNetworkIdle: boolean): Promise<PageState> {
+  private async _readState(useVision: boolean): Promise<PageState> {
     // The tab may have left an initial chrome://newtab/ URL since this Page was constructed.
     await this._revalidateFromTab();
     if (!this._validWebPage) {
-      return build_initial_state(this._tabId);
+      return build_initial_state(this._tabId, this._state.url, this._state.title);
     }
 
-    if (!skipNetworkIdle) {
+    // Network idle only after the page moved (a navigation, the first read); otherwise only the DOM must hold still.
+    const liveUrl = await this._browserAdapter.getTab(this._tabId).then(
+      tab => tab.url ?? '',
+      () => '',
+    );
+    if (liveUrl !== this._lastReadUrl) {
       await this.waitForPageAndFramesLoad();
-    } else {
-      try {
-        await this._waitForDomStability(200, 50);
-      } catch (err) {
-        logger.warning('[Page] Error waiting for DOM stability:', err);
-      }
     }
+    await this._waitForDomStability();
 
     const read = async (): Promise<PageState | null> => {
       try {
         return await this._updateState(useVision);
       } catch (error) {
+        if (error instanceof URLNotAllowedError) throw error;
         logger.warning(`[getState] Page read failed: ${error instanceof Error ? error.message : String(error)}`);
         return null;
       }
@@ -732,7 +681,10 @@ export default class Page {
       await new Promise(resolve => setTimeout(resolve, retryDelayMs));
       state = await read();
     }
-    if (state) return state;
+    if (state) {
+      this._lastReadUrl = state.url;
+      return state;
+    }
 
     // Never serve an older page as the current one: report the live tab with no elements.
     const tab = await this._browserAdapter.getTab(this._tabId).catch(() => null);
@@ -740,67 +692,7 @@ export default class Page {
   }
 
   async _updateState(useVision = false): Promise<PageState> {
-    // ── Puppeteer liveness check ─────────────────────────────────────────────
-    // _puppeteerPage may be null when the page was constructed from a newtab URL
-    // and Puppeteer hasn't attached yet (e.g. Gmail is still loading). In that
-    // case we skip the CDP ping and fall through to the chrome.scripting DOM
-    // extraction which works without Puppeteer.
-    if (this._puppeteerPage) {
-      try {
-        await this._puppeteerPage.evaluate('1');
-      } catch (error) {
-        logger.warning('Current page is no longer accessible via CDP:', error);
-        // Try to recover by grabbing another page from the browser
-        if (this._browser) {
-          try {
-            const pages = await this._browser.pages();
-            if (pages.length > 0) {
-              this._puppeteerPage = pages[0];
-            }
-          } catch {
-            // Browser disconnected — clear references; chrome.scripting still works
-            this._puppeteerPage = null;
-            this._browser = null;
-          }
-        } else {
-          // No browser reference — Puppeteer is gone, clear it
-          this._puppeteerPage = null;
-        }
-      }
-    } else {
-      // No CDP session yet — attempt a non-blocking re-attach so future interactions work
-      this.attachPuppeteer().catch(err =>
-        logger.debug('[_updateState] Background puppeteer re-attach failed (non-fatal):', err)
-      );
-    }
-
     try {
-      await this.removeHighlight();
-
-      // Get DOM content (equivalent to dom_service.get_clickable_elements)
-      // This part would need to be implemented based on your DomService logic
-      // showHighlightElements is true if either useVision or displayHighlights is true
-      const displayHighlights = this._config.displayHighlights || useVision;
-      const content = await this.getClickableElements(displayHighlights);
-      if (!content) {
-        throw new Error('Failed to get clickable elements');
-      }
-      // log the attributes of content object
-      if ('selectorMap' in content) {
-        logger.debug('content.selectorMap:', content.selectorMap.size);
-      } else {
-        logger.debug('content.selectorMap: not found');
-      }
-      if ('elementTree' in content) {
-        logger.debug('content.elementTree:', content.elementTree?.tagName);
-      } else {
-        logger.debug('content.elementTree: not found');
-      }
-
-      // Take screenshot if needed
-      const screenshot = useVision ? await this.takeScreenshot() : null;
-      const [scrollY, visualViewportHeight, scrollHeight] = await this.getScrollInfo();
-
       // chrome.tabs.get is the authoritative URL/title: puppeteer can report about:blank mid-navigation.
       let url: string;
       let title: string;
@@ -812,6 +704,23 @@ export default class Page {
         url = this._puppeteerPage?.url() || '';
         title = (await this._puppeteerPage?.title()) || '';
       }
+      // Checked on every read, so redirects, tab switches and pages opened by clicks cannot slip past the firewall.
+      if (url && !isNewTabPage(url) && !isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls)) {
+        await this._puppeteerPage?.goto(this._config.homePageUrl || 'about:blank').catch(() => undefined);
+        throw new URLNotAllowedError(`URL: ${url} is not allowed`);
+      }
+
+      await this.removeHighlight();
+      const displayHighlights = this._config.displayHighlights || useVision;
+      const content = await this.getClickableElements(displayHighlights);
+      if (!content) {
+        throw new Error('Failed to get clickable elements');
+      }
+
+      // Take screenshot if needed
+      const screenshot = useVision ? await this.takeScreenshot() : null;
+      const [scrollY, visualViewportHeight, scrollHeight] = await this.getScrollInfo();
+
       // A new object per read: states handed out earlier are never mutated.
       this._state = {
         elementTree: content.elementTree,
@@ -980,95 +889,39 @@ export default class Page {
   }
 
   async navigateTo(url: string): Promise<void> {
-    if (!this._puppeteerPage) {
-      return;
-    }
-    logger.info('navigateTo', url);
-
-    // Check if URL is allowed
     if (!isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls)) {
       throw new URLNotAllowedError(`URL: ${url} is not allowed`);
     }
-
-    try {
-      await Promise.all([this.waitForPageAndFramesLoad(), this._puppeteerPage.goto(url)]);
-      logger.info('navigateTo complete');
-    } catch (error) {
-      if (error instanceof URLNotAllowedError) {
-        throw error;
-      }
-
-      if (error instanceof Error && error.message.includes('timeout')) {
-        logger.warning('Navigation timeout, but page might still be usable:', error);
-        return;
-      }
-
-      logger.error('Navigation failed:', error);
-      throw error;
-    }
+    await this._navigate(page => page.goto(url, NAVIGATION_OPTIONS), `navigate to ${url}`);
   }
 
   async refreshPage(): Promise<void> {
-    if (!this._puppeteerPage) return;
-
-    try {
-      await Promise.all([this.waitForPageAndFramesLoad(), this._puppeteerPage.reload()]);
-      logger.info('Page refresh complete');
-    } catch (error) {
-      if (error instanceof URLNotAllowedError) {
-        throw error;
-      }
-
-      if (error instanceof Error && error.message.includes('timeout')) {
-        logger.warning('Refresh timeout, but page might still be usable:', error);
-        return;
-      }
-
-      logger.error('Page refresh failed:', error);
-      throw error;
-    }
+    await this._navigate(page => page.reload(NAVIGATION_OPTIONS), 'reload');
   }
 
   async goBack(): Promise<void> {
-    if (!this._puppeteerPage) return;
-
-    try {
-      await Promise.all([this.waitForPageAndFramesLoad(), this._puppeteerPage.goBack()]);
-      logger.info('Navigation back completed');
-    } catch (error) {
-      if (error instanceof URLNotAllowedError) {
-        throw error;
-      }
-
-      if (error instanceof Error && error.message.includes('timeout')) {
-        logger.warning('Back navigation timeout, but page might still be usable:', error);
-        return;
-      }
-
-      logger.error('Could not navigate back:', error);
-      throw error;
-    }
+    await this._navigate(page => page.goBack(NAVIGATION_OPTIONS), 'go back');
   }
 
   async goForward(): Promise<void> {
-    if (!this._puppeteerPage) return;
+    await this._navigate(page => page.goForward(NAVIGATION_OPTIONS), 'go forward');
+  }
 
-    try {
-      await Promise.all([this.waitForPageAndFramesLoad(), this._puppeteerPage.goForward()]);
-      logger.info('Navigation forward completed');
-    } catch (error) {
-      if (error instanceof URLNotAllowedError) {
-        throw error;
-      }
-
-      if (error instanceof Error && error.message.includes('timeout')) {
-        logger.warning('Forward navigation timeout, but page might still be usable:', error);
-        return;
-      }
-
-      logger.error('Could not navigate forward:', error);
-      throw error;
+  private async _navigate(navigation: (page: PuppeteerPage) => Promise<unknown>, label: string): Promise<void> {
+    await this.ensurePuppeteerConnected();
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer is not connected');
     }
+    logger.info(label);
+    this.invalidateCache();
+    try {
+      await navigation(this._puppeteerPage);
+    } catch (error) {
+      if (!(error instanceof Error && /timeout/i.test(error.message))) throw error;
+      logger.warning(`${label} timed out; continuing with the partly loaded page`);
+    }
+    const url = this._puppeteerPage?.url();
+    if (url) this.updateUrl(url);
   }
 
   // scroll to a percentage of the page or element
@@ -1076,6 +929,7 @@ export default class Page {
   // if elementNode is provided, scroll to a percentage of the element
   // if elementNode is not provided, scroll to a percentage of the page
   async scrollToPercent(yPercent: number, elementNode?: DOMElementNode): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
@@ -1116,6 +970,7 @@ export default class Page {
   }
 
   async scrollBy(y: number, elementNode?: DOMElementNode): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
@@ -1149,6 +1004,7 @@ export default class Page {
   }
 
   async scrollToPreviousPage(elementNode?: DOMElementNode): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
@@ -1176,6 +1032,7 @@ export default class Page {
   }
 
   async scrollToNextPage(elementNode?: DOMElementNode): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
@@ -1203,6 +1060,7 @@ export default class Page {
   }
 
   async sendKeys(keys: string): Promise<void> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer page is not connected');
     }
@@ -1320,6 +1178,7 @@ export default class Page {
   }
 
   async scrollToText(text: string, nth: number = 1): Promise<boolean> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
@@ -2081,11 +1940,12 @@ export default class Page {
   }
 
   private async _waitForStableNetwork() {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer page is not connected');
     }
 
-    const RELEVANT_RESOURCE_TYPES = new Set(['document', 'stylesheet', 'image', 'font', 'script', 'iframe']);
+    const RELEVANT_RESOURCE_TYPES = new Set(['document', 'stylesheet', 'image', 'font', 'script', 'iframe', 'xhr', 'fetch']);
 
     const RELEVANT_CONTENT_TYPES = new Set([
       'text/html',
@@ -2288,6 +2148,7 @@ export default class Page {
    * bypassing any need to scroll or stitch elements.
    */
   async getCompletePageContent(): Promise<string> {
+    await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer page is not connected');
     }

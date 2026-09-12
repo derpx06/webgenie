@@ -14,6 +14,43 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
 
+export function staleIndexResult(index: number, observationId: string): ActionResult {
+  return new ActionResult({
+    executed: false,
+    executionStatus: 'not_attempted',
+    validated: 'unknown',
+    retryability: 'retry_reobserve',
+    failureReason: `Element index ${index} is not on the current page; re-observe before acting.`,
+    extractedContent: `Element index ${index} is stale; re-observe before acting.`,
+    includeInMemory: true,
+    observationId,
+  });
+}
+
+/**
+ * The index, in the current read, of the element the model chose from the page in its prompt. Reads after an
+ * action can number elements differently; the element is matched by frame and backendNodeId. Null when gone.
+ */
+export function currentIndexFor(promptState: BrowserState | undefined, current: BrowserState, index: number): number | null {
+  if (!promptState || promptState.selectorMap === current.selectorMap) {
+    return current.selectorMap.has(index) ? index : null;
+  }
+  const chosen = promptState.selectorMap.get(index);
+  if (!chosen) return null;
+  for (const [candidateIndex, node] of current.selectorMap) {
+    if (node === chosen) return candidateIndex;
+    if (
+      chosen.backendNodeId !== undefined &&
+      node.backendNodeId === chosen.backendNodeId &&
+      node.frameKey === chosen.frameKey &&
+      node.tagName === chosen.tagName
+    ) {
+      return candidateIndex;
+    }
+  }
+  return null;
+}
+
 /** Stamps an indexed action with the observation it was chosen from. An index missing from that observation is stale. */
 export function normalizeIndexedAction(
   actionName: string,
@@ -26,19 +63,7 @@ export function normalizeIndexedAction(
 
   const target = observation.targets.find(candidate => candidate.index === actionArgs.index);
   if (!target) {
-    return {
-      ok: false,
-      actionResult: new ActionResult({
-        executed: false,
-        executionStatus: 'not_attempted',
-        validated: 'unknown',
-        retryability: 'retry_reobserve',
-        failureReason: `Element index ${actionArgs.index} is not on the current page; re-observe before acting.`,
-        extractedContent: `Element index ${actionArgs.index} is stale; re-observe before acting.`,
-        includeInMemory: true,
-        observationId: observation.id,
-      }),
-    };
+    return { ok: false, actionResult: staleIndexResult(actionArgs.index, observation.id) };
   }
 
   const targetFingerprint = { ...target, actionType: actionName };
