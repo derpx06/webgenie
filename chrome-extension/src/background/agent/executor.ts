@@ -159,9 +159,11 @@ export class Executor {
   private checkTaskCompletion(planOutput: AgentOutput<PlannerOutput> | null): boolean {
     if (planOutput?.result?.done) {
       const answer = planOutput.result.final_answer || this.context.finalAnswer || '';
-      if (echoesActionResult(answer)) {
-        // An answer quoting "Clicked button with index 2" reports what the agent did, not what the page shows.
-        const msg = 'The answer repeats an action result instead of text from the page. Read the requested text from the current page (wait if it is still loading) and answer with it.';
+      // An answer quoting "Clicked button with index 2" reports what the agent did, not what the page shows. Two refusals
+      // at most: a model that keeps quoting it should not burn the task's time limit.
+      if (echoesActionResult(answer) && this.context.echoRejections < 2) {
+        this.context.echoRejections++;
+        const msg = 'The answer quotes an action result ("Clicked …", "Dragged element …", "Input … into index …"), which is not page text. Answer again without quoting action results: describe only what the current page shows, or, if the task asks for no text, just say what was done. If a message the task asks for is still loading, wait and read it.';
         logger.warning(`Completion rejected: ${msg}`);
         this.context.finalAnswer = null;
         this.context.actionResults = [new ActionResult({

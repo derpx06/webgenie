@@ -83,6 +83,8 @@ export class AgentContext {
   taskStartUrl: string | null = null;
   /** Labels of the last drag's source and target, to refuse repeating a drag that already happened. */
   lastDragKey: string | null = null;
+  /** Completions refused this task because the answer quoted an action result; capped so a refusal never loops. */
+  echoRejections = 0;
   /** The page read shown to the models this step; element indexes in their actions refer to it. */
   promptState?: BrowserState;
   currentContract?: NextStepContract | null;
@@ -122,6 +124,7 @@ export class AgentContext {
     this.commitDecision = null;
     this.typedValues.clear();
     this.lastDragKey = null;
+    this.echoRejections = 0;
     this.memory = new InChatMemory();
     this.currentContract = null;
     this.validatedProgress = [];
