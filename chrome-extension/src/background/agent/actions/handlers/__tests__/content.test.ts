@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { DOMElementNode } from '../../../../browser/dom/views';
 import type { AgentContext } from '../../../types';
 import { ContentHandler } from '../content';
@@ -36,7 +35,7 @@ describe('ContentHandler indexed scrolling', () => {
         getCurrentPage: vi.fn(async () => page),
       },
     } as unknown as AgentContext;
-    const handler = new ContentHandler(context, {} as BaseChatModel);
+    const handler = new ContentHandler(context);
 
     await handler.handleScrollToTop({ intent: 'scroll to top', index: 0 });
 

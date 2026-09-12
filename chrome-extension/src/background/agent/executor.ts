@@ -55,7 +55,6 @@ function formatExecutionError(error: unknown): string {
 
 export interface ExecutorExtraArgs {
   plannerLLM?: BaseChatModel;
-  extractorLLM?: BaseChatModel;
   agentOptions?: Partial<AgentOptions>;
   generalSettings?: GeneralSettingsConfig;
 }
@@ -80,7 +79,6 @@ export class Executor {
     const messageManager = new MessageManager(undefined, taskId);
 
     const plannerLLM = extraArgs?.plannerLLM ?? navigatorLLM;
-    const extractorLLM = extraArgs?.extractorLLM ?? navigatorLLM;
     const eventManager = new EventManager();
     const context = new AgentContext(
       taskId,
@@ -95,7 +93,7 @@ export class Executor {
     this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep);
     this.plannerPrompt = new PlannerPrompt();
 
-    const actionBuilder = new ActionBuilder(context, extractorLLM);
+    const actionBuilder = new ActionBuilder(context);
     const navigatorActionRegistry = new NavigatorActionRegistry(actionBuilder.buildDefaultActions());
 
     // Initialize agents with their respective prompts

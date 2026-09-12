@@ -38,7 +38,6 @@ import {
   manageSessionsActionSchema
 } from './schemas';
 import { z } from 'zod';
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { SystemHandler } from './handlers/system';
 import { NavigationHandler } from './handlers/navigation';
 import { InteractionHandler } from './handlers/interaction';
@@ -189,23 +188,23 @@ export class ActionBuilder {
   private readonly manageSystemHandler: ManageSystemHandler;
   private readonly manageSessionsHandler: ManageSessionsHandler;
 
-  constructor(context: AgentContext, extractorLLM: BaseChatModel) {
-    this.systemHandler = new SystemHandler(context, extractorLLM);
-    this.navigationHandler = new NavigationHandler(context, extractorLLM);
-    this.interactionHandler = new InteractionHandler(context, extractorLLM);
-    this.tabHandler = new TabHandler(context, extractorLLM);
-    this.contentHandler = new ContentHandler(context, extractorLLM);
-    this.keyboardHandler = new KeyboardHandler(context, extractorLLM);
-    this.manageBookmarksHandler = new ManageBookmarksHandler(context, extractorLLM);
-    this.manageReadingListHandler = new ManageReadingListHandler(context, extractorLLM);
-    this.manageHistoryHandler = new ManageHistoryHandler(context, extractorLLM);
-    this.manageDownloadsHandler = new ManageDownloadsHandler(context, extractorLLM);
-    this.manageTabsHandler = new ManageTabsHandler(context, extractorLLM);
-    this.manageWindowsHandler = new ManageWindowsHandler(context, extractorLLM);
-    this.managePrivacyHandler = new ManagePrivacyHandler(context, extractorLLM);
-    this.manageExtensionsHandler = new ManageExtensionsHandler(context, extractorLLM);
-    this.manageSystemHandler = new ManageSystemHandler(context, extractorLLM);
-    this.manageSessionsHandler = new ManageSessionsHandler(context, extractorLLM);
+  constructor(context: AgentContext) {
+    this.systemHandler = new SystemHandler(context);
+    this.navigationHandler = new NavigationHandler(context);
+    this.interactionHandler = new InteractionHandler(context);
+    this.tabHandler = new TabHandler(context);
+    this.contentHandler = new ContentHandler(context);
+    this.keyboardHandler = new KeyboardHandler(context);
+    this.manageBookmarksHandler = new ManageBookmarksHandler(context);
+    this.manageReadingListHandler = new ManageReadingListHandler(context);
+    this.manageHistoryHandler = new ManageHistoryHandler(context);
+    this.manageDownloadsHandler = new ManageDownloadsHandler(context);
+    this.manageTabsHandler = new ManageTabsHandler(context);
+    this.manageWindowsHandler = new ManageWindowsHandler(context);
+    this.managePrivacyHandler = new ManagePrivacyHandler(context);
+    this.manageExtensionsHandler = new ManageExtensionsHandler(context);
+    this.manageSystemHandler = new ManageSystemHandler(context);
+    this.manageSessionsHandler = new ManageSessionsHandler(context);
   }
 
   buildDefaultActions(): Action[] {

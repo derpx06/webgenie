@@ -43,11 +43,6 @@
  *   Key methods: getAllGroups, groupTabs, addTabsToGroup, renameGroup, collapseGroup,
  *                expandGroup, createAgentWorkspaceGroup, getTabGroup
  *
- * built-in-ai-tools.ts   — Chrome AI APIs / Gemini Nano (no permission needed, Chrome 138+)
- *   Key methods: checkBuiltInAIAvailability, promptLocalAI, compactStepsLocally,
- *                summarizeText, detectLanguage, isEnglish, translateText,
- *                writeContent, rewriteContent
- *
  * ═══════════════════════════════════════════════════════════════════════════════
  * INTEGRATION ROADMAP
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -157,27 +152,6 @@ export {
   moveGroupToEnd,
 } from './tab-group-tools';
 export type { TabGroupInfo, GroupColor } from './tab-group-tools';
-
-// ── Chrome Built-in AI Tools ──────────────────────────────────────────────────
-export {
-  checkBuiltInAIAvailability,
-  isBuiltInAIAvailable,
-  promptLocalAI,
-  compactStepsLocally,
-  summarizeText,
-  detectLanguage,
-  isEnglish,
-  translateText,
-  writeContent,
-  rewriteContent,
-} from './built-in-ai-tools';
-export type {
-  AIAvailability,
-  LanguageDetectionResult,
-  SummaryType,
-  SummaryFormat,
-  SummaryLength,
-} from './built-in-ai-tools';
 
 // ── User Activity Tools ───────────────────────────────────────────────────────
 export { getFlatBookmarks, searchBookmarks, createBookmark } from './bookmarks';
