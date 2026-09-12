@@ -64,7 +64,6 @@ export abstract class BaseAgent<M = unknown> {
     messages: BaseMessage[],
     tools: ToolDefinition[],
     validators: Record<string, z.AnyZodObject>,
-    allowedActions?: string[],
   ): Promise<{ message: AIMessage; calls: ToolCallRequest[]; attempts: number }> {
     const run = () =>
       invokeTools({
@@ -72,7 +71,6 @@ export abstract class BaseAgent<M = unknown> {
         messages,
         tools,
         validators,
-        allowedActions,
         native: this.toolMode.nativeTools && typeof this.chatLLM.bindTools === 'function',
         forceToolChoice: this.toolMode.forceToolChoice,
         component: this.id,
@@ -144,8 +142,6 @@ export interface InvokeToolsOptions extends InvokeLLMOptions {
   native: boolean;
   /** Force the model to call a tool (LangChain tool_choice "any"). Ignored in fallback mode. */
   forceToolChoice?: boolean;
-  /** Tool names allowed by the current plan; empty or undefined means no restriction. */
-  allowedActions?: string[];
   maxReasks?: number;
 }
 
@@ -406,10 +402,6 @@ export async function invokeTools(
       const validator = options.validators[call.name];
       if (!validator) {
         problems.set(call.id, `unknown tool "${call.name}"; use one of: ${Object.keys(options.validators).join(', ')}`);
-        continue;
-      }
-      if (options.allowedActions?.length && !options.allowedActions.includes(call.name)) {
-        problems.set(call.id, `"${call.name}" is not allowed by the current plan; allowed: ${options.allowedActions.join(', ')}`);
         continue;
       }
       const parsed = validator.safeParse(call.args);

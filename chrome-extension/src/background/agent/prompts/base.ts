@@ -3,7 +3,7 @@ import type { AgentContext } from '@src/background/agent/types';
 import { wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
 import { ContextRouter } from '../memory';
-import { ensureBrowserObservation, fingerprintFailureKey } from '../validation/observation';
+import { ensureBrowserObservation } from '../validation/observation';
 
 const logger = createLogger('BasePrompt');
 
@@ -58,54 +58,16 @@ abstract class BasePrompt {
   async buildBrowserStateUserMessage(context: AgentContext): Promise<HumanMessage> {
     const browserState = await context.browserContext.getState(context.options.useVision);
 
-    // Compute page-path and layout fingerprint
-    // The URL is passed so the fingerprint is page-path-scoped (not just domain).
-    let layoutHash = '';
-    let domain = '';
-    let pagePath = '/';
-    
-    let isValidUrl = false;
-    if (browserState.url) {
-      try {
-        new URL(browserState.url);
-        isValidUrl = true;
-      } catch {
-        isValidUrl = false;
-      }
-    }
-
-    if (isValidUrl) {
-      try {
-        domain = new URL(browserState.url).hostname;
-        pagePath = ContextRouter.getPagePath(browserState.url);
-        layoutHash = await ContextRouter.computeLayoutFingerprint(browserState, browserState.url);
-        context.activeLayoutHash = layoutHash;
-        logger.info(`Layout fingerprint: ${layoutHash} | domain: ${domain} | path: ${pagePath}`);
-      } catch (err) {
-        logger.error('Failed to compute layout fingerprint:', err);
-      }
-    } else {
-      logger.warning(`Invalid or empty URL: "${browserState.url || ''}". Skipping layout fingerprinting.`);
-    }
-
-    // Apply goal-based DOM attention masking (unchanged)
-    try {
-      ContextRouter.applyAttentionMask(browserState, context.lastGoal);
-    } catch (err) {
-      logger.error('Failed to apply DOM attention mask:', err);
-    }
-
     const observation = ensureBrowserObservation(browserState);
     context.activeObservation = observation;
 
-    // JIT Selector Hint Recall — pagePath-scoped (no cross-page pollution)
-    let memoryHints = '';
-    if (layoutHash && domain) {
-      try {
-        memoryHints = await ContextRouter.getSelectorHints(domain, pagePath, layoutHash);
-      } catch (err) {
-        logger.error('Failed to load selector hints:', err);
-      }
+    let domain = '';
+    let pagePath = '/';
+    try {
+      domain = new URL(browserState.url).hostname;
+      pagePath = ContextRouter.getPagePath(browserState.url);
+    } catch {
+      // Not a web page (empty or browser URL): no site notes.
     }
 
     // JIT Episodic Context Recall — intent-matched top-2 past sessions for this domain
@@ -152,41 +114,15 @@ abstract class BasePrompt {
     let formattedElementsText = '';
     if (rawElementsText !== '') {
       const scrollPercentage = scrollViewportPercentage(browserState.scrollHeight, browserState.visualViewportHeight);
-      const scrollInfo = `[Scroll info of current page] window.scrollY: ${browserState.scrollY}, document.body.scrollHeight: ${browserState.scrollHeight}, window.visualViewport.height: ${browserState.visualViewportHeight}, visual viewport height as percentage of scrollable distance: ${scrollPercentage === null ? 'not scrollable' : `${scrollPercentage}%`}\n`;
+      const scrollInfo = `[Scroll info of current page] window.scrollY: ${browserState.scrollY}, page height: ${browserState.scrollHeight}, window.visualViewport.height: ${browserState.visualViewportHeight}, visual viewport height as percentage of scrollable distance: ${scrollPercentage === null ? 'not scrollable' : `${scrollPercentage}%`}\n`;
       logger.info(scrollInfo);
-
-      // ── FAILURE REGISTRY — annotate blocked elements ─────────────────────────
-      // Walk each line of the serialised element tree. Lines that start with
-      // an index marker like "[42]" are checked against the FailureRegistry.
-      // Blocked elements (failCount ≥ FAILURE_THRESHOLD) receive a visible
-      // ⛔ [BLOCKED] prefix so the LLM knows to avoid them and find another path.
-      const currentUrl = browserState.url;
-      const annotatedLines = rawElementsText.split('\n').map(line => {
-        // Match lines that begin with an element index, e.g. "[42] button ..."
-        const indexMatch = line.match(/^\[(\d+)\]/);
-        if (!indexMatch) return line;
-
-        const index = parseInt(indexMatch[1], 10);
-        const domElement = browserState.selectorMap.get(index);
-        if (!domElement) return line;
-
-        const target = observation.targets.find(candidate => candidate.index === index);
-        const selector = fingerprintFailureKey(target, currentUrl);
-
-        if (context.isSelectorBlocked(selector, currentUrl)) {
-          return `⛔ [BLOCKED - repeated no-op] ${line}`;
-        }
-        return line;
-      });
-      const annotatedText = annotatedLines.join('\n');
-      // ─────────────────────────────────────────────────────────────────
 
       // Use non-strict mode: strict would redact email addresses and credential-
       // shaped text found in page content (e.g. Gmail To: field, WhatsApp chat).
       // The `nano_untrusted_content` wrapper + system prompt already tell the LLM
       // to ignore injections — strict pattern-matching here causes more harm than good.
       const elementsText = wrapUntrustedContent(
-        capPromptSection(annotatedText, MAX_INTERACTIVE_ELEMENTS_CHARS, 'interactive DOM'),
+        capPromptSection(rawElementsText, MAX_INTERACTIVE_ELEMENTS_CHARS, 'interactive DOM'),
         /* filterFirst= */ false,
       );
 
@@ -236,7 +172,7 @@ abstract class BasePrompt {
       .map(tab => `- {id: ${tab.id}, url: ${clip(tab.url, 120)}, title: ${clip(tab.title, 80)}}`);
     if (allOtherTabs.length > MAX_OTHER_TABS) otherTabs.push(`- ...and ${allOtherTabs.length - MAX_OTHER_TABS} more tabs`);
 
-    // Notes shown above the page: domain briefing, the navigator's memory, past sessions, selector hints.
+    // Notes shown above the page: domain briefing, the navigator's memory, past sessions.
     let reflectionPrefix = '';
     if (domainPrime) {
       reflectionPrefix += domainPrime;
@@ -247,9 +183,6 @@ abstract class BasePrompt {
     }
     if (episodicContext) {
       reflectionPrefix += episodicContext;
-    }
-    if (memoryHints) {
-      reflectionPrefix += memoryHints;
     }
     if (reflectionPrefix) {
       reflectionPrefix = `${capPromptSection(reflectionPrefix, MAX_REFLECTION_CHARS, 'agent memory')}\n`;

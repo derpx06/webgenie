@@ -78,7 +78,6 @@ describe('PlannerAgent parse fallback', () => {
       goal: 'follow sam altman on twitter',
       mode: 'multi_step_task',
       expectedObservation: { observationId: 'obs-x-home' },
-      replanTrigger: 'validation_unknown',
     });
     expect(context.currentContract?.id).toBe(output.result?.next_step_contract?.id);
     expect(emittedEvents.some(event => event.state === ExecutionState.STEP_FAIL)).toBe(false);
@@ -107,7 +106,6 @@ describe('PlannerAgent parse fallback', () => {
 
     expect(output.macro_objective).toBe('NAVIGATE');
     expect(output.next_step_contract?.macroObjective).toBe('NAVIGATE');
-    expect(output.next_step_contract?.allowedActions).toContain('click_element');
   });
 });
 
@@ -118,7 +116,7 @@ describe('PlannerAgent response shape', () => {
 
     expect(tool.function.name).toBe('plan');
     expect(Object.keys(parameters.properties).sort()).toEqual([
-      'allowed_actions', 'done', 'final_answer', 'macro_objective', 'next_goal', 'success_condition',
+      'done', 'final_answer', 'macro_objective', 'next_goal', 'success_condition',
     ]);
     expect([...parameters.required].sort()).toEqual(['done', 'macro_objective', 'next_goal']);
     expect(plannerSystemPromptTemplate).toContain('plan tool');

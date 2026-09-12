@@ -139,11 +139,9 @@ describe('ContextBuilder packets', () => {
       mode: 'multi_step_task',
       goal: 'open the Travel category',
       macroObjective: 'NAVIGATE',
-      allowedActions: ['click_element'],
       expectedObservation: { observationId: null },
       successCondition: 'The Travel page is open',
       failureSignals: [],
-      replanTrigger: 'validation_failed',
       createdAt: 1,
     };
 

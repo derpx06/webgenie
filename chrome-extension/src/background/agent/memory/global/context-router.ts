@@ -1,56 +1,9 @@
 import { createLogger } from '../../../log';
-import type { DOMElementNode, DOMState } from '../../../browser/dom/views';
-import { WebGenieMemoryStore, intentSimilarity, timeDecayFactor } from './memory-store';
+import { WebGenieMemoryStore, intentSimilarity } from './memory-store';
 
 const logger = createLogger('ContextRouter');
 
 export class ContextRouter {
-
-  // ── Layout Fingerprinting ──────────────────────────────────────────────────
-
-  /**
-   * Generates a stable layout fingerprint from DOM branch path hashes + URL path.
-   *
-   * Including the URL path in the fingerprint is critical for page-path scoping:
-   * mail.google.com/compose and mail.google.com/inbox produce DIFFERENT fingerprints
-   * even if they share some DOM structure, preventing cross-page cache pollution.
-   * Research ref: goated_memory_architecture.md §Risk 5.
-   */
-  static async computeLayoutFingerprint(state: DOMState, url?: string): Promise<string> {
-    const hashes: string[] = [];
-    for (const element of state.selectorMap.values()) {
-      try {
-        const h = await element.hash();
-        if (h.branchPathHash) {
-          hashes.push(h.branchPathHash);
-        }
-      } catch {
-        // Skip individual element hash errors
-      }
-    }
-    hashes.sort();
-
-    // Seed the hash with the URL path so identical DOM on different pages
-    // produces different fingerprints (page-path isolation)
-    let hashVal = 0;
-    if (url) {
-      try {
-        const path = new URL(url).pathname + new URL(url).hash;
-        for (let i = 0; i < path.length; i++) {
-          hashVal = (hashVal << 5) - hashVal + path.charCodeAt(i);
-          hashVal = hashVal & hashVal;
-        }
-      } catch { /* ignore malformed URLs */ }
-    }
-
-    const hashStr = hashes.join(',');
-    for (let i = 0; i < hashStr.length; i++) {
-      const char = hashStr.charCodeAt(i);
-      hashVal = (hashVal << 5) - hashVal + char;
-      hashVal = hashVal & hashVal;
-    }
-    return `layout_${Math.abs(hashVal).toString(36)}`;
-  }
 
   /**
    * Extracts the URL page-path key (pathname + hash, capped at 100 chars).
@@ -91,42 +44,6 @@ export class ContextRouter {
       `task(s) on ${domain} (last visit: ${timeLabel}). ` +
       `${panels} Use this knowledge to orient yourself faster.\n`
     );
-  }
-
-  // ── Selector Hint Injection (JIT) ─────────────────────────────────────────
-
-  /**
-   * Recalls proven selector anchors for this domain + pagePath + layoutHash
-   * and formats them as actionable 💡 FAST PATH hints for the Navigator LLM.
-   *
-   * Format upgraded from informational to directive:
-   *   "💡 FAST PATH: To [intent], use xpath `...` (proven Nx, last used Xd ago)"
-   *
-   * This tells the LLM to use these FIRST before scanning the DOM —
-   * matching Stagehand's ActCache "fast path / slow path" pattern.
-   *
-   * Returns empty string when no proven anchors exist (zero degradation).
-   * Research ref: goated_memory_architecture.md §Component 5,
-   *               browser_agent_research_pt3.md §6 (Cache as Procedural Memory).
-   */
-  static async getSelectorHints(
-    domain: string,
-    pagePath: string,
-    layoutHash: string,
-  ): Promise<string> {
-    const anchors = await WebGenieMemoryStore.recallSelectors(domain, pagePath, layoutHash);
-    if (anchors.length === 0) return '';
-
-    let hints = '[Selector Memory — FAST PATH hints, try these FIRST before DOM scanning]:\n';
-    for (const anchor of anchors) {
-      const daysSince = Math.round((Date.now() - anchor.lastUsedTimestamp) / 86400000);
-      const timeLabel = daysSince === 0 ? 'today' : `${daysSince}d ago`;
-      hints +=
-        `💡 FAST PATH: To "${anchor.intentKey}", ` +
-        `use xpath \`${anchor.xpath}\` ` +
-        `(selector: \`${anchor.selector}\`, proven ${anchor.successRating}x, last: ${timeLabel})\n`;
-    }
-    return hints + '\n';
   }
 
   // ── Episodic Context Injection (JIT) ──────────────────────────────────────
@@ -238,101 +155,5 @@ export class ContextRouter {
     } catch (err) {
       logger.error('consolidateAfterTask failed:', err);
     }
-  }
-
-  // ── DOM Attention Masking ──────────────────────────────────────────────────
-
-  /**
-   * Masks elements in the DOMState tree based on keywords from the active goal.
-   * Keeps at least 25 elements as a safety floor (no contextual starvation).
-   * Research ref: goated_memory_architecture.md §Component 3, §Risk 1.
-   */
-  static applyAttentionMask(state: DOMState, goal: string | undefined): void {
-    if (!goal || goal.trim() === '') return;
-
-    const interactiveElements = Array.from(state.selectorMap.values());
-    if (interactiveElements.length <= 25) {
-      logger.info(`DOM has ${interactiveElements.length} elements ≤ 25. Skipping mask.`);
-      return;
-    }
-
-    const stopWords = new Set([
-      'and', 'the', 'for', 'with', 'this', 'that', 'your',
-      'please', 'click', 'button', 'link', 'input', 'select',
-    ]);
-    const keywords = goal
-      .toLowerCase()
-      .split(/\W+/)
-      .filter(w => w.length > 2 && !stopWords.has(w));
-
-    if (keywords.length === 0) {
-      logger.info('No keywords extracted from goal. Skipping mask.');
-      return;
-    }
-
-    logger.info(`DOM attention mask | keywords: [${keywords.join(', ')}]`);
-
-    const scoredElements = interactiveElements.map(el => {
-      let score = 0;
-      const attrText = Object.entries(el.attributes)
-        .map(([k, v]) => `${k} ${v}`)
-        .join(' ')
-        .toLowerCase();
-      const tagName = (el.tagName || '').toLowerCase();
-      const nodeText = el.getAllTextTillNextClickableElement().toLowerCase();
-
-      for (const kw of keywords) {
-        if (tagName.includes(kw))  score += 0.5;
-        if (attrText.includes(kw)) score += 1.0;
-        if (nodeText.includes(kw)) score += 1.0;
-      }
-      return { element: el, score };
-    });
-
-    const relevantCount = scoredElements.filter(se => se.score > 0).length;
-    if (relevantCount < 15) {
-      logger.info(`Only ${relevantCount} elements scored > 0 (< 15 threshold). Keeping full DOM.`);
-      return;
-    }
-
-    scoredElements.sort((a, b) => b.score - a.score);
-
-    const keepSet = new Set<number>();
-    for (let i = 0; i < Math.min(25, scoredElements.length); i++) {
-      const idx = scoredElements[i].element.highlightIndex;
-      if (idx !== null) keepSet.add(idx);
-    }
-    for (let i = 25; i < scoredElements.length; i++) {
-      const idx = scoredElements[i].element.highlightIndex;
-      if (scoredElements[i].score > 0 && idx !== null) keepSet.add(idx);
-    }
-
-    let maskedCount = 0;
-    for (const el of interactiveElements) {
-      if (el.highlightIndex !== null && !keepSet.has(el.highlightIndex)) {
-        el.highlightIndex = null;
-        maskedCount++;
-      }
-    }
-
-    if (maskedCount > 0) {
-      const visibleSelectorMap = new Map<number, DOMElementNode>();
-      let nextIndex = 0;
-      for (const el of interactiveElements) {
-        if (el.highlightIndex !== null) {
-          el.highlightIndex = nextIndex;
-          visibleSelectorMap.set(nextIndex, el);
-          nextIndex++;
-        }
-      }
-      state.selectorMap = visibleSelectorMap;
-
-      // Browser observations are derived from selectorMap. Once masking changes
-      // visible target indexes, force a fresh observation so the navigator,
-      // validator, and action handlers agree on the same index set.
-      delete (state as { observation?: unknown }).observation;
-    }
-
-    logger.info(`Attention mask complete: masked ${maskedCount}/${interactiveElements.length} elements.`);
   }
 }

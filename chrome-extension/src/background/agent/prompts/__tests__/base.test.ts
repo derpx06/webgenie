@@ -61,7 +61,6 @@ describe('browser prompt budgeting', () => {
       actionResults: [actionResult],
       lastGoal: undefined,
       messageManager: { getWorkingMemory: vi.fn().mockReturnValue('') },
-      isSelectorBlocked: vi.fn().mockReturnValue(false),
     } as unknown as AgentContext;
 
     const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);

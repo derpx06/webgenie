@@ -3,7 +3,6 @@ import { ProgressTracker } from './progress-tracker';
 import { TaskArchive } from './task-archive';
 import { ConversationTimeline, type TimelineEventType } from './conversation-timeline';
 import type { MemoryItem } from './types';
-import type { FailureRecord } from '../../types';
 import { createLogger } from '../../../log';
 
 const logger = createLogger('Memory');
@@ -68,7 +67,6 @@ export class InChatMemory {
   public progressTracker: ProgressTracker;
   public taskArchive: TaskArchive;
   public timeline: ConversationTimeline;
-  public failureRegistry: Map<string, FailureRecord>;
   private items: MemoryItem[] = [];
 
   constructor(primaryGoal = '') {
@@ -76,7 +74,6 @@ export class InChatMemory {
     this.progressTracker = new ProgressTracker();
     this.taskArchive = new TaskArchive();
     this.timeline = new ConversationTimeline();
-    this.failureRegistry = new Map<string, FailureRecord>();
 
     // Wire goal changed events to the timeline
     this.goalManager.onGoalChanged = (description, metadata) => {
@@ -297,7 +294,6 @@ export class InChatMemory {
       taskArchive: this.taskArchive.toJSON(),
       timeline: this.timeline.toJSON(),
       items: this.items,
-      failureRegistry: Array.from(this.failureRegistry.entries()),
     };
   }
 
@@ -307,12 +303,6 @@ export class InChatMemory {
     if (data.progress) this.progressTracker.fromJSON(data.progress);
     if (data.taskArchive) this.taskArchive.fromJSON(data.taskArchive);
     if (data.timeline) this.timeline.fromJSON(data.timeline);
-    if (Array.isArray(data.failureRegistry)) {
-      this.failureRegistry.clear();
-      for (const [key, val] of data.failureRegistry) {
-        this.failureRegistry.set(key, val);
-      }
-    }
     if (Array.isArray(data.items)) {
       this.items = [...data.items];
     }

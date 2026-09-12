@@ -14,88 +14,6 @@ function stringField(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value : fallback;
 }
 
-/** Actions the navigator may use whatever the current contract allows: finishing, asking, waiting and read-only observation. */
-export const ALWAYS_ALLOWED_ACTIONS = [
-  'done',
-  'ask_human',
-  'wait',
-  'go_back',
-  'get_complete_page_content',
-  'get_dropdown_options',
-  'scroll_to_text',
-  'scroll_to_top',
-  'scroll_to_bottom',
-  'scroll_to_percent',
-  'next_page',
-  'previous_page',
-];
-
-const ALLOWED_ACTIONS_BY_MACRO_OBJECTIVE: Record<MacroObjective, string[]> = {
-  NAVIGATE: ['go_to_url', 'search_google', 'search_web', 'open_tab', 'switch_tab', 'click_element', 'wait', 'done'],
-  SEARCH: ['search_web', 'search_google', 'input_text', 'click_element', 'send_keys', 'wait', 'done'],
-  FORM_FILL: [
-    'input_text',
-    'click_element',
-    'hover_element',
-    'right_click_element',
-    'select_dropdown_option',
-    'get_dropdown_options',
-    'send_keys',
-    'wait',
-    'done',
-  ],
-  EXTRACT_DATA: [
-    'get_complete_page_content',
-    'cache_content',
-    'scroll_to_text',
-    'scroll_to_percent',
-    'scroll_to_top',
-    'scroll_to_bottom',
-    'next_page',
-    'previous_page',
-    'wait',
-    'done',
-  ],
-  VERIFY_STATE: ['wait', 'get_complete_page_content', 'done'],
-  BROWSER_CONTROL: [
-    'open_tab',
-    'close_tab',
-    'switch_tab',
-    'manage_tabs',
-    'manage_windows',
-    'manage_bookmarks',
-    'manage_reading_list',
-    'manage_history',
-    'manage_downloads',
-    'manage_privacy',
-    'manage_extensions',
-    'manage_system',
-    'manage_sessions',
-    'wait',
-    'done',
-  ],
-  HANDLE_BLOCKER: ['click_element', 'input_text', 'send_keys', 'hover_element', 'wait', 'ask_human', 'done'],
-  EXPLORE_PAGE: [
-    'scroll_to_percent',
-    'scroll_to_top',
-    'scroll_to_bottom',
-    'scroll_to_text',
-    'next_page',
-    'previous_page',
-    'get_complete_page_content',
-    'click_element',
-    'hover_element',
-    'wait',
-    'done',
-  ],
-  ASK_HUMAN: ['ask_human', 'wait', 'done'],
-};
-
-/** The macro's actions plus any the planner asked for: the planner's list widens a phase, it never narrows it. */
-function allowedActionsFor(macroObjective: MacroObjective, requested: string[]): string[] {
-  return [...new Set([...ALLOWED_ACTIONS_BY_MACRO_OBJECTIVE[macroObjective], ...requested])];
-}
-
 function contractMode(output: PlannerLLMOutput): PlanningMode {
   if (output.done) return 'direct_answer';
   return output.macro_objective === 'ASK_HUMAN' ? 'blocked_human_needed' : 'multi_step_task';
@@ -108,19 +26,16 @@ export function buildNextStepContractFromPlannerOutput(
   const mode = contractMode(output);
   if (mode === 'direct_answer') return null;
 
-  const macroObjective = output.macro_objective;
   return {
     id: safeId('contract'),
     mode,
     goal: stringField(output.next_goal, stringField(context.goal, 'Continue task safely')),
-    macroObjective,
-    allowedActions: allowedActionsFor(macroObjective, Array.isArray(output.allowed_actions) ? output.allowed_actions : []),
+    macroObjective: output.macro_objective,
     expectedObservation: {
       observationId: observationId(context.currentObservation),
     },
     successCondition: stringField(output.success_condition, stringField(output.next_goal, 'Complete the next planned step.')),
     failureSignals: ['Validation failed or became unknown.'],
-    replanTrigger: mode === 'blocked_human_needed' ? 'human_needed' : 'validation_failed',
     createdAt: Date.now(),
   };
 }
@@ -128,24 +43,19 @@ export function buildNextStepContractFromPlannerOutput(
 export function createFallbackContract(params: PlannerContractContext & {
   mode?: PlanningMode;
   macroObjective?: MacroObjective;
-  allowedActions?: string[];
   successCondition?: string;
   failureSignals?: string[];
 }): NextStepContract {
-  const mode = params.mode ?? 'blocked_human_needed';
-  const macroObjective = params.macroObjective ?? 'ASK_HUMAN';
   return {
     id: safeId('contract'),
-    mode,
+    mode: params.mode ?? 'blocked_human_needed',
     goal: params.goal || 'Continue task safely',
-    macroObjective,
-    allowedActions: params.allowedActions ?? (mode === 'blocked_human_needed' ? ['ask_human'] : []),
+    macroObjective: params.macroObjective ?? 'ASK_HUMAN',
     expectedObservation: {
       observationId: observationId(params.currentObservation),
     },
     successCondition: params.successCondition ?? 'A safe next step is established before any browser mutation.',
     failureSignals: params.failureSignals ?? ['Planner contract was missing or malformed.'],
-    replanTrigger: mode === 'blocked_human_needed' ? 'human_needed' : 'validation_unknown',
     createdAt: Date.now(),
   };
 }
@@ -158,16 +68,13 @@ export function normalizeNextStepContract(
   if (!parsed.success) return createFallbackContract(context);
 
   const contract = parsed.data;
-  const expectedObservation = {
-    ...contract.expectedObservation,
-    observationId: contract.expectedObservation.observationId ?? observationId(context.currentObservation),
-  };
-
   return {
     ...contract,
     goal: contract.goal || context.goal || 'Continue task safely',
-    allowedActions: contract.allowedActions.length > 0 ? contract.allowedActions : ['ask_human'],
-    expectedObservation,
+    expectedObservation: {
+      ...contract.expectedObservation,
+      observationId: contract.expectedObservation.observationId ?? observationId(context.currentObservation),
+    },
     failureSignals: contract.failureSignals.length > 0 ? contract.failureSignals : ['No explicit failure signals supplied.'],
   };
 }
@@ -196,7 +103,6 @@ export function normalizePlannerOutputContract<T extends Record<string, unknown>
       ...fallbackContext,
       mode,
       macroObjective: 'EXPLORE_PAGE',
-      allowedActions: [],
       successCondition: stringField(output.next_goal, 'Complete the next planned step.'),
       failureSignals: ['Validation failed or became unknown.'],
     });

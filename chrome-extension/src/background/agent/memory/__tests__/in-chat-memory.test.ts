@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GoalManager, InChatMemory, ContextBuilder, jaroWinklerSimilarity } from '..';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
-import { AgentContext } from '../../types';
+import type { AgentContext } from '../../types';
 
 describe('GoalManager & Revisions', () => {
   it('tracks Goal Updates, Goal Revisions, and Conflicting Goals', () => {
@@ -188,44 +188,6 @@ describe('Jaro-Winkler String Similarity & Semantic Deduplication', () => {
     memory.resolveConflicts();
     const allFacts = memory.getActiveItemsByType('fact');
     expect(allFacts.length).toBe(3); // Consolidated budget fact + 2 distinct facts
-  });
-});
-
-describe('FailureRegistry Selector Blocking & Prompt Annotation', () => {
-  it('registers failures and flags blocked selectors', () => {
-    const mockBrowserContext = {} as any;
-    const mockMessageManager = {} as any;
-    const mockEventManager = {} as any;
-    
-    const context = new AgentContext(
-      'task-id',
-      mockBrowserContext,
-      mockMessageManager,
-      mockEventManager,
-      {}
-    );
-
-    const selector = 'button-checkout';
-    const url = 'https://example.com/checkout';
-
-    expect(context.isSelectorBlocked(selector, url)).toBe(false);
-
-    // Register first failure
-    context.registerFailure(selector, url, 'click_element');
-    expect(context.isSelectorBlocked(selector, url)).toBe(false);
-
-    // Register second failure (reaches FAILURE_THRESHOLD)
-    context.registerFailure(selector, url, 'click_element');
-    expect(context.isSelectorBlocked(selector, url)).toBe(true);
-
-    // Check mapping serialization/deserialization
-    const serialized = context.memory.toJSON();
-    expect(serialized.failureRegistry).toBeDefined();
-
-    const newMemory = new InChatMemory('Deserialized Memory');
-    newMemory.fromJSON(serialized);
-    expect(newMemory.failureRegistry.get(`${url}|${selector}`)).toBeDefined();
-    expect(newMemory.failureRegistry.get(`${url}|${selector}`)?.failCount).toBe(2);
   });
 });
 

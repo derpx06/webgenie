@@ -115,7 +115,6 @@ export class ContextBuilder {
         '[CURRENT PLAN]',
         `goal: ${contract.goal}`,
         `phase: ${contract.macroObjective}`,
-        `allowed actions: ${contract.allowedActions.join(', ') || 'any'}`,
         `success condition: ${contract.successCondition}`,
       ].join('\n')
       : '';

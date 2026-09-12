@@ -8,7 +8,7 @@ import { BrowserStateHistory, URLNotAllowedError, type BrowserState } from '@src
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
 import type { HumanMessage } from '@langchain/core/messages';
-import { WebGenieMemoryStore, ContextRouter, ContextBuilder } from '../memory';
+import { ContextBuilder } from '../memory';
 
 import { NavigatorActionRegistry } from './navigator/registry';
 export { NavigatorActionRegistry };
@@ -16,15 +16,12 @@ import { HistoryReplayer } from './navigator/replay';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
 import { ensureBrowserObservation } from '../validation/observation';
 import {
-  fingerprintFailureKey,
   isMutatingAction,
   normalizeIndexedAction,
   shouldStopAfterValidation,
-  shouldBlockRepeatedAction,
-  hasActionPostconditionSatisfied,
   validateActionOutcome,
 } from '../validation/service';
-import { ALWAYS_ALLOWED_ACTIONS, ProgressLedger } from '../contracts';
+import { ProgressLedger } from '../contracts';
 import type { BrowserObservation, TargetFingerprint } from '../validation/types';
 import { waitForActionSettled } from '../validation/settling';
 
@@ -75,12 +72,10 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
       const contextPacket = ContextBuilder.buildContextPacket(this.context, this.prompt.getSystemMessage(), state, 'navigator');
 
-      const contractActions = this.context.currentContract?.allowedActions ?? [];
       const { calls } = await this.invokeWithTools(
         contextPacket,
         this.actionRegistry.getTools(),
         this.actionRegistry.getValidators(),
-        contractActions.length > 0 ? [...new Set([...contractActions, ...ALWAYS_ALLOWED_ACTIONS])] : undefined,
       );
 
       if (this.isTaskInterrupted()) return agentOutput;
@@ -175,8 +170,18 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     const pollIntervalMs = Math.max(50, config.actionPollIntervalMs ?? 100);
     const startedAt = Date.now();
     const settleResult = await waitForActionSettled(
-      () => this.context.browserContext.getState(false, false, true),
-      state => hasActionPostconditionSatisfied({ actionName, actionArgs, before: beforeState, after: state }),
+      () => this.context.browserContext.getState(false, true),
+      // Polls until the action validates; an action with nothing to validate settles at once.
+      state => {
+        const { validated } = validateActionOutcome({
+          actionName,
+          actionArgs,
+          before: beforeState,
+          after: state,
+          result: new ActionResult({ executed: true, executionStatus: 'executed' }),
+        });
+        return validated === 'passed' || validated === 'not_applicable';
+      },
       {
         timeoutMs,
         pollIntervalMs,
@@ -281,37 +286,11 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
             }));
             break;
           }
-          if (shouldBlockRepeatedAction({
-            actionName,
-            actionArgs,
-            contractId,
-            recentResults: this.context.actionResults,
-          })) {
-            const msg = `Repeated ${actionName} on the same target did not produce validated progress; forcing replan.`;
-            const blockedResult = new ActionResult({
-              executed: false,
-              executionStatus: 'not_attempted',
-              validated: 'failed',
-              retryability: 'replan',
-              failureReason: msg,
-              extractedContent: msg,
-              includeInMemory: true,
-              observationId: beforeObservation.id,
-              targetFingerprint: targetFingerprintFromArgs(actionArgs),
-              contractId,
-              actionId,
-              validationId,
-              evidence: [{ kind: 'error', passed: false, message: msg }],
-            });
-            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
-            results.push(blockedResult);
-            break;
-          }
         }
 
         // Check if page state changed significantly between multi-actions
         if (i > 0 && indexArg !== null) {
-          const newState = await browserContext.getCachedState(this.context.options.useVision, false);
+          const newState = await browserContext.getCachedState(this.context.options.useVision);
           const newPathHashes = await calcBranchPathHashSet(newState);
           if (!newPathHashes.isSubsetOf(cachedPathHashes)) {
             const msg = `Something new appeared after action ${i} / ${actions.length}`;
@@ -349,7 +328,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         const postActionState = actionName === 'done' || actionName === 'ask_human'
           ? beforeState
           : result.error
-            ? await browserContext.getState(false, false, true)
+            ? await browserContext.getState(false, true)
             : await this.getSettledPostActionState(actionName, actionArgs, beforeState);
         ensureBrowserObservation(postActionState);
         result = validateActionOutcome({
@@ -358,7 +337,6 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           before: beforeState,
           after: postActionState,
           result,
-          recentResults: results,
         });
         record({
           level: result.validated === 'failed' ? 'warning' : 'info',
@@ -418,30 +396,6 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           const domElement = browserState.selectorMap.get(indexArg);
           if (domElement) {
             result.interactedElement = HistoryTreeProcessor.convertDomElementToHistoryElement(domElement);
-
-            // Record successful interactions to memory store
-            if (!result.error && result.validated === 'passed' && result.interactedElement) {
-              try {
-                const domain = new URL(browserState.url).hostname;
-                const pagePath = ContextRouter.getPagePath(browserState.url);
-                const layoutHash = this.context.activeLayoutHash;
-                const intentKey = this.context.lastGoal || '';
-                const xpath = result.interactedElement.xpath;
-                const selector = result.interactedElement.cssSelector ||
-                  (domElement.attributes?.['id'] ? `#${domElement.attributes['id']}` : '') ||
-                  (domElement.attributes?.['data-webgenie-id'] ? `[data-webgenie-id="${domElement.attributes['data-webgenie-id']}"]` : '') ||
-                  domElement.tagName || '';
-
-                if (domain && pagePath && layoutHash && xpath && selector) {
-                  void WebGenieMemoryStore.learnSelector(
-                    domain, pagePath, layoutHash, intentKey, selector, xpath,
-                  );
-                  logger.info(`Learned selector | intent="${intentKey}" xpath=${xpath}`);
-                }
-              } catch (err) {
-                logger.error('Failed to save successful selector in memory store:', err);
-              }
-            }
           }
         }
 
@@ -465,21 +419,6 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           break;
         }
 
-        if (result.validated === 'failed' && indexArg !== null) {
-          const failureKey = fingerprintFailureKey(result.targetFingerprint, browserState.url);
-          this.context.registerFailure(failureKey, browserState.url, actionName);
-
-          const failRecord = this.context.failureRegistry.get(failureKey);
-          if (failRecord && failRecord.failCount >= 2) {
-            const blockMsg = `[FailureRegistry] ⛔ target="${failureKey}" is now BLOCKED ` +
-              `(${failRecord.failCount} validated failures on ${browserState.url})`;
-            console.warn(blockMsg);
-            logger.warning(blockMsg);
-          }
-        } else if (postActionState.url !== browserState.url) {
-          this.context.clearFailuresForUrl(browserState.url);
-        }
-
         if (shouldStopAfterValidation(result, actionName)) {
           logger.warning(`Action ${i + 1} (${actionName}) validation=${result.validated}; stopping queue for re-observe/replan.`);
           if (result.failureReason) {
@@ -498,7 +437,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         }
 
         if (this.isTaskInterrupted()) break;
-        const statePreFetchPromise = browserContext.getState(this.context.options.useVision, false, true);
+        const statePreFetchPromise = browserContext.getState(this.context.options.useVision, true);
         await this.delayBetweenActions();
         await statePreFetchPromise.catch(err => {
           logger.warning(`State pre-fetch failed: ${err.message}`);
@@ -538,7 +477,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
     if (!this.isTaskInterrupted()) {
       logger.info('Starting background pre-fetch of final state for next turn...');
-      void browserContext.getState(this.context.options.useVision, false, true).catch(err => {
+      void browserContext.getState(this.context.options.useVision, true).catch(err => {
         logger.warning(`Final state pre-fetch failed: ${err.message}`);
       });
     }

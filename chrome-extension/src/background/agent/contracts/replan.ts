@@ -1,115 +1,33 @@
-import type { ActionResult } from '../types';
-import type { ReplanDecision } from './types';
+import type { ReplanDecision, ReplanTrigger } from './types';
 
 export interface ReplanDecisionInput {
-  step: number;
+  /** False until the planner has run in this execution (new task, follow-up or resume). */
+  planned: boolean;
   navigatorDone: boolean;
-  latestResults: ActionResult[];
+  /** The navigator produced no usable action last step (invalid output after re-asks, model error). */
+  navigatorErrored: boolean;
+  /** The last step asked the user; their answer must reach the planner. */
+  waitingForHuman: boolean;
+  /** Consecutive steps whose last page-changing action validated failed or unknown. */
+  unvalidatedSteps: number;
+  /** The same actions were repeated on an unchanged page. */
+  stalled: boolean;
   stepsSinceLastPlan: number;
   planningInterval: number;
-  progressStalled: boolean;
-  retrySameAttemptsForContract?: number;
-  currentContractId?: string | null;
 }
 
+const replan = (trigger: ReplanTrigger, reason: string): ReplanDecision => ({ shouldReplan: true, trigger, reason });
+
+/** Replans only when the planner can learn something new. Triggers are checked in precedence order. */
 export function getReplanDecision(input: ReplanDecisionInput): ReplanDecision {
-  if (input.step === 0) {
-    return {
-      shouldReplan: true,
-      trigger: 'step_interval',
-      reason: 'Initial step requires a planner contract.',
-      retryability: null,
-      failedContractId: input.currentContractId ?? undefined,
-    };
+  if (!input.planned) return replan('initial', 'The task needs a plan.');
+  if (input.waitingForHuman) return replan('human_needed', 'The user answered; the plan must use the answer.');
+  if (input.navigatorDone) return replan('contract_complete', 'The navigator reported completion; the planner verifies it.');
+  if (input.navigatorErrored) return replan('navigator_error', 'The navigator could not produce a valid action.');
+  if (input.unvalidatedSteps >= 2) {
+    return replan('validation', `${input.unvalidatedSteps} consecutive steps did not validate.`);
   }
-
-  const latestMutating = [...input.latestResults].reverse().find(result => result.executed);
-  if (latestMutating) {
-    if (latestMutating.isWaitingForHuman) {
-      return {
-        shouldReplan: true,
-        trigger: 'human_needed',
-        reason: 'Latest action is waiting for human input.',
-        retryability: latestMutating.retryability,
-        failedContractId: input.currentContractId ?? latestMutating.contractId ?? undefined,
-      };
-    }
-
-    if (latestMutating.retryability === 'fatal') {
-      return {
-        shouldReplan: true,
-        trigger: 'fatal_error',
-        reason: latestMutating.failureReason ?? 'Latest action reported a fatal failure.',
-        retryability: latestMutating.retryability,
-        failedContractId: input.currentContractId ?? latestMutating.contractId ?? undefined,
-      };
-    }
-
-    if (latestMutating.validated === 'unknown' || latestMutating.retryability === 'retry_reobserve') {
-      return {
-        shouldReplan: true,
-        trigger: 'validation_unknown',
-        reason: latestMutating.failureReason ?? 'Latest action validation is unknown; re-observe and replan.',
-        retryability: latestMutating.retryability,
-        failedContractId: input.currentContractId ?? latestMutating.contractId ?? undefined,
-      };
-    }
-
-    if (latestMutating.validated === 'failed' || latestMutating.retryability === 'replan') {
-      if (latestMutating.retryability === 'retry_same' && (input.retrySameAttemptsForContract ?? 0) < 1) {
-        return {
-          shouldReplan: false,
-          trigger: 'validation_failed',
-          reason: 'Validation failed with retry_same; allow one retry under the same contract.',
-          retryability: latestMutating.retryability,
-          failedContractId: input.currentContractId ?? latestMutating.contractId ?? undefined,
-        };
-      }
-      return {
-        shouldReplan: true,
-        trigger: 'validation_failed',
-        reason: latestMutating.failureReason ?? 'Latest action validation failed.',
-        retryability: latestMutating.retryability,
-        failedContractId: input.currentContractId ?? latestMutating.contractId ?? undefined,
-      };
-    }
-  }
-
-  if (input.navigatorDone) {
-    return {
-      shouldReplan: true,
-      trigger: 'contract_complete',
-      reason: 'Navigator reported step completion; planner must verify final state.',
-      retryability: null,
-      failedContractId: input.currentContractId ?? undefined,
-    };
-  }
-
-  if (input.progressStalled) {
-    return {
-      shouldReplan: true,
-      trigger: 'progress_stall',
-      reason: 'Recent outputs repeated or progress stalled.',
-      retryability: null,
-      failedContractId: input.currentContractId ?? undefined,
-    };
-  }
-
-  if (input.stepsSinceLastPlan >= input.planningInterval) {
-    return {
-      shouldReplan: true,
-      trigger: 'step_interval',
-      reason: 'Planner interval elapsed.',
-      retryability: null,
-      failedContractId: input.currentContractId ?? undefined,
-    };
-  }
-
-  return {
-    shouldReplan: false,
-    trigger: 'step_interval',
-    reason: 'Current contract remains active.',
-    retryability: null,
-    failedContractId: input.currentContractId ?? undefined,
-  };
+  if (input.stalled) return replan('progress_stall', 'The same actions repeated on an unchanged page.');
+  if (input.stepsSinceLastPlan >= input.planningInterval) return replan('step_interval', 'Planner interval elapsed.');
+  return { shouldReplan: false, trigger: 'none', reason: 'The current plan remains active.' };
 }

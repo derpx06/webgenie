@@ -43,6 +43,7 @@ import {
   shouldForceReplanAfterResume,
 } from './contracts';
 import { ensureBrowserObservation } from './validation/observation';
+import type { ValidationStatus } from './validation/types';
 
 const logger = createLogger('Executor');
 
@@ -52,6 +53,13 @@ function formatExecutionError(error: unknown): string {
     return `${error.message}: ${cause}`;
   }
   return error instanceof Error ? error.message : String(error);
+}
+
+/** One navigator step as the loop sees it: completion claimed, no usable action, and the last validation outcome. */
+interface NavigatorStep {
+  done: boolean;
+  errored: boolean;
+  outcome: ValidationStatus | null;
 }
 
 export interface ExecutorExtraArgs {
@@ -71,7 +79,8 @@ export class Executor {
   private readonly generalSettings: GeneralSettingsConfig | undefined;
   private tasks: string[] = [];
   private lastPlanningStep = -1;
-  private lastPlanningUrl: string | null = null;
+  /** `actions|layoutFingerprint` per navigator step, for stall detection. */
+  private stepKeys: string[] = [];
   constructor(
     task: string,
     taskId: string,
@@ -242,7 +251,11 @@ export class Executor {
 
       let step = 0;
       let latestPlanOutput: AgentOutput<PlannerOutput> | null = null;
+      let planned = false;
       let navigatorDone = false;
+      let navigatorErrored = false;
+      let unvalidatedSteps = 0;
+      let stalled = false;
       const deterministicRoute = ExecutionRouter.routeTask(taskText);
       if (deterministicRoute) {
         context.currentContract = deterministicRoute.contract;
@@ -276,8 +289,17 @@ export class Executor {
           break;
         }
 
-        // Run planner on cadence, completion handoff, or stagnation
-        const replanDecision = this.getReplanDecision(step, navigatorDone);
+        const replanDecision = getReplanDecision({
+          planned,
+          navigatorDone,
+          navigatorErrored,
+          waitingForHuman: context.actionResults.some(result => result.isWaitingForHuman),
+          unvalidatedSteps,
+          stalled,
+          stepsSinceLastPlan: context.nSteps - this.lastPlanningStep,
+          planningInterval: context.options.planningInterval,
+        });
+        logger.info(`[Planner] Replan decision: ${replanDecision.shouldReplan} trigger=${replanDecision.trigger} reason=${replanDecision.reason}`);
         // One page-state build per step, shared by the planner and the navigator. It is built lazily, after the
         // replan decision above has read the previous step's action results.
         let stepState: Promise<HumanMessage> | null = null;
@@ -289,6 +311,10 @@ export class Executor {
         if (this.planner && replanDecision.shouldReplan) {
           navigatorDone = false;
           latestPlanOutput = await this.runPlanner(getStepState);
+          if (latestPlanOutput) {
+            planned = true;
+            unvalidatedSteps = 0;
+          }
           await this.saveCheckpoint(taskText, 'running');
 
           // Check if task is complete after planner run
@@ -297,11 +323,19 @@ export class Executor {
           }
         }
 
-        // Execute navigator
-        navigatorDone = await this.navigate(getStepState);
+        const navigatorStep = await this.navigate(getStepState);
+        navigatorDone = navigatorStep.done;
+        navigatorErrored = navigatorStep.errored;
+        // Unknown and failed both mean the page did not confirm the action; passed resets the streak.
+        if (navigatorStep.outcome === 'passed') unvalidatedSteps = 0;
+        else if (navigatorStep.outcome === 'failed' || navigatorStep.outcome === 'unknown') unvalidatedSteps++;
+        stalled = !navigatorErrored && this.recordStepAndCheckStall();
+        if (stalled) {
+          context.consecutiveFailures++;
+          logger.warning(`Progress stalled: the same actions repeated on an unchanged page (failures ${context.consecutiveFailures}/${context.options.maxFailures})`);
+        }
         await this.saveCheckpoint(taskText, context.waitingForHuman ? 'waiting_human' : 'running');
 
-        // If navigator indicates completion, the next periodic planner run will validate it
         if (navigatorDone) {
           logger.info('🔄 Navigator indicates completion - will be validated by next planner run');
         }
@@ -348,7 +382,7 @@ export class Executor {
           if (currentUrl) {
             const domain = new URL(currentUrl).hostname;
             const pagePath = ContextRouter.getPagePath(currentUrl);
-            const layoutHash = context.activeLayoutHash || '';
+            const layoutHash = context.activeObservation?.layoutFingerprint ?? '';
             const finalAnswer = context.finalAnswer || '';
             await ContextRouter.consolidateAfterTask(
               domain,
@@ -384,9 +418,12 @@ export class Executor {
         const errorCategory = analytics.categorizeError(maxStepsError);
         void analytics.trackTaskFailed(this.context.taskId, errorCategory);
       } else {
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_PAUSE, t('exec_task_pause'));
-        await this.saveCheckpoint(taskText, 'paused');
-        // Note: We don't track pause as it's not a final state
+        // The loop only stops early on the failure budget.
+        const failureMessage = t('exec_errors_maxFailuresReached');
+        logger.error(`❌ Task failed: ${failureMessage}`);
+        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_task_fail', [failureMessage]));
+        await this.saveCheckpoint(taskText, 'failed');
+        void analytics.trackTaskFailed(this.context.taskId, analytics.categorizeError(new MaxFailuresReachedError(failureMessage)));
       }
 
       if (this.context.parentRun) {
@@ -402,8 +439,7 @@ export class Executor {
           } else if (step >= allowedMaxSteps) {
             finalOutput = { status: 'failed', error: 'Max steps reached' };
           } else {
-            finalStatus = 'paused';
-            finalOutput = { status: 'paused' };
+            finalOutput = { status: 'failed', error: 'Max failures reached' };
           }
           await this.context.parentRun.end(finalOutput, undefined, undefined, { status: finalStatus });
           await this.context.parentRun.patchRun();
@@ -457,44 +493,6 @@ export class Executor {
       } catch (err) {
         logger.error('Failed to store task step history:', err);
       }
-    }
-  }
-
-  private getReplanDecision(step: number, navigatorDone: boolean) {
-    const contractId = this.context.currentContract?.id ?? null;
-    const retryAttempts = contractId ? (this.context.retrySameAttemptsByContract[contractId] ?? 0) : 0;
-    const decision = getReplanDecision({
-      step,
-      navigatorDone,
-      latestResults: this.context.actionResults,
-      stepsSinceLastPlan: step - this.lastPlanningStep,
-      planningInterval: this.context.options.planningInterval,
-      progressStalled: this.hasRecentProgressStall() || this.hasHostChangedSinceLastPlan(),
-      retrySameAttemptsForContract: retryAttempts,
-      currentContractId: contractId,
-    });
-
-    const latest = [...this.context.actionResults].reverse().find(result => result.executed);
-    if (contractId && latest?.retryability === 'retry_same' && !decision.shouldReplan) {
-      this.context.retrySameAttemptsByContract[contractId] = retryAttempts + 1;
-    }
-
-    logger.info(`[Planner] Replan decision: ${decision.shouldReplan} trigger=${decision.trigger} reason=${decision.reason}`);
-    return decision;
-  }
-
-  private hasHostChangedSinceLastPlan(): boolean {
-    const currentTabId = this.context.browserContext.getCurrentTabId();
-    if (!currentTabId) return false;
-    const page = this.context.browserContext.getPageForTab(currentTabId);
-    const currentUrl = page?.url();
-    if (!currentUrl || !this.lastPlanningUrl) return false;
-    try {
-      const currentHost = new URL(currentUrl).hostname;
-      const lastHost = new URL(this.lastPlanningUrl).hostname;
-      return currentHost !== lastHost;
-    } catch {
-      return false;
     }
   }
 
@@ -584,24 +582,19 @@ export class Executor {
     }
   }
 
-  /**
-   * Detect repeated planner/navigator outputs to break low-value loops early.
-   * This keeps planning responsive when the agent is stuck on the same strategy.
-   */
-  private hasRecentProgressStall(): boolean {
-    const records = this.context.history.history;
-    if (records.length < 3) return false;
-
-    // Compare actions only: the memory text differs between outputs even when the agent is stuck.
-    const lastThree = records.slice(-3).map(r => {
-      try {
-        return JSON.stringify((JSON.parse(r.modelOutput || '{}') as { action?: unknown }).action ?? null);
-      } catch {
-        return 'null';
-      }
-    });
-    if (lastThree.some(v => v === 'null')) return false;
-    return lastThree[0] === lastThree[1] && lastThree[1] === lastThree[2];
+  /** Records this step's actions and resulting layout; three identical entries in a row are a stall. */
+  private recordStepAndCheckStall(): boolean {
+    const record = this.context.history.history[this.context.history.history.length - 1];
+    let actions = 'null';
+    try {
+      actions = JSON.stringify((JSON.parse(record?.modelOutput || '{}') as { action?: unknown }).action ?? null);
+    } catch {
+      // Unparseable output is not a repeat.
+    }
+    if (actions === 'null') return false;
+    this.stepKeys.push(`${actions}|${this.context.activeObservation?.layoutFingerprint ?? ''}`);
+    const lastThree = this.stepKeys.slice(-3);
+    return lastThree.length === 3 && lastThree.every(key => key === lastThree[0]);
   }
 
   /**
@@ -622,10 +615,6 @@ export class Executor {
       // The planner gets the page on every run, including the first; without it it plans blind.
       const planOutput = await this.planner.execute(await getState());
       this.lastPlanningStep = this.context.nSteps;
-      const currentPage = await this.context.browserContext.getCurrentPage().catch(() => null);
-      if (currentPage) {
-        this.lastPlanningUrl = currentPage.url();
-      }
       // If planner returned an error (e.g., LLM API crash), treat it as an execution failure
       // so it counts toward consecutiveFailures and eventually stops the loop.
       if (planOutput.error) {
@@ -670,65 +659,56 @@ export class Executor {
     }
   }
 
-  private async navigate(getState: () => Promise<HumanMessage>): Promise<boolean> {
+  /** Runs one navigator step and charges the failure budget: failed results and errors cost, passed and done reset. */
+  private async navigate(getState: () => Promise<HumanMessage>): Promise<NavigatorStep> {
     const context = this.context;
+    const idle: NavigatorStep = { done: false, errored: false, outcome: null };
     try {
-      // Get and execute navigation action
-      // check if the task is paused or stopped
       if (context.paused || context.stopped) {
-        return false;
+        return idle;
       }
       console.log(`\n[Navigator] ── invoking LLM ── step=${context.nSteps + 1}  ${new Date().toISOString()}`);
       const navOutput = await this.navigator.execute(await getState());
-      // check if the task is paused or stopped
       if (context.paused || context.stopped) {
-        return false;
+        return idle;
       }
       context.nSteps++;
       if (navOutput.error) {
         throw new Error(navOutput.error);
       }
 
-      // Check if navigator is waiting for human
       const results = context.actionResults;
-      const latestResult = [...results].reverse().find(result => result.executed || result.validated !== 'not_applicable');
-      if (results.some(r => r.isWaitingForHuman)) {
-        const lastWaitingResult = [...results].reverse().find(r => r.isWaitingForHuman);
-        if (lastWaitingResult) {
-          context.waitingForHuman = true;
-          let questionText = lastWaitingResult.extractedContent || 'The agent needs your input.';
-          try {
-            // Try to parse if it was emitted as a structural event
-            const details = JSON.parse(lastWaitingResult.extractedContent || '{}');
-            if (details.question) questionText = details.question;
-          } catch (e) {
-            // Fallback to legacy string format
-          }
-          context.humanQuestion = questionText;
-          logger.info(`Agent is waiting for human: ${context.humanQuestion}`);
-          return false;
+      const lastWaitingResult = [...results].reverse().find(r => r.isWaitingForHuman);
+      if (lastWaitingResult) {
+        context.waitingForHuman = true;
+        let questionText = lastWaitingResult.extractedContent || 'The agent needs your input.';
+        try {
+          const details = JSON.parse(lastWaitingResult.extractedContent || '{}');
+          if (details.question) questionText = details.question;
+        } catch {
+          // Plain-text question.
         }
+        context.humanQuestion = questionText;
+        logger.info(`Agent is waiting for human: ${context.humanQuestion}`);
+        return idle;
       }
 
-      if (latestResult?.validated === 'passed' || navOutput.result?.done) {
+      const done = navOutput.result?.done === true;
+      const latest = [...results].reverse().find(result => result.validated !== 'not_applicable');
+      const outcome = latest?.validated ?? null;
+      if (done || outcome === 'passed') {
         context.consecutiveFailures = 0;
-      } else if (latestResult && (latestResult.validated === 'failed' || latestResult.validated === 'unknown')) {
-        const failureDetail = latestResult.failureReason ?? latestResult.error ?? latestResult.validated;
-        const isTransientRecovery = latestResult.retryability === 'retry_reobserve' || latestResult.retryability === 'retry_same';
-        logger.warning(`Navigator action did not validate (${latestResult.retryability}): ${failureDetail}`);
-        if (isTransientRecovery) {
-          logger.info(`Transient navigator failure will be recovered by re-observation without consuming the failure budget: ${failureDetail}`);
-        } else {
-          context.consecutiveFailures++;
-          if (context.consecutiveFailures >= context.options.maxFailures) {
-            throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'), failureDetail);
-          }
+      } else if (outcome === 'failed') {
+        const failureDetail = latest?.failureReason ?? latest?.error ?? 'failed';
+        context.consecutiveFailures++;
+        logger.warning(`Navigator action failed (${context.consecutiveFailures}/${context.options.maxFailures}): ${failureDetail}`);
+        if (context.consecutiveFailures >= context.options.maxFailures) {
+          throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'), failureDetail);
         }
+      } else if (outcome === 'unknown') {
+        logger.info(`Navigator action did not validate: ${latest?.failureReason ?? 'no observable change'}`);
       }
-
-      if (navOutput.result?.done) {
-        return true;
-      }
+      return { done, errored: false, outcome };
     } catch (error) {
       logger.error(`Failed to execute step: ${error}`);
       if (
@@ -739,17 +719,17 @@ export class Executor {
         error instanceof ChatModelPaymentRequiredError ||
         error instanceof URLNotAllowedError ||
         error instanceof RequestCancelledError ||
-        error instanceof ExtensionConflictError
+        error instanceof ExtensionConflictError ||
+        error instanceof MaxFailuresReachedError
       ) {
         throw error;
       }
       context.consecutiveFailures++;
-      logger.error(`Failed to execute step: ${error}`);
       if (context.consecutiveFailures >= context.options.maxFailures) {
         throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'), error);
       }
+      return { done: false, errored: true, outcome: null };
     }
-    return false;
   }
 
   private async shouldStop(): Promise<boolean> {

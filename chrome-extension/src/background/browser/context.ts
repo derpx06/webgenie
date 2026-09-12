@@ -439,16 +439,10 @@ export default class BrowserContext {
     return tabInfos;
   }
 
-  public async getCachedState(useVision = false, cacheClickableElementsHashes = false): Promise<BrowserState> {
+  /** The last page read while it is still current (not invalidated, same URL); otherwise a new read. */
+  public async getCachedState(useVision = false): Promise<BrowserState> {
     const currentPage = await this.getCurrentPage();
-
-    let pageState = !currentPage ? build_initial_state() : currentPage.getCachedState();
-    const pendingPromise = currentPage?.getPendingStatePromise();
-    if (pendingPromise) {
-      pageState = await pendingPromise;
-    } else if (!pageState) {
-      pageState = await currentPage.getState(useVision, cacheClickableElementsHashes);
-    }
+    const pageState = currentPage ? await currentPage.getCurrentState(useVision) : build_initial_state();
 
     const tabInfos = await this.getTabInfos();
     const browserState: BrowserState = {
@@ -459,13 +453,13 @@ export default class BrowserContext {
     return browserState;
   }
 
-  public async getState(useVision = false, cacheClickableElementsHashes = false, skipNetworkIdle = false): Promise<BrowserState> {
+  public async getState(useVision = false, skipNetworkIdle = false): Promise<BrowserState> {
     const startedAt = Date.now();
     const currentPage = await this.getCurrentPage();
 
     const pageState = !currentPage
       ? build_initial_state()
-      : await currentPage.getState(useVision, cacheClickableElementsHashes, skipNetworkIdle);
+      : await currentPage.getState(useVision, skipNetworkIdle);
     const tabInfos = await this.getTabInfos();
     const browserState: BrowserState = {
       ...pageState,

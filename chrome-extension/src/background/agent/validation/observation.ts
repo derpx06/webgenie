@@ -32,6 +32,23 @@ function nodeText(node: DOMElementNode, maxDepth = 2): string {
   return parts.join(' ');
 }
 
+/** All text in the tree, in document order. */
+function pageText(root: DOMElementNode | undefined): string {
+  const parts: string[] = [];
+  const stack: unknown[] = root ? [root] : [];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node instanceof DOMTextNode) {
+      parts.push(node.text);
+    } else if (node instanceof DOMElementNode) {
+      for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
+    }
+  }
+  return parts.join(' ');
+}
+
+const STATE_ATTRIBUTES = ['value', 'checked', 'aria-checked', 'aria-expanded', 'aria-selected', 'aria-pressed'];
+
 function rectHash(node: DOMElementNode): string | undefined {
   const coords = node.viewportCoordinates ?? node.pageCoordinates;
   if (!coords) return undefined;
@@ -68,11 +85,10 @@ export function targetFingerprintForElement(
 
 export function createBrowserObservation(state: BrowserState, capturedAt = Date.now()): BrowserObservation {
   const tabId = typeof state.tabId === 'number' ? state.tabId : null;
-  const targets = Array.from(state.selectorMap.entries()).map(([index, element]) =>
-    targetFingerprintForElement(index, element, tabId),
-  );
+  const entries = Array.from(state.selectorMap.entries());
+  const targets = entries.map(([index, element]) => targetFingerprintForElement(index, element, tabId));
 
-  const compactTargets = targets.map(target => ({
+  const compactTargets = targets.map((target, i) => ({
     i: target.index,
     b: target.backendNodeId,
     x: target.xpath,
@@ -81,6 +97,7 @@ export function createBrowserObservation(state: BrowserState, capturedAt = Date.
     t: target.tagName,
     h: target.textHash,
     q: target.rectHash,
+    s: STATE_ATTRIBUTES.map(name => entries[i][1].attributes[name] ?? '').join('|'),
   }));
   const documentFingerprint = stableHash({
     url: state.url,
@@ -93,6 +110,8 @@ export function createBrowserObservation(state: BrowserState, capturedAt = Date.
     scrollHeight: state.scrollHeight,
     visualViewportHeight: state.visualViewportHeight,
     targets: compactTargets,
+    // Text-only updates (a counter, a status message) are page changes too.
+    text: stableHash(pageText(state.elementTree)),
   });
 
   return {
@@ -112,16 +131,4 @@ export function ensureBrowserObservation(state: BrowserState): BrowserObservatio
   const observation = createBrowserObservation(state);
   state.observation = observation;
   return observation;
-}
-
-export function fingerprintFailureKey(target: TargetFingerprint | null | undefined, url: string): string {
-  if (!target) return `${url}|target:unknown`;
-  const stablePart =
-    target.backendNodeId != null ? `backend:${target.backendNodeId}` :
-      target.xpath ? `xpath:${target.xpath}` :
-        target.cssSelector ? `css:${target.cssSelector}` :
-          `idx:${target.index}`;
-  const namePart = target.accessibleName ? `|name:${stableHash(target.accessibleName)}` : '';
-  const actionPart = target.actionType ? `|action:${target.actionType}` : '';
-  return `${url}|${stablePart}${namePart}${actionPart}`;
 }

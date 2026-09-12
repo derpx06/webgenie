@@ -677,7 +677,8 @@ export async function getScrollInfo(
     func: () => {
       const scrollY = window.scrollY;
       const visualViewportHeight = window.visualViewport?.height || window.innerHeight;
-      const scrollHeight = document.body.scrollHeight;
+      // documentElement, not body: body can be shorter than the page (positioned or floated content).
+      const scrollHeight = document.documentElement.scrollHeight;
       return {
         scrollY: scrollY,
         visualViewportHeight: visualViewportHeight,

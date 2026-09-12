@@ -1,4 +1,4 @@
-import type { BrowserObservation, Retryability, ValidationEvidence } from '../validation/types';
+import type { BrowserObservation, ValidationEvidence } from '../validation/types';
 
 export type PlanningMode =
   | 'direct_answer'
@@ -9,14 +9,13 @@ export type PlanningMode =
   | 'blocked_human_needed';
 
 export type ReplanTrigger =
-  | 'validation_failed'
-  | 'validation_unknown'
-  | 'observation_changed'
-  | 'contract_complete'
+  | 'initial'
   | 'human_needed'
-  | 'step_interval'
+  | 'contract_complete'
+  | 'navigator_error'
+  | 'validation'
   | 'progress_stall'
-  | 'fatal_error';
+  | 'step_interval';
 
 export type MacroObjective =
   | 'NAVIGATE'
@@ -34,7 +33,6 @@ export interface NextStepContract {
   mode: PlanningMode;
   goal: string;
   macroObjective: MacroObjective;
-  allowedActions: string[];
   expectedObservation: {
     observationId: string | null;
     urlPattern?: string;
@@ -44,7 +42,6 @@ export interface NextStepContract {
   };
   successCondition: string;
   failureSignals: string[];
-  replanTrigger: ReplanTrigger;
   createdAt: number;
 }
 
@@ -53,16 +50,13 @@ export interface PlannerLLMOutput {
   final_answer?: string;
   macro_objective: MacroObjective;
   next_goal: string;
-  allowed_actions?: string[];
   success_condition?: string;
 }
 
 export interface ReplanDecision {
   shouldReplan: boolean;
-  trigger: ReplanTrigger;
+  trigger: ReplanTrigger | 'none';
   reason: string;
-  retryability: Retryability | null;
-  failedContractId?: string;
 }
 
 export interface ValidatedProgressRecord {

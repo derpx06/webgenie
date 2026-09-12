@@ -21,7 +21,7 @@ const logger = createLogger('Action');
 
 type ResolvablePage = {
   getCachedState(): DOMState | null;
-  getState(useVision?: boolean, cacheClickableElementsHashes?: boolean): Promise<DOMState>;
+  getState(useVision?: boolean, skipNetworkIdle?: boolean): Promise<DOMState>;
   locateElement(element: DOMElementNode): Promise<ElementHandle<Element> | null>;
   clickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void>;
   hoverElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void>;

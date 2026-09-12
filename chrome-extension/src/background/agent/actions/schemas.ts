@@ -52,7 +52,7 @@ export const searchWebActionSchema: ActionSchema = {
     'Search the web in one fast step using a search engine results page in the current tab. Prefer this over manually opening a search engine and typing.',
   schema: z.object({
     query: z.string().describe('search query in natural language'),
-    engine: z.enum(['duckduckgo', 'google']).optional().describe('search engine to use; defaults to google'),
+    engine: z.enum(['duckduckgo', 'google']).optional().describe('search engine to use; defaults to duckduckgo'),
   }),
 };
 

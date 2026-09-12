@@ -2,7 +2,7 @@ import { ActionResult } from '../types';
 import type { DOMElementNode } from '../../browser/dom/views';
 import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
-import { ensureBrowserObservation, fingerprintFailureKey } from './observation';
+import { ensureBrowserObservation } from './observation';
 
 export interface NormalizedIndexedAction {
   ok: boolean;
@@ -14,6 +14,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
 
+/** Stamps an indexed action with the observation it was chosen from. An index missing from that observation is stale. */
 export function normalizeIndexedAction(
   actionName: string,
   actionArgs: unknown,
@@ -23,29 +24,7 @@ export function normalizeIndexedAction(
     return { ok: true };
   }
 
-  const suppliedTarget = actionTargetFingerprint(actionArgs);
-  if (suppliedTarget?.actionType && suppliedTarget.actionType !== actionName) {
-    return {
-      ok: false,
-      actionResult: new ActionResult({
-        executed: false,
-        executionStatus: 'not_attempted',
-        validated: 'unknown',
-        retryability: 'retry_reobserve',
-        failureReason: `Target fingerprint belongs to ${suppliedTarget.actionType}, not ${actionName}`,
-        extractedContent: 'The selected target metadata belongs to a different action; re-observe before acting.',
-        includeInMemory: true,
-        observationId: observation.id,
-      }),
-    };
-  }
-
-  // Numeric indexes are presentation labels, not stable element identities. If
-  // the model supplied a fingerprint, use it to remap a reused index before
-  // stamping the action with the current observation.
-  const target = suppliedTarget
-    ? observation.targets.find(candidate => targetIdentityMatches(suppliedTarget, candidate))
-    : observation.targets.find(candidate => candidate.index === actionArgs.index);
+  const target = observation.targets.find(candidate => candidate.index === actionArgs.index);
   if (!target) {
     return {
       ok: false,
@@ -54,43 +33,18 @@ export function normalizeIndexedAction(
         executionStatus: 'not_attempted',
         validated: 'unknown',
         retryability: 'retry_reobserve',
-        failureReason: suppliedTarget
-          ? `Target fingerprint for element index ${actionArgs.index} is not present in observation ${observation.id}`
-          : `Element index ${actionArgs.index} is not present in observation ${observation.id}`,
-        extractedContent: suppliedTarget
-          ? 'The page changed and the previously selected target is no longer present; re-observe before acting.'
-          : `Element index ${actionArgs.index} is stale; re-observe before acting.`,
+        failureReason: `Element index ${actionArgs.index} is not on the current page; re-observe before acting.`,
+        extractedContent: `Element index ${actionArgs.index} is stale; re-observe before acting.`,
         includeInMemory: true,
         observationId: observation.id,
       }),
     };
   }
 
-  const stampedTarget = { ...target, actionType: actionName };
-  const staleObservation = typeof actionArgs.observationId === 'string' && actionArgs.observationId !== observation.id;
-  if (staleObservation && suppliedTarget && !sameTargetFingerprint(suppliedTarget, stampedTarget)) {
-    return {
-      ok: false,
-      actionResult: new ActionResult({
-        executed: false,
-        executionStatus: 'not_attempted',
-        validated: 'unknown',
-        retryability: 'retry_reobserve',
-        failureReason: `Stale observation id ${actionArgs.observationId}; current target was not confirmed in observation ${observation.id}`,
-        extractedContent: 'The selected browser observation is stale; re-observe before acting.',
-        includeInMemory: true,
-        observationId: observation.id,
-        targetFingerprint: stampedTarget,
-      }),
-    };
-  }
-
-  // Keep the action arguments aligned with the remapped target so handlers and
-  // postcondition validation resolve the same element.
-  actionArgs.index = target.index;
+  const targetFingerprint = { ...target, actionType: actionName };
   actionArgs.observationId = observation.id;
-  actionArgs.targetFingerprint = stampedTarget;
-  return { ok: true, targetFingerprint: stampedTarget };
+  actionArgs.targetFingerprint = targetFingerprint;
+  return { ok: true, targetFingerprint };
 }
 
 function evidence(kind: ValidationEvidence['kind'], passed: boolean, message: string, before?: unknown, after?: unknown): ValidationEvidence {
@@ -113,12 +67,8 @@ function cloneWithValidation(
   });
 }
 
-function tabIds(state: BrowserState): Set<number> {
-  return new Set(state.tabs.map(tab => tab.id));
-}
-
 function hasNewTab(before: BrowserState, after: BrowserState): boolean {
-  const beforeIds = tabIds(before);
+  const beforeIds = new Set(before.tabs.map(tab => tab.id));
   return after.tabs.some(tab => !beforeIds.has(tab.id));
 }
 
@@ -126,16 +76,19 @@ function activeTabUrl(state: BrowserState): string {
   return state.tabs.find(tab => tab.id === state.tabId)?.url ?? state.url;
 }
 
-function sameDocument(before: BrowserState, after: BrowserState): boolean {
-  const beforeObservation = ensureBrowserObservation(before);
-  const afterObservation = ensureBrowserObservation(after);
-  return beforeObservation.documentFingerprint === afterObservation.documentFingerprint;
+/** An empty URL (a read taken mid-navigation) is never a change. */
+function urlChanged(before: BrowserState, after: BrowserState): boolean {
+  const changed = (a: string, b: string) => Boolean(b) && a !== b;
+  return changed(before.url, after.url) || changed(activeTabUrl(before), activeTabUrl(after));
 }
 
-function sameLayout(before: BrowserState, after: BrowserState): boolean {
-  const beforeObservation = ensureBrowserObservation(before);
-  const afterObservation = ensureBrowserObservation(after);
-  return beforeObservation.layoutFingerprint === afterObservation.layoutFingerprint;
+function sameUrl(a: unknown, b: string): boolean {
+  if (typeof a !== 'string' || !a || !b) return false;
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return a === b;
+  }
 }
 
 function targetValue(state: BrowserState, index: number, targetFingerprint?: TargetFingerprint | null): string | undefined {
@@ -160,6 +113,8 @@ function targetState(state: BrowserState, index: number, targetFingerprint?: Tar
     attrs['aria-pressed'],
     attrs['aria-expanded'],
     attrs['aria-selected'],
+    attrs['aria-checked'],
+    attrs.checked,
     attrs['aria-current'],
     attrs['data-state'],
     attrs['data-value'],
@@ -172,39 +127,14 @@ function targetState(state: BrowserState, index: number, targetFingerprint?: Tar
 function fingerprintMatchesNode(node: DOMElementNode, target: TargetFingerprint): boolean {
   const attributes = node.attributes ?? {};
   const accessibleName = attributes['aria-label'] ?? attributes.title ?? attributes.placeholder;
-  const stableMatches = [
+  return [
     target.backendNodeId != null && node.backendNodeId === target.backendNodeId,
     Boolean(target.xpath && node.xpath === target.xpath),
-    Boolean(target.cssSelector && node.getEnhancedCssSelector?.() === target.cssSelector),
     Boolean(target.role && attributes.role === target.role && target.accessibleName && accessibleName === target.accessibleName),
-  ];
-  return stableMatches.some(Boolean);
+  ].some(Boolean);
 }
 
-function targetIdentityMatches(a: TargetFingerprint, b: TargetFingerprint): boolean {
-  if (a.tabId !== undefined && b.tabId !== undefined && a.tabId !== b.tabId) return false;
-  if (a.frameId && b.frameId && a.frameId !== b.frameId) return false;
-
-  // When the model provides more than one stable identity, conflicting values
-  // are evidence of a stale target rather than an alternative match. This is
-  // intentionally conservative: acting on the wrong element is worse than
-  // asking the model to observe again.
-  if (a.backendNodeId != null && b.backendNodeId != null && a.backendNodeId !== b.backendNodeId) return false;
-  if (a.xpath && b.xpath && a.xpath !== b.xpath) return false;
-  if (a.cssSelector && b.cssSelector && a.cssSelector !== b.cssSelector) return false;
-  if (a.role && b.role && a.accessibleName && b.accessibleName &&
-    (a.role !== b.role || a.accessibleName !== b.accessibleName)) return false;
-
-  return Boolean(
-    (a.backendNodeId != null && b.backendNodeId != null && a.backendNodeId === b.backendNodeId) ||
-    (a.xpath && b.xpath && a.xpath === b.xpath) ||
-    (a.cssSelector && b.cssSelector && a.cssSelector === b.cssSelector) ||
-    (a.role && b.role && a.accessibleName && b.accessibleName &&
-      a.role === b.role && a.accessibleName === b.accessibleName &&
-      (!a.tagName || !b.tagName || a.tagName === b.tagName))
-  );
-}
-
+/** The element at the index if it is still the chosen target, else the same element (by identity) wherever it moved. */
 function findTargetNode(
   state: BrowserState,
   index: number,
@@ -216,106 +146,29 @@ function findTargetNode(
   return Array.from(state.selectorMap.values()).find(node => fingerprintMatchesNode(node, targetFingerprint));
 }
 
-function hasAuthBlocker(state: BrowserState): boolean {
-  const blockerPattern = /\b(sign in to continue|log in to continue|login to continue|authentication required|permission required|authorize to continue|verify your identity|verification required|two-factor|2fa|captcha)\b/i;
-
-  return Array.from(state.selectorMap.values()).some(node => {
-    if (node.isVisible === false) return false;
-    const attrs = node.attributes ?? {};
-    const text = targetState(state, node.highlightIndex ?? -1);
-    const isDialog = attrs.role === 'dialog' || attrs['aria-modal'] === 'true';
-    return blockerPattern.test(text) || (isDialog && /\b(sign in|log in|login|password|passcode|authorize|authentication|verify)\b/i.test(text));
-  });
-}
-
 function actionTargetFingerprint(actionArgs: unknown): TargetFingerprint | null {
   if (!isObject(actionArgs)) return null;
   const target = actionArgs.targetFingerprint;
   return target && typeof target === 'object' ? target as TargetFingerprint : null;
 }
 
-function sameTargetFingerprint(a: TargetFingerprint | null, b: TargetFingerprint | null): boolean {
-  if (!a || !b) return false;
-  return a.actionType === b.actionType && targetIdentityMatches(a, b);
-}
-
 function isStaleElementError(message: string): boolean {
   return /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)/i.test(message);
 }
 
-export function shouldBlockRepeatedAction(input: {
-  actionName: string;
-  actionArgs: unknown;
-  contractId: string | null;
-  recentResults: ActionResult[];
-  maxAttempts?: number;
-}): boolean {
-  const currentTarget = actionTargetFingerprint(input.actionArgs);
-  if (!currentTarget || !input.contractId) return false;
-  const maxAttempts = input.maxAttempts ?? 1;
-  const matchingAttempts = input.recentResults.filter(result =>
-    result.executed &&
-    result.contractId === input.contractId &&
-    result.validated !== 'passed' &&
-    sameTargetFingerprint(result.targetFingerprint, currentTarget) &&
-    result.targetFingerprint?.actionType === input.actionName
-  );
-  return matchingAttempts.length >= maxAttempts;
-}
-
-function scrollBoundary(state: BrowserState, direction: 'top' | 'bottom'): boolean {
-  if (direction === 'top') return state.scrollY <= 0;
-  const maxScroll = Math.max(0, state.scrollHeight - state.visualViewportHeight);
-  return state.scrollY >= maxScroll - 2;
-}
-
-export function hasActionPostconditionSatisfied(input: {
-  actionName: string;
-  actionArgs: unknown;
-  before: BrowserState;
-  after: BrowserState;
-}): boolean {
-  const { actionName, actionArgs, before, after } = input;
-  const args = isObject(actionArgs) ? actionArgs : {};
-  const index = typeof args.index === 'number' ? args.index : undefined;
-  const urlChanged = before.url !== after.url || activeTabUrl(before) !== activeTabUrl(after);
-  const docChanged = !sameDocument(before, after);
-  const layoutChanged = !sameLayout(before, after);
-  const openedNewTab = hasNewTab(before, after);
-
-  if (['go_to_url', 'search_web', 'search_google', 'go_back'].includes(actionName)) {
-    return urlChanged || docChanged;
-  }
-  if (actionName === 'open_tab') return openedNewTab || before.tabId !== after.tabId;
-  if (actionName === 'switch_tab') return typeof args.tab_id === 'number' && after.tabId === args.tab_id;
-  if (actionName === 'close_tab') return typeof args.tab_id === 'number' && !after.tabs.some(tab => tab.id === args.tab_id);
-  if (actionName === 'input_text' && index !== undefined) {
-    return targetValue(after, index, actionTargetFingerprint(actionArgs)) === args.text;
-  }
-  if (actionName === 'select_dropdown_option' && index !== undefined) {
-    const selected = selectedValue(after, index, actionTargetFingerprint(actionArgs));
-    return selected === args.text;
-  }
-  if (['scroll_to_percent', 'scroll_to_top', 'scroll_to_bottom', 'next_page', 'previous_page'].includes(actionName)) {
-    const delta = after.scrollY - before.scrollY;
-    const boundary =
-      actionName === 'scroll_to_top' || actionName === 'previous_page'
-        ? scrollBoundary(after, 'top')
-        : actionName === 'scroll_to_bottom' || actionName === 'next_page'
-          ? scrollBoundary(after, 'bottom')
-          : false;
-    return delta !== 0 || boundary;
-  }
-  if (['click_element', 'hover_element', 'right_click_element'].includes(actionName)) {
-    if (urlChanged || docChanged || layoutChanged || openedNewTab || hasAuthBlocker(after)) return true;
-    if (index === undefined) return false;
-    const targetFingerprint = actionTargetFingerprint(actionArgs);
-    const beforeTargetState = targetState(before, index, targetFingerprint);
-    const afterTargetState = targetState(after, index, targetFingerprint);
-    return Boolean(beforeTargetState && afterTargetState && beforeTargetState !== afterTargetState);
-  }
-  return true;
-}
+const NAVIGATION_ACTIONS = ['go_to_url', 'search_web', 'search_google', 'go_back'];
+const SCROLL_ACTIONS = ['scroll_to_percent', 'scroll_to_top', 'scroll_to_bottom', 'next_page', 'previous_page'];
+const POINTER_ACTIONS = ['click_element', 'hover_element', 'right_click_element', 'send_keys'];
+const MUTATING_ACTIONS = new Set([
+  ...NAVIGATION_ACTIONS,
+  ...SCROLL_ACTIONS,
+  ...POINTER_ACTIONS,
+  'open_tab',
+  'switch_tab',
+  'close_tab',
+  'input_text',
+  'select_dropdown_option',
+]);
 
 export interface ValidateActionOutcomeInput {
   actionName: string;
@@ -323,30 +176,11 @@ export interface ValidateActionOutcomeInput {
   before: BrowserState;
   after: BrowserState;
   result: ActionResult;
-  recentResults?: ActionResult[];
 }
 
+/** Actions that can change the page; they get a settle read and a validation. */
 export function isMutatingAction(actionName: string): boolean {
-  return [
-    'go_to_url',
-    'search_web',
-    'search_google',
-    'go_back',
-    'open_tab',
-    'switch_tab',
-    'close_tab',
-    'click_element',
-    'hover_element',
-    'right_click_element',
-    'input_text',
-    'select_dropdown_option',
-    'scroll_to_percent',
-    'scroll_to_top',
-    'scroll_to_bottom',
-    'next_page',
-    'previous_page',
-    'done',
-  ].includes(actionName);
+  return MUTATING_ACTIONS.has(actionName);
 }
 
 export function validateActionOutcome(input: ValidateActionOutcomeInput): ActionResult {
@@ -371,19 +205,24 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
 
   const args = isObject(actionArgs) ? actionArgs : {};
   const index = typeof args.index === 'number' ? args.index : undefined;
-  const urlChanged = before.url !== after.url || activeTabUrl(before) !== activeTabUrl(after);
-  const docChanged = !sameDocument(before, after);
-  const layoutChanged = !sameLayout(before, after);
+  const beforeObservation = ensureBrowserObservation(before);
+  const afterObservation = ensureBrowserObservation(after);
+  // A read with no URL was taken mid-navigation; nothing in it is evidence of a change.
+  const readable = Boolean(after.url);
+  const changedUrl = urlChanged(before, after);
+  const docChanged = readable && beforeObservation.documentFingerprint !== afterObservation.documentFingerprint;
+  const layoutChanged = readable && beforeObservation.layoutFingerprint !== afterObservation.layoutFingerprint;
   const openedNewTab = hasNewTab(before, after);
 
-  if (['go_to_url', 'search_web', 'search_google', 'go_back'].includes(actionName)) {
-    const passed = urlChanged || docChanged;
+  if (NAVIGATION_ACTIONS.includes(actionName)) {
+    const alreadyThere = actionName === 'go_to_url' && sameUrl(args.url, after.url);
+    const passed = changedUrl || docChanged || alreadyThere;
     return cloneWithValidation(
       result,
       passed ? 'passed' : 'failed',
       passed ? 'none' : 'retry_reobserve',
       [
-        evidence('url_change', passed, passed ? 'Navigation changed the active URL.' : 'Navigation did not change the active URL.', before.url, after.url),
+        evidence('url_change', passed, passed ? 'The page is at the requested location.' : 'Navigation did not change the active URL.', before.url, after.url),
         evidence('document_change', docChanged, docChanged ? 'Navigation changed the document fingerprint.' : 'Document fingerprint did not change.'),
       ],
       passed ? null : 'Navigation produced no observable URL or document change.',
@@ -426,15 +265,41 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
   }
 
   if (actionName === 'input_text' && index !== undefined) {
+    const expected = typeof args.text === 'string' ? args.text : '';
     const actual = targetValue(after, index, actionTargetFingerprint(actionArgs));
-    const expected = typeof args.text === 'string' ? args.text : undefined;
-    const passed = expected !== undefined && actual === expected;
+    // Only lengths are kept as evidence: typed text can be a password.
+    const lengths = { expectedLength: expected.length, actualLength: actual?.length ?? null };
+    if (actual === undefined) {
+      return cloneWithValidation(
+        result,
+        'unknown',
+        'retry_reobserve',
+        [evidence('target_value', false, 'The field value could not be read back.', lengths)],
+        'The field value could not be read back; check the page before typing again.',
+      );
+    }
+    const normalize = (text: string) => text.replace(/\s+/g, ' ').trim();
+    // Password fields read back as one mask character per typed character.
+    const masked = expected.length > 0 && actual.length === expected.length && /^[•●*]+$/.test(actual);
+    if (masked || normalize(actual) === normalize(expected)) {
+      return cloneWithValidation(result, 'passed', 'none', [evidence('target_value', true, 'The field contains the typed text.', lengths)]);
+    }
+    if (!actual && expected) {
+      return cloneWithValidation(
+        result,
+        'failed',
+        'retry_reobserve',
+        [evidence('target_value', false, 'The field is still empty after typing.', lengths)],
+        'The field is still empty after typing.',
+      );
+    }
+    // A different value is often the site reformatting the input (dates, phone numbers), so it is not a failure.
     return cloneWithValidation(
       result,
-      passed ? 'passed' : 'failed',
-      passed ? 'none' : 'retry_same',
-      [evidence('target_value', passed, passed ? 'Input value read-back matched requested text.' : 'Input value read-back did not match requested text.', expected, actual)],
-      passed ? null : 'Input read-back did not match requested text.',
+      'unknown',
+      'retry_reobserve',
+      [evidence('target_value', false, 'The field shows a different value than the typed text.', lengths)],
+      `The field now shows "${actual.slice(0, 80)}"; check whether that is acceptable before typing again.`,
     );
   }
 
@@ -445,50 +310,49 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
     return cloneWithValidation(
       result,
       passed ? 'passed' : 'failed',
-      passed ? 'none' : 'retry_same',
+      passed ? 'none' : 'retry_reobserve',
       [evidence('selection', passed, passed ? 'Dropdown selection was verified.' : 'Dropdown selection read-back did not match requested option.', expected, actual)],
       passed ? null : 'Dropdown selection did not match requested option.',
     );
   }
 
-  if (['scroll_to_percent', 'scroll_to_top', 'scroll_to_bottom', 'next_page', 'previous_page'].includes(actionName)) {
+  if (SCROLL_ACTIONS.includes(actionName)) {
+    // Scrolling inside an element leaves the window position unchanged; only the page content can show it.
+    if (index !== undefined) {
+      return layoutChanged
+        ? cloneWithValidation(result, 'passed', 'none', [evidence('scroll_delta', true, 'The scrolled content changed.')])
+        : cloneWithValidation(
+          result,
+          'unknown',
+          'retry_reobserve',
+          [evidence('scroll_delta', false, 'No change was visible after scrolling the element.')],
+          'No change was visible after scrolling the element.',
+        );
+    }
     const delta = after.scrollY - before.scrollY;
-    const boundary =
-      actionName === 'scroll_to_top' || actionName === 'previous_page'
-        ? scrollBoundary(after, 'top')
-        : actionName === 'scroll_to_bottom' || actionName === 'next_page'
-          ? scrollBoundary(after, 'bottom')
-          : false;
-    const passed = delta !== 0 || boundary;
+    const maxScroll = Math.max(0, after.scrollHeight - after.visualViewportHeight);
+    const towardsTop = actionName === 'scroll_to_top' || actionName === 'previous_page';
+    const towardsBottom = actionName === 'scroll_to_bottom' || actionName === 'next_page';
+    const boundary = (towardsTop && after.scrollY <= 2) || (towardsBottom && after.scrollY >= maxScroll - 2);
+    const atTarget =
+      actionName === 'scroll_to_percent' &&
+      typeof args.yPercent === 'number' &&
+      Math.abs(after.scrollY - (maxScroll * args.yPercent) / 100) <= 2;
+    const passed = delta !== 0 || boundary || atTarget;
     return cloneWithValidation(
       result,
       passed ? 'passed' : 'failed',
       passed ? 'none' : 'retry_reobserve',
       [
         evidence('scroll_delta', delta !== 0, delta !== 0 ? 'Scroll position changed.' : 'Scroll position did not change.', before.scrollY, after.scrollY),
-        evidence('scroll_boundary', boundary, boundary ? 'Requested scroll boundary is verified.' : 'Requested scroll boundary was not verified.'),
+        evidence('scroll_boundary', boundary || atTarget, boundary || atTarget ? 'The page is at the requested scroll position.' : 'The requested scroll position was not reached.'),
       ],
-      passed ? null : 'Scroll produced no delta and no verified boundary.',
+      passed ? null : 'Scroll produced no movement and the page is not at the requested position.',
     );
   }
 
-  if (['click_element', 'hover_element', 'right_click_element'].includes(actionName)) {
-    const observableChange = urlChanged || docChanged || layoutChanged || openedNewTab;
-    if (actionName === 'click_element' && hasAuthBlocker(after)) {
-      return cloneWithValidation(
-        new ActionResult({
-          ...result,
-          isWaitingForHuman: true,
-          includeInMemory: true,
-          extractedContent: result.extractedContent ?? 'Action reached an authentication or permission blocker.',
-        }),
-        'unknown',
-        'ask_human',
-        [evidence('auth_blocker', true, 'Authentication, verification, or permission blocker is visible after the click.')],
-        'Action requires human authentication or permission.',
-      );
-    }
-  if (actionName === 'click_element' && index !== undefined) {
+  if (POINTER_ACTIONS.includes(actionName)) {
+    if (index !== undefined) {
       const targetFingerprint = actionTargetFingerprint(actionArgs);
       const beforeTargetState = targetState(before, index, targetFingerprint);
       const afterTargetState = targetState(after, index, targetFingerprint);
@@ -497,29 +361,29 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
           result,
           'passed',
           'none',
-          [evidence('target_state', true, 'Selected target state changed after the click.', beforeTargetState, afterTargetState)],
+          [evidence('target_state', true, 'The target element changed state.', beforeTargetState, afterTargetState)],
         );
       }
     }
-    if (observableChange) {
+    if (changedUrl || docChanged || layoutChanged || openedNewTab) {
       return cloneWithValidation(
         result,
         'passed',
         'none',
         [
-          evidence('url_change', urlChanged, urlChanged ? 'Action changed URL.' : 'URL did not change.', before.url, after.url),
-          evidence('document_change', docChanged || layoutChanged, docChanged || layoutChanged ? 'Action changed document/layout fingerprint.' : 'Document/layout did not change.'),
+          evidence('url_change', changedUrl, changedUrl ? 'Action changed URL.' : 'URL did not change.', before.url, after.url),
+          evidence('document_change', docChanged || layoutChanged, docChanged || layoutChanged ? 'Action changed the page content.' : 'Page content did not change.'),
           evidence('new_tab', openedNewTab, openedNewTab ? 'Action opened a new tab.' : 'No new tab opened.'),
         ],
       );
     }
-    const status = actionName === 'click_element' ? 'failed' : 'unknown';
+    // Many valid actions change nothing visible (focusing, closing an already closed menu); the planner decides after two.
     return cloneWithValidation(
       result,
-      status,
-      actionName === 'click_element' ? 'replan' : 'retry_reobserve',
-      [evidence('document_change', false, 'No URL, document, layout, or tab change was observed after the action.')],
-      `${actionName} was sent, but no page change was detected. Check the page state before repeating it.`,
+      'unknown',
+      'retry_reobserve',
+      [evidence('document_change', false, 'No URL, content, element state or tab change was observed after the action.')],
+      `${actionName} was sent, but the page did not visibly change. Check the page state before repeating it.`,
     );
   }
 
@@ -529,5 +393,3 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
 export function shouldStopAfterValidation(result: ActionResult, actionName: string): boolean {
   return isMutatingAction(actionName) && (result.validated === 'failed' || result.validated === 'unknown');
 }
-
-export { fingerprintFailureKey };

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ActionResult } from '../../types';
-import { DOMElementNode } from '../../../browser/dom/views';
+import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type { BrowserState } from '../../../browser/views';
-import { createBrowserObservation, fingerprintFailureKey } from '../observation';
-import { normalizeIndexedAction, shouldBlockRepeatedAction, validateActionOutcome } from '../service';
+import { createBrowserObservation } from '../observation';
+import { normalizeIndexedAction, validateActionOutcome } from '../service';
 
 function element(index: number, params: Partial<ConstructorParameters<typeof DOMElementNode>[0]> = {}) {
   return new DOMElementNode({
@@ -80,14 +80,20 @@ describe('browser observations', () => {
     expect(first.documentFingerprint).not.toBe(second.documentFingerprint);
   });
 
-  it('uses stable target fingerprint keys instead of generic tag names', () => {
-    const observation = createBrowserObservation(state(), 1000);
-    const key = fingerprintFailureKey(observation.targets[0], 'https://example.com/start');
+  it('changes the layout fingerprint when only page text or an element state changes', () => {
+    const withText = (text: string) => {
+      const root = new DOMElementNode({ tagName: 'root', xpath: '', attributes: {}, children: [], isVisible: true });
+      root.children.push(new DOMTextNode(text, true, root));
+      return state({ elementTree: root });
+    };
+    const checkbox = (checked: string) =>
+      state({ selectorMap: new Map([[1, element(1, { tagName: 'input', attributes: { 'aria-checked': checked } })]]) });
 
-    expect(key).toContain('https://example.com/start');
-    expect(key).toContain('backend:101');
-    expect(key).not.toBe('https://example.com/start|button');
+    expect(createBrowserObservation(withText('Added 1')).layoutFingerprint).not.toBe(createBrowserObservation(withText('Added 2')).layoutFingerprint);
+    expect(createBrowserObservation(checkbox('false')).layoutFingerprint).not.toBe(createBrowserObservation(checkbox('true')).layoutFingerprint);
+    expect(createBrowserObservation(withText('same')).layoutFingerprint).toBe(createBrowserObservation(withText('same')).layoutFingerprint);
   });
+
 });
 
 describe('indexed action normalization', () => {
@@ -115,76 +121,20 @@ describe('indexed action normalization', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('remaps a reused index when the supplied fingerprint identifies the current target', () => {
-    const current = state({
-      selectorMap: new Map([[2, element(2, {
-        backendNodeId: 101,
-        xpath: '/html/body/button[1]',
-        attributes: { 'aria-label': 'Button 1' },
-      })]]),
-    });
-    const observation = createBrowserObservation(current, 1000);
-    const args = {
-      index: 1,
-      observationId: 'old',
-      targetFingerprint: {
-        index: 1,
-        actionType: 'click_element',
-        backendNodeId: 101,
-        xpath: '/html/body/button[1]',
-        accessibleName: 'Button 1',
-      },
-    };
-
-    const result = normalizeIndexedAction('click_element', args, observation);
-
-    expect(result.ok).toBe(true);
-    expect(args.index).toBe(2);
-    expect(args.observationId).toBe(observation.id);
-    expect(args.targetFingerprint).toMatchObject({ index: 2, backendNodeId: 101 });
-  });
-
-  it('rejects a reused index when its fingerprint is not present in the current observation', () => {
-    const observation = createBrowserObservation(state({
-      selectorMap: new Map([[1, element(1, { backendNodeId: 999 })]]),
-    }), 1000);
-
-    const result = normalizeIndexedAction('click_element', {
-      index: 1,
-      observationId: 'old',
-      targetFingerprint: {
-        index: 1,
-        actionType: 'click_element',
-        backendNodeId: 101,
-        xpath: '/html/body/button[1]',
-      },
-    }, observation);
-
-    expect(result.ok).toBe(false);
-    expect(result.actionResult?.retryability).toBe('retry_reobserve');
-  });
-
-  it('blocks stale observation ids when the supplied target fingerprint conflicts', () => {
+  it('reports an index missing from the observation as stale without executing', () => {
     const observation = createBrowserObservation(state(), 1000);
 
-    const result = normalizeIndexedAction('click_element', {
-      index: 1,
-      observationId: 'old',
-      targetFingerprint: {
-        ...observation.targets[0],
-        actionType: 'click_element',
-        backendNodeId: 999,
-      },
-    }, observation);
+    const result = normalizeIndexedAction('click_element', { index: 9 }, observation);
 
     expect(result.ok).toBe(false);
+    expect(result.actionResult?.executed).toBe(false);
     expect(result.actionResult?.validated).toBe('unknown');
     expect(result.actionResult?.retryability).toBe('retry_reobserve');
   });
 });
 
 describe('action outcome validation', () => {
-  it('passes click validation on URL change and fails a true no-op click', () => {
+  it('passes click validation on URL change and reports a no-op click as unknown', () => {
     const before = state();
     const changed = state({ url: 'https://example.com/next' });
     const unchanged = state();
@@ -206,8 +156,69 @@ describe('action outcome validation', () => {
 
     expect(pass.validated).toBe('passed');
     expect(pass.evidence.some(e => e.kind === 'url_change' && e.passed)).toBe(true);
-    expect(fail.validated).toBe('failed');
-    expect(fail.retryability).toBe('replan');
+    expect(fail.validated).toBe('unknown');
+    expect(fail.retryability).toBe('retry_reobserve');
+  });
+
+  it('passes a click that toggles aria-checked', () => {
+    const toggle = (checked: string) =>
+      state({ selectorMap: new Map([[1, element(1, { attributes: { role: 'checkbox', 'aria-label': 'Remember me', 'aria-checked': checked } })]]) });
+
+    const result = validateActionOutcome({
+      actionName: 'click_element',
+      actionArgs: { index: 1 },
+      before: toggle('false'),
+      after: toggle('true'),
+      result: new ActionResult({ executed: true, executionStatus: 'executed' }),
+    });
+
+    expect(result.validated).toBe('passed');
+  });
+
+  it('never treats an empty URL read mid-navigation as a change', () => {
+    const result = validateActionOutcome({
+      actionName: 'click_element',
+      actionArgs: { index: 1 },
+      before: state(),
+      after: state({ url: '', tabs: [{ id: 7, url: '', title: 'Start' }] }),
+      result: new ActionResult({ executed: true, executionStatus: 'executed' }),
+    });
+
+    expect(result.validated).toBe('unknown');
+  });
+
+  it('passes navigation to the URL the page is already on', () => {
+    const result = validateActionOutcome({
+      actionName: 'go_to_url',
+      actionArgs: { url: 'https://example.com/start' },
+      before: state(),
+      after: state(),
+      result: new ActionResult({ executed: true, executionStatus: 'executed' }),
+    });
+
+    expect(result.validated).toBe('passed');
+  });
+
+  it('passes scroll_to_percent when the page is already within 2px of the target', () => {
+    const at = (scrollY: number) => state({ scrollY, scrollHeight: 1500, visualViewportHeight: 500 });
+
+    const result = validateActionOutcome({
+      actionName: 'scroll_to_percent',
+      actionArgs: { yPercent: 50 },
+      before: at(501),
+      after: at(501),
+      result: new ActionResult({ executed: true, executionStatus: 'executed' }),
+    });
+    const missed = validateActionOutcome({
+      actionName: 'scroll_to_percent',
+      actionArgs: { yPercent: 50 },
+      before: at(100),
+      after: at(100),
+      result: new ActionResult({ executed: true, executionStatus: 'executed' }),
+    });
+
+    expect(result.validated).toBe('passed');
+    expect(missed.validated).toBe('failed');
   });
 
   it('passes click validation when the selected target state changes', () => {
@@ -264,29 +275,6 @@ describe('action outcome validation', () => {
     expect(result.evidence.some(e => e.kind === 'target_state' && e.passed)).toBe(true);
   });
 
-  it('classifies visible auth blockers after a click as waiting for human input', () => {
-    const before = state();
-    const after = state({
-      selectorMap: new Map([
-        [1, element(1)],
-        [2, element(2, { attributes: { 'aria-label': 'Sign in to continue' } })],
-      ]),
-    });
-
-    const result = validateActionOutcome({
-      actionName: 'click_element',
-      actionArgs: { index: 1 },
-      before,
-      after,
-      result: new ActionResult({ executed: true, executionStatus: 'executed' }),
-    });
-
-    expect(result.validated).toBe('unknown');
-    expect(result.retryability).toBe('ask_human');
-    expect(result.isWaitingForHuman).toBe(true);
-    expect(result.evidence.some(e => e.kind === 'auth_blocker' && e.passed)).toBe(true);
-  });
-
   it('does not classify unrelated login text as an authentication blocker', () => {
     const before = state({
       selectorMap: new Map([[1, element(1, { attributes: { 'aria-label': 'Follow @example' } })]]),
@@ -310,31 +298,25 @@ describe('action outcome validation', () => {
     expect(result.isWaitingForHuman).toBe(false);
   });
 
-  it('passes input validation only when post-action read-back matches', () => {
-    const before = state({
-      selectorMap: new Map([[1, element(1, { tagName: 'input', attributes: { value: '' } })]]),
-    });
-    const after = state({
-      selectorMap: new Map([[1, element(1, { tagName: 'input', attributes: { value: 'hello' } })]]),
-    });
-    const mismatch = state({
-      selectorMap: new Map([[1, element(1, { tagName: 'input', attributes: { value: 'bye' } })]]),
-    });
-
-    expect(validateActionOutcome({
+  it('validates typed text by read-back without keeping the text as evidence', () => {
+    const field = (attributes: Record<string, string>) =>
+      state({ selectorMap: new Map([[1, element(1, { tagName: 'input', attributes })]]) });
+    const validate = (after: BrowserState, text = 'hello') => validateActionOutcome({
       actionName: 'input_text',
-      actionArgs: { index: 1, text: 'hello' },
-      before,
+      actionArgs: { index: 1, text },
+      before: field({ value: '' }),
       after,
       result: new ActionResult({ executed: true, executionStatus: 'executed' }),
-    }).validated).toBe('passed');
-    expect(validateActionOutcome({
-      actionName: 'input_text',
-      actionArgs: { index: 1, text: 'hello' },
-      before,
-      after: mismatch,
-      result: new ActionResult({ executed: true, executionStatus: 'executed' }),
-    }).validated).toBe('failed');
+    });
+
+    expect(validate(field({ value: 'hello' })).validated).toBe('passed');
+    expect(validate(field({ value: '' })).validated).toBe('failed');
+    expect(validate(field({ value: 'HELLO!' })).validated).toBe('unknown');
+    expect(validate(field({})).validated).toBe('unknown');
+    // A password field reads back as mask characters.
+    const password = validate(field({ value: '••••••••' }), 'S3cret!!');
+    expect(password.validated).toBe('passed');
+    expect(JSON.stringify(password)).not.toContain('S3cret!!');
   });
 
   it('leaves done to the planner instead of validating it against earlier actions', () => {
@@ -344,54 +326,10 @@ describe('action outcome validation', () => {
       before: state(),
       after: state(),
       result: new ActionResult({ isDone: true, executed: true, executionStatus: 'executed' }),
-      recentResults: [new ActionResult({ executed: true, validated: 'unknown', retryability: 'retry_reobserve' })],
     });
 
     expect(outcome.validated).toBe('not_applicable');
     expect(outcome.retryability).toBe('none');
-  });
-
-  it('blocks repeated identical indexed actions without validated progress', () => {
-    const target = createBrowserObservation(state(), 1000).targets[0];
-    const result = new ActionResult({
-      executed: true,
-      validated: 'failed',
-      retryability: 'replan',
-      contractId: 'contract-1',
-      targetFingerprint: { ...target, actionType: 'click_element' },
-    });
-
-    expect(shouldBlockRepeatedAction({
-      actionName: 'click_element',
-      actionArgs: {
-        index: 1,
-        targetFingerprint: { ...target, actionType: 'click_element' },
-      },
-      contractId: 'contract-1',
-      recentResults: [result, result],
-    })).toBe(true);
-  });
-
-  it('blocks a stale indexed action after one failed same-target attempt', () => {
-    const target = createBrowserObservation(state(), 1000).targets[0];
-    const result = new ActionResult({
-      executed: true,
-      validated: 'failed',
-      retryability: 'replan',
-      failureReason: 'Element with index 1 is no longer available',
-      contractId: 'contract-1',
-      targetFingerprint: { ...target, actionType: 'click_element' },
-    });
-
-    expect(shouldBlockRepeatedAction({
-      actionName: 'click_element',
-      actionArgs: {
-        index: 1,
-        targetFingerprint: { ...target, actionType: 'click_element' },
-      },
-      contractId: 'contract-1',
-      recentResults: [result],
-    })).toBe(true);
   });
 
   it('classifies stale element errors as replan failures', () => {

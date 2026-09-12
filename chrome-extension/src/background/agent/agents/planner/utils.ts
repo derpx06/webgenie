@@ -8,23 +8,6 @@ type PlannerOutputInput = Omit<PlannerOutput, 'next_step_contract'> & {
   next_step_contract?: unknown;
 };
 
-const PARSE_FALLBACK_ALLOWED_ACTIONS = [
-  'go_to_url',
-  'search_google',
-  'search_web',
-  'open_tab',
-  'switch_tab',
-  'close_tab',
-  'click_element',
-  'input_text',
-  'scroll_to_percent',
-  'scroll_to_top',
-  'scroll_to_bottom',
-  'wait',
-  'ask_human',
-  'done',
-];
-
 /**
  * Prepares messages for the planner, optionally stripping images if vision is not enabled for planning.
  */
@@ -107,24 +90,6 @@ function chooseFallbackMacroObjective(observation: BrowserObservation | null): M
   return 'EXPLORE_PAGE';
 }
 
-function fallbackAllowedActions(macroObjective: MacroObjective): string[] {
-  if (macroObjective === 'ASK_HUMAN') return ['ask_human', 'wait', 'done'];
-  if (macroObjective === 'NAVIGATE') {
-    return [
-      'go_to_url',
-      'search_google',
-      'search_web',
-      'open_tab',
-      'switch_tab',
-      'click_element',
-      'wait',
-      'ask_human',
-      'done',
-    ];
-  }
-  return PARSE_FALLBACK_ALLOWED_ACTIONS;
-}
-
 export function createPlannerParseFallbackOutput(context: {
   goal?: string;
   currentObservation?: BrowserObservation | null;
@@ -139,7 +104,6 @@ export function createPlannerParseFallbackOutput(context: {
     currentObservation,
     mode: 'multi_step_task',
     macroObjective,
-    allowedActions: fallbackAllowedActions(macroObjective),
     successCondition: 'Continue the task using validated browser actions and replan if validation is unknown or failed.',
     failureSignals: [
       reason,
@@ -153,7 +117,6 @@ export function createPlannerParseFallbackOutput(context: {
     final_answer: '',
     macro_objective: macroObjective,
     next_goal: goal,
-    allowed_actions: fallbackAllowedActions(macroObjective),
     success_condition: 'Continue the task using validated browser actions and replan if validation is unknown or failed.',
     mode: 'multi_step_task',
     next_step_contract: contract,

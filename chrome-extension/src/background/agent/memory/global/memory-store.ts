@@ -1,5 +1,5 @@
 import { createLogger } from '../../../log';
-import type { SelectorAnchor, EpisodicNote, DomainRecord } from './types';
+import type { EpisodicNote, DomainRecord } from './types';
 
 const logger = createLogger('MemoryStore');
 
@@ -49,115 +49,17 @@ export function timeDecayFactor(timestamp: number): number {
 // ─── Storage Keys ─────────────────────────────────────────────────────────────
 
 const KEYS = {
-  SELECTORS: 'wg_mem:selectors',
   EPISODES:  'wg_mem:episodes',
   DOMAINS:   'wg_mem:domains',
 } as const;
 
 // ─── Capacity Limits ─────────────────────────────────────────────────────────
 
-const MAX_SELECTORS = 2000;  // ~400KB at avg 200 bytes/entry
 const MAX_EPISODES  = 200;   // ~100KB at avg 500 bytes/entry
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class WebGenieMemoryStore {
-
-  // ── Selector Anchor Store ──────────────────────────────────────────────────
-
-  /**
-   * Records a verified successful element interaction.
-   * Scoped to domain + pagePath + layoutHash so stale anchors from
-   * layout changes or different pages are never surfaced.
-   *
-   * Eviction strategy: remove lowest-rated anchors first (not naive FIFO),
-   * so high-value, high-successRating anchors survive longest.
-   */
-  static async learnSelector(
-    domain: string,
-    pagePath: string,
-    layoutHash: string,
-    intent: string,
-    selector: string,
-    xpath: string,
-  ): Promise<void> {
-    try {
-      const data = await chrome.storage.local.get(KEYS.SELECTORS);
-      const cache: SelectorAnchor[] = data[KEYS.SELECTORS] || [];
-
-      const intentKey = intent.toLowerCase().trim();
-      const idx = cache.findIndex(
-        e => e.domain === domain &&
-             e.pagePath === pagePath &&
-             e.layoutHash === layoutHash &&
-             e.intentKey === intentKey &&
-             e.selector === selector,
-      );
-
-      if (idx > -1) {
-        cache[idx].successRating += 1;
-        cache[idx].lastUsedTimestamp = Date.now();
-      } else {
-        cache.push({
-          domain,
-          pagePath,
-          layoutHash,
-          intentKey,
-          selector,
-          xpath,
-          successRating: 1,
-          lastUsedTimestamp: Date.now(),
-        });
-      }
-
-      // Smart LRU eviction: lowest rating + oldest timestamp evicted first
-      if (cache.length > MAX_SELECTORS) {
-        cache.sort(
-          (a, b) => a.successRating - b.successRating ||
-                    a.lastUsedTimestamp - b.lastUsedTimestamp,
-        );
-        cache.splice(0, cache.length - MAX_SELECTORS);
-      }
-
-      await chrome.storage.local.set({ [KEYS.SELECTORS]: cache });
-      logger.info(
-        `Learned selector | intent="${intentKey}" domain="${domain}" path="${pagePath}" ` +
-        `rating=${idx > -1 ? cache.find(e => e.selector === selector)?.successRating : 1}`,
-      );
-    } catch (err) {
-      logger.error('learnSelector failed:', err);
-    }
-  }
-
-  /**
-   * Recalls proven anchors for this domain + pagePath + layoutHash.
-   *
-   * Threshold: successRating >= 2 (proven twice, not a fluke).
-   * Returns top-10 by rating desc to cap prompt injection size.
-   * Returns empty array when layout fingerprint has changed (stale = silent drop).
-   */
-  static async recallSelectors(
-    domain: string,
-    pagePath: string,
-    layoutHash: string,
-  ): Promise<SelectorAnchor[]> {
-    try {
-      const data = await chrome.storage.local.get(KEYS.SELECTORS);
-      const cache: SelectorAnchor[] = data[KEYS.SELECTORS] || [];
-      return cache
-        .filter(
-          e => e.domain === domain &&
-               e.pagePath === pagePath &&
-               e.layoutHash === layoutHash &&
-               e.successRating >= 2,
-        )
-        .sort((a, b) => b.successRating - a.successRating)
-        .slice(0, 10);
-    } catch (err) {
-      logger.error('recallSelectors failed:', err);
-      return [];
-    }
-  }
 
   // ── Episodic Note Store ────────────────────────────────────────────────────
 

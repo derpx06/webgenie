@@ -111,7 +111,7 @@ describe('P1 contracts', () => {
       next_step_contract: { id: 'contract-schema', createdAt: 1000 },
     });
 
-    expect(parsed).toEqual({ done: false, macro_objective: 'NAVIGATE', next_goal: 'open example', allowed_actions: ['go_to_url'] });
+    expect(parsed).toEqual({ done: false, macro_objective: 'NAVIGATE', next_goal: 'open example' });
     expect(plannerLLMOutputSchema.safeParse({ done: false, macro_objective: 'NAVIGATE' }).success).toBe(false);
   });
 
@@ -123,17 +123,15 @@ describe('P1 contracts', () => {
 
     expect(normalized.mode).toBe('blocked_human_needed');
     expect(normalized.macroObjective).toBe('ASK_HUMAN');
-    expect(normalized.allowedActions).toEqual(['ask_human']);
     expect(normalized.expectedObservation.observationId).toBe(observation().id);
   });
 
-  it('builds a next-step contract whose actions are the macro set widened by the planner request', () => {
+  it('builds a next-step contract from the planner output', () => {
     const obs = observation();
     const cleaned = normalizePlannerOutputContract({
       done: false,
       macro_objective: 'NAVIGATE',
       next_goal: 'open example',
-      allowed_actions: ['go_to_url', 'input_text'],
       success_condition: 'URL is open',
     } satisfies Record<string, unknown>, { goal: 'open example', currentObservation: obs });
 
@@ -145,7 +143,6 @@ describe('P1 contracts', () => {
       successCondition: 'URL is open',
       expectedObservation: { observationId: obs.id },
     });
-    expect(cleaned.next_step_contract?.allowedActions).toEqual(expect.arrayContaining(['go_to_url', 'click_element', 'input_text']));
     expect(cleaned.next_step_contract?.id).toMatch(/^contract_/);
   });
 
@@ -160,50 +157,39 @@ describe('P1 contracts', () => {
 });
 
 describe('P1 replanning and progress', () => {
-  it('replans immediately for failed and unknown validation', () => {
-    expect(getReplanDecision({
-      step: 1,
-      navigatorDone: false,
-      latestResults: [new ActionResult({ executed: true, validated: 'failed', retryability: 'replan' })],
-      stepsSinceLastPlan: 1,
-      planningInterval: 3,
-      progressStalled: false,
-    })).toMatchObject({ shouldReplan: true, trigger: 'validation_failed' });
-
-    expect(getReplanDecision({
-      step: 1,
-      navigatorDone: false,
-      latestResults: [new ActionResult({ executed: true, validated: 'unknown', retryability: 'retry_reobserve' })],
-      stepsSinceLastPlan: 1,
-      planningInterval: 3,
-      progressStalled: false,
-    })).toMatchObject({ shouldReplan: true, trigger: 'validation_unknown' });
+  const decide = (overrides: Partial<Parameters<typeof getReplanDecision>[0]> = {}) => getReplanDecision({
+    planned: true,
+    navigatorDone: false,
+    navigatorErrored: false,
+    waitingForHuman: false,
+    unvalidatedSteps: 0,
+    stalled: false,
+    stepsSinceLastPlan: 1,
+    planningInterval: 3,
+    ...overrides,
   });
 
-  it('allows one retry_same attempt before forcing a replan', () => {
-    const result = new ActionResult({ executed: true, validated: 'failed', retryability: 'retry_same' });
-    const first = getReplanDecision({
-      step: 2,
-      navigatorDone: false,
-      latestResults: [result],
-      stepsSinceLastPlan: 1,
-      planningInterval: 3,
-      progressStalled: false,
-      retrySameAttemptsForContract: 0,
-    });
-    const second = getReplanDecision({
-      step: 3,
-      navigatorDone: false,
-      latestResults: [result],
-      stepsSinceLastPlan: 1,
-      planningInterval: 3,
-      progressStalled: false,
-      retrySameAttemptsForContract: 1,
-    });
+  it('replans for each trigger and keeps the plan otherwise', () => {
+    expect(decide({ planned: false })).toMatchObject({ shouldReplan: true, trigger: 'initial' });
+    expect(decide({ waitingForHuman: true })).toMatchObject({ shouldReplan: true, trigger: 'human_needed' });
+    expect(decide({ navigatorDone: true })).toMatchObject({ shouldReplan: true, trigger: 'contract_complete' });
+    expect(decide({ navigatorErrored: true })).toMatchObject({ shouldReplan: true, trigger: 'navigator_error' });
+    expect(decide({ unvalidatedSteps: 2 })).toMatchObject({ shouldReplan: true, trigger: 'validation' });
+    expect(decide({ stalled: true })).toMatchObject({ shouldReplan: true, trigger: 'progress_stall' });
+    expect(decide({ stepsSinceLastPlan: 3 })).toMatchObject({ shouldReplan: true, trigger: 'step_interval' });
+    expect(decide()).toMatchObject({ shouldReplan: false, trigger: 'none' });
+  });
 
-    expect(first.shouldReplan).toBe(false);
-    expect(first.reason).toContain('one retry');
-    expect(second).toMatchObject({ shouldReplan: true, trigger: 'validation_failed' });
+  it('does not replan after a single unvalidated step', () => {
+    expect(decide({ unvalidatedSteps: 1 }).shouldReplan).toBe(false);
+  });
+
+  it('applies triggers in precedence order', () => {
+    expect(decide({ planned: false, navigatorDone: true, stalled: true }).trigger).toBe('initial');
+    expect(decide({ waitingForHuman: true, navigatorDone: true }).trigger).toBe('human_needed');
+    expect(decide({ navigatorDone: true, navigatorErrored: true, unvalidatedSteps: 5 }).trigger).toBe('contract_complete');
+    expect(decide({ unvalidatedSteps: 2, stalled: true, stepsSinceLastPlan: 9 }).trigger).toBe('validation');
+    expect(decide({ stalled: true, stepsSinceLastPlan: 9 }).trigger).toBe('progress_stall');
   });
 
   it('records validated progress from action evidence', () => {
@@ -333,12 +319,11 @@ describe('P1 context budget and routing', () => {
     expect(report.totalEstimatedInputTokens).toBeGreaterThan(0);
   });
 
-  it('routes exact URL/search tasks to a deterministic single action without planner interpretation', () => {
+  it('routes only exact URL tasks to a deterministic action; searches go through the planner', () => {
     const urlRoute = ExecutionRouter.routeTask('go to https://example.com/docs');
-    const searchRoute = ExecutionRouter.routeTask('search google for browser automation reliability');
 
     expect(urlRoute?.contract.mode).toBe('single_browser_action');
     expect(urlRoute?.actions).toEqual([{ go_to_url: { url: 'https://example.com/docs' } }]);
-    expect(searchRoute?.actions[0]).toHaveProperty('search_web');
+    expect(ExecutionRouter.routeTask('search google for browser automation reliability')).toBeNull();
   });
 });

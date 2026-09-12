@@ -20,7 +20,6 @@ import {
 import { DOMElementNode, type DOMState } from './dom/views';
 import { type BrowserContextConfig, DEFAULT_BROWSER_CONTEXT_CONFIG, type PageState, URLNotAllowedError } from './views';
 import { createLogger } from '@src/background/log';
-import { ClickableElementProcessor } from './dom/clickable/service';
 import { isUrlAllowed, isNewTabPage } from './util';
 import { getDOMStateViaSnapshot } from './chromium-apis/dom-snapshot-extractor';
 import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
@@ -60,19 +59,6 @@ export function build_initial_state(tabId?: number, url?: string, title?: string
   };
 }
 
-/**
- * Cached clickable elements hashes for the last state
- */
-export class CachedStateClickableElementsHashes {
-  url: string;
-  hashes: Set<string>;
-
-  constructor(url: string, hashes: Set<string>) {
-    this.url = url;
-    this.hashes = hashes;
-  }
-}
-
 export default class Page {
   private _tabId: number;
   private _browser: Browser | null = null;
@@ -81,8 +67,9 @@ export default class Page {
   private _state: PageState;
   private _validWebPage = false;
   private _cachedState: PageState | null = null;
-  private _cachedStateClickableElementsHashes: CachedStateClickableElementsHashes | null = null;
-  private _pendingStatePromise: Promise<PageState> | null = null;
+  /** Bumped by every invalidation: a read started under an older generation is never cached or joined. */
+  private _generation = 0;
+  private _pendingState: { generation: number; useVision: boolean; promise: Promise<PageState> } | null = null;
   private _browserAdapter: IBrowserAdapter;
   private _storageProvider: IStorageProvider;
 
@@ -122,10 +109,6 @@ export default class Page {
     return this._validWebPage && this._puppeteerPage !== null;
   }
 
-  public getPendingStatePromise(): Promise<PageState> | null {
-    return this._pendingStatePromise;
-  }
-
   /**
    * Re-evaluate whether this page is a valid web page based on a new URL.
    * Safe to call at any time; only promotes false→true, never demotes.
@@ -141,7 +124,8 @@ export default class Page {
   updateUrl(url: string): void {
     if (!url) return;
     const previousUrl = this._state.url;
-    this._state.url = url;
+    // Replaced, not mutated: the old object may be a state the agent is still comparing against.
+    this._state = { ...this._state, url };
     this.refreshValidWebPage(url);
 
     // ── SPA Cache Invalidation ────────────────────────────────────────────────
@@ -154,8 +138,7 @@ export default class Page {
     // call, ensuring indices always match the currently rendered view.
     if (previousUrl && previousUrl !== url) {
       logger.info(`[SPA Nav] URL changed ${previousUrl} → ${url} — invalidating DOM cache`);
-      this._cachedState = null;
-      this._cachedStateClickableElementsHashes = null;
+      this.invalidateCache();
     }
     // ─────────────────────────────────────────────────────────────────────────
   }
@@ -174,8 +157,7 @@ export default class Page {
       this.refreshValidWebPage(tab.url ?? '');
       if (this._validWebPage) {
         // Update the cached state URL/title now that we know the real URL
-        this._state.url = tab.url ?? '';
-        this._state.title = tab.title ?? '';
+        this._state = { ...this._state, url: tab.url ?? '', title: tab.title ?? '' };
         logger.info('Page re-validated from tab', this._tabId, tab.url);
         // Attempt puppeteer attachment so click/input actions can work.
         // Failure is non-fatal; DOM reads via chrome.scripting will still work.
@@ -737,105 +719,91 @@ export default class Page {
     return await this._puppeteerPage.content();
   }
 
+  /** The last read, or null once anything has invalidated it. */
   getCachedState(): PageState | null {
     return this._cachedState;
   }
 
-  invalidateCache(): void {
-    logger.info('Invalidating DOM cache manually');
-    this._cachedState = null;
-    this._cachedStateClickableElementsHashes = null;
+  /** The last read if nothing invalidated it and the tab is still on that URL; otherwise a new read. */
+  async getCurrentState(useVision = false): Promise<PageState> {
+    const cached = this._cachedState;
+    if (cached && !this._pendingState && (!useVision || cached.screenshot)) {
+      const liveUrl = await this._browserAdapter.getTab(this._tabId).then(
+        tab => tab.url ?? '',
+        () => cached.url,
+      );
+      if (liveUrl === cached.url && this._cachedState === cached) return cached;
+    }
+    return this.getState(useVision);
   }
 
-  async getState(useVision = false, cacheClickableElementsHashes = false, skipNetworkIdle = false): Promise<PageState> {
-    if (this._pendingStatePromise) {
-      return this._pendingStatePromise;
+  invalidateCache(): void {
+    this._generation++;
+    this._cachedState = null;
+  }
+
+  async getState(useVision = false, skipNetworkIdle = false): Promise<PageState> {
+    const pending = this._pendingState;
+    // A read started before an invalidation may predate the change the caller is waiting for.
+    if (pending && pending.generation === this._generation && (pending.useVision || !useVision)) {
+      return pending.promise;
     }
-
-    const statePromise = (async () => {
-      // Re-validate from the live tab URL in case the tab has navigated away from
-      // an initial chrome://newtab/ URL since this Page was constructed.
-      await this._revalidateFromTab();
-
-      if (!this._validWebPage) {
-        // return the initial state
-        return build_initial_state(this._tabId);
-      }
-      
-      if (!skipNetworkIdle) {
-        await this.waitForPageAndFramesLoad();
-      } else {
-        try {
-          await this._waitForDomStability(200, 50);
-        } catch (err) {
-          logger.warning('[Page] Error waiting for DOM stability:', err);
-        }
-      }
-
-      // SPA-aware DOM extraction: retry up to 3 times if the page returns an empty
-      // selector map. Gmail and other SPAs paint the shell first then hydrate the
-      // inbox asynchronously — network-idle fires too early. Retrying with an
-      // adaptive short delay gives the JS framework time to finish rendering
-      // without imposing several fixed 1.5-second pauses on every action.
-      const MAX_DOM_RETRIES = 3;
-      let updatedState = await this._updateState(useVision);
-
-      for (let attempt = 1; attempt < MAX_DOM_RETRIES; attempt++) {
-        if (updatedState.selectorMap.size > 0) break; // got elements — done
-        const retryDelayMs = getAdaptiveDomRetryDelayMs(attempt);
-        logger.warning(
-          `[getState] Empty DOM on attempt ${attempt}/${MAX_DOM_RETRIES} for ${updatedState.url} — retrying in ${retryDelayMs}ms`,
-        );
-        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
-        updatedState = await this._updateState(useVision);
-      }
-
-      if (updatedState.selectorMap.size === 0) {
-        logger.warning(`[getState] DOM still empty after ${MAX_DOM_RETRIES} attempts — serving cached state if available`);
-        if (
-          this._cachedState &&
-          this._cachedState.selectorMap.size > 0 &&
-          this._cachedState.url === updatedState.url
-        ) {
-          return this._cachedState;
-        }
-      }
-
-      // Find out which elements are new
-      // Do this only if url has not changed
-      if (cacheClickableElementsHashes) {
-        // If we are on the same url as the last state, we can use the cached hashes
-        if (
-          this._cachedStateClickableElementsHashes &&
-          this._cachedStateClickableElementsHashes.url === updatedState.url
-        ) {
-          // Get clickable elements from the updated state
-          const updatedStateClickableElements = ClickableElementProcessor.getClickableElements(updatedState.elementTree);
-
-          // Mark elements as new if they weren't in the previous state
-          for (const domElement of updatedStateClickableElements) {
-            const hash = await ClickableElementProcessor.hashDomElement(domElement);
-            domElement.isNew = !this._cachedStateClickableElementsHashes.hashes.has(hash);
-          }
-        }
-
-        // In any case, we need to cache the new hashes
-        const newHashes = await ClickableElementProcessor.getClickableElementsHashes(updatedState.elementTree);
-        this._cachedStateClickableElementsHashes = new CachedStateClickableElementsHashes(updatedState.url, newHashes);
-      }
-
-      // Save the updated state as the cached state
-      this._cachedState = updatedState;
-
-      return updatedState;
-    })();
-
-    this._pendingStatePromise = statePromise;
+    const generation = this._generation;
+    const promise = this._readState(useVision, skipNetworkIdle).then(state => {
+      if (generation === this._generation) this._cachedState = state;
+      return state;
+    });
+    const entry = { generation, useVision, promise };
+    this._pendingState = entry;
     try {
-      return await statePromise;
+      return await promise;
     } finally {
-      this._pendingStatePromise = null;
+      if (this._pendingState === entry) this._pendingState = null;
     }
+  }
+
+  private async _readState(useVision: boolean, skipNetworkIdle: boolean): Promise<PageState> {
+    // The tab may have left an initial chrome://newtab/ URL since this Page was constructed.
+    await this._revalidateFromTab();
+    if (!this._validWebPage) {
+      return build_initial_state(this._tabId);
+    }
+
+    if (!skipNetworkIdle) {
+      await this.waitForPageAndFramesLoad();
+    } else {
+      try {
+        await this._waitForDomStability(200, 50);
+      } catch (err) {
+        logger.warning('[Page] Error waiting for DOM stability:', err);
+      }
+    }
+
+    const read = async (): Promise<PageState | null> => {
+      try {
+        return await this._updateState(useVision);
+      } catch (error) {
+        logger.warning(`[getState] Page read failed: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+      }
+    };
+
+    // SPAs paint a shell and hydrate later, and frames briefly fail mid-navigation: retry briefly.
+    const MAX_DOM_RETRIES = 3;
+    let state = await read();
+    for (let attempt = 1; attempt < MAX_DOM_RETRIES && !(state && state.selectorMap.size > 0); attempt++) {
+      const retryDelayMs = getAdaptiveDomRetryDelayMs(attempt);
+      logger.warning(
+        `[getState] Empty DOM on attempt ${attempt}/${MAX_DOM_RETRIES} for ${state?.url ?? this._state.url} — retrying in ${retryDelayMs}ms`,
+      );
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      state = await read();
+    }
+    if (state) return state;
+
+    // Never serve an older page as the current one: report the live tab with no elements.
+    const tab = await this._browserAdapter.getTab(this._tabId).catch(() => null);
+    return build_initial_state(this._tabId, tab?.url ?? this._state.url, tab?.title ?? this._state.title);
   }
 
   async _updateState(useVision = false, focusElement = -1): Promise<PageState> {
@@ -882,9 +850,7 @@ export default class Page {
       const displayHighlights = this._config.displayHighlights || useVision;
       const content = await this.getClickableElements(displayHighlights, focusElement);
       if (!content) {
-        logger.warning('Failed to get clickable elements');
-        // Return last known good state if available
-        return this._state;
+        throw new Error('Failed to get clickable elements');
       }
       // log the attributes of content object
       if ('selectorMap' in content) {
@@ -902,24 +868,29 @@ export default class Page {
       const screenshot = useVision ? await this.takeScreenshot() : null;
       const [scrollY, visualViewportHeight, scrollHeight] = await this.getScrollInfo();
 
-      // update the state
-      this._state.elementTree = content.elementTree;
-      this._state.selectorMap = content.selectorMap;
-      // Use chrome.tabs.get as the authoritative URL/title source.
-      // puppeteer.url() can return 'about:blank' during/after cross-origin navigation,
-      // which would cause dom/service.ts to return an empty DOM tree.
+      // chrome.tabs.get is the authoritative URL/title: puppeteer can report about:blank mid-navigation.
+      let url: string;
+      let title: string;
       try {
         const tab = await this._browserAdapter.getTab(this._tabId);
-        this._state.url = tab.url || this._puppeteerPage?.url() || '';
-        this._state.title = tab.title || (await this._puppeteerPage?.title()) || '';
+        url = tab.url || this._puppeteerPage?.url() || '';
+        title = tab.title || (await this._puppeteerPage?.title()) || '';
       } catch {
-        this._state.url = this._puppeteerPage?.url() || '';
-        this._state.title = (await this._puppeteerPage?.title()) || '';
+        url = this._puppeteerPage?.url() || '';
+        title = (await this._puppeteerPage?.title()) || '';
       }
-      this._state.screenshot = screenshot;
-      this._state.scrollY = scrollY;
-      this._state.visualViewportHeight = visualViewportHeight;
-      this._state.scrollHeight = scrollHeight;
+      // A new object per read: states handed out earlier are never mutated.
+      this._state = {
+        elementTree: content.elementTree,
+        selectorMap: content.selectorMap,
+        tabId: this._tabId,
+        url,
+        title,
+        screenshot,
+        scrollY,
+        visualViewportHeight,
+        scrollHeight,
+      };
 
       // ── DOM → LLM COMPLETE LOG ───────────────────────────────────────────
       // Full structured dump of every interactive element sent to the LLM.
@@ -999,28 +970,9 @@ export default class Page {
 
       return this._state;
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      // When Chrome transitions to a new frame (e.g. navigateTo gmail.com), the
-      // old frame is briefly marked as an "error page" before the new frame is
-      // ready. If we silently return this._state here, the stale selectorMap
-      // (e.g. 200 Google elements) makes getState's SPA retry loop think the DOM
-      // is fine — so it never waits for Gmail to load, and the agent keeps
-      // re-navigating to Gmail in a loop.
-      //
-      // Fix: on frame-transition errors, wipe the selectorMap so getState DOES
-      // retry using the bounded adaptive delay, giving the new frame time to become ready.
-      if (
-        errMsg.includes('showing error page') ||
-        errMsg.includes('Cannot find context') ||
-        errMsg.includes('Frame was detached')
-      ) {
-        logger.warning(`[_updateState] Frame transitioning (${errMsg.split(':')[0]}) — clearing selectorMap to force SPA retry`);
-        this._state.selectorMap = new Map();
-        return this._state;
-      }
-      logger.error('Failed to update state:', error);
-      // Return last known good state if available
-      return this._state;
+      // getState retries, then reports the live tab with no elements; it never serves an older read.
+      logger.warning('Failed to update state:', error);
+      throw error;
     }
   }
 
@@ -1202,7 +1154,7 @@ export default class Page {
         window.scrollTo({
           top: scrollTop,
           left: window.scrollX,
-          behavior: 'smooth',
+          behavior: 'instant',
         });
       }, yPercent);
     } else {
@@ -1224,7 +1176,7 @@ export default class Page {
         el.scrollTo({
           top: scrollTop,
           left: el.scrollLeft,
-          behavior: 'smooth',
+          behavior: 'instant',
         });
       }, yPercent);
     }
@@ -1239,7 +1191,7 @@ export default class Page {
         window.scrollBy({
           top: y,
           left: 0,
-          behavior: 'smooth',
+          behavior: 'instant',
         });
       }, y);
     } else {
@@ -1257,7 +1209,7 @@ export default class Page {
         el.scrollBy({
           top: y,
           left: 0,
-          behavior: 'smooth',
+          behavior: 'instant',
         });
       });
     }

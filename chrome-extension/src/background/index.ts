@@ -80,13 +80,6 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(details => {
     if (page) {
       page.updateUrl(url);
     }
-
-    // Clear failure registry if this tab is the active executor's tab
-    if (currentExecutor) {
-      if (currentExecutor.getCurrentTabId() === tabId) {
-        currentExecutor.getContext().clearFailuresForUrl(url);
-      }
-    }
   }
 });
 
@@ -233,35 +226,6 @@ ${rawElementsText}
     return true;
   }
 
-  if (message.type === 'TEST_GET_FAILURE_REGISTRY') {
-    try {
-      interface FailureRecordSummary {
-        key: string;
-        selector: string;
-        url: string;
-        actionType: string;
-        failCount: number;
-      }
-      const records: FailureRecordSummary[] = [];
-      if (currentExecutor) {
-        const ctx = currentExecutor.getContext();
-        for (const [key, record] of ctx.failureRegistry.entries()) {
-          records.push({
-            key,
-            selector: record.selector,
-            url: record.url,
-            actionType: record.actionType,
-            failCount: record.failCount
-          });
-        }
-      }
-      sendResponse({ success: true, records });
-    } catch (err) {
-      sendResponse({ success: false, error: String(err) });
-    }
-    return true;
-  }
-
   if (message.type === 'TEST_GET_SESSION_STATS') {
     try {
       if (currentExecutor) {
@@ -285,21 +249,6 @@ ${rawElementsText}
     return true;
   }
 
-  if (message.type === 'TEST_CLEAR_FAILURE_REGISTRY') {
-    try {
-      if (currentExecutor) {
-        const ctx = currentExecutor.getContext();
-        ctx.failureRegistry.clear();
-        logger.info("TEST_CLEAR_FAILURE_REGISTRY: Failure registry cleared manually.");
-        sendResponse({ success: true, message: "Failure registry cleared." });
-      } else {
-        sendResponse({ success: true, message: "No active task executor found to clear registry." });
-      }
-    } catch (err) {
-      sendResponse({ success: false, error: String(err) });
-    }
-    return true;
-  }
   // TEST LOGGING HANDLERS - END
 
   return false;

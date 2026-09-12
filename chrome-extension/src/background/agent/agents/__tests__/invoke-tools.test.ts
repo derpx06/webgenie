@@ -142,15 +142,6 @@ describe('invokeTools', () => {
     expect(onUsage).toHaveBeenCalledWith({ inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, reasoningTokens: 0 });
   });
 
-  it('rejects calls outside the plan’s allowed actions', async () => {
-    const { chatModel, seen } = stubModel([
-      new AIMessage({ content: '', tool_calls: [call('a', 'click_element', { index: 1, memory: 'm' })] }),
-      new AIMessage({ content: '', tool_calls: [call('b', 'done', { text: 't', success: true, memory: 'm' })] }),
-    ]);
-    const result = await invokeTools({ ...base, chatModel, allowedActions: ['done'] });
-    expect(result.calls[0].name).toBe('done');
-    expect(String((seen[1].find(m => m instanceof ToolMessage) as ToolMessage).content)).toContain('not allowed');
-  });
 });
 
 describe('invokeLLM', () => {

@@ -1,18 +1,4 @@
 /**
- * Verified element anchor scoped to domain + pagePath + layout fingerprint.
- */
-export interface SelectorAnchor {
-  domain: string;
-  pagePath: string;           // URL pathname + hash (e.g. "/mail/u/0/#compose")
-  layoutHash: string;         // structural fingerprint — invalid when page updates
-  intentKey: string;          // e.g. "click compose button"
-  selector: string;           // verified working CSS selector
-  xpath: string;              // backup XPath locator
-  successRating: number;      // incremented on every verified hit
-  lastUsedTimestamp: number;  // for LRU eviction: least-recently-used evicted first
-}
-
-/**
  * Compressed summary of a completed task outcome.
  */
 export interface EpisodicNote {

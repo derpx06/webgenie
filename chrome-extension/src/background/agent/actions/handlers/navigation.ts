@@ -11,7 +11,8 @@ export class NavigationHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const encodedQuery = encodeURIComponent(input.query);
-    const engine = input.engine || 'google';
+    // DuckDuckGo by default: Google answers automated browsing with a captcha page.
+    const engine = input.engine || 'duckduckgo';
     const searchUrl = engine === 'google'
       ? `https://www.google.com/search?q=${encodedQuery}`
       : `https://duckduckgo.com/?q=${encodedQuery}`;
