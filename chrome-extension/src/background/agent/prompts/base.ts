@@ -226,7 +226,7 @@ abstract class BasePrompt {
 Current tab: ${currentTab}
 Other open tabs:
 ${otherTabs.join('\n') || '(none)'}
-${dialogNotice}Interactive elements of the current page (offscreen elements are marked):
+${dialogNotice}Interactive elements of the current page (offscreen elements are marked; links on the current site show their path, so the full address is the current tab's origin plus that path):
 ${formattedElementsText}
 ${stepInfoDescription}
 ${actionResultsDescription ? `Results of your last actions:${actionResultsDescription}` : ''}`.trim();

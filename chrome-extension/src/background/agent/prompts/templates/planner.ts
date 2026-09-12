@@ -19,6 +19,7 @@ ${commonSecurityRules}
 - Set done=true only when every part of the task is done and the browser state or the step results show the evidence: a confirmation, the requested values, the changed state.
 - Never set done=true in the same call in which you plan a final submit or send; wait until its result is visible.
 - When the navigator reports an answer with done, check it against the page and the step results before accepting it.
+- An action reported as done does not prove its effect. For a change (something moved, added, removed, toggled, selected or submitted), accept it only when the current browser state shows the new state; otherwise plan to check it or try another way.
 - If the task cannot be completed (the information does not exist, access is refused), set done=true and explain why in final_answer.
 
 # final_answer

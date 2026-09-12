@@ -57,6 +57,8 @@ export interface DocumentLayout {
 
 export interface FrameTree {
   key: string;
+  /** The frame's document URL; links to the same site are shown as paths. */
+  url?: string;
   parentKey?: string;
   /** backendNodeId of the <iframe> element in the parent frame that holds this frame. */
   hostBackendNodeId?: number;
@@ -219,7 +221,17 @@ function propertyMap(node: AXNode): Record<string, unknown> {
   return props;
 }
 
-function nodeAttributes(role: string, name: string, node: AXNode, props: Record<string, unknown>, layout?: NodeLayout) {
+/** A same-site link as its path (shorter, and never cut mid-URL by the attribute limit); other links in full. */
+function linkAddress(href: string, frameUrl?: string): string {
+  try {
+    const link = new URL(href);
+    return frameUrl && new URL(frameUrl).origin === link.origin ? `${link.pathname}${link.search}${link.hash}` : href;
+  } catch {
+    return href;
+  }
+}
+
+function nodeAttributes(role: string, name: string, node: AXNode, props: Record<string, unknown>, layout?: NodeLayout, frameUrl?: string) {
   const attributes: Record<string, string> = { ...layout?.attributes };
   if (role) attributes.role = role;
   if (name) attributes['aria-label'] = name;
@@ -231,7 +243,7 @@ function nodeAttributes(role: string, name: string, node: AXNode, props: Record<
     // Relations (labelledby, controls, ...) point at other nodes; they are not values.
     if (!['string', 'number', 'boolean'].includes(typeof value)) continue;
     if (property === 'url') {
-      attributes.href = String(value);
+      attributes.href = linkAddress(String(value), frameUrl);
       continue;
     }
     if ((value === false || value === 'false') && !STATE_PROPERTIES.has(property)) continue;
@@ -335,7 +347,7 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
       const element = new DOMElementNode({
         tagName: layout?.tagName || ROLE_TAGS[role] || 'div',
         xpath: null,
-        attributes: nodeAttributes(role, name, node, props, layout),
+        attributes: nodeAttributes(role, name, node, props, layout, tree.url),
         children: [],
         isVisible: true,
         isInteractive: interactive,
@@ -439,6 +451,7 @@ async function readFrame(frame: Frame): Promise<FrameTree | null> {
     return {
       key,
       parentKey: parent ? internals(parent)._id : undefined,
+      url: frame.url(),
       hostBackendNodeId,
       nodes: tree.nodes as unknown as AXNode[],
       pointerListeners,

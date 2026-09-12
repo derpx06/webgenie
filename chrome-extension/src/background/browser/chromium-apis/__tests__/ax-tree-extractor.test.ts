@@ -180,6 +180,19 @@ describe('coordinates', () => {
   });
 });
 
+describe('link addresses', () => {
+  it('shows same-site links as their path and other sites in full', () => {
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3'] },
+      { nodeId: '2', role: { value: 'link' }, name: { value: 'Excel' }, properties: [{ name: 'url', value: { value: 'https://example.com/download/jqueryui/menu/menu.xls' } }] },
+      { nodeId: '3', role: { value: 'link' }, name: { value: 'Docs' }, properties: [{ name: 'url', value: { value: 'https://docs.other.org/guide?x=1#top' } }] },
+    ];
+    const state = buildDomState([{ key: 'main', url: 'https://example.com/jqueryui/menu', nodes }], null);
+    expect(state.selectorMap.get(0)?.attributes.href).toBe('/download/jqueryui/menu/menu.xls');
+    expect(state.selectorMap.get(1)?.attributes.href).toBe('https://docs.other.org/guide?x=1#top');
+  });
+});
+
 describe('documentLayout', () => {
   it('maps backend node ids to their first layout box, lowercase tag and selected attributes', () => {
     const strings = ['INPUT', 'type', 'password', 'class', 'x', 'frame-1'];

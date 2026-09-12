@@ -1384,13 +1384,32 @@ export default class Page {
     await source.scrollIntoView();
     const html5 = await source.evaluate(el => el.closest('[draggable="true"]') !== null);
     if (html5) {
-      // Mouse events do not start an HTML5 drag in an automated tab; intercepted drags are replayed as drag events.
-      await page.setDragInterception(true);
-      try {
-        await source.dragAndDrop(target, { delay: 50 });
-      } finally {
-        await page.setDragInterception(false);
+      if (sourceNode.frameKey !== targetNode.frameKey) {
+        throw new Error('Dragging between frames is not supported; drag within one frame.');
       }
+      // Mouse events do not start an HTML5 drag in a tab driven over CDP, so the page receives the drag sequence
+      // a browser would fire, with one shared DataTransfer.
+      await source.evaluate((sourceElement, targetElement) => {
+        const dataTransfer = new DataTransfer();
+        const fire = (element: Element, type: string) => {
+          const rect = element.getBoundingClientRect();
+          element.dispatchEvent(
+            new DragEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              composed: true,
+              dataTransfer,
+              clientX: rect.left + rect.width / 2,
+              clientY: rect.top + rect.height / 2,
+            }),
+          );
+        };
+        fire(sourceElement, 'dragstart');
+        fire(targetElement, 'dragenter');
+        fire(targetElement, 'dragover');
+        fire(targetElement, 'drop');
+        fire(sourceElement, 'dragend');
+      }, target);
       return;
     }
     const from = await source.clickablePoint();

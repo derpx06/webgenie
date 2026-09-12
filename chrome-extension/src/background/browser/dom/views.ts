@@ -344,7 +344,7 @@ export class DOMElementNode extends DOMBaseNode {
                  .map(([key, value]) => {
                    let capLimit = 15;
                    if (key === 'href') {
-                     capLimit = 50;
+                     capLimit = 150;
                    } else if (['aria-label', 'aria-description', 'placeholder', 'title', 'value'].includes(key)) {
                      capLimit = 40;
                    }
