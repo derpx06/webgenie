@@ -31,7 +31,7 @@ export const HEALTH_COUNTERS = [
   'harnessErrors',
 ];
 
-export function taskMetrics(records, events, { secret } = {}) {
+export function taskMetrics(records, events, { secret, taskText = '' } = {}) {
   const llm = records.filter(r => r.kind === 'llm');
   const calls = llm.filter(r => r.level === 'info' && String(r.msg).startsWith('llm call'));
   const reasks = llm.filter(r => r.msg === 'tool call validation failed');
@@ -57,15 +57,13 @@ export function taskMetrics(records, events, { secret } = {}) {
   const dispatches = spans.filter(r => r.msg === 'input dispatch');
   const sum = key => calls.reduce((total, r) => total + (r.data?.usage?.[key] ?? 0), 0);
 
-  // Leaks count only where typed text must never appear: action events and action/validation spans.
+  // A secret must not appear in any event or trace record (plans and memory notes included), except inside the
+  // user's own task text, which the agent logs as given.
   let secretLeaks = 0;
   if (secret) {
-    const leakSources = [
-      ...events.filter(e => String(e.state ?? '').startsWith('act.')),
-      ...spans.filter(r => ['NavigatorAgent', 'Validation', 'Action'].includes(r.component)),
-      ...reasks,
-    ];
-    secretLeaks = leakSources.filter(item => JSON.stringify(item).includes(secret)).length;
+    const quotedTask = JSON.stringify(taskText).slice(1, -1);
+    const leaks = item => (quotedTask ? JSON.stringify(item).split(quotedTask).join('') : JSON.stringify(item)).includes(secret);
+    secretLeaks = [...events, ...records].filter(leaks).length;
   }
 
   return {

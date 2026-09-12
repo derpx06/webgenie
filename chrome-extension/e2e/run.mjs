@@ -332,7 +332,7 @@ class Harness {
       check = { pass: false, detail: `checker error: ${error.message}` };
     }
 
-    const metrics = taskMetrics(records, run.events, { secret: task.secret });
+    const metrics = taskMetrics(records, run.events, { secret: task.secret, taskText: typeof task.task === 'function' ? task.task(this.fixtures) : task.task });
     const pass = run.outcome === 'task.ok' && check.pass && metrics.secretLeaks === 0;
     fs.writeFileSync(path.join(outDir, `${attempt}.events.jsonl`), run.events.map(e => JSON.stringify(e)).join('\n'));
     fs.writeFileSync(path.join(outDir, `${attempt}.trace.jsonl`), records.map(r => JSON.stringify(r)).join('\n'));

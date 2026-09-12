@@ -43,11 +43,32 @@ let context: { taskId?: string; step?: number } = {};
 let buffer: TraceRecord[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let writesSincePrune = 0;
-/** Values the agent typed into password fields; scrubbed from every record written afterwards. */
+/** Values the agent typed into password fields; scrubbed from every record. */
 const secrets = new Set<string>();
 
 export function registerSecret(value: string): void {
-  if (value.length >= 4) secrets.add(value);
+  if (value.length < 4 || secrets.has(value)) return;
+  secrets.add(value);
+  // A plan or memory note can name the value before it is typed: scrub what this task already recorded.
+  buffer = buffer.map(scrubbed);
+  void scrubStored(context.taskId);
+}
+
+function scrubbed(entry: TraceRecord): TraceRecord {
+  return { ...entry, msg: redactString(entry.msg), data: entry.data === undefined ? undefined : sanitize(entry.data) };
+}
+
+/** Writes already under way finish first: IndexedDB runs write transactions on a store in creation order. */
+async function scrubStored(taskId: string | undefined): Promise<void> {
+  if (!taskId || typeof indexedDB === 'undefined') return;
+  try {
+    db ??= new TraceDB();
+    await db.records.where('taskId').equals(taskId).modify((entry, ref) => {
+      ref.value = scrubbed(entry);
+    });
+  } catch (error) {
+    console.warn('[Trace] scrub failed', error); // not the logger: that would recurse
+  }
 }
 
 function redactString(value: string): string {
