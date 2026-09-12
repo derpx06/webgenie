@@ -174,6 +174,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     actionName: string,
     actionArgs: unknown,
     beforeState: BrowserState,
+    result: ActionResult,
   ): Promise<BrowserState> {
     const config = this.context.browserContext.getConfig();
     const timeoutMs = Math.max(250, config.actionSettleTimeoutMs ?? 2000);
@@ -181,15 +182,10 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     const startedAt = Date.now();
     const settleResult = await waitForActionSettled(
       () => this.context.browserContext.getState(false),
-      // Polls until the action validates; an action with nothing to validate settles at once.
+      // Polls until the action validates; an action with nothing to validate settles at once. The handler's own
+      // evidence (typed text read back, a selection confirmed) counts, so those settle on the first read.
       state => {
-        const { validated } = validateActionOutcome({
-          actionName,
-          actionArgs,
-          before: beforeState,
-          after: state,
-          result: new ActionResult({ executed: true, executionStatus: 'executed' }),
-        });
+        const { validated } = validateActionOutcome({ actionName, actionArgs, before: beforeState, after: state, result });
         return validated === 'passed' || validated === 'not_applicable';
       },
       {
@@ -355,7 +351,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           ? beforeState
           : result.error
             ? await browserContext.getState(false)
-            : await this.getSettledPostActionState(actionName, actionArgs, beforeState);
+            : await this.getSettledPostActionState(actionName, actionArgs, beforeState, result);
         ensureBrowserObservation(postActionState);
         result = validateActionOutcome({
           actionName,

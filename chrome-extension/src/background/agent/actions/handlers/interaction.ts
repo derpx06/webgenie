@@ -16,6 +16,7 @@ import { BaseHandler } from './base';
 import type Page from '@src/background/browser/page';
 import type { MouseOutcome } from '@src/background/browser/page';
 import type { DOMElementNode } from '@src/background/browser/dom/views';
+import { registerSecret } from '@src/background/trace';
 
 function describe(node: DOMElementNode): string {
   return node.getAllTextTillNextClickableElement(2) || node.attributes['aria-label'] || node.tagName || 'element';
@@ -110,6 +111,7 @@ export class InteractionHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_inputText_start', [input.index.toString()]));
     const { page, node } = await this.resolveIndex(input.index);
     const outcome = await page.inputTextNode(node, input.text);
+    if (outcome.secret) registerSecret(input.text);
     // A password never leaves the page again: messages show its length only.
     const shown = outcome.secret ? '•'.repeat(input.text.length) : input.text;
     const msg = t('act_inputText_ok', [shown, input.index.toString()]);

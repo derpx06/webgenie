@@ -43,9 +43,16 @@ let context: { taskId?: string; step?: number } = {};
 let buffer: TraceRecord[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let writesSincePrune = 0;
+/** Values the agent typed into password fields; scrubbed from every record written afterwards. */
+const secrets = new Set<string>();
+
+export function registerSecret(value: string): void {
+  if (value.length >= 4) secrets.add(value);
+}
 
 function redactString(value: string): string {
-  const redacted = value.replace(SECRET_VALUE, '[redacted]');
+  let redacted = value.replace(SECRET_VALUE, '[redacted]');
+  for (const secret of secrets) redacted = redacted.split(secret).join('[redacted]');
   return redacted.length > MAX_STRING ? `${redacted.slice(0, MAX_STRING)}…[+${redacted.length - MAX_STRING} chars]` : redacted;
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sanitize } from '../trace';
+import { registerSecret, sanitize } from '../trace';
 
 describe('trace sanitize', () => {
   it('redacts secret fields and token-shaped values but keeps token counts', () => {
@@ -32,5 +32,13 @@ describe('trace sanitize', () => {
     for (let i = 0; i < 10; i++) cursor = (cursor.next = {}) as Record<string, unknown>;
     expect(JSON.stringify(sanitize(deep))).toContain('[depth limit]');
     expect((sanitize(Array.from({ length: 200 }, (_, i) => i)) as unknown[]).length).toBe(50);
+  });
+
+  it('scrubs values typed into password fields from later records', () => {
+    registerSecret('S3cret-Pass!word');
+    expect(sanitize({ msg: 'next goal: type S3cret-Pass!word and submit', nested: ['S3cret-Pass!word'] })).toEqual({
+      msg: 'next goal: type [redacted] and submit',
+      nested: ['[redacted]'],
+    });
   });
 });
