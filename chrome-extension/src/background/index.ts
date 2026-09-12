@@ -6,6 +6,10 @@ if (typeof globalThis.process === 'undefined') {
     env: {}
   };
 }
+
+// Libraries that store fetch on an object and call it as `client._fetch(...)` (e.g. @langchain/google-common,
+// used by the Vertex AI provider) throw "Illegal invocation" here: in a service worker fetch needs `this === self`.
+globalThis.fetch = globalThis.fetch.bind(globalThis);
 import {
   agentModelStore,
   AgentNameEnum,

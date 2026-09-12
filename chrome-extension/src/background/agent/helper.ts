@@ -386,6 +386,13 @@ export function createChatModel(
           args.location = match[2];
         }
       }
+      // An OAuth access token (e.g. `gcloud auth print-access-token`) must be sent as a Bearer
+      // header; passed as apiKey the library sends X-Goog-Api-Key and Vertex returns 401.
+      // ponytail: gcloud tokens expire after ~1h, dev-only; users need an API key or service-account credentials.
+      if (providerConfig.apiKey?.startsWith('ya29.')) {
+        args.authOptions = { accessToken: providerConfig.apiKey, credentials: { project_id: args.project } };
+        delete args.apiKey;
+      }
       return new ChatVertexAI(args) as BaseChatModel;
     }
     case ProviderTypeEnum.Grok: {
