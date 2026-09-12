@@ -103,7 +103,8 @@ export abstract class BaseAgent<M = unknown> {
 // Everything below consumes LangChain's normalized AIMessage (tool_calls, usage_metadata,
 // response_metadata), so it behaves the same for every chat model adapter.
 
-export const LLM_CALL_TIMEOUT_MS = 60_000;
+/** Limit for each attempt: a response this slow is usually a one-off on the provider's side, so the second attempt starts fresh. */
+export const LLM_CALL_TIMEOUTS_MS = [30_000, 60_000];
 /** Extra waits after a rate-limited call: adapters retry 429s for only a few seconds, and shared quotas need longer. */
 export const RATE_LIMIT_DELAYS_MS = [5_000, 15_000, 30_000];
 const DEFAULT_MAX_REASKS = 2;
@@ -270,26 +271,49 @@ function waitUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** The single path for every LLM request: timeout, abort, rate-limit backoff, trace record and usage accounting. */
+/** A failure worth one immediate retry: a timeout, a 5xx or an interrupted connection. */
+export function isTransientLLMError(error: unknown): boolean {
+  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return /timed out|\b(500|502|503|504)\b|UNAVAILABLE|\bINTERNAL\b|ECONNRESET|ETIMEDOUT|fetch failed|network ?error|socket hang up/i.test(text);
+}
+
+/** The single path for every LLM request: timeout, abort, retries, trace record and usage accounting. */
 export async function invokeLLM(
   model: InvokableModel,
   messages: BaseMessage[],
   options: InvokeLLMOptions,
 ): Promise<AIMessage> {
   const delays = options.rateLimitDelaysMs ?? RATE_LIMIT_DELAYS_MS;
-  for (let attempt = 0; ; attempt++) {
+  const timeouts = options.timeoutMs ? [options.timeoutMs, options.timeoutMs] : LLM_CALL_TIMEOUTS_MS;
+  let rateLimitRetries = 0;
+  let transientRetries = 0;
+  for (;;) {
     try {
-      return await invokeOnce(model, messages, options);
+      return await invokeOnce(model, messages, { ...options, timeoutMs: timeouts[transientRetries] });
     } catch (error) {
-      if (attempt >= delays.length || options.signal?.aborted || !isRateLimitError(error)) throw error;
+      if (options.signal?.aborted) throw error;
+      if (isRateLimitError(error)) {
+        if (rateLimitRetries >= delays.length) throw error;
+        const delay = delays[rateLimitRetries++];
+        record({
+          level: 'warning',
+          kind: 'llm',
+          component: options.component,
+          msg: `rate limited; retrying in ${delay / 1000}s`,
+          data: { model: options.model, attempt: rateLimitRetries },
+        });
+        await waitUnlessAborted(delay, options.signal);
+        continue;
+      }
+      if (transientRetries + 1 >= timeouts.length || !isTransientLLMError(error)) throw error;
+      transientRetries++;
       record({
         level: 'warning',
         kind: 'llm',
         component: options.component,
-        msg: `rate limited; retrying in ${delays[attempt] / 1000}s`,
-        data: { model: options.model, attempt: attempt + 1 },
+        msg: 'transient failure; retrying once',
+        data: { model: options.model, error },
       });
-      await waitUnlessAborted(delays[attempt], options.signal);
     }
   }
 }
@@ -300,7 +324,7 @@ async function invokeOnce(
   options: InvokeLLMOptions,
 ): Promise<AIMessage> {
   const startedAt = Date.now();
-  const timeoutMs = options.timeoutMs ?? LLM_CALL_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? LLM_CALL_TIMEOUTS_MS[0];
   const promptChars = messages.reduce(
     (total, message) =>
       total + (typeof message.content === 'string' ? message.content.length : JSON.stringify(message.content).length),

@@ -162,13 +162,27 @@ describe('invokeLLM', () => {
     expect(stub.invoke).toHaveBeenCalledTimes(3);
   });
 
-  it('turns a timeout into a plain error, not a user cancel', async () => {
-    const { chatModel } = stubModel([
-      signal => new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new Error('Aborted')))),
-    ]);
+  it('turns a repeated timeout into a plain error, not a user cancel', async () => {
+    const hang = (signal?: AbortSignal) => new Promise<AIMessage>((_, reject) => signal?.addEventListener('abort', () => reject(new Error('Aborted'))));
+    const { chatModel } = stubModel([hang, hang]);
     const error = await invokeLLM(chatModel, packet, { component: 'test', timeoutMs: 20 }).catch(e => e);
     expect(String(error.message)).toMatch(/timed out/);
     expect(isAbortedError(error)).toBe(false);
+  });
+
+  it('retries once after a transient provider failure or a slow response', async () => {
+    const reply = new AIMessage({ content: 'ok' });
+    const unavailable = stubModel([() => Promise.reject(new Error('Google request failed with status code 503: UNAVAILABLE')), reply]);
+    expect((await invokeLLM(unavailable.chatModel, packet, { component: 'test' })).content).toBe('ok');
+
+    const slow = stubModel([
+      signal => new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new Error('Aborted')))),
+      reply,
+    ]);
+    expect((await invokeLLM(slow.chatModel, packet, { component: 'test', timeoutMs: 20 })).content).toBe('ok');
+
+    const badRequest = stubModel([() => Promise.reject(new Error('400 INVALID_ARGUMENT: bad schema')), reply]);
+    await expect(invokeLLM(badRequest.chatModel, packet, { component: 'test' })).rejects.toThrow(/INVALID_ARGUMENT/);
   });
 
   it('keeps a user abort as an abort', async () => {
