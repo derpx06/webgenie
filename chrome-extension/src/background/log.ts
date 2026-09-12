@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { record } from './trace';
 
 type LogLevel = 'debug' | 'info' | 'warning' | 'error';
 
@@ -14,7 +15,6 @@ interface Logger {
 const createLogger = (namespace: string): Logger => {
   const prefix = `[${namespace}]`;
 
-  // Bind console methods directly to preserve call stack and show correct line numbers
   const boundDebug = console.debug.bind(console, prefix);
   const boundInfo = console.info.bind(console, prefix);
   const boundWarn = console.warn.bind(console, prefix);
@@ -22,11 +22,27 @@ const createLogger = (namespace: string): Logger => {
   const boundGroup = console.group.bind(console);
   const boundGroupEnd = console.groupEnd.bind(console);
 
+  // Every log line is also persisted to the trace sink (a no-op unless trace capture is enabled).
+  const traced =
+    (level: LogLevel, write: (...args: unknown[]) => void) =>
+    (...args: unknown[]) => {
+      write(...args);
+      const [first, ...rest] = args;
+      const hasMessage = typeof first === 'string';
+      record({
+        level,
+        kind: 'log',
+        component: namespace,
+        msg: hasMessage ? first : '',
+        data: hasMessage ? (rest.length ? rest : undefined) : args,
+      });
+    };
+
   return {
-    debug: import.meta.env.DEV ? boundDebug : () => {},
-    info: boundInfo,
-    warning: boundWarn,
-    error: boundError,
+    debug: import.meta.env.DEV ? traced('debug', boundDebug) : () => {},
+    info: traced('info', boundInfo),
+    warning: traced('warning', boundWarn),
+    error: traced('error', boundError),
     group: (label: string) => boundGroup(`${prefix} ${label}`),
     groupEnd: boundGroupEnd,
   };

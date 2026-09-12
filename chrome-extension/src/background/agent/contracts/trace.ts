@@ -1,5 +1,6 @@
 import { IndexedDBStorageProvider } from '../../adapters/IndexedDBStorageProvider';
 import type { TraceEvent } from './types';
+import { record } from '../../trace';
 
 interface KeyValueStorage {
   get<T>(key: string): Promise<T | null>;
@@ -22,6 +23,8 @@ export class TraceStore {
       ...event,
       id: event.id ?? makeId(),
     };
+    const { taskId, actor, type, ...rest } = fullEvent;
+    record({ level: 'info', kind: 'trace', component: String(actor), msg: String(type), taskId, data: rest });
     const events = await this.list(fullEvent.taskId);
     events.push(fullEvent);
     await this.storage.set(traceKey(fullEvent.taskId), events);

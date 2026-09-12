@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { BaseAgent, type BaseAgentOptions, type ExtraAgentOptions } from './base';
 import { createLogger } from '@src/background/log';
+import { record } from '@src/background/trace';
 import { ActionResult, type AgentBrain, type AgentOutput } from '../types';
 import { Actors, ExecutionState } from '../event/types';
 import { calcBranchPathHashSet } from '@src/background/browser/dom/views';
@@ -475,7 +476,16 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           }
         }
 
+        const actionStartedAt = Date.now();
         let result = await actionInstance.call(actionArgs);
+        record({
+          level: result?.error ? 'warning' : 'info',
+          kind: 'span',
+          component: 'NavigatorAgent',
+          msg: `action ${actionName}`,
+          durationMs: Date.now() - actionStartedAt,
+          data: { args: actionArgs, error: result?.error, extractedChars: result?.extractedContent?.length },
+        });
         if (!result) throw new Error(`Action ${actionName} returned undefined`);
         if (indexArg !== null && actionArgs && typeof actionArgs === 'object') {
           result = new ActionResult({
@@ -505,6 +515,13 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           after: postActionState,
           result,
           recentResults: results,
+        });
+        record({
+          level: result.validated === 'failed' ? 'warning' : 'info',
+          kind: 'span',
+          component: 'Validation',
+          msg: `validated ${actionName}: ${result.validated}`,
+          data: { retryability: result.retryability, failureReason: result.failureReason, evidence: result.evidence },
         });
         result = new ActionResult({
           ...result,

@@ -1,5 +1,6 @@
 import type { AgentEvent, EventType, EventCallback } from './types';
 import { createLogger } from '../../log';
+import { record } from '../../trace';
 
 const logger = createLogger('event-manager');
 
@@ -40,6 +41,15 @@ export class EventManager {
   }
 
   async emit(event: AgentEvent): Promise<void> {
+    record({
+      level: event.state.endsWith('fail') ? 'error' : 'info',
+      kind: 'event',
+      component: event.actor,
+      msg: event.state,
+      taskId: event.data.taskId,
+      step: event.data.step,
+      data: { details: event.data.details, usage: event.data.usage },
+    });
     const callbacks = this._subscribers.get(event.type);
     if (callbacks) {
       try {

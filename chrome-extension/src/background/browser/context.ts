@@ -8,6 +8,7 @@ import {
 } from './views';
 import Page, { build_initial_state } from './page';
 import { createLogger } from '@src/background/log';
+import { record } from '../trace';
 import { isUrlAllowed } from './util';
 import { analytics } from '../services/analytics';
 import type { IBrowserAdapter } from '../adapters/IBrowserAdapter';
@@ -459,6 +460,7 @@ export default class BrowserContext {
   }
 
   public async getState(useVision = false, cacheClickableElementsHashes = false, skipNetworkIdle = false): Promise<BrowserState> {
+    const startedAt = Date.now();
     const currentPage = await this.getCurrentPage();
 
     const pageState = !currentPage
@@ -470,6 +472,14 @@ export default class BrowserContext {
       tabs: tabInfos,
     };
     ensureBrowserObservation(browserState);
+    record({
+      level: 'info',
+      kind: 'span',
+      component: 'BrowserContext',
+      msg: 'getState',
+      durationMs: Date.now() - startedAt,
+      data: { url: browserState.url, elements: browserState.selectorMap?.size, tabs: tabInfos.length, useVision, skipNetworkIdle },
+    });
     return browserState;
   }
 

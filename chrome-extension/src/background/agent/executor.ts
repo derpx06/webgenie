@@ -7,6 +7,7 @@ import { PlannerAgent, type PlannerOutput } from './agents/planner';
 import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
+import { setTraceContext } from '@src/background/trace';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -165,6 +166,7 @@ export class Executor {
     await this.context.messageManager.loadFromSession();
     await this.context.messageManager.loadWorkingMemory();
     const taskText = this.tasks[this.tasks.length - 1];
+    setTraceContext({ taskId: this.context.taskId, step: 0 });
 
     // Reset the step counter
     const context = this.context;
@@ -287,6 +289,7 @@ export class Executor {
           stepNumber: context.nSteps,
           maxSteps: context.options.maxSteps,
         };
+        setTraceContext({ taskId: context.taskId, step: context.nSteps });
 
         const stepDivider = '─'.repeat(60);
         console.log(

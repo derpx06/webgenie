@@ -4,6 +4,7 @@ import type { AgentContext, AgentOutput } from '../types';
 import type { BasePrompt } from '../prompts/base';
 import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { createLogger } from '@src/background/log';
+import { record } from '@src/background/trace';
 import {
   buildProviderSafeJsonSchema,
   isProviderSchemaPayloadError,
@@ -258,11 +259,49 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
   }
 
   private async invokeRawModel(inputMessages: BaseMessage[]): Promise<unknown> {
-    return this.chatLLM.invoke(inputMessages, {
+    const startedAt = Date.now();
+    const promptChars = inputMessages.reduce(
+      (total, message) => total + (typeof message.content === 'string' ? message.content.length : JSON.stringify(message.content).length),
+      0,
+    );
+    try {
+      const response = await this.chatLLM.invoke(inputMessages, {
         signal: this.context.controller.signal,
         callbacks: this.context.traceCallbacks || [],
         ...this.callOptions,
       });
+      const { content, response_metadata: meta = {}, usage_metadata: usage } = response as {
+        content?: unknown;
+        response_metadata?: Record<string, unknown>;
+        usage_metadata?: unknown;
+      };
+      record({
+        level: 'info',
+        kind: 'llm',
+        component: this.id,
+        msg: `llm call ${this.modelName}`,
+        durationMs: Date.now() - startedAt,
+        data: {
+          model: this.modelName,
+          messages: inputMessages.length,
+          promptChars,
+          finishReason: meta.finish_reason ?? meta.stop_reason ?? meta.finishReason,
+          usage,
+          contentChars: typeof content === 'string' ? content.length : undefined,
+        },
+      });
+      return response;
+    } catch (error) {
+      record({
+        level: 'error',
+        kind: 'llm',
+        component: this.id,
+        msg: `llm call ${this.modelName} failed`,
+        durationMs: Date.now() - startedAt,
+        data: { model: this.modelName, messages: inputMessages.length, promptChars, error },
+      });
+      throw error;
+    }
   }
 
   private parseRawResponseContent(response: unknown): this['ModelOutput'] | undefined {
@@ -315,10 +354,11 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
           message: issue.message,
         })),
         preview: JSON.stringify(extractedJson).slice(0, 1000),
+        content: cleanedContent,
       });
       return undefined;
     } catch (error) {
-      logger.warning(`[${this.modelName}] Manual JSON extraction failed; retrying if possible`);
+      logger.warning(`[${this.modelName}] Manual JSON extraction failed; retrying if possible`, { content: cleanedContent, error });
       return undefined;
     }
   }

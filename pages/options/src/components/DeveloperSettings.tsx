@@ -15,7 +15,48 @@ interface DeveloperSettingsProps {
   isDarkMode?: boolean;
 }
 
+const TRACE_DB = 'WebGenieTraces';
+
+// Reads the background's trace table directly: extension pages share one IndexedDB origin.
+function traceStoreRequest<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open(TRACE_DB);
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      if (!db.objectStoreNames.contains('records')) {
+        db.close();
+        resolve(undefined);
+        return;
+      }
+      const request = run(db.transaction('records', mode).objectStore('records'));
+      request.onsuccess = () => {
+        resolve(request.result);
+        db.close();
+      };
+      request.onerror = () => {
+        reject(request.error);
+        db.close();
+      };
+    };
+  });
+}
+
+async function downloadTraces(): Promise<number> {
+  const records = (await traceStoreRequest<unknown[]>('readonly', store => store.getAll())) ?? [];
+  if (records.length === 0) return 0;
+  const blob = new Blob([records.map(entry => JSON.stringify(entry)).join('\n')], { type: 'application/x-ndjson' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `webgenie-traces-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return records.length;
+}
+
 export const DeveloperSettings = ({ isDarkMode = false }: DeveloperSettingsProps) => {
+  const [traceStatus, setTraceStatus] = useState('');
   const [settings, setSettings] = useState<AdvancedSettingsConfig>(DEFAULT_ADVANCED_SETTINGS);
   const [generalSettings, setGeneralSettings] = useState<GeneralSettingsConfig>(DEFAULT_GENERAL_SETTINGS);
 
@@ -74,6 +115,46 @@ export const DeveloperSettings = ({ isDarkMode = false }: DeveloperSettingsProps
               onChange={val => updateSetting('logDOMSnapshot', val)}
               severity="caution"
             />
+            <SettingToggle
+              title="Capture Traces"
+              desc="Persist structured logs, agent events, every LLM call (latency, finish reason, token usage, raw output on parse failure) and action timings to this browser's IndexedDB. Includes page text and prompts; API keys and tokens are redacted. Nothing leaves the browser."
+              checked={settings.captureTraces}
+              isDarkMode={isDarkMode}
+              onChange={val => updateSetting('captureTraces', val)}
+              severity="caution"
+            />
+            <div className="flex flex-wrap gap-3 px-8 py-4">
+              {[
+                {
+                  label: 'Download traces (JSONL)',
+                  run: async () => {
+                    const count = await downloadTraces();
+                    setTraceStatus(count ? `Downloaded ${count} trace records.` : 'No trace records yet. Enable capture and run a task.');
+                  },
+                },
+                {
+                  label: 'Clear traces',
+                  run: async () => {
+                    await traceStoreRequest('readwrite', store => store.clear());
+                    setTraceStatus('Trace records cleared.');
+                  },
+                },
+              ].map(({ label, run }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => run().catch(error => setTraceStatus(`Trace storage error: ${error instanceof Error ? error.message : String(error)}`))}
+                  className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7C3AED] ${isDarkMode ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-slate-100 text-slate-900 hover:bg-slate-200'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {traceStatus && (
+              <p className="px-8 pb-4 text-[11px] opacity-70" aria-live="polite">
+                {traceStatus}
+              </p>
+            )}
           </div>
         )}
       </DashboardSection>

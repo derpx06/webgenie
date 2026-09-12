@@ -7,6 +7,7 @@ export interface AdvancedSettingsConfig {
   // Developer Options
   enableDeveloperOptions: boolean;
   logDOMSnapshot: boolean;            // log the full DOM the LLM sees each step
+  captureTraces: boolean;             // persist logs, events, LLM calls and timings to IndexedDB (WebGenieTraces)
 }
 
 export type AdvancedSettingsStorage = BaseStorage<AdvancedSettingsConfig> & {
@@ -19,6 +20,7 @@ export type AdvancedSettingsStorage = BaseStorage<AdvancedSettingsConfig> & {
 export const DEFAULT_ADVANCED_SETTINGS: AdvancedSettingsConfig = {
   enableDeveloperOptions: false,
   logDOMSnapshot: false,
+  captureTraces: false,
 };
 
 const storage = createStorage<AdvancedSettingsConfig>('advanced-settings', DEFAULT_ADVANCED_SETTINGS, {
