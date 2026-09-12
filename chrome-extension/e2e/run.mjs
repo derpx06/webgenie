@@ -1,30 +1,46 @@
-// Live end-to-end suite: drives the built extension (../../dist) in Chromium against real websites,
-// with Vertex AI credentials from your gcloud login. Nothing here runs in `pnpm test`.
+// Live end-to-end suites: drives the built extension (../../dist) in Chromium against real websites and
+// local fixtures, with Vertex AI credentials from your gcloud login. Nothing here runs in `pnpm test`.
 //
 //   pnpm -F chrome-extension e2e
-//   E2E_ONLY=T1,T12  E2E_HEADLESS=1  E2E_MODEL=gemini-2.5-flash  E2E_LOCATION=us-central1  E2E_PROJECT=<id>
-//   CHROMIUM_PATH=/usr/bin/chromium  E2E_MIN_PASS=17
+//   E2E_SUITE=core|complex|all (default core)   E2E_ONLY=T1,C13   E2E_REPEAT=2   E2E_HEADLESS=1
+//   E2E_MODEL=gemini-2.5-flash  E2E_LOCATION=us-central1  E2E_PROJECT=<id>  CHROMIUM_PATH=/usr/bin/chromium
+//   E2E_MAX_INPUT_TOKENS=4000000 (whole run)   E2E_TASK_MAX_INPUT_TOKENS=400000
+//   E2E_UPDATE_BASELINE=1 (rewrite e2e/baseline.json after a full run with no regression)
 //
-// Results land in e2e/results/<run>/: summary.json plus events, trace and a screenshot per task.
+// Results land in e2e/results/<run>/: summary.json, and per task events, trace, timeline (failures) and a
+// screenshot. A full-suite run exits 1 on any regression against e2e/baseline.json; a subset run exits 1
+// unless every task passes.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import puppeteer from 'puppeteer-core';
 import { TASKS } from './tasks.mjs';
+import { startFixtures } from './fixtures.mjs';
+import { baselineFrom, compareWithBaseline, suiteHealth, taskMetrics, timeline } from './metrics.mjs';
 
 const HERE = import.meta.dirname;
 const DIST = path.resolve(HERE, '../../dist');
+const BASELINE = path.join(HERE, 'baseline.json');
 const CHROMIUM = process.env.CHROMIUM_PATH ?? '/usr/bin/chromium';
 const MODEL = process.env.E2E_MODEL ?? 'gemini-2.5-flash';
 const LOCATION = process.env.E2E_LOCATION ?? 'us-central1';
-const MAX_MS = 180_000;
-const MAX_STEPS = 25;
+const RUN_TOKEN_CAP = Number(process.env.E2E_MAX_INPUT_TOKENS ?? 4_000_000);
+const TASK_TOKEN_CAP = Number(process.env.E2E_TASK_MAX_INPUT_TOKENS ?? 400_000);
 const TERMINAL = new Set(['task.ok', 'task.fail', 'task.cancel', 'task.pause']);
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const withTimeout = (promise, ms, label) =>
+  Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms))]);
 // Output is captured and never printed: it may be an access token.
 const gcloud = (...args) => execFileSync('gcloud', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const git = (...args) => {
+  try {
+    return execFileSync('git', args, { cwd: HERE, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return 'unknown';
+  }
+};
 
 let project;
 function vertexProvider() {
@@ -41,168 +57,284 @@ function vertexProvider() {
   };
 }
 
-/** Writes provider, models and trace capture straight into extension storage; the token is refreshed per task. */
-async function configure(ctl) {
-  await ctl.evaluate(
-    async ({ provider, model }) => {
-      await chrome.storage.local.set({
-        'llm-api-keys': { providers: { vertex_ai: provider } },
-        'agent-models': {
-          agents: {
-            navigator: { provider: 'vertex_ai', modelName: model, parameters: { temperature: 0.3, topP: 0.85 } },
-            planner: { provider: 'vertex_ai', modelName: model, parameters: { temperature: 0.7, topP: 0.9 } },
-          },
-        },
-        'advanced-settings': { enableDeveloperOptions: true, captureTraces: true, logDOMSnapshot: false },
-      });
-    },
-    { provider: vertexProvider(), model: MODEL },
-  );
+async function fetchText(url) {
+  const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 WebGenie-e2e-checker' } });
+  if (!response.ok) throw new Error(`fetch ${url} returned ${response.status}`);
+  return response.text();
 }
 
-/** Starts the task over the side-panel port and collects events until a terminal state or a limit. */
-async function drive(ctl, { taskId, tabId, task }) {
-  await ctl.evaluate(
-    ({ task, taskId, tabId }) => {
+class Harness {
+  constructor(browser, extensionId, fixtures) {
+    this.browser = browser;
+    this.extensionId = extensionId;
+    this.fixtures = fixtures;
+    this.ctl = null;
+  }
+
+  /** The control page: the background only accepts ports from the exact side-panel URL. */
+  async ensureControl() {
+    const alive = this.ctl && !this.ctl.isClosed() && (await this.ctl.evaluate(() => window.__portAlive === true).catch(() => false));
+    if (alive) return;
+    if (this.ctl && !this.ctl.isClosed()) await this.ctl.close().catch(() => {});
+    this.ctl = await this.browser.newPage();
+    await this.ctl.goto(`chrome-extension://${this.extensionId}/side-panel/index.html`);
+    // Connect after the page's own UI connected, so the background's current port is ours.
+    await sleep(2000);
+    await this.ctl.evaluate(() => {
       window.__ev = [];
-      window.__port.postMessage({ type: 'new_task', task, taskId, tabId });
-    },
-    { task, taskId, tabId },
-  );
-
-  const started = Date.now();
-  const events = [];
-  let outcome = null;
-  let answer = '';
-  let maxStep = 0;
-  let cancelledAt = 0;
-  while (!outcome) {
-    await sleep(1000);
-    for (const e of await ctl.evaluate(() => window.__ev.splice(0))) {
-      events.push({ t: Date.now() - started, ...e });
-      if (e.type === 'error' || e.type === 'port_disconnected') {
-        outcome = e.type;
-        answer = String(e.error ?? '');
-        continue;
-      }
-      if (!e.state) continue;
-      maxStep = Math.max(maxStep, e.data?.step ?? 0);
-      if (TERMINAL.has(e.state)) {
-        outcome = cancelledAt ? `${e.state} (limit)` : e.state;
-        answer = String(e.data?.details ?? '');
-      }
-    }
-    if (!outcome && !cancelledAt && (Date.now() - started > MAX_MS || maxStep >= MAX_STEPS)) {
-      cancelledAt = Date.now();
-      await ctl.evaluate(() => window.__port.postMessage({ type: 'cancel_task' }));
-    }
-    if (!outcome && cancelledAt && Date.now() - cancelledAt > 15_000) outcome = 'limit (no cancel event)';
+      window.__portAlive = true;
+      const port = chrome.runtime.connect({ name: 'side-panel-connection' });
+      port.onMessage.addListener(message => {
+        if (message.screenshot) message.screenshot = '[omitted]';
+        window.__ev.push(message);
+      });
+      port.onDisconnect.addListener(() => {
+        window.__portAlive = false;
+        window.__ev.push({ type: 'port_disconnected' });
+      });
+      window.__port = port;
+    });
   }
-  return { outcome, answer, maxStep, events, seconds: +((Date.now() - started) / 1000).toFixed(1) };
-}
 
-async function readTraces(ctl, taskId) {
-  return ctl.evaluate(
-    id =>
-      new Promise((resolve, reject) => {
-        const open = indexedDB.open('WebGenieTraces');
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
-          const db = open.result;
-          if (!db.objectStoreNames.contains('records')) {
-            db.close();
-            resolve([]);
-            return;
-          }
-          const request = db.transaction('records').objectStore('records').getAll();
-          request.onsuccess = () => {
-            db.close();
-            resolve(request.result.filter(record => record.taskId === id));
+  /** Provider, models, trace capture, and a chat session like the side panel creates. */
+  async configure(taskId, title) {
+    await this.ctl.evaluate(
+      async ({ provider, model, taskId, title }) => {
+        const now = Date.now();
+        const sessions = (await chrome.storage.local.get('chat_sessions_meta')).chat_sessions_meta ?? [];
+        sessions.push({ id: taskId, title, createdAt: now, updatedAt: now, messageCount: 0 });
+        await chrome.storage.local.set({
+          'llm-api-keys': { providers: { vertex_ai: provider } },
+          'agent-models': {
+            agents: {
+              navigator: { provider: 'vertex_ai', modelName: model, parameters: { temperature: 0.3, topP: 0.85 } },
+              planner: { provider: 'vertex_ai', modelName: model, parameters: { temperature: 0.7, topP: 0.9 } },
+            },
+          },
+          'advanced-settings': { enableDeveloperOptions: true, captureTraces: true, logDOMSnapshot: false },
+          chat_sessions_meta: sessions,
+        });
+      },
+      { provider: vertexProvider(), model: MODEL, taskId, title },
+    );
+  }
+
+  async clearOrigins(origins) {
+    const client = await this.ctl.createCDPSession();
+    try {
+      for (const origin of origins) {
+        await client.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' }).catch(() => {});
+      }
+    } finally {
+      await client.detach().catch(() => {});
+    }
+  }
+
+  async webPages() {
+    return (await this.browser.pages()).filter(page => !page.url().startsWith('chrome-extension://') && !page.isClosed());
+  }
+
+  async evalOn(urlPart, fn, ...args) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const page = (await this.webPages()).filter(p => p.url().includes(urlPart)).at(-1);
+        if (!page) return undefined;
+        return await withTimeout(page.evaluate(fn, ...args), 10_000, 'evalOn');
+      } catch (error) {
+        if (attempt === 1) throw error;
+        await sleep(500);
+      }
+    }
+  }
+
+  async evalFrame(pageUrlPart, frameUrlPart, fn, ...args) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const page = (await this.webPages()).filter(p => p.url().includes(pageUrlPart)).at(-1);
+        const frame = page?.frames().find(f => f.url().includes(frameUrlPart));
+        if (!frame) return undefined;
+        return await withTimeout(frame.evaluate(fn, ...args), 10_000, 'evalFrame');
+      } catch (error) {
+        if (attempt === 1) throw error;
+        await sleep(500);
+      }
+    }
+  }
+
+  tabUrls() {
+    return this.ctl.evaluate(async () => (await chrome.tabs.query({})).map(tab => tab.url).filter(url => !url.startsWith('chrome-extension://')));
+  }
+
+  activeTabUrl() {
+    return this.ctl.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.url);
+  }
+
+  async readTraces(taskId) {
+    return this.ctl.evaluate(
+      id =>
+        new Promise((resolve, reject) => {
+          const open = indexedDB.open('WebGenieTraces');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            if (!db.objectStoreNames.contains('records')) {
+              db.close();
+              resolve([]);
+              return;
+            }
+            const request = db.transaction('records').objectStore('records').getAll();
+            request.onsuccess = () => {
+              db.close();
+              resolve(request.result.filter(record => record.taskId === id));
+            };
+            request.onerror = () => reject(request.error);
           };
-          request.onerror = () => reject(request.error);
-        };
-      }),
-    taskId,
-  );
-}
-
-/** True usage and tool-call health from `kind: 'llm'` trace records. */
-function traceMetrics(records) {
-  const llm = records.filter(r => r.kind === 'llm');
-  const calls = llm.filter(r => r.level === 'info' && String(r.msg).startsWith('llm call'));
-  const reasks = llm.filter(r => r.msg === 'tool call validation failed');
-  const argumentIssue = /invalid arguments|unknown tool|not valid JSON/;
-  const providerRejections = llm.filter(
-    r => r.level === 'error' && /\b400\b|INVALID_ARGUMENT|schema/i.test(JSON.stringify(r.data ?? {})),
-  );
-  const sum = key => calls.reduce((total, r) => total + (r.data?.usage?.[key] ?? 0), 0);
-  return {
-    llmCalls: calls.length,
-    reasks: reasks.length,
-    schemaRejections:
-      reasks.filter(r => argumentIssue.test(JSON.stringify(r.data?.issues ?? {}))).length + providerRejections.length,
-    tokens: { input: sum('inputTokens'), output: sum('outputTokens'), cached: sum('cacheReadTokens'), reasoning: sum('reasoningTokens') },
-  };
-}
-
-async function runTask(browser, ctl, task, runId, outDir) {
-  const taskId = `${runId}-${task.id}`;
-  await configure(ctl);
-
-  const web = await browser.newPage();
-  await web.goto(task.url, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
-  await web.bringToFront();
-  const tabId = await ctl.evaluate(async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id, web.url());
-  if (!tabId) throw new Error(`${task.id}: no tab found for ${web.url()}`);
-
-  process.stdout.write(`${task.id} ${task.title} ... `);
-  const run = await drive(ctl, { taskId, tabId, task: task.task });
-  await sleep(2000); // let the trace sink flush its last batch
-
-  const records = await readTraces(ctl, taskId);
-  const pages = (await browser.pages()).filter(p => !p.url().startsWith('chrome-extension://'));
-  await pages.at(-1)?.screenshot({ path: path.join(outDir, `${task.id}.png`) }).catch(() => {});
-
-  const evalOn = async (urlPart, fn, ...args) => {
-    const page = (await browser.pages()).filter(p => p.url().includes(urlPart)).at(-1);
-    return page ? page.evaluate(fn, ...args) : undefined;
-  };
-  const activeTabUrl = () => ctl.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.url);
-  let check;
-  try {
-    const verdict = await task.check({ answer: run.answer, outcome: run.outcome, evalOn, activeTabUrl });
-    check = typeof verdict === 'boolean' ? { pass: verdict, detail: '' } : verdict;
-  } catch (error) {
-    check = { pass: false, detail: `checker error: ${error.message}` };
+        }),
+      taskId,
+    );
   }
 
-  fs.writeFileSync(path.join(outDir, `${task.id}.events.jsonl`), run.events.map(e => JSON.stringify(e)).join('\n'));
-  fs.writeFileSync(path.join(outDir, `${task.id}.trace.jsonl`), records.map(r => JSON.stringify(r)).join('\n'));
-  for (const page of pages) await page.close().catch(() => {});
+  /** Runs the task over the port until a terminal state, a human request, or a limit. */
+  async drive({ taskId, tabId, task, maxMs, maxSteps, allowHuman }) {
+    await this.ctl.evaluate(
+      ({ task, taskId, tabId }) => {
+        window.__ev = [];
+        window.__port.postMessage({ type: 'new_task', task, taskId, tabId });
+      },
+      { task, taskId, tabId },
+    );
 
-  const result = {
-    id: task.id,
-    title: task.title,
-    pass: run.outcome === 'task.ok' && check.pass,
-    outcome: run.outcome,
-    answer: run.answer.slice(0, 400),
-    detail: check.detail,
-    steps: run.maxStep,
-    seconds: run.seconds,
-    ...traceMetrics(records),
-  };
-  console.log(`${result.pass ? 'PASS' : 'FAIL'} (${result.outcome}, ${result.seconds}s, ${result.llmCalls} calls)`);
-  return result;
+    const started = Date.now();
+    const events = [];
+    let outcome = null;
+    let answer = '';
+    let maxStep = 0;
+    let inputTokens = 0;
+    let stopReason = null;
+    let stopAt = 0;
+    const stop = async reason => {
+      stopReason = reason;
+      stopAt = Date.now();
+      await this.ctl.evaluate(() => window.__port.postMessage({ type: 'cancel_task' })).catch(() => {});
+    };
+
+    while (!outcome) {
+      await sleep(1000);
+      const batch = await this.ctl.evaluate(() => window.__ev.splice(0));
+      for (const e of batch) {
+        events.push({ t: Date.now() - started, ts: Date.now(), ...e });
+        if (e.type === 'error' || e.type === 'port_disconnected') {
+          outcome = e.type;
+          answer = String(e.error ?? '');
+          continue;
+        }
+        if (!e.state) continue;
+        maxStep = Math.max(maxStep, e.data?.step ?? 0);
+        inputTokens = Math.max(inputTokens, e.data?.usage?.inputTokens ?? 0);
+        if (e.state === 'act.ask_human' && !allowHuman && !stopReason) {
+          answer = String(e.data?.details ?? '');
+          await stop('asked_human');
+        }
+        if (TERMINAL.has(e.state)) {
+          outcome = stopReason ?? e.state;
+          answer = stopReason === 'asked_human' ? answer : String(e.data?.details ?? '');
+        }
+      }
+      if (!outcome && !stopReason) {
+        if (Date.now() - started > maxMs) await stop('limit_time');
+        else if (maxStep >= maxSteps) await stop('limit_steps');
+        else if (inputTokens > TASK_TOKEN_CAP) await stop('limit_tokens');
+      }
+      if (!outcome && stopReason && Date.now() - stopAt > 15_000) outcome = stopReason;
+    }
+    return { outcome, answer, maxStep, events, seconds: +((Date.now() - started) / 1000).toFixed(1) };
+  }
+
+  async runTask(task, runId, repeat, outDir) {
+    const attempt = repeat > 0 ? `${task.id}-r${repeat + 1}` : task.id;
+    const taskId = `${runId}-${attempt}`;
+    const url = typeof task.url === 'function' ? task.url(this.fixtures) : task.url;
+
+    await this.ensureControl();
+    await this.clearOrigins([new URL(url).origin, ...(task.origins ?? [])]);
+    await this.configure(taskId, task.title);
+
+    const web = await this.browser.newPage();
+    await web.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
+    await web.bringToFront();
+    const tabId = await this.ctl.evaluate(async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id, web.url());
+    if (!tabId) throw new Error(`no tab found for ${web.url()}`);
+
+    process.stdout.write(`${attempt} ${task.title} ... `);
+    const run = await this.drive({
+      taskId,
+      tabId,
+      task: task.task,
+      maxMs: (task.maxSeconds ?? 180) * 1000,
+      maxSteps: task.maxSteps ?? 25,
+      allowHuman: task.allowHuman,
+    });
+    await sleep(2000); // let the trace sink flush its last batch
+
+    const records = await this.readTraces(taskId).catch(() => []);
+    const pages = await this.webPages();
+    await withTimeout(pages.at(-1)?.screenshot({ path: path.join(outDir, `${attempt}.png`) }) ?? Promise.resolve(), 10_000, 'screenshot').catch(() => {});
+
+    let check;
+    try {
+      const verdict = await task.check({
+        answer: run.answer,
+        outcome: run.outcome,
+        evalOn: (...args) => this.evalOn(...args),
+        evalFrame: (...args) => this.evalFrame(...args),
+        tabUrls: () => this.tabUrls(),
+        activeTabUrl: () => this.activeTabUrl(),
+        fetchText,
+        fixtures: this.fixtures,
+      });
+      check = typeof verdict === 'boolean' ? { pass: verdict, detail: '' } : verdict;
+    } catch (error) {
+      check = { pass: false, detail: `checker error: ${error.message}` };
+    }
+
+    const metrics = taskMetrics(records, run.events, { secret: task.secret });
+    const pass = run.outcome === 'task.ok' && check.pass && metrics.secretLeaks === 0;
+    fs.writeFileSync(path.join(outDir, `${attempt}.events.jsonl`), run.events.map(e => JSON.stringify(e)).join('\n'));
+    fs.writeFileSync(path.join(outDir, `${attempt}.trace.jsonl`), records.map(r => JSON.stringify(r)).join('\n'));
+    if (!pass) fs.writeFileSync(path.join(outDir, `${attempt}.timeline.txt`), timeline(records, run.events));
+    for (const page of pages) await page.close().catch(() => {});
+
+    console.log(`${pass ? 'PASS' : 'FAIL'} (${run.outcome}, ${run.seconds}s, ${metrics.llmCalls} calls${check.pass || !check.detail ? '' : `, ${check.detail.slice(0, 120)}`})`);
+    return {
+      id: task.id,
+      attempt,
+      suite: task.suite,
+      kind: task.kind,
+      title: task.title,
+      pass,
+      outcome: run.outcome,
+      answer: run.answer.slice(0, 400),
+      detail: check.detail,
+      steps: run.maxStep,
+      seconds: run.seconds,
+      metrics,
+    };
+  }
 }
 
 async function main() {
   if (!fs.existsSync(path.join(DIST, 'manifest.json'))) throw new Error(`No build at ${DIST}; run pnpm build first`);
+  const suite = process.env.E2E_SUITE ?? 'core';
   const only = process.env.E2E_ONLY?.split(',').map(id => id.trim()).filter(Boolean);
-  const tasks = only ? TASKS.filter(task => only.includes(task.id)) : TASKS;
+  const repeats = Math.max(1, Number(process.env.E2E_REPEAT ?? 1));
+  const tasks = TASKS.filter(task => (only ? only.includes(task.id) : suite === 'all' || task.suite === suite));
+  if (tasks.length === 0) throw new Error('no tasks selected');
+
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
   const outDir = path.join(HERE, 'results', runId);
   fs.mkdirSync(outDir, { recursive: true });
 
+  const fixtures = await startFixtures();
   // A fresh profile per run: Chromium keeps a cached service-worker script for a reused profile.
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'webgenie-e2e-'));
   const browser = await puppeteer.launch({
@@ -211,72 +343,87 @@ async function main() {
     userDataDir: profile,
     defaultViewport: null,
     ignoreDefaultArgs: ['--disable-extensions'],
-    args: [
-      `--disable-extensions-except=${DIST}`,
-      `--load-extension=${DIST}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--window-size=1400,900',
-    ],
+    args: [`--disable-extensions-except=${DIST}`, `--load-extension=${DIST}`, '--no-first-run', '--no-default-browser-check', '--window-size=1400,900'],
   });
 
+  const results = [];
   try {
-    const worker = await browser.waitForTarget(
-      t => t.type() === 'service_worker' && t.url().startsWith('chrome-extension://'),
-      { timeout: 30_000 },
-    );
-    const extensionId = new URL(worker.url()).host;
+    const worker = await browser.waitForTarget(t => t.type() === 'service_worker' && t.url().startsWith('chrome-extension://'), { timeout: 30_000 });
+    const harness = new Harness(browser, new URL(worker.url()).host, fixtures);
 
-    // The background only accepts ports from the exact side-panel URL. Connect after the page's own UI has
-    // connected, so the background's current port is ours.
-    const ctl = await browser.newPage();
-    await ctl.goto(`chrome-extension://${extensionId}/side-panel/index.html`);
-    await sleep(2000);
-    await ctl.evaluate(() => {
-      window.__ev = [];
-      const port = chrome.runtime.connect({ name: 'side-panel-connection' });
-      port.onMessage.addListener(message => {
-        if (message.screenshot) message.screenshot = '[omitted]';
-        window.__ev.push(message);
-      });
-      port.onDisconnect.addListener(() => window.__ev.push({ type: 'port_disconnected' }));
-      window.__port = port;
-    });
-
-    const results = [];
-    for (const task of tasks) results.push(await runTask(browser, ctl, task, runId, outDir));
-
-    const passed = results.filter(r => r.pass).length;
-    const schemaRejections = results.reduce((n, r) => n + r.schemaRejections, 0);
-    const totals = results.reduce(
-      (t, r) => ({ input: t.input + r.tokens.input, output: t.output + r.tokens.output, cached: t.cached + r.tokens.cached }),
-      { input: 0, output: 0, cached: 0 },
-    );
-    const minPass = only ? tasks.length : Number(process.env.E2E_MIN_PASS ?? 17);
-    const summary = { runId, model: MODEL, passed, total: results.length, minPass, schemaRejections, tokens: totals, results };
-    fs.writeFileSync(path.join(outDir, 'summary.json'), JSON.stringify(summary, null, 2));
-
-    console.table(
-      results.map(r => ({
-        id: r.id,
-        pass: r.pass,
-        outcome: r.outcome,
-        steps: r.steps,
-        seconds: r.seconds,
-        calls: r.llmCalls,
-        reasks: r.reasks,
-        rejections: r.schemaRejections,
-        inputTokens: r.tokens.input,
-        detail: r.pass ? '' : (r.detail || r.answer).slice(0, 80),
-      })),
-    );
-    console.log(`${passed}/${results.length} passed (need ${minPass}); schema rejections: ${schemaRejections}; tokens in=${totals.input} out=${totals.output} cached=${totals.cached}`);
-    console.log(`Results: ${outDir}`);
-    process.exitCode = passed >= minPass && schemaRejections === 0 ? 0 : 1;
+    let spentInputTokens = 0;
+    for (let repeat = 0; repeat < repeats; repeat++) {
+      for (const task of tasks) {
+        const base = { id: task.id, attempt: repeat > 0 ? `${task.id}-r${repeat + 1}` : task.id, suite: task.suite, kind: task.kind, title: task.title, pass: false };
+        if (spentInputTokens >= RUN_TOKEN_CAP) {
+          results.push({ ...base, outcome: 'skipped_budget', detail: `run token cap ${RUN_TOKEN_CAP} reached` });
+          continue;
+        }
+        try {
+          const result = await harness.runTask(task, runId, repeat, outDir);
+          spentInputTokens += result.metrics.tokens.input;
+          results.push(result);
+        } catch (error) {
+          console.log(`HARNESS ERROR: ${error.message}`);
+          results.push({ ...base, outcome: 'harness_error', detail: error.message });
+          for (const page of await harness.webPages().catch(() => [])) await page.close().catch(() => {});
+        }
+      }
+    }
   } finally {
-    await browser.close();
+    await browser.close().catch(() => {});
+    await fixtures.close();
     fs.rmSync(profile, { recursive: true, force: true });
   }
+
+  const health = suiteHealth(results);
+  const fullRun = !only;
+  let baseline = null;
+  try {
+    baseline = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
+  } catch {
+    // no baseline yet
+  }
+  const comparison = fullRun ? compareWithBaseline(results, health, baseline) : { regressions: [], improvements: [] };
+  const summary = {
+    runId,
+    model: MODEL,
+    gitSha: git('rev-parse', '--short', 'HEAD'),
+    gitDirty: git('status', '--porcelain') !== '',
+    distBuiltAt: fs.statSync(path.join(DIST, 'manifest.json')).mtime.toISOString(),
+    suite: only ? `only:${only.join(',')}` : suite,
+    repeats,
+    health,
+    comparison,
+    results,
+  };
+  fs.writeFileSync(path.join(outDir, 'summary.json'), JSON.stringify(summary, null, 2));
+
+  console.table(
+    results.map(r => ({
+      id: r.attempt,
+      pass: r.pass,
+      outcome: r.outcome,
+      steps: r.steps,
+      s: r.seconds,
+      calls: r.metrics?.llmCalls,
+      plan: r.metrics?.plannerCalls,
+      reask: r.metrics?.reasks,
+      getState: r.metrics?.getStateCount,
+      detail: r.pass ? '' : String(r.detail || r.answer || '').slice(0, 70),
+    })),
+  );
+  for (const [name, h] of Object.entries(health)) console.log(`${name}: ${JSON.stringify(h)}`);
+  if (comparison.improvements.length) console.log(`Improvements:\n  ${comparison.improvements.join('\n  ')}`);
+  if (comparison.regressions.length) console.log(`REGRESSIONS:\n  ${comparison.regressions.join('\n  ')}`);
+  console.log(`Results: ${outDir}`);
+
+  const allPassed = results.every(r => r.pass);
+  if (fullRun && process.env.E2E_UPDATE_BASELINE && (comparison.regressions.length === 0 || !baseline)) {
+    fs.writeFileSync(BASELINE, `${JSON.stringify(baselineFrom(results, health), null, 2)}\n`);
+    console.log(`Baseline updated: ${BASELINE}`);
+  }
+  process.exitCode = fullRun ? (comparison.regressions.length ? 1 : 0) : allPassed ? 0 : 1;
 }
 
 main().catch(error => {
