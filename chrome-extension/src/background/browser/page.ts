@@ -1178,12 +1178,20 @@ export default class Page {
       }
     }
     const startedAt = Date.now();
+    // A dialog the click opens blocks the acknowledgement; stop waiting as soon as it shows instead of timing out.
+    const dialogOrTimeout = (async () => {
+      while (Date.now() - startedAt < 1500) {
+        if (this._pendingDialog) return 'dialog' as const;
+        await sleep(50);
+      }
+      return 'timeout' as const;
+    })();
     const settled = await Promise.race([
       Promise.all(events).then(
         () => 'acked' as const,
         (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
       ),
-      sleep(1500).then(() => 'timeout' as const),
+      dialogOrTimeout,
     ]);
     const dialog = this.pendingDialog ?? undefined;
     record({
