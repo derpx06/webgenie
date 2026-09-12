@@ -1,91 +1,10 @@
 /**
- * chromium-apis — Complete Chromium Extension API toolkit.
- *
- * All tools are standalone and independently integrable into the agent pipeline.
- * None break or modify the existing agent behaviour — they are additive only.
- *
- * ═══════════════════════════════════════════════════════════════════════════════
- * TOOL INVENTORY (by file)
- * ═══════════════════════════════════════════════════════════════════════════════
- *
- * cdp-bridge.ts          — chrome.debugger CDP wrapper (permission: "debugger" ✅)
- *   Domains: Accessibility, DOM, Input, Runtime, Page, Emulation, Storage, Security
- *   Key methods: getFullAXTree, getBoxModel, cdpClick, cdpInsertText, cdpKeyPress,
- *                evaluate, captureFullPageScreenshot, searchDOM, setDOMAttribute,
- *                scrollIntoView, overrideGeolocation, overrideTimezone,
- *                emulateMobileDevice, clearOriginStorage, bypassSSLErrors
- *
- * ax-tree-extractor.ts   — CDP Accessibility tree → DOMState (permission: "debugger" ✅)
- *   Replaces injected DOM script with semantic AXTree. Pierces Shadow DOM + iframes.
- *   Key: getClickableElementsViaCDP()
- *
- * tab-tools.ts           — chrome.tabs full surface (permissions: "tabs", "activeTab" ✅)
- *   Key methods: captureTabScreenshot, createRollbackSnapshot, setTabZoom,
- *                tabGoBack, tabGoForward, createTab, navigateTab, closeTab,
- *                discardTab, activateTab, sendMessageToTab, waitForTabLoad
- *
- * scripting-tools.ts     — chrome.scripting injection (permission: "scripting" ✅)
- *   Key methods: executeInMainWorld, executeInIsolatedWorld, executeInAllFrames,
- *                getReactComponentState, isFormValid, extractPageText, extractPageLinks,
- *                getLocalStorageItem, getInputValue, injectCSS, removeCSS,
- *                highlightElement, disableAnimations
- *
- * navigation-tools.ts    — chrome.webNavigation events (permission: "webNavigation" ✅)
- *   Key methods: getAllFrames, getFrameTree, findFramesByUrl, getCrossOriginFrames,
- *                waitForNavigation, waitForSPANavigation, detectSPAFramework
- *
- * storage-session-tools.ts — chrome.storage.session (permission: "storage" ✅)
- *   Key methods: sessionSet, sessionGet, sessionGetOrDefault, createTaskStore,
- *                recordSelectorSuccess, getSelectorReliability,
- *                writeScratchpad, readScratchpad, allowContentScriptAccess
- *
- * tab-group-tools.ts     — chrome.tabGroups (permissions: "tabGroups", "tabs" ✅)
- *   Key methods: getAllGroups, groupTabs, addTabsToGroup, renameGroup, collapseGroup,
- *                expandGroup, createAgentWorkspaceGroup, getTabGroup
- *
- * ═══════════════════════════════════════════════════════════════════════════════
- * INTEGRATION ROADMAP
- * ═══════════════════════════════════════════════════════════════════════════════
- *
- * Phase 1 — CDP Bridge  →  browser/page.ts  (expose cdpBridge.send alongside Puppeteer)
- * Phase 2 — AXTree      →  browser/page.ts _updateState()  (replace getClickableElements)
- * Phase 3 — CDP Input   →  agent/actions/handlers/interaction.ts  (replace .click())
- * Phase 4 — Tab Tools   →  agent/agents/navigator.ts  (rollback before risky actions)
- * Phase 5 — Session Mem →  agent/messages/service.ts  (replace in-memory MessageManager)
- * Phase 6 — Scripting   →  agent/actions/handlers/content.ts  (MAIN world extraction)
- * Phase 7 — Built-in AI →  agent/messages/service.ts  (local step compaction)
+ * chromium-apis — Chromium extension APIs used by the agent, plus page perception over CDP
+ * (ax-tree-extractor.ts: the accessibility tree of every frame, read through puppeteer's sessions).
  */
 
-// ── CDP Bridge + AXTree + DOMSnapshot ─────────────────────────────────────────
-export { cdpBridge, CDPBridge } from './cdp-bridge';
-export type { AXNode, BoxModel } from './cdp-bridge';
-
 export { getAXTreeState } from './ax-tree-extractor';
-export { getDOMStateViaSnapshot } from './dom-snapshot-extractor';
-
-
-// ── Tab Tools ─────────────────────────────────────────────────────────────────
-export {
-  captureTabScreenshot,
-  createRollbackSnapshot,
-  setTabZoom,
-  getTabZoom,
-  resetTabZoom,
-  tabGoBack,
-  tabGoForward,
-  getTabInfo,
-  queryTabs,
-  createTab,
-  navigateTab,
-  closeTab,
-  discardTab,
-  activateTab,
-  sendMessageToTab,
-  isTabLoaded,
-  waitForTabLoad,
-  isTabAudible,
-} from './tab-tools';
-export type { ScreenshotResult, RollbackHandle, TabInfo as ChromiumTabInfo } from './tab-tools';
+export type { AXNode } from './ax-tree-extractor';
 
 // ── Scripting Tools ───────────────────────────────────────────────────────────
 export {

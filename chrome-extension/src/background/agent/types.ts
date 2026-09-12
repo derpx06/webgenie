@@ -19,7 +19,6 @@ import type {
 } from './validation/types';
 import type {
   BlockedState,
-  ContextBudgetReport,
   NextStepContract,
   ValidatedProgressRecord,
 } from './contracts/types';
@@ -81,7 +80,6 @@ export class AgentContext {
   blockedState: BlockedState | null;
   checkpointStore?: TaskCheckpointStore;
   traceStore?: TraceStore;
-  contextBudgetReports: ContextBudgetReport[];
   parentRun?: RunTree;
   traceCallbacks?: Callbacks;
   memory: InChatMemory;
@@ -114,7 +112,6 @@ export class AgentContext {
     this.currentContract = null;
     this.validatedProgress = [];
     this.blockedState = null;
-    this.contextBudgetReports = [];
   }
 
   async emitEvent(actor: Actors, state: ExecutionState, eventDetails: string, screenshot?: string) {

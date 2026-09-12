@@ -1,7 +1,6 @@
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage, type SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '../../types';
 import type { TranscriptEntry } from '../../messages/service';
-import { ContextBudgetReporter } from '../../contracts';
 
 /** Navigator tool turns sent as real messages; older turns are summarized as text. */
 const RECENT_TURNS = 5;
@@ -94,7 +93,7 @@ export class ContextBuilder {
   }
 
   /** Non-empty blocks shown above the browser state. */
-  private static stateSections(context: AgentContext): { sections: string[]; contractBlock: string; validatedBlock: string } {
+  private static stateSections(context: AgentContext): string[] {
     const memory = context.memory;
     const sections: string[] = [];
     const addList = (title: string, lines: string[], maxChars: number) => {
@@ -127,7 +126,7 @@ export class ContextBuilder {
     if (validatedBlock) sections.push(validatedBlock);
 
     if (context.blockedState) sections.push(`[BLOCKED]\n${JSON.stringify(context.blockedState).slice(0, 700)}`);
-    return { sections, contractBlock, validatedBlock };
+    return sections;
   }
 
   /**
@@ -152,7 +151,7 @@ export class ContextBuilder {
       else if (recentTurns.has(item)) transcript.push(item.ai, ...item.results);
     }
 
-    const { sections, contractBlock, validatedBlock } = this.stateSections(context);
+    const sections = this.stateSections(context);
     const olderTurns = turns.filter(turn => !recentTurns.has(turn));
     if (olderTurns.length > 0) {
       sections.push(
@@ -162,26 +161,6 @@ export class ContextBuilder {
       );
     }
     const header = sections.join('\n\n');
-
-    const stateContent = typeof currentStateMessage.content === 'string'
-      ? currentStateMessage.content
-      : JSON.stringify(currentStateMessage.content);
-    if (!context.contextBudgetReports) context.contextBudgetReports = [];
-    context.contextBudgetReports.push(ContextBudgetReporter.build({
-      taskId: context.taskId,
-      callId: `context_${Date.now().toString(36)}`,
-      actor,
-      outputTokens: 0,
-      sections: {
-        systemPrompt: String(systemMessage.content ?? ''),
-        structuredMemory: header,
-        currentContract: contractBlock,
-        validatedProgress: validatedBlock,
-        compactBrowserState: stateContent,
-        interactiveElements: stateContent.match(/Interactive elements[\s\S]*/i)?.[0] ?? stateContent,
-        screenshots: stateContent.includes('image_url') ? '[vision payload]' : '',
-      },
-    }));
 
     return [systemMessage, ...transcript, withHeader(currentStateMessage, header)];
   }

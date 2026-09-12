@@ -583,14 +583,6 @@ export default class Page {
     }
   }
 
-  async getContent(): Promise<string> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer page is not connected');
-    }
-    return await this._puppeteerPage.content();
-  }
-
   /** The last read, or null once anything has invalidated it. */
   getCachedState(): PageState | null {
     return this._cachedState;
@@ -967,40 +959,6 @@ export default class Page {
           behavior: 'instant',
         });
       }, yPercent);
-    }
-  }
-
-  async scrollBy(y: number, elementNode?: DOMElementNode): Promise<void> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not connected');
-    }
-    if (!elementNode) {
-      await this._puppeteerPage.evaluate(y => {
-        window.scrollBy({
-          top: y,
-          left: 0,
-          behavior: 'instant',
-        });
-      }, y);
-    } else {
-      const element = await this.locateElement(elementNode);
-      if (!element) {
-        throw new Error(`Element: ${elementNode} not found`);
-      }
-
-      // Find the nearest scrollable ancestor
-      const scrollableElement = await this._findNearestScrollableElement(element);
-      if (!scrollableElement) {
-        throw new Error(`No scrollable ancestor found for element: ${elementNode}`);
-      }
-      await scrollableElement.evaluate(el => {
-        el.scrollBy({
-          top: y,
-          left: 0,
-          behavior: 'instant',
-        });
-      });
     }
   }
 
@@ -1450,62 +1408,6 @@ export default class Page {
       return `The ${description} was already closed.`;
     }
     return `${accept ? 'Accepted' : 'Dismissed'} the ${description}${accept && promptText !== undefined ? ' after entering the text' : ''}.`;
-  }
-
-  getSelectorMap(): Map<number, DOMElementNode> {
-    // If there is no cached state, return an empty map
-    if (this._cachedState === null) {
-      return new Map();
-    }
-    // Otherwise return the cached state's selector map
-    return this._cachedState.selectorMap;
-  }
-
-  async getElementByIndex(index: number): Promise<ElementHandle | null> {
-    const selectorMap = this.getSelectorMap();
-    const element = selectorMap.get(index);
-    if (!element) return null;
-    return await this.locateElement(element);
-  }
-
-  getDomElementByIndex(index: number): DOMElementNode | null {
-    const selectorMap = this.getSelectorMap();
-    return selectorMap.get(index) || null;
-  }
-
-  isFileUploader(elementNode: DOMElementNode, maxDepth = 3, currentDepth = 0): boolean {
-    if (currentDepth > maxDepth) {
-      return false;
-    }
-
-    // Check current element
-    if (elementNode.tagName === 'input') {
-      // Check for file input attributes
-      const attributes = elementNode.attributes;
-      // biome-ignore lint/complexity/useLiteralKeys: <explanation>
-      if (attributes['type']?.toLowerCase() === 'file' || !!attributes['accept']) {
-        return true;
-      }
-    }
-
-    // Recursively check children
-    if (elementNode.children && currentDepth < maxDepth) {
-      for (const child of elementNode.children) {
-        if ('tagName' in child) {
-          // DOMElementNode type guard
-          if (this.isFileUploader(child as DOMElementNode, maxDepth, currentDepth + 1)) {
-            return true;
-          }
-        }
-      }
-    }
-
-    return false;
-  }
-
-  async waitForPageLoadState(timeout?: number) {
-    const timeoutValue = timeout || 8000;
-    await this._puppeteerPage?.waitForNavigation({ timeout: timeoutValue });
   }
 
   private async _waitForStableNetwork() {

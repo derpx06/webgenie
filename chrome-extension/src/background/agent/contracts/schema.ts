@@ -3,9 +3,7 @@ import { z } from 'zod';
 export const planningModeSchema = z.enum([
   'direct_answer',
   'single_browser_action',
-  'short_task',
   'multi_step_task',
-  'research',
   'blocked_human_needed',
 ]);
 
@@ -29,9 +27,7 @@ export const nextStepContractSchema = z.object({
   expectedObservation: z.object({
     observationId: z.string().nullable(),
     urlPattern: z.string().optional(),
-    requiredTargetIndexes: z.array(z.number()).optional(),
     expectedDocumentChange: z.boolean().optional(),
-    expectedLayoutChange: z.boolean().optional(),
   }),
   successCondition: z.string(),
   failureSignals: z.array(z.string()),

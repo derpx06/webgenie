@@ -14,6 +14,5 @@ export * from './service';
 export * from './views';
 export * from './raw_types';
 export * from './selector-healer';
-export * as DOMClickable from './clickable/index';
 export * as DOMHistory from './history/index';
 

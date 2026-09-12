@@ -37,10 +37,10 @@ What the models see: `MessageManager` keeps a transcript of `task` and `human_an
 
 There is no Validator *agent* despite what the README says — verification lives in `agent/validation/` (observation fingerprints, settling detection, `ActionResult.validated`) and in the planner's completion check. `agent/contracts/` adds deterministic routing (`ExecutionRouter` can pre-plan actions and skip the LLM entirely), checkpoints for resume, token budgets, and traces.
 
-Memory is two-tier: `agent/memory/in-chat/` (goals, constraints, facts, failure registry, timeline — per task) and `agent/memory/global/` (`ContextRouter`, domain-keyed episodic notes consolidated after a successful task).
+Memory is two-tier: `agent/memory/in-chat/` (goals, constraints, facts, timeline — per task) and `agent/memory/global/` (`ContextRouter`, domain-keyed episodic notes consolidated after a successful task).
 
 ### Adding an action
-1. Zod schema in `agent/actions/schemas.ts` (include the shared `observationFields` for anything index-based). Describe every field and put defaults in the handler, not in `.default()`.
+1. Zod schema in `agent/actions/schemas.ts` (index-based actions take `index`; the navigator maps it from the prompt's page read to the current one). Describe every field and put defaults in the handler, not in `.default()`.
 2. Handler class/method in `agent/actions/handlers/`.
 3. Register in `ActionBuilder.buildDefaultActions()` (`agent/actions/builder.ts`).
 
@@ -54,7 +54,7 @@ Every model call goes through `invokeLLM` / `invokeTools` in `agent/agents/base.
 ### Browser control
 `browser/page.ts` drives pages with **puppeteer-core over `chrome.debugger`**, not content-script messaging. `browser/context.ts` owns tab attach/detach and enforces the firewall (`isUrlAllowed`) on every navigation.
 
-DOM extraction runs in the page: `chrome-extension/public/dom/*.js` + `public/buildDomTree.js` are concatenated by `scripts/build-dom.mjs` into `public/dom-agent.min.js`, which `browser/dom/service.ts` injects per frame. **Edit the sources in `public/dom/`** — `dom-agent.min.js` is generated, and the root `old_buildDomTree.js` is dead legacy. (`PROJECT_STRUCTURE.md` places this file under `pages/content/` — that is stale.)
+Perception reads the accessibility tree of every frame over CDP — `browser/chromium-apis/ax-tree-extractor.ts` (`Accessibility.getFullAXTree` per frame session, one `DOMSnapshot` per session for boxes, tag names and input types), then `dom/ax-tree-pruner.ts`. Nothing is injected into pages. Elements are located by `backendNodeId` in the frame they were read from; clicks and typing go through CDP `Input` events in `page.ts`.
 
 ### Service-worker constraints
 No Node runtime: `index.ts` and `agent/helper.ts` shim `globalThis.process`, and `chrome-extension/vite.config.mts` aliases `node:async_hooks` and the AWS SDK credential providers to stubs in `agent/mocks/`. Any new dependency that reaches for a Node builtin needs a matching alias or it will break the worker bundle at runtime, not at build time.

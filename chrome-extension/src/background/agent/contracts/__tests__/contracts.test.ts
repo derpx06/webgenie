@@ -10,7 +10,6 @@ import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import { createBrowserObservation } from '../../validation/observation';
 import {
-  ContextBudgetReporter,
   ExecutionRouter,
   ProgressLedger,
   TaskCheckpointStore,
@@ -277,35 +276,6 @@ describe('P1 context budget and routing', () => {
     expect(finalMessage).toContain('[VALIDATED PROGRESS]');
     expect(finalMessage).toContain('URL changed');
     expect(finalMessage.endsWith('browser state')).toBe(true);
-  });
-
-  it('reports token budget sections for planner and navigator calls', () => {
-    const report = ContextBudgetReporter.build({
-      taskId: 'task-1',
-      callId: 'call-1',
-      actor: 'navigator',
-      outputTokens: 12,
-      sections: {
-        systemPrompt: 'system words',
-        structuredMemory: 'memory words',
-        currentContract: 'contract words',
-        validatedProgress: 'progress words',
-        compactBrowserState: 'browser words',
-        interactiveElements: 'element words',
-        screenshots: '',
-      },
-    });
-
-    expect(report.sections.map(section => section.name)).toEqual([
-      'system prompt',
-      'structured memory',
-      'current contract',
-      'validated progress',
-      'compact browser state',
-      'interactive elements',
-      'screenshots',
-    ]);
-    expect(report.totalEstimatedInputTokens).toBeGreaterThan(0);
   });
 
   it('routes only exact URL tasks to a deterministic action; searches go through the planner', () => {

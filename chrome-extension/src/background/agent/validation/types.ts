@@ -2,7 +2,7 @@ export type ExecutionStatus = 'not_attempted' | 'executed' | 'threw';
 
 export type ValidationStatus = 'not_applicable' | 'passed' | 'failed' | 'unknown';
 
-export type Retryability = 'none' | 'retry_same' | 'retry_reobserve' | 'replan' | 'ask_human' | 'fatal';
+export type Retryability = 'none' | 'retry_reobserve' | 'replan';
 
 export interface ValidationEvidence {
   kind:
@@ -14,13 +14,8 @@ export interface ValidationEvidence {
     | 'selection'
     | 'scroll_delta'
     | 'scroll_boundary'
-    | 'focus_change'
     | 'modal_or_menu_change'
     | 'target_state'
-    | 'auth_blocker'
-    | 'accepted_noop'
-    | 'done_supported'
-    | 'done_blocked'
     | 'error';
   passed: boolean;
   before?: unknown;

@@ -108,12 +108,6 @@ export class DOMElementNode extends DOMBaseNode {
   frame?: Frame;
   frameKey?: string;
 
-  /*
-	### State injected by the browser context.
-
-	The idea is that the clickable elements are sometimes persistent from the previous page -> tells the model which objects are new/_how_ the state has changed
-	*/
-  isNew: boolean | null;
 
   constructor(params: {
     tagName: string | null;
@@ -129,7 +123,6 @@ export class DOMElementNode extends DOMBaseNode {
     viewportCoordinates?: CoordinateSet;
     pageCoordinates?: CoordinateSet;
     viewportInfo?: ViewportInfo;
-    isNew?: boolean | null;
     parent?: DOMElementNode | null;
     backendNodeId?: number;
     frame?: Frame;
@@ -148,7 +141,6 @@ export class DOMElementNode extends DOMBaseNode {
     this.viewportCoordinates = params.viewportCoordinates;
     this.pageCoordinates = params.pageCoordinates;
     this.viewportInfo = params.viewportInfo;
-    this.isNew = params.isNew ?? null;
     this.backendNodeId = params.backendNodeId;
     this.frame = params.frame;
     this.frameKey = params.frameKey;
@@ -636,12 +628,4 @@ export class DOMElementNode extends DOMBaseNode {
 export interface DOMState {
   elementTree: DOMElementNode;
   selectorMap: Map<number, DOMElementNode>;
-}
-
-
-export async function calcBranchPathHashSet(state: DOMState): Promise<Set<string>> {
-  const pathHashes = new Set(
-    await Promise.all(Array.from(state.selectorMap.values()).map(async value => (await value.hash()).branchPathHash)),
-  );
-  return pathHashes;
 }

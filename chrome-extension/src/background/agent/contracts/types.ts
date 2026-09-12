@@ -3,9 +3,7 @@ import type { BrowserObservation, ValidationEvidence } from '../validation/types
 export type PlanningMode =
   | 'direct_answer'
   | 'single_browser_action'
-  | 'short_task'
   | 'multi_step_task'
-  | 'research'
   | 'blocked_human_needed';
 
 export type ReplanTrigger =
@@ -36,9 +34,7 @@ export interface NextStepContract {
   expectedObservation: {
     observationId: string | null;
     urlPattern?: string;
-    requiredTargetIndexes?: number[];
     expectedDocumentChange?: boolean;
-    expectedLayoutChange?: boolean;
   };
   successCondition: string;
   failureSignals: string[];
@@ -116,27 +112,7 @@ export interface TraceEvent {
   timestamp: number;
 }
 
-export interface ContextBudgetReport {
-  taskId: string;
-  callId: string;
-  actor: 'planner' | 'navigator';
-  sections: Array<{
-    name: string;
-    estimatedTokens: number;
-    included: boolean;
-  }>;
-  totalEstimatedInputTokens: number;
-  outputTokens: number;
-}
-
 export interface PlannerContractContext {
   goal: string;
   currentObservation?: BrowserObservation | null;
-}
-
-export interface ActionLinkage {
-  contractId: string | null;
-  observationId: string | null;
-  actionId: string;
-  validationId: string;
 }
