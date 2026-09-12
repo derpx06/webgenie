@@ -519,7 +519,7 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
       status,
       actionName === 'click_element' ? 'replan' : 'retry_reobserve',
       [evidence('document_change', false, 'No URL, document, layout, or tab change was observed after the action.')],
-      `${actionName} produced no observable postcondition.`,
+      `${actionName} was sent, but no page change was detected. Check the page state before repeating it.`,
     );
   }
 

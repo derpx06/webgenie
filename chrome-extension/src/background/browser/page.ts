@@ -272,7 +272,7 @@ export default class Page {
     return this._browserAdapter.sendDebuggerCommand({ tabId: this._tabId }, method, params);
   }
 
-  public async cdpClick(element: ElementHandle<Element>): Promise<void> {
+  public async cdpClick(element: ElementHandle<Element>, onDispatch?: () => void): Promise<void> {
     await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not attached to this page');
@@ -299,6 +299,8 @@ export default class Page {
 
     await this._puppeteerPage.bringToFront();
     await this._puppeteerPage.mouse.move(coords.x, coords.y);
+    // From here the click can reach the page even if the CDP acknowledgement never arrives.
+    onDispatch?.();
     await this._puppeteerPage.mouse.click(coords.x, coords.y, { delay: 50 });
   }
 
@@ -2172,11 +2174,14 @@ export default class Page {
         logger.warning(`[ClickabilityCheck] Target may not be clickable: ${clickabilityError}. Proceeding with best-effort click.`);
       }
 
+      let clickDispatched = false;
       try {
         // Primary attempt: Use OS-level click via CDP Input.dispatchMouseEvent
         logger.info(`Attempting CDP OS-level click on element: ${elementNode}`);
         await Promise.race([
-          this.cdpClick(element),
+          this.cdpClick(element, () => {
+            clickDispatched = true;
+          }),
           new Promise((_, reject) => setTimeout(() => reject(new Error('CDP Click timeout')), 5000)),
         ]);
         await this._checkAndHandleNavigation();
@@ -2184,7 +2189,14 @@ export default class Page {
         if (error instanceof URLNotAllowedError) {
           throw error;
         }
-        
+        if (clickDispatched) {
+          // The mouse events were already sent and have usually taken effect; a synthetic retry would click a
+          // second time (adding two items, toggling twice). Post-action validation checks the page instead.
+          logger.warning('CDP click was dispatched but not confirmed; skipping the synthetic retry to avoid a double click', error);
+          await this._checkAndHandleNavigation();
+          return;
+        }
+
         // Fallback: Re-locate a fresh handle to avoid stale references, focus it, and dispatch a full synthetic event chain
         logger.warning('CDP click failed, trying synthetic MouseEvent dispatch chain on fresh handle', error);
         try {

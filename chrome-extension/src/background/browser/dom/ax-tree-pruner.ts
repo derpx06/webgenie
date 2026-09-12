@@ -188,7 +188,7 @@ function hasInteractiveDescendant(node: DOMElementNode): boolean {
 }
 
 /**
- * Remove duplicate siblings — same role + same aria-label + no unique interactive children.
+ * Remove duplicate non-interactive siblings — same role + same aria-label + no interactive children.
  * Keeps the first occurrence only.
  */
 function deduplicateSiblings(parent: DOMElementNode): void {
@@ -202,7 +202,8 @@ function deduplicateSiblings(parent: DOMElementNode): void {
 
       if (role && label) {
         const key = `${role}::${label}`;
-        if (seen.has(key) && !hasInteractiveDescendant(child)) {
+        // Interactive elements are never duplicates: repeated "Delete" or "Add to cart" buttons are distinct targets.
+        if (seen.has(key) && child.highlightIndex === null && !hasInteractiveDescendant(child)) {
           continue; // skip duplicate
         }
         seen.add(key);

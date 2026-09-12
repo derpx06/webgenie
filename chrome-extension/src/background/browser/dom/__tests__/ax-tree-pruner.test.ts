@@ -268,4 +268,28 @@ describe('AXTreePruner V2 - Goal-Directed Pruning', () => {
     expect(pruned.elementTree.clickableElementsToString()).toContain('[0]<BUTTON');
     expect(pruned.elementTree.clickableElementsToString()).toContain('[1]<BUTTON');
   });
+
+  it('keeps repeated interactive siblings that share a role and label', () => {
+    const root = new DOMElementNode({ tagName: 'body', xpath: '', attributes: {}, children: [], isVisible: true });
+    const buttons = [0, 1, 2].map(index => {
+      const button = new DOMElementNode({
+        tagName: 'button',
+        xpath: '',
+        attributes: { role: 'button', 'aria-label': 'Delete' },
+        children: [],
+        isVisible: true,
+        isInteractive: true,
+        isInViewport: true,
+        highlightIndex: index,
+        backendNodeId: 100 + index,
+      });
+      button.parent = root;
+      return button;
+    });
+    root.children.push(...buttons);
+
+    const pruned = pruneAXTree({ elementTree: root, selectorMap: new Map(buttons.map(button => [button.highlightIndex as number, button])) });
+
+    expect(pruned.selectorMap.size).toBe(3);
+  });
 });
