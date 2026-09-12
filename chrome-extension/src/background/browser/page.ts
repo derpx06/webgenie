@@ -41,6 +41,42 @@ const logger = createLogger('Page');
 /** Navigations wait for the document to be parsed; the next page read waits for the network to go idle. */
 const NAVIGATION_OPTIONS = { waitUntil: 'domcontentloaded' as const, timeout: 15000 };
 
+/**
+ * Runs in the page: the body's text, then the rendered text of each open shadow root (slotted content included),
+ * labelled with its host like frames are, so text a web component renders is readable and locatable.
+ * ponytail: shadow sections skip visibility checks and cap at 20 hosts / 500 chars each.
+ */
+function pageTextWithShadowRoots(): string {
+  const text = document.body?.innerText ?? '';
+  const hosts: Element[] = [];
+  const collect = (root: Document | ShadowRoot) =>
+    root.querySelectorAll('*').forEach(el => {
+      if (el.shadowRoot) {
+        hosts.push(el);
+        collect(el.shadowRoot);
+      }
+    });
+  collect(document);
+  const rendered = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+    if (node instanceof Element && ['STYLE', 'SCRIPT', 'TEMPLATE'].includes(node.tagName)) return '';
+    if (node instanceof HTMLSlotElement) {
+      const assigned = node.assignedNodes({ flatten: true });
+      return (assigned.length > 0 ? assigned : Array.from(node.childNodes)).map(rendered).join(' ');
+    }
+    const children = node instanceof Element && node.shadowRoot ? [node.shadowRoot] : Array.from(node.childNodes);
+    return children.map(rendered).join(' ');
+  };
+  const sections = hosts
+    .slice(0, 20)
+    .map(host => {
+      const inner = rendered(host.shadowRoot as ShadowRoot).replace(/\s+/g, ' ').trim().slice(0, 500);
+      return inner ? `[Shadow root of <${host.tagName.toLowerCase()}>] ${inner}` : '';
+    })
+    .filter(Boolean);
+  return [text, ...sections].join('\n');
+}
+
 /** What a mouse gesture caused besides changing the page. */
 export interface MouseOutcome {
   dialog?: PageDialog;
@@ -1696,7 +1732,7 @@ export default class Page {
         .frames()
         .filter(frame => !frame.detached)
         .map(async frame => {
-          const text = await withTimeout(frame.evaluate(() => document.body?.innerText ?? ''), 2000, 'page text').catch(() => '');
+          const text = await withTimeout(frame.evaluate(pageTextWithShadowRoots), 2000, 'page text').catch(() => '');
           const trimmed = text.trim();
           if (!trimmed) return '';
           return frame === main ? trimmed : `[Frame ${frame.url()}]\n${trimmed}`;
