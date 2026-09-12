@@ -104,7 +104,7 @@ export abstract class BaseAgent<M = unknown> {
 // response_metadata), so it behaves the same for every chat model adapter.
 
 /** Limit for each attempt: a response this slow is usually a one-off on the provider's side, so the second attempt starts fresh. */
-export const LLM_CALL_TIMEOUTS_MS = [20_000, 60_000];
+export const LLM_CALL_TIMEOUTS_MS = [20_000, 30_000];
 /** Extra waits after a rate-limited call: adapters retry 429s for only a few seconds, and shared quotas need longer. */
 export const RATE_LIMIT_DELAYS_MS = [5_000, 15_000, 30_000];
 const DEFAULT_MAX_REASKS = 2;
