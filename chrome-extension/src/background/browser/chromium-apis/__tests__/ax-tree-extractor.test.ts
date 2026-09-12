@@ -136,6 +136,22 @@ describe('pointer targets', () => {
     expect(indexed).toEqual(['Box A', 'Open details', 'User avatar', 'Buy', 'Home']);
     expect(state.selectorMap.get(0)?.attributes.draggable).toBe('true');
   });
+
+  it('indexes an element the accessibility tree ignores when it has its own pointer listener', () => {
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3'] },
+      text('2', 'Right-click in the box below'),
+      // An empty div with only a contextmenu handler: ignored by the accessibility tree.
+      { nodeId: '3', ignored: true, role: { value: 'none' }, backendDOMNodeId: 30 },
+    ];
+    const layout = { scrollX: 0, scrollY: 0, nodes: new Map([[30, { tagName: 'div', attributes: {}, x: 10, y: 60, width: 250, height: 150 }]]) };
+
+    const withoutListener = pruneAXTree(buildDomState([{ key: 'main', nodes, layout }], { width: 1000, height: 800 }));
+    const withListener = pruneAXTree(buildDomState([{ key: 'main', nodes, layout, pointerListeners: new Set([30]) }], { width: 1000, height: 800 }));
+
+    expect(withoutListener.selectorMap.size).toBe(0);
+    expect(withListener.selectorMap.get(0)?.backendNodeId).toBe(30);
+  });
 });
 
 describe('coordinates', () => {

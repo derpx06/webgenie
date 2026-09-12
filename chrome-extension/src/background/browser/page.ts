@@ -1120,8 +1120,18 @@ export default class Page {
     kind: 'click' | 'right' | 'hover',
     { clickCount = 1, checkCover = true } = {},
   ): Promise<MouseOutcome> {
-    await handle.scrollIntoView();
-    const blocker = await handle.evaluate(
+    // An inline element around positioned content (a link wrapping an absolutely placed image) has no box of its
+    // own: aim at its first visible descendant.
+    const sized = await handle.evaluateHandle(el => {
+      const hasBox = (candidate: Element) => {
+        const rect = candidate.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      };
+      return hasBox(el) ? el : (Array.from(el.querySelectorAll('*')).find(hasBox) ?? el);
+    });
+    const target = (sized.asElement() as ElementHandle | null) ?? handle;
+    await target.scrollIntoView();
+    const blocker = await target.evaluate(
       (el, isHover, checkCovered) => {
         if (!isHover && ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true')) {
           return 'The element is disabled';
@@ -1141,7 +1151,9 @@ export default class Page {
     if (blocker) {
       throw new Error(blocker);
     }
-    const { x, y } = await handle.clickablePoint();
+    const { x, y } = await target.clickablePoint().catch(() => {
+      throw new Error('The element has no visible area to point at (hidden, collapsed or off the page); choose another element.');
+    });
 
     const client = this._pageClient();
     const button = kind === 'right' ? 'right' : 'left';

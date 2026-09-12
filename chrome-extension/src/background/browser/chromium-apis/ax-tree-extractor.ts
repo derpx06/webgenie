@@ -62,6 +62,8 @@ export interface FrameTree {
   hostBackendNodeId?: number;
   nodes: AXNode[];
   layout?: DocumentLayout;
+  /** backendNodeIds of elements with their own pointer listeners (click, right-click, press, hover, drag). */
+  pointerListeners?: Set<number>;
   frame?: Frame;
 }
 
@@ -96,6 +98,24 @@ const INTERACTIVE_ROLES = new Set([
   'dateTime',
   'inputTime',
   'colorWell',
+]);
+
+/** Listener types that make an element a pointer target for the user. */
+const POINTER_EVENTS = new Set([
+  'click',
+  'dblclick',
+  'auxclick',
+  'contextmenu',
+  'mousedown',
+  'mouseup',
+  'pointerdown',
+  'pointerup',
+  'touchstart',
+  'mouseover',
+  'mouseenter',
+  'pointerover',
+  'pointerenter',
+  'dragstart',
 ]);
 
 /** Roles that carry nothing for the model: text boxes duplicate their StaticText, markers and scrollbars are chrome. */
@@ -288,7 +308,12 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         return text;
       };
 
-      if (node.ignored) return visitChildren(into, insideControl);
+      // The page made this element a pointer target: a listener of its own, a native click action, draggable=true.
+      const listenerTarget = node.backendDOMNodeId !== undefined && Boolean(tree.pointerListeners?.has(node.backendDOMNodeId));
+      const pageTarget = Boolean(layout) && (layout?.attributes.draggable === 'true' || Boolean(layout?.clickable) || listenerTarget);
+
+      // An ignored node creates nothing, unless the page made it a pointer target (an empty div with a handler).
+      if (node.ignored && !pageTarget) return visitChildren(into, insideControl);
 
       const props = propertyMap(node);
       const interactive =
@@ -301,7 +326,7 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         !interactive &&
         !insideControl &&
         Boolean(layout && rect) &&
-        (layout?.attributes.draggable === 'true' || Boolean(layout?.clickable) || role === 'image' || role === 'img') &&
+        (pageTarget || role === 'image' || role === 'img') &&
         rect!.width >= 8 &&
         rect!.height >= 8 &&
         (!viewport || rect!.width * rect!.height <= 0.5 * viewport.width * viewport.height);
@@ -372,11 +397,36 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+/** Elements in the frame with pointer listeners of their own: one call for the whole subtree, shadow roots included. */
+async function readPointerListeners(frame: Frame): Promise<Set<number>> {
+  try {
+    const documentHandle = await withTimeout(frame.evaluateHandle(() => document), FRAME_TIMEOUT_MS);
+    try {
+      const objectId = documentHandle.remoteObject().objectId;
+      if (!objectId) return new Set();
+      const { listeners } = await withTimeout(
+        internals(frame).client.send('DOMDebugger.getEventListeners', { objectId, depth: -1, pierce: true }),
+        FRAME_TIMEOUT_MS,
+      );
+      return new Set(
+        listeners
+          .filter(listener => POINTER_EVENTS.has(listener.type) && listener.backendNodeId !== undefined)
+          .map(listener => listener.backendNodeId as number),
+      );
+    } finally {
+      await documentHandle.dispose().catch(() => undefined);
+    }
+  } catch (error) {
+    logger.warning(`Pointer listeners unavailable for ${frame.url()}: ${error instanceof Error ? error.message : String(error)}`);
+    return new Set();
+  }
+}
+
 async function readFrame(frame: Frame): Promise<FrameTree | null> {
   const { client, _id: key } = internals(frame);
   const parent = frame.parentFrame();
   try {
-    const [tree, hostBackendNodeId] = await Promise.all([
+    const [tree, hostBackendNodeId, pointerListeners] = await Promise.all([
       withTimeout(client.send('Accessibility.getFullAXTree', { frameId: key }), FRAME_TIMEOUT_MS),
       parent
         ? withTimeout(internals(parent).client.send('DOM.getFrameOwner', { frameId: key }), FRAME_TIMEOUT_MS).then(
@@ -384,12 +434,14 @@ async function readFrame(frame: Frame): Promise<FrameTree | null> {
           () => undefined,
         )
         : undefined,
+      readPointerListeners(frame),
     ]);
     return {
       key,
       parentKey: parent ? internals(parent)._id : undefined,
       hostBackendNodeId,
       nodes: tree.nodes as unknown as AXNode[],
+      pointerListeners,
       frame,
     };
   } catch (error) {
