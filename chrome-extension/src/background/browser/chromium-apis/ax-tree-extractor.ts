@@ -48,7 +48,7 @@ export interface NodeLayout {
   height: number;
 }
 
-/** Layout of one document, in that document's coordinates. */
+/** Layout of one document, in that document's coordinates (CSS pixels). */
 export interface DocumentLayout {
   scrollX: number;
   scrollY: number;
@@ -147,8 +147,11 @@ const ROLE_TAGS: Record<string, string> = {
   form: 'form',
 };
 
-/** Maps each backendNodeId with a layout box to its box, tag name and selected attributes. */
-export function documentLayout(doc: SnapshotDocument, strings: string[]): DocumentLayout {
+/**
+ * Maps each backendNodeId with a layout box to its box, tag name and selected attributes. Snapshot boxes and
+ * scroll offsets are in device pixels; `scale` (device pixels per CSS pixel) converts them to CSS pixels.
+ */
+export function documentLayout(doc: SnapshotDocument, strings: string[], scale = 1): DocumentLayout {
   const nodes = new Map<number, NodeLayout>();
   const nodeName = doc.nodes.nodeName ?? [];
   const backendNodeId = doc.nodes.backendNodeId ?? [];
@@ -169,13 +172,13 @@ export function documentLayout(doc: SnapshotDocument, strings: string[]): Docume
       tagName: (strings[nodeName[nodeIndex]] ?? '').toLowerCase(),
       attributes: selected,
       clickable: clickable.has(nodeIndex),
-      x: bounds[0],
-      y: bounds[1],
-      width: bounds[2],
-      height: bounds[3],
+      x: bounds[0] / scale,
+      y: bounds[1] / scale,
+      width: bounds[2] / scale,
+      height: bounds[3] / scale,
     });
   });
-  return { scrollX: doc.scrollOffsetX ?? 0, scrollY: doc.scrollOffsetY ?? 0, nodes };
+  return { scrollX: (doc.scrollOffsetX ?? 0) / scale, scrollY: (doc.scrollOffsetY ?? 0) / scale, nodes };
 }
 
 function coordinates(x: number, y: number, width: number, height: number): CoordinateSet {
@@ -235,6 +238,10 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
   const selectorMap = new Map<number, DOMElementNode>();
   const keys = new Set(frames.map(frame => frame.key));
   const attached = new Set<string>();
+  const main = frames.find(frame => !frame.parentKey || !keys.has(frame.parentKey));
+  // Highlights are drawn in the main document, which scrolls with the page.
+  const pageScrollX = main?.layout?.scrollX ?? 0;
+  const pageScrollY = main?.layout?.scrollY ?? 0;
 
   const visitFrame = (tree: FrameTree, parent: DOMElementNode, offset: { x: number; y: number }): void => {
     attached.add(tree.key);
@@ -299,6 +306,7 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         rect!.height >= 8 &&
         (!viewport || rect!.width * rect!.height <= 0.5 * viewport.width * viewport.height);
       const coords = rect && coordinates(rect.x, rect.y, rect.width, rect.height);
+      const pageCoords = rect && coordinates(rect.x + pageScrollX, rect.y + pageScrollY, rect.width, rect.height);
       const element = new DOMElementNode({
         tagName: layout?.tagName || ROLE_TAGS[role] || 'div',
         xpath: null,
@@ -313,7 +321,7 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
           (rect.x + rect.width > 0 && rect.y + rect.height > 0 && rect.x < viewport.width && rect.y < viewport.height),
         highlightIndex: interactive ? selectorMap.size : null,
         viewportCoordinates: coords,
-        pageCoordinates: coords,
+        pageCoordinates: pageCoords,
         parent: into,
         backendNodeId: node.backendDOMNodeId,
         frame: tree.frame,
@@ -343,7 +351,6 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
     if (root) visit(root, parent, false);
   };
 
-  const main = frames.find(frame => !frame.parentKey || !keys.has(frame.parentKey));
   if (main) visitFrame(main, elementTree, { x: 0, y: 0 });
   // Frames whose owner element was not found still belong to the page.
   for (const frame of frames) {
@@ -391,14 +398,14 @@ async function readFrame(frame: Frame): Promise<FrameTree | null> {
   }
 }
 
-async function readLayouts(sessions: CDPSession[]): Promise<Map<string, DocumentLayout>> {
+async function readLayouts(sessions: CDPSession[], scale: number): Promise<Map<string, DocumentLayout>> {
   const layouts = new Map<string, DocumentLayout>();
   await Promise.all(
     sessions.map(async client => {
       try {
         const snapshot = await withTimeout(client.send('DOMSnapshot.captureSnapshot', { computedStyles: [] }), FRAME_TIMEOUT_MS);
         for (const doc of snapshot.documents) {
-          layouts.set(snapshot.strings[doc.frameId], documentLayout(doc as unknown as SnapshotDocument, snapshot.strings));
+          layouts.set(snapshot.strings[doc.frameId], documentLayout(doc as unknown as SnapshotDocument, snapshot.strings, scale));
         }
       } catch (error) {
         logger.warning(`Layout snapshot failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -412,13 +419,14 @@ async function readLayouts(sessions: CDPSession[]): Promise<Map<string, Document
 export async function getAXTreeState(page: PuppeteerPage): Promise<DOMState> {
   const frames = page.frames().filter(frame => !frame.detached);
   const mainClient = internals(page.mainFrame()).client;
-  const [trees, layouts, viewport] = await Promise.all([
+  const metrics = await withTimeout(mainClient.send('Page.getLayoutMetrics'), FRAME_TIMEOUT_MS).catch(() => null);
+  const viewport = metrics && { width: metrics.cssVisualViewport.clientWidth, height: metrics.cssVisualViewport.clientHeight };
+  // Device pixels per CSS pixel (display scaling, zoom): layout snapshots report device pixels.
+  const ratio = metrics ? metrics.visualViewport.clientWidth / metrics.cssVisualViewport.clientWidth : 1;
+  const scale = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+  const [trees, layouts] = await Promise.all([
     Promise.all(frames.map(readFrame)),
-    readLayouts([...new Set(frames.map(frame => internals(frame).client))]),
-    withTimeout(mainClient.send('Page.getLayoutMetrics'), FRAME_TIMEOUT_MS).then(
-      metrics => ({ width: metrics.cssVisualViewport.clientWidth, height: metrics.cssVisualViewport.clientHeight }),
-      () => null,
-    ),
+    readLayouts([...new Set(frames.map(frame => internals(frame).client))], scale),
   ]);
   const available = trees.filter((tree): tree is FrameTree => tree !== null);
   for (const tree of available) tree.layout = layouts.get(tree.key);

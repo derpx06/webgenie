@@ -138,6 +138,32 @@ describe('pointer targets', () => {
   });
 });
 
+describe('coordinates', () => {
+  it('converts device-pixel snapshots to CSS pixels and keeps page coordinates for scrolled pages', () => {
+    const strings = ['INPUT'];
+    // Measured on a 1.5417 display scale: CSS rect x 117.26 y 16.0 w 180.4, page scrolled by 99.9 CSS px.
+    const layout = documentLayout(
+      { frameId: 0, nodes: { nodeName: [0], backendNodeId: [7] }, layout: { nodeIndex: [0], bounds: [[180.78, 178.66, 278.16, 33.06]] }, scrollOffsetY: 154 },
+      strings,
+      1.5417,
+    );
+    expect(layout.nodes.get(7)?.x).toBeCloseTo(117.26, 1);
+    expect(layout.nodes.get(7)?.width).toBeCloseTo(180.42, 1);
+    expect(layout.scrollY).toBeCloseTo(99.89, 1);
+
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      { nodeId: '2', role: { value: 'textbox' }, name: { value: 'Customer name' }, backendDOMNodeId: 7 },
+    ];
+    const state = buildDomState([{ key: 'main', nodes, layout }], { width: 1363, height: 717 });
+    const field = state.selectorMap.get(0)!;
+    // Viewport position is document position minus scroll; page position is the document position.
+    expect(field.viewportCoordinates?.topLeft.y).toBeCloseTo(115.9 - 99.89, 0);
+    expect(field.pageCoordinates?.topLeft.y).toBeCloseTo(115.9, 0);
+    expect(field.isInViewport).toBe(true);
+  });
+});
+
 describe('documentLayout', () => {
   it('maps backend node ids to their first layout box, lowercase tag and selected attributes', () => {
     const strings = ['INPUT', 'type', 'password', 'class', 'x', 'frame-1'];

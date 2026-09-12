@@ -167,7 +167,9 @@ const CORE = [
       const body = await evalOn('httpbin.org/post', () => document.body.innerText);
       let form;
       try {
-        form = JSON.parse(body ?? '').form;
+        // 2026-09-13: Chromium 152 renders JSON with a "Pretty print" toggle above it, so parse from the first brace
+        // (ground truth re-checked on the response page: custname, size medium, topping bacon).
+        form = JSON.parse((body ?? '').slice((body ?? '').indexOf('{'))).form;
       } catch {
         // not on the JSON response page
       }
