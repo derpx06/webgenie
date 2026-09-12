@@ -3,6 +3,7 @@ import { ActionResult } from '../../types';
 import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type { BrowserState } from '../../../browser/views';
 import { createBrowserObservation } from '../observation';
+import type { ValidationEvidence } from '../types';
 import { currentIndexFor, normalizeIndexedAction, validateActionOutcome } from '../service';
 
 function element(index: number, params: Partial<ConstructorParameters<typeof DOMElementNode>[0]> = {}) {
@@ -312,25 +313,33 @@ describe('action outcome validation', () => {
     expect(result.isWaitingForHuman).toBe(false);
   });
 
-  it('validates typed text by read-back without keeping the text as evidence', () => {
-    const field = (attributes: Record<string, string>) =>
-      state({ selectorMap: new Map([[1, element(1, { tagName: 'input', attributes })]]) });
-    const validate = (after: BrowserState, text = 'hello') => validateActionOutcome({
+  it('validates typed text from the handler read-back', () => {
+    const validate = (evidence: ValidationEvidence[]) => validateActionOutcome({
       actionName: 'input_text',
-      actionArgs: { index: 1, text },
-      before: field({ value: '' }),
-      after,
-      result: new ActionResult({ executed: true, executionStatus: 'executed' }),
+      actionArgs: { index: 1, text: '05/20/2024' },
+      before: state(),
+      after: state(),
+      result: new ActionResult({ executed: true, executionStatus: 'executed', evidence }),
     });
+    const readBack = (passed: boolean, after: Record<string, unknown>): ValidationEvidence[] => [
+      { kind: 'target_value', passed, message: '', after },
+    ];
 
-    expect(validate(field({ value: 'hello' })).validated).toBe('passed');
-    expect(validate(field({ value: '' })).validated).toBe('failed');
-    expect(validate(field({ value: 'HELLO!' })).validated).toBe('unknown');
-    expect(validate(field({})).validated).toBe('unknown');
-    // A password field reads back as mask characters.
-    const password = validate(field({ value: '••••••••' }), 'S3cret!!');
-    expect(password.validated).toBe('passed');
-    expect(JSON.stringify(password)).not.toContain('S3cret!!');
+    expect(validate(readBack(true, { actualLength: 10 })).validated).toBe('passed');
+    expect(validate(readBack(false, { actualLength: 0 })).validated).toBe('failed');
+    const reformatted = validate(readBack(false, { actualLength: 10, actual: '2024-05-20' }));
+    expect(reformatted.validated).toBe('unknown');
+    expect(reformatted.failureReason).toContain('2024-05-20');
+    expect(validate([]).validated).toBe('unknown');
+  });
+
+  it('passes an action that opened a JavaScript dialog, and handle_dialog once the dialog is gone', () => {
+    const dialog = { type: 'confirm', message: 'Are you sure?' };
+    const executed = new ActionResult({ executed: true, executionStatus: 'executed' });
+
+    expect(validateActionOutcome({ actionName: 'click_element', actionArgs: { index: 1 }, before: state(), after: state({ dialog }), result: executed }).validated).toBe('passed');
+    expect(validateActionOutcome({ actionName: 'handle_dialog', actionArgs: { accept: false }, before: state({ dialog }), after: state(), result: executed }).validated).toBe('passed');
+    expect(validateActionOutcome({ actionName: 'handle_dialog', actionArgs: { accept: false }, before: state({ dialog }), after: state({ dialog }), result: executed }).validated).toBe('failed');
   });
 
   it('leaves done to the planner instead of validating it against earlier actions', () => {

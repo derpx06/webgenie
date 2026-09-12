@@ -217,11 +217,16 @@ abstract class BasePrompt {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    const dialog = browserState.dialog;
+    const dialogNotice = dialog
+      ? `JavaScript ${dialog.type} dialog open: "${clip(dialog.message, 500)}"${dialog.defaultValue ? ` (default text: "${clip(dialog.defaultValue, 100)}")` : ''} — call handle_dialog before anything else.\n`
+      : '';
+
     const stateDescription = `${reflectionPrefix}[Current browser state]
 Current tab: ${currentTab}
 Other open tabs:
 ${otherTabs.join('\n') || '(none)'}
-Interactive elements of the current page (offscreen elements are marked):
+${dialogNotice}Interactive elements of the current page (offscreen elements are marked):
 ${formattedElementsText}
 ${stepInfoDescription}
 ${actionResultsDescription ? `Results of your last actions:${actionResultsDescription}` : ''}`.trim();

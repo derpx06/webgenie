@@ -36,7 +36,8 @@ import {
   manageExtensionsActionSchema,
   manageSystemActionSchema,
   manageSessionsActionSchema,
-  MODEL_HIDDEN_FIELDS,
+  dragElementActionSchema,
+  handleDialogActionSchema,
 } from './schemas';
 import { z } from 'zod';
 import { zodToToolParameters } from '@src/background/utils';
@@ -152,13 +153,6 @@ export const NAVIGATOR_TOOL_FIELDS = {
     ),
 };
 
-function modelFacingSchema(action: ActionSchema, extraFields: z.ZodRawShape): z.AnyZodObject {
-  const hidden = Object.fromEntries(
-    MODEL_HIDDEN_FIELDS.filter(field => field in action.schema.shape).map(field => [field, true as const]),
-  );
-  return action.schema.omit(hidden).extend(extraFields);
-}
-
 /** Model-facing tool definitions, one per action. Deterministic, so the output is byte-stable for prompt caching. */
 export function buildToolDefinitions(actions: ActionSchema[], extraFields: z.ZodRawShape = {}): ToolDefinition[] {
   return actions.map(action => ({
@@ -166,7 +160,7 @@ export function buildToolDefinitions(actions: ActionSchema[], extraFields: z.Zod
     function: {
       name: action.name,
       description: action.description,
-      parameters: zodToToolParameters(modelFacingSchema(action, extraFields)),
+      parameters: zodToToolParameters(action.schema.extend(extraFields)),
     },
   }));
 }
@@ -253,6 +247,8 @@ export class ActionBuilder {
       new Action((input) => this.interactionHandler.handleHoverElement(input), hoverElementActionSchema, true),
       new Action((input) => this.interactionHandler.handleRightClickElement(input), rightClickElementActionSchema, true),
       new Action((input) => this.interactionHandler.handleInputText(input), inputTextActionSchema, true),
+      new Action((input) => this.interactionHandler.handleDragElement(input), dragElementActionSchema, true),
+      new Action((input) => this.interactionHandler.handleHandleDialog(input), handleDialogActionSchema),
       new Action(
         (input) => this.interactionHandler.handleGetDropdownOptions(input),
         getDropdownOptionsActionSchema,

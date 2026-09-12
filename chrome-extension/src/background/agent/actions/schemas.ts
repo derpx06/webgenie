@@ -6,14 +6,6 @@ export interface ActionSchema {
   schema: z.AnyZodObject;
 }
 
-const observationFields = {
-  observationId: z.string().optional().describe('browser observation id used to choose this target'),
-  targetFingerprint: z.record(z.unknown()).optional().describe('compact fingerprint of the selected target'),
-};
-
-/** Fields filled in by the engine, never shown to the model. */
-export const MODEL_HIDDEN_FIELDS = ['observationId', 'targetFingerprint', 'xpath'] as const;
-
 const elementIndex = z.number().int().describe('index of the element in the interactive elements list');
 const optionalElementIndex = z
   .number()
@@ -75,8 +67,26 @@ export const clickElementActionSchema: ActionSchema = {
   description: 'Click element by index',
   schema: z.object({
     index: elementIndex,
-    xpath: z.string().nullable().optional().describe('xpath of the element'),
-    ...observationFields,
+    double: z.boolean().optional().describe('true to double-click instead of a single click'),
+  }),
+};
+
+export const dragElementActionSchema: ActionSchema = {
+  name: 'drag_element',
+  description: 'Drag an element by index and drop it onto another element',
+  schema: z.object({
+    index: elementIndex,
+    target_index: z.number().int().describe('index of the element to drop it on'),
+  }),
+};
+
+export const handleDialogActionSchema: ActionSchema = {
+  name: 'handle_dialog',
+  description:
+    'Answer the JavaScript dialog (alert, confirm, prompt) shown in the browser state. While a dialog is open no other page action works.',
+  schema: z.object({
+    accept: z.boolean().describe('true to press OK/accept, false to press Cancel/dismiss'),
+    prompt_text: z.string().optional().describe('text to enter before accepting a prompt dialog'),
   }),
 };
 
@@ -85,8 +95,6 @@ export const hoverElementActionSchema: ActionSchema = {
   description: 'Hover mouse over an element by index to reveal hidden CSS menus or tooltips',
   schema: z.object({
     index: elementIndex,
-    xpath: z.string().nullable().optional().describe('xpath of the element'),
-    ...observationFields,
   }),
 };
 
@@ -95,8 +103,6 @@ export const rightClickElementActionSchema: ActionSchema = {
   description: 'Right click an element by index to open context menus',
   schema: z.object({
     index: elementIndex,
-    xpath: z.string().nullable().optional().describe('xpath of the element'),
-    ...observationFields,
   }),
 };
 
@@ -106,8 +112,6 @@ export const inputTextActionSchema: ActionSchema = {
   schema: z.object({
     index: elementIndex,
     text: z.string().describe('text to input'),
-    xpath: z.string().nullable().optional().describe('xpath of the element'),
-    ...observationFields,
   }),
 };
 
@@ -155,7 +159,6 @@ export const scrollToPercentActionSchema: ActionSchema = {
   schema: z.object({
     yPercent: z.number().int().describe('percentage to scroll to - min 0, max 100; 0 is top, 100 is bottom'),
     index: optionalElementIndex,
-    ...observationFields,
   }),
 };
 
@@ -164,7 +167,6 @@ export const scrollToTopActionSchema: ActionSchema = {
   description: 'Scroll the document in the window or an element to the top',
   schema: z.object({
     index: optionalElementIndex,
-    ...observationFields,
   }),
 };
 
@@ -173,7 +175,6 @@ export const scrollToBottomActionSchema: ActionSchema = {
   description: 'Scroll the document in the window or an element to the bottom',
   schema: z.object({
     index: optionalElementIndex,
-    ...observationFields,
   }),
 };
 
@@ -183,7 +184,6 @@ export const previousPageActionSchema: ActionSchema = {
     'Scroll the document in the window or an element to the previous page. If no index is specified, scroll the whole document.',
   schema: z.object({
     index: optionalElementIndex,
-    ...observationFields,
   }),
 };
 
@@ -193,7 +193,6 @@ export const nextPageActionSchema: ActionSchema = {
     'Scroll the document in the window or an element to the next page. If no index is specified, scroll the whole document.',
   schema: z.object({
     index: optionalElementIndex,
-    ...observationFields,
   }),
 };
 
@@ -222,20 +221,18 @@ export const sendKeysActionSchema: ActionSchema = {
 
 export const getDropdownOptionsActionSchema: ActionSchema = {
   name: 'get_dropdown_options',
-  description: 'Get all options from a native dropdown',
+  description: 'Get all options of a dropdown: a native select, or an ARIA combobox or listbox (it is opened to read them)',
   schema: z.object({
     index: elementIndex,
-    ...observationFields,
   }),
 };
 
 export const selectDropdownOptionActionSchema: ActionSchema = {
   name: 'select_dropdown_option',
-  description: 'Select dropdown option for interactive element index by the text of the option you want to select',
+  description: 'Select an option of a native select, or an ARIA combobox or listbox, by the exact visible text of the option',
   schema: z.object({
     index: elementIndex,
     text: z.string().describe('exact visible text of the option to select'),
-    ...observationFields,
   }),
 };
 

@@ -11,14 +11,22 @@ import type { Browser } from 'puppeteer-core/lib/esm/puppeteer/api/Browser.js';
 import type { Page as PuppeteerPage } from 'puppeteer-core/lib/esm/puppeteer/api/Page.js';
 import type { ElementHandle } from 'puppeteer-core/lib/esm/puppeteer/api/ElementHandle.js';
 import type { CDPSession } from 'puppeteer-core/lib/esm/puppeteer/api/CDPSession.js';
+import type { Dialog } from 'puppeteer-core/lib/esm/puppeteer/api/Dialog.js';
 import {
   removeHighlights as _removeHighlights,
   getScrollInfo as _getScrollInfo,
   drawHighlightOverlaysViaCoordinates,
 } from './dom/service';
 import { DOMElementNode, type DOMState } from './dom/views';
-import { type BrowserContextConfig, DEFAULT_BROWSER_CONTEXT_CONFIG, type PageState, URLNotAllowedError } from './views';
+import {
+  type BrowserContextConfig,
+  DEFAULT_BROWSER_CONTEXT_CONFIG,
+  type PageDialog,
+  type PageState,
+  URLNotAllowedError,
+} from './views';
 import { createLogger } from '@src/background/log';
+import { record } from '@src/background/trace';
 import { isUrlAllowed, isNewTabPage } from './util';
 import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
 import { pruneAXTree } from './dom/ax-tree-pruner';
@@ -32,6 +40,100 @@ const logger = createLogger('Page');
 
 /** Navigations wait for the document to be parsed; the next page read waits for the network to go idle. */
 const NAVIGATION_OPTIONS = { waitUntil: 'domcontentloaded' as const, timeout: 15000 };
+
+/** What a mouse gesture caused besides changing the page. */
+export interface MouseOutcome {
+  dialog?: PageDialog;
+  fileChooser: boolean;
+}
+
+export interface InputOutcome {
+  matched: boolean;
+  secret: boolean;
+  actualLength: number;
+  /** The field's value after typing; null for password fields. */
+  actual: string | null;
+}
+
+const MODIFIER_KEYS: Record<string, KeyInput> = {
+  ctrl: 'Control',
+  control: 'Control',
+  shift: 'Shift',
+  alt: 'Alt',
+  option: 'Alt',
+  meta: 'Meta',
+  cmd: 'Meta',
+  command: 'Meta',
+  win: 'Meta',
+  super: 'Meta',
+};
+
+const NAMED_KEYS: Record<string, KeyInput> = {
+  enter: 'Enter',
+  return: 'Enter',
+  tab: 'Tab',
+  esc: 'Escape',
+  escape: 'Escape',
+  space: 'Space',
+  backspace: 'Backspace',
+  delete: 'Delete',
+  del: 'Delete',
+  insert: 'Insert',
+  home: 'Home',
+  end: 'End',
+  pageup: 'PageUp',
+  pagedown: 'PageDown',
+  up: 'ArrowUp',
+  down: 'ArrowDown',
+  left: 'ArrowLeft',
+  right: 'ArrowRight',
+  arrowup: 'ArrowUp',
+  arrowdown: 'ArrowDown',
+  arrowleft: 'ArrowLeft',
+  arrowright: 'ArrowRight',
+  ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`f${i + 1}`, `F${i + 1}` as KeyInput])),
+};
+
+/**
+ * Parses a key or shortcut ("Enter", "page down", "Control+Shift+T", "Control++") into puppeteer key names.
+ * Named keys are case-insensitive; single characters keep their case; modifiers are never swapped per OS.
+ */
+export function normalizeKeyCombo(combo: string): { modifiers: KeyInput[]; key: KeyInput } {
+  const trimmed = combo.trim();
+  const parts = trimmed === '+' ? ['+'] : trimmed.endsWith('++') ? [...trimmed.slice(0, -2).split('+'), '+'] : trimmed.split('+');
+  const names = parts.map(part => (part === '+' ? part : part.trim())).filter(Boolean);
+  if (names.length === 0) {
+    throw new Error('No key given');
+  }
+  const lookup = (name: string) => name.toLowerCase().replace(/[\s_-]/g, '');
+  const modifiers = names.slice(0, -1).map(name => {
+    const modifier = MODIFIER_KEYS[lookup(name)];
+    if (!modifier) throw new Error(`Unknown modifier "${name}". Use Control, Shift, Alt or Meta.`);
+    return modifier;
+  });
+  const last = names[names.length - 1];
+  const key = last.length === 1 ? (last as KeyInput) : (NAMED_KEYS[lookup(last)] ?? MODIFIER_KEYS[lookup(last)]);
+  if (!key) {
+    throw new Error(`Unknown key "${last}". Use a single character or one of: ${[...new Set(Object.values(NAMED_KEYS))].join(', ')}`);
+  }
+  return { modifiers, key };
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** The value an <input type=date> needs for a date typed the way a user would (mm/dd/yyyy). */
+function toDateInputValue(text: string): string {
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text.trim());
+  return us ? `${us[3]}-${us[1].padStart(2, '0')}-${us[2].padStart(2, '0')}` : text;
+}
 
 export function getAdaptiveDomRetryDelayMs(attempt: number): number {
   return Math.min(750, Math.max(250, attempt * 250));
@@ -71,6 +173,11 @@ export default class Page {
   private _pendingState: { generation: number; useVision: boolean; promise: Promise<PageState> } | null = null;
   /** URL of the last successful read; a read at a different URL waits for the page to load first. */
   private _lastReadUrl: string | null = null;
+  /** A JavaScript dialog left open for the agent to answer. */
+  private _pendingDialog: Dialog | null = null;
+  /** True while navigateTo/goBack/goForward/refreshPage run, so their own beforeunload prompt is accepted. */
+  private _agentNavigating = false;
+  private _fileChooserOpened = false;
   private _browserAdapter: IBrowserAdapter;
   private _storageProvider: IStorageProvider;
 
@@ -206,23 +313,25 @@ export default class Page {
       await client.send('Emulation.setFocusEmulationEnabled', { enabled: true });
       // A native file picker would block the tab; the agent is told about the chooser instead.
       await client.send('Page.setInterceptFileChooserDialog', { enabled: true });
+      client.on('Page.fileChooserOpened', () => {
+        this._fileChooserOpened = true;
+      });
     } catch (error) {
       logger.warning('Could not configure the page session:', error);
     }
 
-    // ── DIALOG WATCHDOG ──────────────────────────────────────────────────────
-    // Auto-dismiss unexpected native dialogs (alert/confirm/prompt/beforeunload).
-    // Without this, any dialog will freeze the Puppeteer CDP session until the
-    // agent's step timeout fires, causing a full step failure.
-    this._puppeteerPage.on('dialog', async dialog => {
-      logger.warning(
-        `[DialogWatchdog] Auto-dismissing ${dialog.type()} dialog: "${dialog.message().slice(0, 120)}"`
-      );
-      try {
-        await dialog.accept();
-      } catch {
-        try { await dialog.dismiss(); } catch { /* ignore — dialog may have closed itself */ }
+    // Dialogs stay open for the agent to answer (handle_dialog); the page state shows them.
+    page.on('dialog', dialog => {
+      if (dialog.type() === 'beforeunload' && this._agentNavigating) {
+        void dialog.accept().catch(() => undefined);
+        return;
       }
+      logger.info(`JavaScript ${dialog.type()} dialog opened: "${dialog.message().slice(0, 200)}"`);
+      this._pendingDialog = dialog;
+      this.invalidateCache();
+    });
+    page.on('framenavigated', frame => {
+      if (frame === page.mainFrame()) this._pendingDialog = null;
     });
 
     return true;
@@ -253,127 +362,9 @@ export default class Page {
     this._puppeteerPage = null;
     this._pendingState = null;
     this._lastReadUrl = null;
+    this._pendingDialog = null;
     this.invalidateCache();
   }
-
-  public async sendCDPCommand(method: string, params?: Record<string, unknown>): Promise<unknown> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not attached to this page');
-    }
-    return this._browserAdapter.sendDebuggerCommand({ tabId: this._tabId }, method, params);
-  }
-
-  public async cdpClick(element: ElementHandle<Element>, onDispatch?: () => void): Promise<void> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not attached to this page');
-    }
-    
-    // Fetch high-precision viewport coordinates using client rects to avoid clicking empty space on line wraps or large wrappers
-    const coords = await element.evaluate((el) => {
-      const rects = el.getClientRects();
-      if (rects.length > 0) {
-        for (let i = 0; i < rects.length; i++) {
-          const r = rects[i];
-          if (r.width > 0 && r.height > 0) {
-            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-          }
-        }
-      }
-      const r = el.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    });
-
-    if (!coords || typeof coords.x !== 'number' || typeof coords.y !== 'number') {
-      throw new Error('Element has no visible layout rectangles');
-    }
-
-    await this._puppeteerPage.bringToFront();
-    await this._puppeteerPage.mouse.move(coords.x, coords.y);
-    // From here the click can reach the page even if the CDP acknowledgement never arrives.
-    onDispatch?.();
-    await this._puppeteerPage.mouse.click(coords.x, coords.y, { delay: 50 });
-  }
-
-  public async cdpHover(element: ElementHandle<Element>): Promise<void> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not attached to this page');
-    }
-    
-    const coords = await element.evaluate((el) => {
-      const rects = el.getClientRects();
-      if (rects.length > 0) {
-        for (let i = 0; i < rects.length; i++) {
-          const r = rects[i];
-          if (r.width > 0 && r.height > 0) {
-            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-          }
-        }
-      }
-      const r = el.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    });
-
-    if (!coords || typeof coords.x !== 'number' || typeof coords.y !== 'number') {
-      throw new Error('Element has no visible layout rectangles');
-    }
-
-    await this._puppeteerPage.bringToFront();
-    await this._puppeteerPage.mouse.move(coords.x, coords.y);
-  }
-
-  public async cdpRightClick(element: ElementHandle<Element>): Promise<void> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not attached to this page');
-    }
-    
-    const coords = await element.evaluate((el) => {
-      const rects = el.getClientRects();
-      if (rects.length > 0) {
-        for (let i = 0; i < rects.length; i++) {
-          const r = rects[i];
-          if (r.width > 0 && r.height > 0) {
-            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-          }
-        }
-      }
-      const r = el.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    });
-
-    if (!coords || typeof coords.x !== 'number' || typeof coords.y !== 'number') {
-      throw new Error('Element has no visible layout rectangles');
-    }
-
-    await this._puppeteerPage.bringToFront();
-    await this._puppeteerPage.mouse.move(coords.x, coords.y);
-    await this._puppeteerPage.mouse.click(coords.x, coords.y, { button: 'right', delay: 50 });
-  }
-
-  public async cdpType(element: ElementHandle<Element>, text: string): Promise<void> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not attached to this page');
-    }
-    await this._puppeteerPage.bringToFront();
-    
-    // Natively focus and position the cursor by clicking the element first
-    try {
-      await this.cdpClick(element);
-    } catch (clickErr) {
-      logger.warning('Failed to click element before typing in cdpType, focusing programmatically', clickErr);
-      await element.focus();
-    }
-    
-    // Brief delay to allow click/focus handlers to process
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    await this._puppeteerPage.keyboard.type(text, { delay: 35 });
-  }
-
 
   async detachPuppeteer(): Promise<void> {
     const browser = this._browser;
@@ -650,6 +641,13 @@ export default class Page {
       return build_initial_state(this._tabId, this._state.url, this._state.title);
     }
 
+    const dialog = this.pendingDialog;
+    if (dialog) {
+      // The page's scripts are paused until the dialog is answered; reading the page would only time out.
+      const tab = await this._browserAdapter.getTab(this._tabId).catch(() => null);
+      return { ...build_initial_state(this._tabId, tab?.url ?? this._state.url, tab?.title ?? this._state.title), dialog };
+    }
+
     // Network idle only after the page moved (a navigation, the first read); otherwise only the DOM must hold still.
     const liveUrl = await this._browserAdapter.getTab(this._tabId).then(
       tab => tab.url ?? '',
@@ -914,11 +912,14 @@ export default class Page {
     }
     logger.info(label);
     this.invalidateCache();
+    this._agentNavigating = true;
     try {
       await navigation(this._puppeteerPage);
     } catch (error) {
       if (!(error instanceof Error && /timeout/i.test(error.message))) throw error;
       logger.warning(`${label} timed out; continuing with the partly loaded page`);
+    } finally {
+      this._agentNavigating = false;
     }
     const url = this._puppeteerPage?.url();
     if (url) this.updateUrl(url);
@@ -1060,309 +1061,64 @@ export default class Page {
   }
 
   async sendKeys(keys: string): Promise<void> {
+    const { modifiers, key } = normalizeKeyCombo(keys);
     await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer page is not connected');
     }
-
-    // Split combination keys (e.g., "Control+A" or "Shift+ArrowLeft")
-    const keyParts = keys.split('+');
-    const modifiers = keyParts.slice(0, -1);
-    const mainKey = keyParts[keyParts.length - 1];
-
-    // Press modifiers and main key, ensure modifiers are released even if an error occurs.
+    const keyboard = this._puppeteerPage.keyboard;
     try {
-      // Press all modifier keys (e.g., Control, Shift, etc.)
-      for (const modifier of modifiers) {
-        await this._puppeteerPage.keyboard.down(this._convertKey(modifier));
-      }
-      // Press the main key
-      // also wait for stable state
-      await Promise.all([
-        this._puppeteerPage.keyboard.press(this._convertKey(mainKey)),
-        this.waitForPageAndFramesLoad(),
-      ]);
-      logger.info('sendKeys complete', keys);
-    } catch (error) {
-      logger.error('Failed to send keys:', error);
-      throw new Error(`Failed to send keys: ${error instanceof Error ? error.message : String(error)}`);
+      for (const modifier of modifiers) await keyboard.down(modifier);
+      // A key that opens a dialog is not acknowledged until the dialog closes.
+      await Promise.race([keyboard.press(key), sleep(1500)]);
     } finally {
-      // Release all modifier keys in reverse order regardless of any errors in key press.
       for (const modifier of [...modifiers].reverse()) {
-        try {
-          await this._puppeteerPage.keyboard.up(this._convertKey(modifier));
-        } catch (releaseError) {
-          logger.error('Failed to release modifier:', modifier, releaseError);
-        }
+        await keyboard.up(modifier).catch(() => undefined);
       }
     }
   }
 
-  private _convertKey(key: string): KeyInput {
-    const lowerKey = key.trim().toLowerCase();
-    const isMac = navigator.userAgent.toLowerCase().includes('mac os x');
-
-    if (isMac) {
-      if (lowerKey === 'control' || lowerKey === 'ctrl') {
-        return 'Meta' as KeyInput; // Use Command key on Mac
-      }
-      if (lowerKey === 'command' || lowerKey === 'cmd') {
-        return 'Meta' as KeyInput; // Map Command/Cmd to Meta on Mac
-      }
-      if (lowerKey === 'option' || lowerKey === 'opt') {
-        return 'Alt' as KeyInput; // Map Option/Opt to Alt on Mac
-      }
-    }
-
-    const keyMap: { [key: string]: string } = {
-      // Letters
-      a: 'KeyA',
-      b: 'KeyB',
-      c: 'KeyC',
-      d: 'KeyD',
-      e: 'KeyE',
-      f: 'KeyF',
-      g: 'KeyG',
-      h: 'KeyH',
-      i: 'KeyI',
-      j: 'KeyJ',
-      k: 'KeyK',
-      l: 'KeyL',
-      m: 'KeyM',
-      n: 'KeyN',
-      o: 'KeyO',
-      p: 'KeyP',
-      q: 'KeyQ',
-      r: 'KeyR',
-      s: 'KeyS',
-      t: 'KeyT',
-      u: 'KeyU',
-      v: 'KeyV',
-      w: 'KeyW',
-      x: 'KeyX',
-      y: 'KeyY',
-      z: 'KeyZ',
-
-      // Numbers
-      '0': 'Digit0',
-      '1': 'Digit1',
-      '2': 'Digit2',
-      '3': 'Digit3',
-      '4': 'Digit4',
-      '5': 'Digit5',
-      '6': 'Digit6',
-      '7': 'Digit7',
-      '8': 'Digit8',
-      '9': 'Digit9',
-
-      // Special keys
-      control: 'Control',
-      shift: 'Shift',
-      alt: 'Alt',
-      meta: 'Meta',
-      enter: 'Enter',
-      backspace: 'Backspace',
-      delete: 'Delete',
-      arrowleft: 'ArrowLeft',
-      arrowright: 'ArrowRight',
-      arrowup: 'ArrowUp',
-      arrowdown: 'ArrowDown',
-      escape: 'Escape',
-      tab: 'Tab',
-      space: 'Space',
-    };
-
-    const convertedKey = keyMap[lowerKey] || key;
-    logger.info('convertedKey', convertedKey);
-    return convertedKey as KeyInput;
-  }
-
-  async scrollToText(text: string, nth: number = 1): Promise<boolean> {
+  /** Scrolls the nth visible match of the text (case-insensitive, open shadow roots and every frame included) into view. */
+  async scrollToText(text: string, nth = 1): Promise<boolean> {
     await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
-
-    try {
-      // Convert text to lowercase for consistent searching
-      const lowerCaseText = text.toLowerCase();
-
-      // Try different locator strategies to find all elements containing the text
-      const selectors = [
-        // Using text selector (equivalent to get_by_text) - for exact text match
-        `::-p-text(${text})`,
-        // Using XPath selector (contains text) - case insensitive
-        `::-p-xpath(//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${lowerCaseText}')])`,
-      ];
-
-      for (const selector of selectors) {
-        try {
-          // Use $$ to get all matching elements
-          const elements = await this._puppeteerPage.$$(selector);
-
-          if (elements.length > 0) {
-            // Find visible elements and select the nth occurrence
-            const visibleElements = [];
-
-            for (const element of elements) {
-              const isVisible = await element.evaluate(el => {
-                const style = window.getComputedStyle(el);
-                const rect = el.getBoundingClientRect();
-                return (
-                  style.display !== 'none' &&
-                  style.visibility !== 'hidden' &&
-                  style.opacity !== '0' &&
-                  rect.width > 0 &&
-                  rect.height > 0
-                );
-              });
-
-              if (isVisible) {
-                visibleElements.push(element);
+    let remaining = nth;
+    for (const frame of this._puppeteerPage.frames().filter(candidate => !candidate.detached)) {
+      const found = await withTimeout(
+        frame.evaluate(
+          (needle, wanted) => {
+            const matches: Element[] = [];
+            const visit = (root: Node) => {
+              const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+              for (let node: Node | null = walker.currentNode; node; node = walker.nextNode()) {
+                if (node.nodeType === Node.TEXT_NODE) {
+                  const parent = node.parentElement;
+                  if (parent && matches[matches.length - 1] !== parent && node.textContent?.toLowerCase().includes(needle)) {
+                    const rect = parent.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) matches.push(parent);
+                  }
+                } else if ((node as Element).shadowRoot) {
+                  visit((node as Element).shadowRoot as ShadowRoot);
+                }
               }
-            }
-
-            // Check if we have enough visible elements for the requested nth occurrence
-            if (visibleElements.length >= nth) {
-              const targetElement = visibleElements[nth - 1]; // Convert to 0-indexed
-              await this._scrollIntoViewIfNeeded(targetElement);
-              await new Promise(resolve => setTimeout(resolve, 500)); // Wait for scroll to complete
-
-              // Dispose of all element handles to prevent memory leaks
-              for (const element of elements) {
-                await element.dispose();
-              }
-
-              return true;
-            }
-          }
-
-          // Dispose of all element handles to prevent memory leaks
-          for (const element of elements) {
-            await element.dispose();
-          }
-        } catch (e) {
-          logger.debug(`Locator attempt failed: ${e}`);
-        }
-      }
-      return false;
-    } catch (error) {
-      throw new Error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async getDropdownOptions(index: number): Promise<Array<{ index: number; text: string; value: string }>> {
-    const selectorMap = this.getSelectorMap();
-    const element = selectorMap?.get(index);
-
-    if (!element || !this._puppeteerPage) {
-      throw new Error('Element not found or puppeteer is not connected');
-    }
-
-    try {
-      // Get the element handle using the element's selector
-      const elementHandle = await this.locateElement(element);
-      if (!elementHandle) {
-        throw new Error('Dropdown element not found');
-      }
-
-      // Evaluate the select element to get all options
-      const options = await elementHandle.evaluate(select => {
-        if (!(select instanceof HTMLSelectElement)) {
-          throw new Error('Element is not a select element');
-        }
-
-        return Array.from(select.options).map(option => ({
-          index: option.index,
-          text: option.text, // Not trimming to maintain exact match for selection
-          value: option.value,
-        }));
-      });
-
-      if (!options.length) {
-        throw new Error('No options found in dropdown');
-      }
-
-      return options;
-    } catch (error) {
-      throw new Error(`Failed to get dropdown options: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  async selectDropdownOption(index: number, text: string): Promise<string> {
-    const selectorMap = this.getSelectorMap();
-    const element = selectorMap?.get(index);
-
-    if (!element || !this._puppeteerPage) {
-      throw new Error('Element not found or puppeteer is not connected');
-    }
-
-    logger.debug(`Attempting to select '${text}' from dropdown`);
-    logger.debug(`Element attributes: ${JSON.stringify(element.attributes)}`);
-    logger.debug(`Element tag: ${element.tagName}`);
-
-    // Validate that we're working with a select element
-    if (element.tagName?.toLowerCase() !== 'select') {
-      const msg = `Cannot select option: Element with index ${index} is a ${element.tagName}, not a SELECT`;
-      logger.error(msg);
-      throw new Error(msg);
-    }
-
-    try {
-      // Get the element handle using the element's selector
-      const elementHandle = await this.locateElement(element);
-      if (!elementHandle) {
-        throw new Error(`Dropdown element with index ${index} not found`);
-      }
-
-      // Verify dropdown and select option in one call
-      const result = await elementHandle.evaluate(
-        (select, optionText, elementIndex) => {
-          if (!(select instanceof HTMLSelectElement)) {
-            return {
-              found: false,
-              message: `Element with index ${elementIndex} is not a SELECT`,
             };
-          }
-
-          const options = Array.from(select.options);
-          const option = options.find(opt => opt.text.trim() === optionText);
-
-          if (!option) {
-            const availableOptions = options.map(o => o.text.trim()).join('", "');
-            return {
-              found: false,
-              message: `Option "${optionText}" not found in dropdown element with index ${elementIndex}. Available options: "${availableOptions}"`,
-            };
-          }
-
-          // Set the value and dispatch events
-          const previousValue = select.value;
-          select.value = option.value;
-
-          // Only dispatch events if the value actually changed
-          if (previousValue !== option.value) {
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-            select.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-
-          return {
-            found: true,
-            message: `Selected option "${optionText}" with value "${option.value}"`,
-          };
-        },
-        text,
-        index,
-      );
-
-      logger.debug('Selection result:', result);
-      // whether found or not, return the message
-      return result.message;
-    } catch (error) {
-      const errorMessage = `${error instanceof Error ? error.message : String(error)}`;
-      logger.error(errorMessage);
-      throw new Error(errorMessage);
+            visit(document.body ?? document.documentElement);
+            const target = matches[wanted - 1];
+            target?.scrollIntoView({ block: 'center', behavior: 'instant' });
+            return target ? -1 : matches.length;
+          },
+          text.trim().toLowerCase(),
+          remaining,
+        ),
+        2000,
+        'scroll to text',
+      ).catch(() => 0);
+      if (found < 0) return true;
+      remaining -= found;
     }
+    return false;
   }
 
   /** The live element for a node of the last read, adopted by backendNodeId in the frame it came from. */
@@ -1373,514 +1129,327 @@ export default class Page {
     }
     const frame = element.frame ?? this._puppeteerPage.mainFrame();
     try {
-      const handle = (await frame.mainRealm().adoptBackendNode(element.backendNodeId)) as unknown as ElementHandle;
-      if (!(await handle.isHidden())) {
-        await this._scrollIntoViewIfNeeded(handle);
-      }
-      return handle;
+      return (await frame.mainRealm().adoptBackendNode(element.backendNodeId)) as unknown as ElementHandle;
     } catch (error) {
       logger.warning(`${element} is no longer in the page: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
 
-  async inputTextElementNode(useVision: boolean, elementNode: DOMElementNode, text: string): Promise<void> {
-    await this.ensurePuppeteerConnected();
+  private async _requireHandle(node: DOMElementNode): Promise<ElementHandle> {
+    const handle = await this.locateElement(node);
+    if (!handle) {
+      throw new Error(`Element with index ${node.highlightIndex} is no longer available`);
+    }
+    return handle;
+  }
+
+  private _pageClient(): CDPSession {
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
-
-    try {
-      // Highlight before typing
-      // if (elementNode.highlightIndex != null) {
-      //   await this._updateState(useVision, elementNode.highlightIndex);
-      // }
-
-      const element = await this.locateElement(elementNode);
-      if (!element) {
-        throw new Error(`Element: ${elementNode} not found`);
-      }
-
-      // Ensure element is ready for input
-      try {
-        // First wait for element stability
-        await this._waitForElementStability(element, 1500);
-
-        // Then check visibility and scroll into view if needed
-        const isHidden = await element.isHidden();
-        if (!isHidden) {
-          await this._scrollIntoViewIfNeeded(element, 1500);
-
-          // --- CURSOR ANIMATION BROADCAST (non-blocking) ---
-          // Fire-and-forget: broadcast cursor coords without blocking the type action.
-          element.boundingBox().then(box => {
-            if (box) {
-              const x = box.x + box.width / 2;
-              const y = box.y + box.height / 2;
-              this._browserAdapter.sendTabMessage(this._tabId, {
-                type: 'AGENT_ACTION',
-                action: 'type',
-                x, y
-              }).catch(() => { });
-            }
-          }).catch(() => { });
-        }
-      } catch (e) {
-        // Continue even if these operations fail
-        logger.debug(`Non-critical error preparing element: ${e}`);
-      }
-
-      // Get element properties to determine input method
-      const tagName = await element.evaluate(el => el.tagName.toLowerCase());
-      const isContentEditable = await element.evaluate(el => {
-        if (el instanceof HTMLElement) {
-          return el.isContentEditable;
-        }
-        return false;
-      });
-      const isReadOnly = await element.evaluate(el => {
-        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-          return el.readOnly;
-        }
-        return false;
-      });
-      const isDisabled = await element.evaluate(el => {
-        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-          if (el.disabled) return true;
-        }
-        // aria-disabled="true" is used by many component libraries (MUI, Radix, etc.)
-        if (el.getAttribute('aria-disabled') === 'true') return true;
-        // inert attribute makes element non-interactive
-        if (el.hasAttribute('inert') || el.closest('[inert]')) return true;
-        return false;
-      });
-
-      // Choose appropriate input method based on element properties
-      if (isContentEditable || tagName === 'input' || tagName === 'textarea') {
-        if (isReadOnly || isDisabled) {
-          throw new Error(`Cannot type into a readonly or disabled element`);
-        }
-
-        // Clear the field first
-        await element.evaluate(el => {
-          if (el instanceof HTMLElement) {
-            el.focus();
-            // Try framework-safe document.execCommand first to preserve React/Draft.js editor states
-            try {
-              document.execCommand('selectAll', false, undefined);
-              document.execCommand('delete', false, undefined);
-            } catch (err) {
-              // Ignore and let fallback handle it
-            }
-          }
-        });
-
-        // Check if clearing with execCommand was successful. If not, use descriptor mutation fallback.
-        const isEmptyAfterExec = await element.evaluate(el => {
-          if ('value' in el) return (el as HTMLInputElement).value === '';
-          if (el instanceof HTMLElement) return el.textContent === '';
-          return true;
-        });
-
-        if (!isEmptyAfterExec) {
-          logger.warning('execCommand clear failed or incomplete, falling back to direct value/textContent assignment');
-          await element.evaluate(el => {
-            if (el instanceof HTMLElement) {
-              el.textContent = '';
-            }
-            if ('value' in el) {
-              // React / Angular / Vue use a synthetic input event system.
-              // Directly setting .value= bypasses their internal state tracking.
-              // We must use the native property descriptor setter so the framework
-              // sees the change as if the user typed it.
-              const nativeInputProto = Object.getPrototypeOf(el);
-              const nativeDescriptor =
-                Object.getOwnPropertyDescriptor(nativeInputProto, 'value') ||
-                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
-                Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
-              if (nativeDescriptor?.set) {
-                nativeDescriptor.set.call(el, '');
-              } else {
-                (el as HTMLInputElement).value = '';
-              }
-            }
-            // Dispatch input + change so framework state updates
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-          });
-        }
-
-        // Type the text with OS-level inputs via CDP
-        try {
-          logger.info(`Attempting CDP OS-level type on element index ${elementNode.highlightIndex} (xpath: ${elementNode.xpath})`);
-          await this.cdpType(element, text);
-        } catch (error) {
-          logger.warning('CDP typing failed, trying legacy element.type() fallback:', error);
-          await element.type(text, { delay: 50 });
-        }
-
-        // Verify the typed text actually appeared (detect silent failures)
-        let actualValue = await element.evaluate(el => {
-          if ('value' in el) return (el as HTMLInputElement).value;
-          if (el instanceof HTMLElement) return el.textContent || '';
-          return '';
-        });
-
-        // First fallback: If CDP typing didn't result in the correct text, try legacy element.type()
-        if (actualValue !== text) {
-          logger.warning(
-            `[InputVerify] CDP type mismatch (expected "${text.slice(0, 40)}", got "${actualValue.slice(0, 40)}"). Retrying with legacy element.type()`
-          );
-          try {
-            // Clear value first before retrying
-            await element.evaluate(el => {
-              if (el instanceof HTMLElement) el.textContent = '';
-              if ('value' in el) (el as HTMLInputElement).value = '';
-            });
-            await element.type(text, { delay: 50 });
-            actualValue = await element.evaluate(el => {
-              if ('value' in el) return (el as HTMLInputElement).value;
-              if (el instanceof HTMLElement) return el.textContent || '';
-              return '';
-            });
-          } catch (err) {
-            logger.error('Legacy element.type() fallback failed:', err);
-          }
-        }
-
-        // Second fallback: If still not matching, set value directly and trigger framework events
-        if (actualValue !== text) {
-          logger.warning(
-            `[InputVerify] Legacy type also mismatch. Retrying with direct property descriptor injection`
-          );
-          await element.evaluate((el, value) => {
-            const nativeInputProto = Object.getPrototypeOf(el);
-            const nativeDescriptor =
-              Object.getOwnPropertyDescriptor(nativeInputProto, 'value') ||
-              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
-              Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
-            if (nativeDescriptor?.set) {
-              nativeDescriptor.set.call(el, value);
-            } else if ('value' in el) {
-              (el as HTMLInputElement).value = value;
-            } else if (el instanceof HTMLElement) {
-              el.textContent = value;
-            }
-            el.dispatchEvent(new InputEvent('input', { bubbles: true, data: value }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-          }, text);
-        }
-      } else {
-        // Non-editable element: use direct value setting
-        await element.evaluate((el, value) => {
-          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-            el.value = value;
-          } else if (el instanceof HTMLElement && el.isContentEditable) {
-            el.textContent = value;
-          }
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }, text);
-      }
-
-      // Wait for page stability after input
-      await this.waitForPageAndFramesLoad();
-    } catch (error) {
-      const errorMsg = `Failed to input text into element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`;
-      logger.error(errorMsg);
-      throw new Error(errorMsg);
-    }
+    return (this._puppeteerPage.mainFrame() as unknown as { client: CDPSession }).client;
   }
 
   /**
-   * Wait for an element to become stable (no position/size changes)
-   * Similar to Playwright's wait_for_element_state('stable')
+   * One mouse gesture on an element: scroll it into view, refuse it when disabled or covered, then send the
+   * move/press/release events once. Events are never re-sent: an unacknowledged press may still land, and
+   * a second one would click twice. Coordinates from clickablePoint include iframe offsets.
    */
-  private async _waitForElementStability(element: ElementHandle, timeout = 1000): Promise<void> {
-    const startTime = Date.now();
-    let lastRect = await element.boundingBox();
-
-    while (Date.now() - startTime < timeout) {
-      // Wait a short time
-      await new Promise(resolve => setTimeout(resolve, 50));
-
-      // Get current position and size
-      const currentRect = await element.boundingBox();
-
-      // If element is no longer in DOM or not visible
-      if (!currentRect) {
-        break;
-      }
-
-      // Compare with previous position/size
-      if (
-        lastRect &&
-        Math.abs(lastRect.x - currentRect.x) < 2 &&
-        Math.abs(lastRect.y - currentRect.y) < 2 &&
-        Math.abs(lastRect.width - currentRect.width) < 2 &&
-        Math.abs(lastRect.height - currentRect.height) < 2
-      ) {
-        // Position is stable - wait a bit more to be sure and then return
-        await new Promise(resolve => setTimeout(resolve, 50));
-        return;
-      }
-
-      // Update last position
-      lastRect = currentRect;
+  private async _dispatchMouse(
+    handle: ElementHandle,
+    kind: 'click' | 'right' | 'hover',
+    { clickCount = 1, checkCover = true } = {},
+  ): Promise<MouseOutcome> {
+    await handle.scrollIntoView();
+    const blocker = await handle.evaluate(
+      (el, isHover, checkCovered) => {
+        if (!isHover && ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true')) {
+          return 'The element is disabled';
+        }
+        if (!checkCovered) return null;
+        const rect = el.getBoundingClientRect();
+        const root = el.getRootNode() as unknown as DocumentOrShadowRoot;
+        const hit = root.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        if (!hit || hit === el || el.contains(hit) || hit.contains(el)) return null;
+        if (hit.closest('label')?.control === el) return null;
+        const text = (hit.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
+        return `The element is covered by <${hit.tagName.toLowerCase()}>${text ? ` "${text}"` : ''}; close or move past it first`;
+      },
+      kind === 'hover',
+      checkCover,
+    );
+    if (blocker) {
+      throw new Error(blocker);
     }
+    const { x, y } = await handle.clickablePoint();
 
-    // If we got here, either the element stabilized or we timed out
-    logger.debug('Element stability check completed (timeout or stable)');
+    const client = this._pageClient();
+    const button = kind === 'right' ? 'right' : 'left';
+    this._fileChooserOpened = false;
+    const events: Promise<unknown>[] = [client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })];
+    if (kind !== 'hover') {
+      for (let count = 1; count <= clickCount; count++) {
+        events.push(client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount: count }));
+        events.push(client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount: count }));
+      }
+    }
+    const startedAt = Date.now();
+    const settled = await Promise.race([
+      Promise.all(events).then(
+        () => 'acked' as const,
+        (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+      ),
+      sleep(1500).then(() => 'timeout' as const),
+    ]);
+    const dialog = this.pendingDialog ?? undefined;
+    record({
+      level: settled === 'acked' || dialog ? 'info' : 'warning',
+      kind: 'span',
+      component: 'Page',
+      msg: 'input dispatch',
+      durationMs: Date.now() - startedAt,
+      data: { kind, acked: settled === 'acked', dialogOpened: Boolean(dialog) },
+    });
+    if (settled instanceof Error) {
+      throw settled;
+    }
+    return { dialog, fileChooser: this._fileChooserOpened };
   }
 
-  private async _scrollIntoViewIfNeeded(element: ElementHandle, timeout = 1000): Promise<void> {
-    const startTime = Date.now();
-
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      // Check if element is in viewport
-      const isVisible = await element.evaluate(el => {
-        const rect = el.getBoundingClientRect();
-
-        // Check if element has size
-        if (rect.width === 0 || rect.height === 0) return false;
-
-        // Check if element is hidden
-        const style = window.getComputedStyle(el);
-        if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') {
-          return false;
-        }
-
-        // Check if element is partially in viewport to avoid unnecessary scrolling which closes dropdowns
-        const isPartiallyInViewport =
-          rect.bottom > 0 &&
-          rect.right > 0 &&
-          rect.top < (window.innerHeight || document.documentElement.clientHeight) &&
-          rect.left < (window.innerWidth || document.documentElement.clientWidth);
-
-        if (!isPartiallyInViewport) {
-          // Scroll into view if completely out of bounds
-          el.scrollIntoView({
-            behavior: 'auto',
-            block: 'center',
-            inline: 'center',
-          });
-          return false;
-        }
-
-        return true;
-      });
-
-      if (isVisible) break;
-
-      // Check timeout - log warning and return instead of throwing
-      if (Date.now() - startTime > timeout) {
-        logger.warning('Timed out while trying to scroll element into view, continuing anyway');
-        break;
-      }
-
-      // Small delay before next check
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+  async clickNode(node: DOMElementNode, clickCount = 1): Promise<MouseOutcome> {
+    return this._dispatchMouse(await this._requireHandle(node), 'click', { clickCount });
   }
 
-  async clickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not connected');
+  async hoverNode(node: DOMElementNode): Promise<MouseOutcome> {
+    return this._dispatchMouse(await this._requireHandle(node), 'hover');
+  }
+
+  async rightClickNode(node: DOMElementNode): Promise<MouseOutcome> {
+    return this._dispatchMouse(await this._requireHandle(node), 'right');
+  }
+
+  /**
+   * Replaces the field's content with text and reads it back from the live element. Text goes in as one
+   * Input.insertText (what an IME or paste does, so framework-controlled inputs see it); date, range and
+   * similar inputs get their value set directly. Password values never leave this method.
+   */
+  async inputTextNode(node: DOMElementNode, text: string): Promise<InputOutcome> {
+    const handle = await this._requireHandle(node);
+    const field = await handle.evaluate(el => {
+      const input = el as HTMLInputElement;
+      const tag = el.tagName.toLowerCase();
+      if (input.disabled || el.getAttribute('aria-disabled') === 'true') return { error: 'The field is disabled' };
+      if (input.readOnly) return { error: 'The field is read-only' };
+      if (tag === 'input' && ['date', 'datetime-local', 'time', 'month', 'week', 'color', 'range'].includes(input.type)) {
+        return { mode: 'setter', type: input.type, secret: false };
+      }
+      if (tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable) {
+        return { mode: 'insert', type: tag === 'input' ? input.type : tag, secret: tag === 'input' && input.type === 'password' };
+      }
+      return { error: `A <${tag}> does not accept text; type into an input, textarea or editable element` };
+    });
+    if ('error' in field) {
+      throw new Error(field.error);
     }
 
-    try {
-      const element = await this.locateElement(elementNode);
-      if (!element) {
-        throw new Error(`Element at index ${elementNode.highlightIndex} (tag: ${elementNode.tagName}, xpath: ${elementNode.xpath}) was not found in the DOM`);
-      }
+    const expected = field.type === 'date' ? toDateInputValue(text) : text;
+    const setValue = (value: string) =>
+      handle.evaluate((el, next) => {
+        const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
+        if (setter) setter.call(el, next);
+        else (el as HTMLElement).innerText = next;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }, value);
 
-      // Scroll element into view if needed
-      await this._scrollIntoViewIfNeeded(element);
-
-      // Wait for element position/size to stabilize (prevents clicking shifting nodes)
-      await this._waitForElementStability(element, 1000);
-
-      // Verify element interactivity/clickability before executing CDP click
-      const clickabilityError = await element.evaluate((el) => {
-        if (el instanceof HTMLButtonElement || el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) {
-          if (el.disabled) return 'Element is disabled';
-        }
-        if (el.getAttribute('aria-disabled') === 'true') {
-          return 'Element has aria-disabled set to true';
-        }
-        const style = window.getComputedStyle(el);
-        if (style.pointerEvents === 'none') {
-          return 'Element has pointer-events: none';
-        }
-        const rect = el.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) {
-          return 'Element has 0 width or height';
-        }
-        return null;
-      });
-
-      if (clickabilityError) {
-        logger.warning(`[ClickabilityCheck] Target may not be clickable: ${clickabilityError}. Proceeding with best-effort click.`);
-      }
-
-      let clickDispatched = false;
-      try {
-        // Primary attempt: Use OS-level click via CDP Input.dispatchMouseEvent
-        logger.info(`Attempting CDP OS-level click on element: ${elementNode}`);
-        await Promise.race([
-          this.cdpClick(element, () => {
-            clickDispatched = true;
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('CDP Click timeout')), 5000)),
-        ]);
-        await this._checkAndHandleNavigation();
-      } catch (error) {
-        if (error instanceof URLNotAllowedError) {
-          throw error;
-        }
-        if (clickDispatched) {
-          // The mouse events were already sent and have usually taken effect; a synthetic retry would click a
-          // second time (adding two items, toggling twice). Post-action validation checks the page instead.
-          logger.warning('CDP click was dispatched but not confirmed; skipping the synthetic retry to avoid a double click', error);
-          await this._checkAndHandleNavigation();
+    if (field.mode === 'setter') {
+      await setValue(expected);
+    } else {
+      // A real click puts focus in the field's own frame; programmatic focus cannot enter a cross-site iframe.
+      await this._dispatchMouse(handle, 'click', { checkCover: false });
+      await handle.evaluate(el => {
+        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+          el.focus();
+          el.select();
           return;
         }
-
-        // Fallback: Re-locate a fresh handle to avoid stale references, focus it, and dispatch a full synthetic event chain
-        logger.warning('CDP click failed, trying synthetic MouseEvent dispatch chain on fresh handle', error);
-        try {
-          const freshElement = await this.locateElement(elementNode);
-          if (!freshElement) {
-            throw new Error('Element no longer found for fallback click');
-          }
-          await freshElement.evaluate((el: Element) => {
-            if (el instanceof HTMLElement) {
-              el.focus();
-            }
-            const eventOpts = { bubbles: true, cancelable: true, view: window };
-            el.dispatchEvent(new MouseEvent('mousedown', eventOpts));
-            el.dispatchEvent(new MouseEvent('mouseup', eventOpts));
-            if (el instanceof HTMLElement) {
-              el.click();
-            } else {
-              el.dispatchEvent(new MouseEvent('click', eventOpts));
-            }
-          });
-          await this._checkAndHandleNavigation();
-        } catch (secondError) {
-          if (secondError instanceof URLNotAllowedError) {
-            throw secondError;
-          }
-          throw new Error(
-            `Failed to click element: ${secondError instanceof Error ? secondError.message : String(secondError)}`,
-          );
-        }
-      }
-
-      // Broadcast cursor animation after click (fire-and-forget, non-blocking)
-      try {
-        const box = await element.boundingBox();
-        if (box) {
-          this._browserAdapter.sendTabMessage(this._tabId, {
-            type: 'AGENT_ACTION',
-            action: 'click',
-            x: box.x + box.width / 2,
-            y: box.y + box.height / 2,
-          }).catch(() => { });
-        }
-      } catch {
-        // Non-critical; ignore
-      }
-
-    } catch (error) {
-      throw new Error(
-        `Failed to click element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`,
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      });
+      await withTimeout(
+        text ? this._pageClient().send('Input.insertText', { text }) : this._puppeteerPage!.keyboard.press('Backspace'),
+        2000,
+        'typing',
       );
     }
+
+    const readBack = () =>
+      handle.evaluate(el =>
+        el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.value : (el as HTMLElement).innerText ?? '',
+      );
+    const same = (value: string) => value.replace(/\s+/g, ' ').trim() === expected.replace(/\s+/g, ' ').trim();
+    let actual = await readBack();
+    if (!same(actual) && field.mode === 'insert') {
+      // Some pages swallow inserted text; set the value directly once and let the page's listeners see it.
+      await setValue(text);
+      actual = await readBack();
+    }
+    return { matched: same(actual), secret: field.secret, actualLength: actual.length, actual: field.secret ? null : actual };
   }
 
-  async hoverElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not connected');
+  /** Visible option texts of a native select, or of an ARIA combobox/listbox (opened to render them). */
+  async dropdownOptions(node: DOMElementNode): Promise<string[]> {
+    const handle = await this._requireHandle(node);
+    const native = await handle.evaluate(el => (el instanceof HTMLSelectElement ? Array.from(el.options).map(option => option.text.trim()) : null));
+    if (native) {
+      return native;
     }
-
-    try {
-      const element = await this.locateElement(elementNode);
-      if (!element) {
-        throw new Error(`Element at index ${elementNode.highlightIndex} (tag: ${elementNode.tagName}, xpath: ${elementNode.xpath}) was not found in the DOM`);
+    let options = await this._ariaOptionTexts(handle);
+    if (options.length === 0) {
+      await this._dispatchMouse(handle, 'click', { checkCover: false });
+      const deadline = Date.now() + 1000;
+      while (options.length === 0 && Date.now() < deadline) {
+        await sleep(100);
+        options = await this._ariaOptionTexts(handle);
       }
-
-      await this._scrollIntoViewIfNeeded(element);
-      await this._waitForElementStability(element, 1000);
-
-      try {
-        logger.info(`Attempting CDP OS-level hover on element: ${elementNode}`);
-        await Promise.race([
-          this.cdpHover(element),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('CDP Hover timeout')), 5000)),
-        ]);
-      } catch (error) {
-        logger.warning('CDP hover failed, trying synthetic MouseEvent dispatch chain on fresh handle', error);
-        const freshElement = await this.locateElement(elementNode);
-        if (!freshElement) {
-          throw new Error('Element no longer found for fallback hover');
-        }
-        await freshElement.evaluate((el: Element) => {
-          const eventOpts = { bubbles: true, cancelable: true, view: window };
-          el.dispatchEvent(new MouseEvent('mouseover', eventOpts));
-          el.dispatchEvent(new MouseEvent('mouseenter', eventOpts));
-          el.dispatchEvent(new MouseEvent('mousemove', eventOpts));
-        });
-      }
-    } catch (error) {
-      throw new Error(
-        `Failed to hover element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`,
-      );
     }
+    return options;
   }
 
-  async rightClickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not connected');
+  /** Selects by visible text: sets a native select, or opens an ARIA widget and clicks the matching option. */
+  async selectOption(node: DOMElementNode, text: string): Promise<{ selected: boolean; confirmed: boolean; message: string }> {
+    const handle = await this._requireHandle(node);
+    const native = await handle.evaluate((el, wanted) => {
+      if (!(el instanceof HTMLSelectElement)) return null;
+      const options = Array.from(el.options);
+      const option = options.find(candidate => candidate.text.trim() === wanted.trim());
+      if (!option) {
+        return {
+          selected: false,
+          confirmed: false,
+          message: `Option "${wanted}" not found. Available options: ${options.map(candidate => `"${candidate.text.trim()}"`).join(', ')}`,
+        };
+      }
+      if (el.value !== option.value) {
+        el.value = option.value;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      return { selected: true, confirmed: el.value === option.value, message: `Selected option "${wanted}"` };
+    }, text);
+    if (native) {
+      return native;
     }
 
-    try {
-      const element = await this.locateElement(elementNode);
-      if (!element) {
-        throw new Error(`Element at index ${elementNode.highlightIndex} (tag: ${elementNode.tagName}, xpath: ${elementNode.xpath}) was not found in the DOM`);
+    let option = await this._ariaOption(handle, text);
+    if (!option) {
+      await this._dispatchMouse(handle, 'click', { checkCover: false });
+      const deadline = Date.now() + 1000;
+      while (!option && Date.now() < deadline) {
+        await sleep(100);
+        option = await this._ariaOption(handle, text);
       }
+    }
+    if (!option) {
+      const available = await this._ariaOptionTexts(handle);
+      return {
+        selected: false,
+        confirmed: false,
+        message: `Option "${text}" not found${available.length ? `. Available options: ${available.map(o => `"${o}"`).join(', ')}` : ' after opening the dropdown'}`,
+      };
+    }
+    await this._dispatchMouse(option, 'click', { checkCover: false });
+    await sleep(100);
+    const confirmed = await handle
+      .evaluate((el, wanted) => {
+        const shows = (candidate: Element | null) =>
+          Boolean(candidate && `${(candidate as HTMLInputElement).value ?? ''} ${candidate.textContent ?? ''}`.includes(wanted));
+        return shows(el) || shows(el.parentElement) || shows(el.parentElement?.parentElement ?? null) || shows(el.parentElement?.parentElement?.parentElement ?? null);
+      }, text)
+      .catch(() => false);
+    return { selected: true, confirmed, message: `Selected option "${text}"` };
+  }
 
-      await this._scrollIntoViewIfNeeded(element);
-      await this._waitForElementStability(element, 1000);
+  private async _ariaOptionTexts(handle: ElementHandle): Promise<string[]> {
+    return handle.evaluate(el => {
+      const doc = el.ownerDocument;
+      const ids = `${el.getAttribute('aria-controls') ?? ''} ${el.getAttribute('aria-owns') ?? ''}`.split(/\s+/).filter(Boolean);
+      const scopes = ids.map(id => doc.getElementById(id)).filter((scope): scope is HTMLElement => scope !== null);
+      return (scopes.length ? scopes : [doc])
+        .flatMap(scope => Array.from(scope.querySelectorAll('[role="option"]')))
+        .filter(option => option.getBoundingClientRect().height > 0)
+        .map(option => (option.textContent ?? '').trim().replace(/\s+/g, ' '));
+    });
+  }
 
-      try {
-        logger.info(`Attempting CDP OS-level right click on element: ${elementNode}`);
-        await Promise.race([
-          this.cdpRightClick(element),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('CDP Right Click timeout')), 5000)),
-        ]);
-      } catch (error) {
-        logger.warning('CDP right click failed, trying synthetic contextmenu dispatch chain on fresh handle', error);
-        const freshElement = await this.locateElement(elementNode);
-        if (!freshElement) {
-          throw new Error('Element no longer found for fallback right click');
-        }
-        await freshElement.evaluate((el: Element) => {
-          const eventOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
-          el.dispatchEvent(new MouseEvent('mousedown', eventOpts));
-          el.dispatchEvent(new MouseEvent('mouseup', eventOpts));
-          el.dispatchEvent(new MouseEvent('contextmenu', eventOpts));
-        });
-      }
-    } catch (error) {
-      throw new Error(
-        `Failed to right click element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`,
+  private async _ariaOption(handle: ElementHandle, text: string): Promise<ElementHandle | null> {
+    const found = await handle.evaluateHandle((el, wanted) => {
+      const doc = el.ownerDocument;
+      const ids = `${el.getAttribute('aria-controls') ?? ''} ${el.getAttribute('aria-owns') ?? ''}`.split(/\s+/).filter(Boolean);
+      const scopes = ids.map(id => doc.getElementById(id)).filter((scope): scope is HTMLElement => scope !== null);
+      const normalized = wanted.trim().replace(/\s+/g, ' ');
+      return (
+        (scopes.length ? scopes : [doc])
+          .flatMap(scope => Array.from(scope.querySelectorAll('[role="option"]')))
+          .find(option => option.getBoundingClientRect().height > 0 && (option.textContent ?? '').trim().replace(/\s+/g, ' ') === normalized) ?? null
       );
+    }, text);
+    const element = found.asElement() as ElementHandle | null;
+    if (!element) {
+      await found.dispose();
     }
+    return element;
+  }
+
+  /** Drags one element onto another: HTML5 draggables through drag interception, anything else with mouse moves. */
+  async dragNode(sourceNode: DOMElementNode, targetNode: DOMElementNode): Promise<void> {
+    const source = await this._requireHandle(sourceNode);
+    const target = await this._requireHandle(targetNode);
+    const page = this._puppeteerPage!;
+    await source.scrollIntoView();
+    const html5 = await source.evaluate(el => el.closest('[draggable="true"]') !== null);
+    if (html5) {
+      // Mouse events do not start an HTML5 drag in an automated tab; intercepted drags are replayed as drag events.
+      await page.setDragInterception(true);
+      try {
+        await source.dragAndDrop(target, { delay: 50 });
+      } finally {
+        await page.setDragInterception(false);
+      }
+      return;
+    }
+    const from = await source.clickablePoint();
+    const to = await target.clickablePoint();
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 15 });
+    await page.mouse.up();
+  }
+
+  get pendingDialog(): PageDialog | null {
+    const dialog = this._pendingDialog;
+    return dialog ? { type: dialog.type(), message: dialog.message(), defaultValue: dialog.defaultValue() || undefined } : null;
+  }
+
+  async handleDialog(accept: boolean, promptText?: string): Promise<string> {
+    const dialog = this._pendingDialog;
+    if (!dialog) {
+      return 'No dialog is showing.';
+    }
+    this._pendingDialog = null;
+    this.invalidateCache();
+    const description = `${dialog.type()} dialog "${dialog.message().slice(0, 200)}"`;
+    try {
+      if (accept) await dialog.accept(promptText);
+      else await dialog.dismiss();
+    } catch {
+      return `The ${description} was already closed.`;
+    }
+    return `${accept ? 'Accepted' : 'Dismissed'} the ${description}${accept && promptText !== undefined ? ' after entering the text' : ''}.`;
   }
 
   getSelectorMap(): Map<number, DOMElementNode> {
@@ -2142,40 +1711,25 @@ export default class Page {
     }
   }
 
-  /**
-   * Get the complete textual content of the current page.
-   * This extracts the full innerText of the document body or main content area,
-   * bypassing any need to scroll or stitch elements.
-   */
+  /** The text of every frame of the page, each child frame under a header with its URL. */
   async getCompletePageContent(): Promise<string> {
     await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer page is not connected');
     }
-    try {
-      const frames = this._puppeteerPage.frames();
-      const contentParts: string[] = [];
-
-      for (const frame of frames) {
-        try {
-          const text = await frame.evaluate(() => {
-            const main = document.querySelector('article') || document.querySelector('main') || document.body;
-            return main ? (main.innerText || main.textContent || '') : '';
-          });
+    const main = this._puppeteerPage.mainFrame();
+    const parts = await Promise.all(
+      this._puppeteerPage
+        .frames()
+        .filter(frame => !frame.detached)
+        .map(async frame => {
+          const text = await withTimeout(frame.evaluate(() => document.body?.innerText ?? ''), 2000, 'page text').catch(() => '');
           const trimmed = text.trim();
-          if (trimmed) {
-            contentParts.push(trimmed);
-          }
-        } catch (err) {
-          logger.debug(`Failed to extract content from frame ${frame.url()}:`, err);
-        }
-      }
-
-      return contentParts.join('\n\n');
-    } catch (error) {
-      logger.error('Failed to get complete page content:', error);
-      throw error;
-    }
+          if (!trimmed) return '';
+          return frame === main ? trimmed : `[Frame ${frame.url()}]\n${trimmed}`;
+        }),
+    );
+    return parts.filter(Boolean).join('\n\n');
   }
 
   /**

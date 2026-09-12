@@ -85,4 +85,32 @@ describe('browser prompt budgeting', () => {
     expect(content).not.toContain('observation id');
     expect(content).not.toContain('target fingerprints');
   });
+
+  it('shows an open JavaScript dialog and tells the navigator to answer it first', async () => {
+    const root = new DOMElementNode({ tagName: 'body', xpath: '', attributes: {}, children: [], isVisible: true });
+    const browserState = {
+      elementTree: root,
+      selectorMap: new Map(),
+      tabId: 7,
+      url: 'https://example.com/',
+      title: 'Example',
+      screenshot: null,
+      scrollY: 0,
+      scrollHeight: 800,
+      visualViewportHeight: 800,
+      tabs: [{ id: 7, url: 'https://example.com/', title: 'Example' }],
+      dialog: { type: 'confirm', message: 'Delete everything?' },
+    };
+    const context = {
+      browserContext: { getCachedState: vi.fn().mockResolvedValue(browserState) },
+      options: { useVision: false, includeAttributes: [], logDOMSnapshot: false },
+      actionResults: [],
+      messageManager: { getWorkingMemory: vi.fn().mockReturnValue('') },
+    } as unknown as AgentContext;
+
+    const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);
+
+    expect(content).toContain('JavaScript confirm dialog open: "Delete everything?"');
+    expect(content).toContain('handle_dialog');
+  });
 });

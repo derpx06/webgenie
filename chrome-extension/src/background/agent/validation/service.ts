@@ -116,18 +116,6 @@ function sameUrl(a: unknown, b: string): boolean {
   }
 }
 
-function targetValue(state: BrowserState, index: number, targetFingerprint?: TargetFingerprint | null): string | undefined {
-  const node = findTargetNode(state, index, targetFingerprint);
-  if (!node) return undefined;
-  return node.attributes.value ?? node.attributes['data-value'] ?? node.attributes['aria-valuetext'];
-}
-
-function selectedValue(state: BrowserState, index: number, targetFingerprint?: TargetFingerprint | null): string | undefined {
-  const node = findTargetNode(state, index, targetFingerprint);
-  if (!node) return undefined;
-  return node.attributes.value ?? node.attributes['data-value'] ?? node.attributes['aria-label'];
-}
-
 function targetState(state: BrowserState, index: number, targetFingerprint?: TargetFingerprint | null): string {
   const node = findTargetNode(state, index, targetFingerprint);
   if (!node) return '';
@@ -183,7 +171,7 @@ function isStaleElementError(message: string): boolean {
 
 const NAVIGATION_ACTIONS = ['go_to_url', 'search_web', 'search_google', 'go_back'];
 const SCROLL_ACTIONS = ['scroll_to_percent', 'scroll_to_top', 'scroll_to_bottom', 'next_page', 'previous_page'];
-const POINTER_ACTIONS = ['click_element', 'hover_element', 'right_click_element', 'send_keys'];
+const POINTER_ACTIONS = ['click_element', 'hover_element', 'right_click_element', 'send_keys', 'drag_element'];
 const MUTATING_ACTIONS = new Set([
   ...NAVIGATION_ACTIONS,
   ...SCROLL_ACTIONS,
@@ -193,6 +181,7 @@ const MUTATING_ACTIONS = new Set([
   'close_tab',
   'input_text',
   'select_dropdown_option',
+  'handle_dialog',
 ]);
 
 export interface ValidateActionOutcomeInput {
@@ -238,6 +227,23 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
   const docChanged = readable && beforeObservation.documentFingerprint !== afterObservation.documentFingerprint;
   const layoutChanged = readable && beforeObservation.layoutFingerprint !== afterObservation.layoutFingerprint;
   const openedNewTab = hasNewTab(before, after);
+
+  if (after.dialog && !before.dialog) {
+    return cloneWithValidation(result, 'passed', 'none', [
+      evidence('modal_or_menu_change', true, `A JavaScript ${after.dialog.type} dialog opened.`),
+    ]);
+  }
+
+  if (actionName === 'handle_dialog') {
+    const passed = !after.dialog;
+    return cloneWithValidation(
+      result,
+      passed ? 'passed' : 'failed',
+      passed ? 'none' : 'retry_reobserve',
+      [evidence('modal_or_menu_change', passed, passed ? 'The dialog is closed.' : 'The dialog is still open.')],
+      passed ? null : 'The dialog is still open.',
+    );
+  }
 
   if (NAVIGATION_ACTIONS.includes(actionName)) {
     const alreadyThere = actionName === 'go_to_url' && sameUrl(args.url, after.url);
@@ -289,56 +295,37 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
     );
   }
 
-  if (actionName === 'input_text' && index !== undefined) {
-    const expected = typeof args.text === 'string' ? args.text : '';
-    const actual = targetValue(after, index, actionTargetFingerprint(actionArgs));
-    // Only lengths are kept as evidence: typed text can be a password.
-    const lengths = { expectedLength: expected.length, actualLength: actual?.length ?? null };
-    if (actual === undefined) {
-      return cloneWithValidation(
-        result,
-        'unknown',
-        'retry_reobserve',
-        [evidence('target_value', false, 'The field value could not be read back.', lengths)],
-        'The field value could not be read back; check the page before typing again.',
-      );
+  // Typing and selecting are verified by the handler on the live element; the accessibility tree masks passwords
+  // and lags behind framework-controlled inputs.
+  if (actionName === 'input_text') {
+    const readBack = result.evidence.find(item => item.kind === 'target_value');
+    if (!readBack) {
+      return cloneWithValidation(result, 'unknown', 'retry_reobserve', [], 'The field value was not read back; check the page before typing again.');
     }
-    const normalize = (text: string) => text.replace(/\s+/g, ' ').trim();
-    // Password fields read back as one mask character per typed character.
-    const masked = expected.length > 0 && actual.length === expected.length && /^[•●*]+$/.test(actual);
-    if (masked || normalize(actual) === normalize(expected)) {
-      return cloneWithValidation(result, 'passed', 'none', [evidence('target_value', true, 'The field contains the typed text.', lengths)]);
+    if (readBack.passed) {
+      return cloneWithValidation(result, 'passed', 'none', []);
     }
-    if (!actual && expected) {
-      return cloneWithValidation(
-        result,
-        'failed',
-        'retry_reobserve',
-        [evidence('target_value', false, 'The field is still empty after typing.', lengths)],
-        'The field is still empty after typing.',
-      );
+    const shown = readBack.after as { actualLength?: number; actual?: string } | undefined;
+    if (shown?.actualLength === 0) {
+      return cloneWithValidation(result, 'failed', 'retry_reobserve', [], 'The field is still empty after typing.');
     }
-    // A different value is often the site reformatting the input (dates, phone numbers), so it is not a failure.
+    // A different value is usually the site reformatting the input (dates, phone numbers), so it is not a failure.
     return cloneWithValidation(
       result,
       'unknown',
       'retry_reobserve',
-      [evidence('target_value', false, 'The field shows a different value than the typed text.', lengths)],
-      `The field now shows "${actual.slice(0, 80)}"; check whether that is acceptable before typing again.`,
+      [],
+      shown?.actual !== undefined
+        ? `The field now shows "${shown.actual}"; check whether that is acceptable before typing again.`
+        : 'The field shows a different value than the typed text; check the page before typing again.',
     );
   }
 
-  if (actionName === 'select_dropdown_option' && index !== undefined) {
-    const actual = selectedValue(after, index, actionTargetFingerprint(actionArgs));
-    const expected = typeof args.text === 'string' ? args.text : undefined;
-    const passed = expected !== undefined && (actual === expected || result.extractedContent?.includes(`"${expected}"`) === true);
-    return cloneWithValidation(
-      result,
-      passed ? 'passed' : 'failed',
-      passed ? 'none' : 'retry_reobserve',
-      [evidence('selection', passed, passed ? 'Dropdown selection was verified.' : 'Dropdown selection read-back did not match requested option.', expected, actual)],
-      passed ? null : 'Dropdown selection did not match requested option.',
-    );
+  if (actionName === 'select_dropdown_option') {
+    const selection = result.evidence.find(item => item.kind === 'selection');
+    return selection?.passed
+      ? cloneWithValidation(result, 'passed', 'none', [])
+      : cloneWithValidation(result, 'unknown', 'retry_reobserve', [], 'The selection could not be confirmed; check the dropdown.');
   }
 
   if (SCROLL_ACTIONS.includes(actionName)) {

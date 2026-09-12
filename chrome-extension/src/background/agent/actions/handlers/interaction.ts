@@ -1,416 +1,171 @@
 import { ActionResult } from '@src/background/agent/types';
 import type {
   clickElementActionSchema,
-  inputTextActionSchema,
+  dragElementActionSchema,
   getDropdownOptionsActionSchema,
-  selectDropdownOptionActionSchema,
+  handleDialogActionSchema,
   hoverElementActionSchema,
+  inputTextActionSchema,
   rightClickElementActionSchema,
+  selectDropdownOptionActionSchema,
 } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
-import { createLogger } from '@src/background/log';
-import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
-import type { DOMElementNode, DOMState } from '@src/background/browser/dom/views';
-import type { ElementHandle } from 'puppeteer-core/lib/esm/puppeteer/api/ElementHandle.js';
-import type { TargetFingerprint } from '../../validation/types';
+import type Page from '@src/background/browser/page';
+import type { MouseOutcome } from '@src/background/browser/page';
+import type { DOMElementNode } from '@src/background/browser/dom/views';
 
-const logger = createLogger('Action');
-
-type ResolvablePage = {
-  getCachedState(): DOMState | null;
-  getState(useVision?: boolean, skipNetworkIdle?: boolean): Promise<DOMState>;
-  locateElement(element: DOMElementNode): Promise<ElementHandle<Element> | null>;
-  clickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void>;
-  hoverElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void>;
-  rightClickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void>;
-  inputTextElementNode(useVision: boolean, elementNode: DOMElementNode, text: string): Promise<void>;
-  isFileUploader(elementNode: DOMElementNode, maxDepth?: number, currentDepth?: number): boolean;
-};
+function describe(node: DOMElementNode): string {
+  return node.getAllTextTillNextClickableElement(2) || node.attributes['aria-label'] || node.tagName || 'element';
+}
 
 export class InteractionHandler extends BaseHandler {
-  private async remapElementInState(
-    latestElementTree: DOMElementNode,
-    elementNode: DOMElementNode,
-  ): Promise<DOMElementNode | null> {
-    const historyElement = HistoryTreeProcessor.convertDomElementToHistoryElement(elementNode);
-    return await HistoryTreeProcessor.findHistoryElementInTree(historyElement, latestElementTree);
+  /**
+   * The current page and the element at `index` in its current read. The navigator has already mapped the
+   * index the model chose (from the page in its prompt) onto that read.
+   */
+  private async resolveIndex(index: number): Promise<{ page: Page; node: DOMElementNode }> {
+    const page = await this.context.browserContext.getCurrentPage();
+    const node = (await page.getCurrentState()).selectorMap.get(index);
+    if (!node) {
+      throw new Error(t('act_errors_elementNotExist', [index.toString()]));
+    }
+    return { page, node };
   }
 
-  private normalizeXPath(xpath?: string | null): string | null {
-    if (!xpath) return null;
-    const normalized = xpath.trim();
-    if (!normalized) return null;
-    return normalized.startsWith('/') ? normalized : `/${normalized}`;
-  }
-
-  private findByXPathInSelectorMap(
-    selectorMap: Map<number, DOMElementNode>,
-    xpath?: string | null,
-  ): DOMElementNode | null {
-    const targetXPath = this.normalizeXPath(xpath);
-    if (!targetXPath) return null;
-
-    for (const element of selectorMap.values()) {
-      const candidateXPath = this.normalizeXPath(element.xpath);
-      if (candidateXPath && candidateXPath === targetXPath) {
-        return element;
+  /** What a pointer action caused beyond the page itself: a dialog, a file chooser, a new tab (which becomes current). */
+  private async describeOutcome(outcome: MouseOutcome, tabsBefore: Set<number>): Promise<string> {
+    const notes: string[] = [];
+    if (outcome.dialog) {
+      notes.push(`It opened a JavaScript ${outcome.dialog.type} dialog: "${outcome.dialog.message}". Call handle_dialog to answer it.`);
+    }
+    if (outcome.fileChooser) {
+      notes.push('A file chooser opened; uploading files is not supported, so ask the user to upload the file.');
+    }
+    if (!outcome.dialog) {
+      const newTabId = [...(await this.context.browserContext.getAllTabIds())].find(id => !tabsBefore.has(id));
+      if (newTabId !== undefined) {
+        notes.push(t('act_click_newTabOpened'));
+        await this.context.browserContext.switchTab(newTabId);
       }
     }
-    return null;
+    return notes.length ? ` ${notes.join(' ')}` : '';
   }
 
-  private targetMatchesElement(element: DOMElementNode, target?: TargetFingerprint | null): boolean {
-    if (!target) return true;
-    const attributes = element.attributes ?? {};
-    const accessibleName = attributes['aria-label'] ?? attributes.title ?? attributes.placeholder ??
-      element.getAllTextTillNextClickableElement(1).trim();
-    return Boolean(
-      (target.backendNodeId != null && element.backendNodeId === target.backendNodeId) ||
-      (target.xpath && this.normalizeXPath(element.xpath) === this.normalizeXPath(target.xpath)) ||
-      (target.cssSelector && element.getEnhancedCssSelector?.() === target.cssSelector) ||
-      (target.role && attributes.role === target.role && target.accessibleName && accessibleName === target.accessibleName),
-    );
-  }
-
-  private findByTargetFingerprintInSelectorMap(
-    selectorMap: Map<number, DOMElementNode>,
-    target?: TargetFingerprint | null,
-  ): DOMElementNode | null {
-    if (!target) return null;
-    return Array.from(selectorMap.values()).find(element => this.targetMatchesElement(element, target)) ?? null;
-  }
-
-  private async resolveElementNode(
-    page: ResolvablePage,
+  private async pointerAction(
     index: number,
-    xpath?: string | null,
-    targetFingerprint?: TargetFingerprint | null,
-  ): Promise<DOMElementNode | null> {
-    const cachedState = page.getCachedState();
-    const cachedTarget = this.findByTargetFingerprintInSelectorMap(cachedState?.selectorMap ?? new Map(), targetFingerprint);
-    const cachedElement = cachedTarget ?? (
-      targetFingerprint
-        ? null
-        : this.findByXPathInSelectorMap(cachedState?.selectorMap ?? new Map(), xpath) ?? cachedState?.selectorMap.get(index) ?? null
-    );
-    if (cachedElement) return cachedElement;
-
-    const latestState = await page.getState();
-    let resolved = this.findByTargetFingerprintInSelectorMap(latestState.selectorMap, targetFingerprint);
-    if (resolved) return resolved;
-
-    resolved = targetFingerprint
-      ? null
-      : this.findByXPathInSelectorMap(latestState.selectorMap, xpath) ?? latestState.selectorMap.get(index) ?? null;
-    if (resolved) return resolved;
-
-    if (cachedElement && latestState.elementTree) {
-      const remapped = await this.remapElementInState(latestState.elementTree, cachedElement);
-      if (remapped && this.targetMatchesElement(remapped, targetFingerprint)) {
-        logger.info(
-          `Resolved stale index ${index} -> ${remapped.highlightIndex ?? 'unknown'} via history remap`,
-        );
-        return remapped;
-      }
-    }
-
-    return null;
-  }
-
-  async handleClickElement(input: z.infer<typeof clickElementActionSchema.schema>): Promise<ActionResult> {
-    const intent = t('act_click_start', [input.index.toString()]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-
-    const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
-
-    if (!elementNode) {
-      await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
-    }
-
-    if (!elementNode) {
-      throw new Error(t('act_errors_elementNotExist', [input.index.toString()]));
-    }
-
-    if (page.isFileUploader(elementNode)) {
-      const msg = t('act_click_fileUploader', [input.index.toString()]);
-      logger.info(msg);
-      return new ActionResult({ extractedContent: msg, includeInMemory: true });
-    }
-
-    try {
-      const initialTabIds = await this.context.browserContext.getAllTabIds();
-      await page.clickElementNode(this.context.options.useVision, elementNode);
-
-      let msg = t('act_click_ok', [input.index.toString(), elementNode.getAllTextTillNextClickableElement(2)]);
-      logger.info(msg);
-
-      const currentTabIds = await this.context.browserContext.getAllTabIds();
-      if (currentTabIds.size > initialTabIds.size) {
-        const newTabMsg = t('act_click_newTabOpened');
-        msg += ` - ${newTabMsg}`;
-        logger.info(newTabMsg);
-        const newTabId = Array.from(currentTabIds).find((id) => !initialTabIds.has(id));
-        if (newTabId) {
-          await this.context.browserContext.switchTab(newTabId);
-        }
-      }
-
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-      return new ActionResult({ extractedContent: msg, includeInMemory: true });
-    } catch (error) {
-      try {
-        const relocated = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
-        if (relocated) {
-          const initialTabIds = await this.context.browserContext.getAllTabIds();
-          await page.clickElementNode(this.context.options.useVision, relocated);
-
-          let msg = t('act_click_ok', [input.index.toString(), relocated.getAllTextTillNextClickableElement(2)]);
-          if (relocated.highlightIndex !== null && relocated.highlightIndex !== input.index) {
-            msg += ` (index updated to ${relocated.highlightIndex})`;
-          }
-
-          const currentTabIds = await this.context.browserContext.getAllTabIds();
-          if (currentTabIds.size > initialTabIds.size) {
-            const newTabMsg = t('act_click_newTabOpened');
-            msg += ` - ${newTabMsg}`;
-            const newTabId = Array.from(currentTabIds).find((id) => !initialTabIds.has(id));
-            if (newTabId) {
-              await this.context.browserContext.switchTab(newTabId);
-            }
-          }
-
-          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-          return new ActionResult({ extractedContent: msg, includeInMemory: true });
-        }
-      } catch (recoveryError) {
-        logger.debug('Failed click recovery after DOM shift:', recoveryError);
-      }
-
-      const msg = t('act_errors_elementNoLongerAvailable', [input.index.toString()]);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
-      return new ActionResult({
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  async handleHoverElement(input: z.infer<typeof hoverElementActionSchema.schema>): Promise<ActionResult> {
-    const intent = `Hovering over element ${input.index}`;
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-
-    const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
-
-    if (!elementNode) {
-      await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
-    }
-
-    if (!elementNode) {
-      throw new Error(`Element with index ${input.index} does not exist`);
-    }
-
-    try {
-      await page.hoverElementNode(this.context.options.useVision, elementNode);
-      const msg = `Hovered over element ${input.index}`;
-      logger.info(msg);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-      return new ActionResult({ extractedContent: msg, includeInMemory: true });
-    } catch (error) {
-      const msg = `Element with index ${input.index} is no longer available`;
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
-      return new ActionResult({
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  async handleRightClickElement(input: z.infer<typeof rightClickElementActionSchema.schema>): Promise<ActionResult> {
-    const intent = `Right clicking element ${input.index}`;
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-
-    const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
-
-    if (!elementNode) {
-      await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
-    }
-
-    if (!elementNode) {
-      throw new Error(`Element with index ${input.index} does not exist`);
-    }
-
-    try {
-      await page.rightClickElementNode(this.context.options.useVision, elementNode);
-      const msg = `Right clicked element ${input.index}`;
-      logger.info(msg);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-      return new ActionResult({ extractedContent: msg, includeInMemory: true });
-    } catch (error) {
-      const msg = `Element with index ${input.index} is no longer available`;
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
-      return new ActionResult({
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  async handleInputText(input: z.infer<typeof inputTextActionSchema.schema>): Promise<ActionResult> {
-    const intent = t('act_inputText_start', [input.index.toString()]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-
-    const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
-
-    if (!elementNode) {
-      await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index, input.xpath, input.targetFingerprint);
-    }
-
-    if (!elementNode) {
-      throw new Error(t('act_errors_elementNotExist', [input.index.toString()]));
-    }
-
-    await page.inputTextElementNode(this.context.options.useVision, elementNode, input.text);
-    const msg = t('act_inputText_ok', [input.text, input.index.toString()]);
+    startMessage: string,
+    act: (page: Page, node: DOMElementNode) => Promise<MouseOutcome>,
+    okMessage: (node: DOMElementNode) => string,
+  ): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, startMessage);
+    const { page, node } = await this.resolveIndex(index);
+    const tabsBefore = await this.context.browserContext.getAllTabIds();
+    const outcome = await act(page, node);
+    const msg = okMessage(node) + (await this.describeOutcome(outcome, tabsBefore));
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }
 
-  async handleGetDropdownOptions(
-    input: z.infer<typeof getDropdownOptionsActionSchema.schema>,
-  ): Promise<ActionResult> {
-    const intent = t('act_getDropdownOptions_start', [input.index.toString()]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+  async handleClickElement(input: z.infer<typeof clickElementActionSchema.schema>): Promise<ActionResult> {
+    return this.pointerAction(
+      input.index,
+      t('act_click_start', [input.index.toString()]),
+      (page, node) => page.clickNode(node, input.double ? 2 : 1),
+      node => t('act_click_ok', [input.index.toString(), describe(node)]),
+    );
+  }
 
-    const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index, undefined, input.targetFingerprint);
+  async handleHoverElement(input: z.infer<typeof hoverElementActionSchema.schema>): Promise<ActionResult> {
+    return this.pointerAction(
+      input.index,
+      `Hovering over element ${input.index}`,
+      (page, node) => page.hoverNode(node),
+      node => `Hovered over element ${input.index}: ${describe(node)}`,
+    );
+  }
 
-    if (!elementNode) {
-      await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index, undefined, input.targetFingerprint);
-    }
+  async handleRightClickElement(input: z.infer<typeof rightClickElementActionSchema.schema>): Promise<ActionResult> {
+    return this.pointerAction(
+      input.index,
+      `Right clicking element ${input.index}`,
+      (page, node) => page.rightClickNode(node),
+      node => `Right clicked element ${input.index}: ${describe(node)}`,
+    );
+  }
 
-    if (!elementNode) {
-      return this.handleElementNotFound(input.index);
-    }
+  async handleDragElement(input: z.infer<typeof dragElementActionSchema.schema>): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Dragging element ${input.index} onto ${input.target_index}`);
+    const { page, node } = await this.resolveIndex(input.index);
+    const { node: target } = await this.resolveIndex(input.target_index);
+    await page.dragNode(node, target);
+    const msg = `Dragged element ${input.index} (${describe(node)}) onto element ${input.target_index} (${describe(target)})`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+  }
 
-    try {
-      const dropdownHandle = await page.locateElement(elementNode);
-      if (!dropdownHandle) {
-        return this.handleElementNotFound(input.index);
-      }
+  async handleInputText(input: z.infer<typeof inputTextActionSchema.schema>): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_inputText_start', [input.index.toString()]));
+    const { page, node } = await this.resolveIndex(input.index);
+    const outcome = await page.inputTextNode(node, input.text);
+    // A password never leaves the page again: messages show its length only.
+    const shown = outcome.secret ? '•'.repeat(input.text.length) : input.text;
+    const msg = t('act_inputText_ok', [shown, input.index.toString()]);
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    return new ActionResult({
+      extractedContent: msg,
+      includeInMemory: true,
+      evidence: [
+        {
+          kind: 'target_value',
+          passed: outcome.matched,
+          message: outcome.matched ? 'The field contains the typed text.' : 'The field shows a different value than the typed text.',
+          before: { expectedLength: input.text.length },
+          after: outcome.secret
+            ? { actualLength: outcome.actualLength }
+            : { actualLength: outcome.actualLength, actual: outcome.actual?.slice(0, 80) },
+        },
+      ],
+    });
+  }
 
-      const options = await dropdownHandle.evaluate(select => {
-        if (!(select instanceof HTMLSelectElement)) {
-          throw new Error('Element is not a select element');
-        }
-
-        return Array.from(select.options).map(option => ({
-          index: option.index,
-          text: option.text,
-          value: option.value,
-        }));
-      });
-
-      if (options && options.length > 0) {
-        const formattedOptions = options.map((opt) => `${opt.index}: text=${JSON.stringify(opt.text)}`);
-        let msg = formattedOptions.join('\n');
-        msg += '\n' + t('act_getDropdownOptions_useExactText');
-        this.context.emitEvent(
-          Actors.NAVIGATOR,
-          ExecutionState.ACT_OK,
-          t('act_getDropdownOptions_ok', [options.length.toString()]),
-        );
-        return new ActionResult({ extractedContent: msg, includeInMemory: true });
-      }
-
+  async handleGetDropdownOptions(input: z.infer<typeof getDropdownOptionsActionSchema.schema>): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_getDropdownOptions_start', [input.index.toString()]));
+    const { page, node } = await this.resolveIndex(input.index);
+    const options = await page.dropdownOptions(node);
+    if (options.length === 0) {
       const msg = t('act_getDropdownOptions_noOptions');
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
       return new ActionResult({ extractedContent: msg, includeInMemory: true });
-    } catch (error) {
-      const errorMsg = t('act_getDropdownOptions_failed', [error instanceof Error ? error.message : String(error)]);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
-      return new ActionResult({ error: errorMsg, includeInMemory: true });
     }
+    const msg = `${options.map((text, i) => `${i}: text=${JSON.stringify(text)}`).join('\n')}\n${t('act_getDropdownOptions_useExactText')}`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, t('act_getDropdownOptions_ok', [options.length.toString()]));
+    return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }
 
-  async handleSelectDropdownOption(
-    input: z.infer<typeof selectDropdownOptionActionSchema.schema>,
-  ): Promise<ActionResult> {
-    const intent = t('act_selectDropdownOption_start', [input.text, input.index.toString()]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+  async handleSelectDropdownOption(input: z.infer<typeof selectDropdownOptionActionSchema.schema>): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_selectDropdownOption_start', [input.text, input.index.toString()]));
+    const { page, node } = await this.resolveIndex(input.index);
+    const outcome = await page.selectOption(node, input.text);
+    if (!outcome.selected) {
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, outcome.message);
+      return new ActionResult({ error: outcome.message, includeInMemory: true });
+    }
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, outcome.message);
+    return new ActionResult({
+      extractedContent: outcome.message,
+      includeInMemory: true,
+      evidence: [{ kind: 'selection', passed: outcome.confirmed, message: outcome.message }],
+    });
+  }
 
+  async handleHandleDialog(input: z.infer<typeof handleDialogActionSchema.schema>): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, input.accept ? 'Accepting the dialog' : 'Dismissing the dialog');
     const page = await this.context.browserContext.getCurrentPage();
-    let elementNode = await this.resolveElementNode(page, input.index, undefined, input.targetFingerprint);
-
-    if (!elementNode) {
-      await new Promise(resolve => setTimeout(resolve, 250));
-      elementNode = await this.resolveElementNode(page, input.index, undefined, input.targetFingerprint);
-    }
-
-    if (!elementNode) {
-      return this.handleElementNotFound(input.index);
-    }
-
-    if (!elementNode.tagName || elementNode.tagName.toLowerCase() !== 'select') {
-      const errorMsg = t('act_selectDropdownOption_notSelect', [
-        input.index.toString(),
-        elementNode.tagName || 'unknown',
-      ]);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
-      return new ActionResult({ error: errorMsg, includeInMemory: true });
-    }
-
-    logger.debug(`Attempting to select '${input.text}' using xpath: ${elementNode.xpath}`);
-
-    try {
-      const dropdownHandle = await page.locateElement(elementNode);
-      if (!dropdownHandle) {
-        return this.handleElementNotFound(input.index);
-      }
-
-      const result = await dropdownHandle.evaluate(
-        (select, optionText, elementIndex) => {
-          if (!(select instanceof HTMLSelectElement)) {
-            throw new Error(`Element with index ${elementIndex} is not a SELECT`);
-          }
-
-          const options = Array.from(select.options);
-          const option = options.find(opt => opt.text.trim() === optionText);
-
-          if (!option) {
-            const availableOptions = options.map(o => o.text.trim()).join('", "');
-            throw new Error(
-              `Option "${optionText}" not found in dropdown element with index ${elementIndex}. Available options: "${availableOptions}"`,
-            );
-          }
-
-          const previousValue = select.value;
-          select.value = option.value;
-          if (previousValue !== option.value) {
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-            select.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-
-          return `Selected option "${optionText}" with value "${option.value}"`;
-        },
-        input.text,
-        input.index,
-      );
-      const msg = t('act_selectDropdownOption_ok', [input.text, input.index.toString()]);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-      return new ActionResult({ extractedContent: result, includeInMemory: true });
-    } catch (error) {
-      const errorMsg = t('act_selectDropdownOption_failed', [error instanceof Error ? error.message : String(error)]);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
-      return new ActionResult({ error: errorMsg, includeInMemory: true });
-    }
+    const msg = await page.handleDialog(input.accept, input.prompt_text);
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }
 }

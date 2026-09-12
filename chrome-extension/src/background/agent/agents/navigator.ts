@@ -28,6 +28,23 @@ import { waitForActionSettled } from '../validation/settling';
 
 const logger = createLogger('NavigatorAgent');
 
+/** Actions that still work while a JavaScript dialog blocks the page. */
+const DIALOG_SAFE_ACTIONS = new Set(['handle_dialog', 'ask_human', 'done']);
+
+/** Action arguments safe for logs and traces: typed text becomes its length, engine stamps are dropped. */
+export function redactArgs(actionName: string, args: unknown): Record<string, unknown> {
+  if (!args || typeof args !== 'object') return {};
+  const rest = { ...(args as Record<string, unknown>) };
+  delete rest.observationId;
+  delete rest.targetFingerprint;
+  for (const field of ['text', 'prompt_text']) {
+    if ((actionName === 'input_text' || actionName === 'handle_dialog') && typeof rest[field] === 'string') {
+      rest[field] = `<${(rest[field] as string).length} characters>`;
+    }
+  }
+  return rest;
+}
+
 export interface NavigatorResult {
   done: boolean;
 }
@@ -254,17 +271,41 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
             contractId: contractId ?? undefined,
             observationId: beforeObservation.id,
             actionId,
-            payload: { actionName, actionArgs },
+            payload: { actionName, actionArgs: redactArgs(actionName, actionArgs) },
             timestamp: Date.now(),
           });
         }
 
+        if (beforeState.dialog && !DIALOG_SAFE_ACTIONS.has(actionName)) {
+          const msg = `A JavaScript ${beforeState.dialog.type} dialog is open ("${beforeState.dialog.message.slice(0, 200)}"); call handle_dialog before ${actionName}.`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          results.push(new ActionResult({
+            executed: false,
+            executionStatus: 'not_attempted',
+            validated: 'unknown',
+            retryability: 'retry_reobserve',
+            failureReason: msg,
+            extractedContent: msg,
+            includeInMemory: true,
+            contractId,
+            actionId,
+            validationId,
+          }));
+          break;
+        }
+
         if (indexArg !== null) {
-          // The index refers to the page in the prompt; a read taken after an earlier action may number it differently.
+          // Indexes refer to the page in the prompt; a read taken after an earlier action may number elements differently.
+          const args = actionArgs as { index: number; target_index?: number };
           const currentIndex = currentIndexFor(this.context.promptState, beforeState, indexArg);
-          if (currentIndex !== null) (actionArgs as { index: number }).index = currentIndex;
-          const normalized = currentIndex === null
-            ? { ok: false, actionResult: staleIndexResult(indexArg, beforeObservation.id) }
+          const targetIndex = typeof args.target_index === 'number'
+            ? currentIndexFor(this.context.promptState, beforeState, args.target_index)
+            : undefined;
+          const staleIndex = currentIndex === null ? indexArg : targetIndex === null ? args.target_index : undefined;
+          if (currentIndex !== null) args.index = currentIndex;
+          if (typeof targetIndex === 'number') args.target_index = targetIndex;
+          const normalized = staleIndex !== undefined
+            ? { ok: false, actionResult: staleIndexResult(staleIndex, beforeObservation.id) }
             : normalizeIndexedAction(actionName, actionArgs, beforeObservation);
           if (!normalized.ok && normalized.actionResult) {
             this.context.emitEvent(
@@ -290,7 +331,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           component: 'NavigatorAgent',
           msg: `action ${actionName}`,
           durationMs: Date.now() - actionStartedAt,
-          data: { args: actionArgs, error: result?.error, extractedChars: result?.extractedContent?.length },
+          data: { args: redactArgs(actionName, actionArgs), error: result?.error, extractedChars: result?.extractedContent?.length },
         });
         if (!result) throw new Error(`Action ${actionName} returned undefined`);
         if (indexArg !== null && actionArgs && typeof actionArgs === 'object') {
@@ -386,7 +427,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
         // Complete per-action result log
         const actionLogMsg = `[Action] [${i + 1}/${actions.length}] ${actionName}\n` +
-          `  args  : ${JSON.stringify(actionArgs)}\n` +
+          `  args  : ${JSON.stringify(redactArgs(actionName, actionArgs))}\n` +
           `  done  : ${result.isDone}\n` +
           `  validation: ${result.validated} (${result.retryability})\n` +
           `  evidence: ${JSON.stringify(result.evidence)}\n` +
@@ -420,7 +461,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
       } catch (error) {
         if (error instanceof URLNotAllowedError) throw error;
         const msg = error instanceof Error ? error.message : String(error);
-        const failMsg = `[Action] [${i + 1}/${actions.length}] ${actionName} FAILED\n  args : ${JSON.stringify(actionArgs)}\n  error: ${msg}`;
+        const failMsg = `[Action] [${i + 1}/${actions.length}] ${actionName} FAILED\n  args : ${JSON.stringify(redactArgs(actionName, actionArgs))}\n  error: ${msg}`;
         console.warn(`\n${failMsg}`);
         logger.error(failMsg);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);

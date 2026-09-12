@@ -26,7 +26,8 @@ Each interactive element is listed as [index]<tag attributes>text</tag>.
 6. Accept or close cookie banners and popups that block the page.
 7. To read an article, product page or any long text, call get_complete_page_content instead of scrolling through it.
 8. Use search_web to search instead of typing into a search engine. Never open chrome:// URLs.
-9. If an action shows no visible change or an approach fails twice, look at the page and change the approach: another element, go_back, a direct URL, or a different search. Never repeat the same action on an unchanged page.
+9. If the browser state shows a JavaScript dialog, answer it with handle_dialog before any other action.
+10. If an action shows no visible change or an approach fails twice, look at the page and change the approach: another element, go_back, a direct URL, or a different search. Never repeat the same action on an unchanged page.
 
 # Finishing
 - Call done alone, never in the same response as another action.

@@ -13,7 +13,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   };
 });
 
-import Page, { build_initial_state, getAdaptiveDomRetryDelayMs } from '../page';
+import Page, { build_initial_state, getAdaptiveDomRetryDelayMs, normalizeKeyCombo } from '../page';
 import { DOMElementNode } from '../dom/views';
 import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
@@ -118,5 +118,27 @@ describe('Page firewall', () => {
 
     await expect(page._updateState()).rejects.toBeInstanceOf(URLNotAllowedError);
     expect(goto).toHaveBeenCalledWith('about:blank');
+  });
+});
+
+describe('normalizeKeyCombo', () => {
+  it.each([
+    ['Enter', [], 'Enter'],
+    ['esc', [], 'Escape'],
+    ['PAGE_DOWN', [], 'PageDown'],
+    ['page down', [], 'PageDown'],
+    ['F5', [], 'F5'],
+    ['space', [], 'Space'],
+    ['ctrl+a', ['Control'], 'a'],
+    ['Control+Shift+T', ['Control', 'Shift'], 'T'],
+    ['cmd+c', ['Meta'], 'c'],
+    ['Control++', ['Control'], '+'],
+  ])('%s', (combo, modifiers, key) => {
+    expect(normalizeKeyCombo(combo)).toEqual({ modifiers, key });
+  });
+
+  it('rejects unknown keys and modifiers with the allowed names', () => {
+    expect(() => normalizeKeyCombo('Hyper')).toThrow(/Unknown key "Hyper".*PageDown/);
+    expect(() => normalizeKeyCombo('Hyper+a')).toThrow(/Unknown modifier "Hyper"/);
   });
 });

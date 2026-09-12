@@ -19,11 +19,10 @@ const logger = createLogger('Action');
 
 export class ContentHandler extends BaseHandler {
   async handleCacheContent(input: z.infer<typeof cacheContentActionSchema.schema>): Promise<ActionResult> {
-    const intent = t('act_cache_start', [input.content]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-
+    // Findings can hold page data the user did not ask to see in the progress feed; only the model gets them.
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, 'Caching findings');
     const rawMsg = t('act_cache_ok', [input.content]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, rawMsg);
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, 'Findings cached for later steps');
 
     const msg = wrapUntrustedContent(rawMsg);
     return new ActionResult({ extractedContent: msg, includeInMemory: true });

@@ -114,6 +114,13 @@ export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   logDOMSnapshot: false,
 };
 
+/** A JavaScript dialog the page is waiting on; nothing else on the page responds until it is answered. */
+export interface PageDialog {
+  type: string;
+  message: string;
+  defaultValue?: string;
+}
+
 export interface PageState extends DOMState {
   tabId: number;
   url: string;
@@ -122,6 +129,7 @@ export interface PageState extends DOMState {
   scrollY: number;
   scrollHeight: number;
   visualViewportHeight: number;
+  dialog?: PageDialog;
 }
 
 export interface TabInfo {
