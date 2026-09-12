@@ -58,3 +58,6 @@ scratch/test_*.js
 scratch/*.secrets.*
 *.agents.md
 .claude
+
+# Live e2e run results
+chrome-extension/e2e/results/
