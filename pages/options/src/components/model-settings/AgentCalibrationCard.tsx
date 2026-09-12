@@ -1,7 +1,7 @@
 import React from 'react';
 import { FiChevronDown } from 'react-icons/fi';
-import { AgentNameEnum } from '@extension/storage';
-import { isOpenAIReasoningModel, isAnthropicModel, getAgentDescription } from './ModelSettingsUtils';
+import { AgentNameEnum, isOpenAIReasoningModel } from '@extension/storage';
+import { isAnthropicModel, getAgentDescription } from './ModelSettingsUtils';
 
 interface AgentCalibrationCardProps {
   agentName: AgentNameEnum;
@@ -10,6 +10,8 @@ interface AgentCalibrationCardProps {
   selectedModels: Record<AgentNameEnum, string>;
   modelParameters: Record<AgentNameEnum, { temperature: number; topP: number }>;
   reasoningEffort: Record<AgentNameEnum, 'minimal' | 'low' | 'medium' | 'high' | undefined>;
+  /** From the capability table: whether the selected model has a reasoning control. */
+  reasoningSupported: Record<AgentNameEnum, boolean>;
   handleModelChange: (agentName: AgentNameEnum, value: string) => void;
   handleParameterChange: (agentName: AgentNameEnum, param: 'temperature' | 'topP', value: number) => void;
   handleReasoningEffortChange: (agentName: AgentNameEnum, effort: 'minimal' | 'low' | 'medium' | 'high') => void;
@@ -34,6 +36,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
   selectedModels,
   modelParameters,
   reasoningEffort,
+  reasoningSupported,
   handleModelChange,
   handleParameterChange,
   handleReasoningEffortChange,
@@ -143,8 +146,8 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
               </div>
             )}
 
-          {/* Reasoning Effort (O-series models) */}
-          {selectedModels[agentName] && isOpenAIReasoningModel(selectedModels[agentName]) && (
+          {/* Reasoning effort (OpenAI reasoning models, Gemini thinking budget) */}
+          {reasoningSupported[agentName] && (
             <div className={`col-span-1 rounded-xl border p-4 md:col-span-2 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
               <div className="mb-3 block text-[9px] font-bold uppercase tracking-widest opacity-40">Reasoning Effort</div>
               <div className="flex gap-2">
@@ -152,7 +155,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
                   <button
                     key={level}
                     onClick={() => handleReasoningEffortChange(agentName, level)}
-                    className={`flex-1 rounded-lg py-2 text-[10px] font-bold uppercase tracking-tight transition-all duration-200 ${(reasoningEffort[agentName] || (agentName === AgentNameEnum.Planner ? 'low' : 'minimal')) === level
+                    className={`flex-1 rounded-lg py-2 text-[10px] font-bold uppercase tracking-tight transition-all duration-200 ${(reasoningEffort[agentName] || 'low') === level
                       ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
                       : isDarkMode ? 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300' : 'border border-slate-200 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700'
                       }`}

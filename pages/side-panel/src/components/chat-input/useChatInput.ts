@@ -114,45 +114,44 @@ export const useChatInput = (
         let messageContent = trimmedText;
         let displayContent = trimmedText;
 
-        if (mentions.length > 0) {
-          const activeMentions = mentions.filter(m => text.includes(`@${m.title}`));
+        // Tab and file contents are untrusted data. They go in one <nano_attached_files> block, which the
+        // background splits out of the user's request and wraps as untrusted content.
+        const escapeAttribute = (value: unknown) =>
+          String(value ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        const attachments: string[] = [];
 
-          if (activeMentions.length > 0) {
-            const enrichedMentions = await Promise.all(activeMentions.map(async (m) => {
-              try {
-                return new Promise((resolve) => {
-                  chrome.runtime.sendMessage({ type: 'get_tab_content', tabId: m.id }, (response) => {
-                    if (response && response.content) {
-                      resolve({ ...m, content: response.content });
-                    } else {
-                      resolve({ ...m, content: '[Could not retrieve tab content]' });
-                    }
+        const activeMentions = mentions.filter(m => text.includes(`@${m.title}`));
+        if (activeMentions.length > 0) {
+          const enrichedMentions = await Promise.all(
+            activeMentions.map(
+              m =>
+                new Promise<Mention & { content: string }>(resolve => {
+                  chrome.runtime.sendMessage({ type: 'get_tab_content', tabId: m.id }, response => {
+                    resolve({ ...m, content: response?.content || '[Could not retrieve tab content]' });
                   });
-                });
-              } catch (err) {
-                return { ...m, content: '[Error retrieving tab content]' };
-              }
-            })) as (Mention & { content: string })[];
-
-            const mentionedTabsContext = enrichedMentions
-              .map(m => `\n\n<nano_tab_reference type="tab" id="${m.id}" title="${m.title}" url="${m.url}">\n${m.content}\n</nano_tab_reference>`)
-              .join('\n');
-
-            messageContent = `${messageContent}\n\n<nano_mentions>${mentionedTabsContext}</nano_mentions>`;
-          }
+                }),
+            ),
+          );
+          attachments.push(
+            ...enrichedMentions.map(
+              m =>
+                `<nano_tab_reference type="tab" id="${escapeAttribute(m.id)}" title="${escapeAttribute(m.title)}" url="${escapeAttribute(m.url)}">\n${m.content}\n</nano_tab_reference>`,
+            ),
+          );
         }
 
         if (attachedFiles.length > 0) {
-          const fileContents = attachedFiles
-            .map(file => `\n\n<nano_file_content type="file" name="${file.name}">\n${file.content}\n</nano_file_content>`)
-            .join('\n');
-
-          messageContent = trimmedText
-            ? `${trimmedText}\n\n<nano_attached_files>${fileContents}</nano_attached_files>`
-            : `<nano_attached_files>${fileContents}</nano_attached_files>`;
-
+          attachments.push(
+            ...attachedFiles.map(
+              file => `<nano_file_content type="file" name="${escapeAttribute(file.name)}">\n${file.content}\n</nano_file_content>`,
+            ),
+          );
           const fileList = attachedFiles.map(file => `📎 ${file.name}`).join('\n');
           displayContent = trimmedText ? `${trimmedText}\n\n${fileList}` : fileList;
+        }
+
+        if (attachments.length > 0) {
+          messageContent = `${trimmedText}\n\n<nano_attached_files>\n${attachments.join('\n\n')}\n</nano_attached_files>`.trimStart();
         }
 
         onSendMessage(messageContent, displayContent);

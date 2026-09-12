@@ -29,7 +29,7 @@ import { ExecutionState } from './agent/event/types';
 import { createChatModel } from './agent/helper';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { DEFAULT_AGENT_OPTIONS } from './agent/types';
-import { SpeechToTextService } from './services/speechToText';
+import { transcribeAudio } from './services/speechToText';
 import { analytics } from './services/analytics';
 import { TabOrchestrator } from './core/tab-orchestrator/index';
 import * as allSchemas from './agent/actions/schemas';
@@ -123,6 +123,19 @@ analyticsSettingsStore.subscribe(() => {
 
 // Listen for simple messages (e.g., from options page)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Text of a tab the user @-mentioned in the side panel. A script injection is enough; no debugger attach.
+  if (message?.type === 'get_tab_content' && typeof message.tabId === 'number') {
+    if (!sender.url?.startsWith(chrome.runtime.getURL(''))) return false;
+    chrome.scripting
+      .executeScript({
+        target: { tabId: message.tabId },
+        func: () => (document.querySelector('main') ?? document.body)?.innerText ?? '',
+      })
+      .then(([injection]) => sendResponse({ content: String(injection?.result ?? '').slice(0, 12_000) }))
+      .catch(error => sendResponse({ content: '', error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
+
   // TEST LOGGING HANDLERS - START
   if (message.type === 'TEST_GET_LLM_PAGE_STATE') {
     (async () => {
@@ -452,20 +465,14 @@ chrome.runtime.onConnect.addListener(port => {
 
               logger.info('Processing speech-to-text request...');
 
-              // Get all providers for speech-to-text service
               const providers = await llmProviderStore.getAllProviders();
-
-              // Create speech-to-text service with all providers
-              const speechToTextService = await SpeechToTextService.create(providers);
-
-              // Extract base64 audio data (remove data URL prefix if present)
-              let base64Audio = message.audio;
-              if (base64Audio.startsWith('data:')) {
-                base64Audio = base64Audio.split(',')[1];
-              }
-
-              // Transcribe audio
-              const transcribedText = await speechToTextService.transcribeAudio(base64Audio);
+              // A data URL carries the recording's MIME type; raw base64 is assumed to be webm.
+              const dataUrl = /^data:([^;,]+)[^,]*,([\s\S]*)$/.exec(message.audio);
+              const transcribedText = await transcribeAudio(
+                providers,
+                dataUrl ? dataUrl[2] : message.audio,
+                dataUrl?.[1] ?? 'audio/webm',
+              );
 
               logger.info('Speech-to-text completed successfully');
               return port.postMessage({

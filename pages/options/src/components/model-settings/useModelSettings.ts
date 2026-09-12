@@ -10,9 +10,8 @@ import {
   getDefaultAgentModelParams,
   getDefaultProviderConfig,
   getProviderTypeByProviderId,
-  type ProviderConfig,
-} from '@extension/storage';
-import { isOpenAIReasoningModel, isAnthropicModel } from './ModelSettingsUtils';
+  type ProviderConfig, getLlmCapabilities } from '@extension/storage';
+import { isAnthropicModel } from './ModelSettingsUtils';
 import { t } from '@extension/i18n';
 
 export const useModelSettings = (_isDarkMode: boolean) => {
@@ -417,6 +416,16 @@ export const useModelSettings = (_isDarkMode: boolean) => {
     setIsProviderSelectorOpen(false);
   };
 
+  /** Whether the model has a reasoning control (OpenAI effort, Gemini thinking budget), per the capability table. */
+  const reasoningEffortSupported = (modelValue: string | undefined): boolean => {
+    const [provider, model] = (modelValue ?? '').split('>');
+    return !!model && getLlmCapabilities(providers[provider]?.type ?? provider, model).reasoning !== 'none';
+  };
+
+  const reasoningSupported = Object.fromEntries(
+    Object.values(AgentNameEnum).map(agent => [agent, reasoningEffortSupported(selectedModels[agent])]),
+  ) as Record<AgentNameEnum, boolean>;
+
   const handleModelChange = async (agentName: AgentNameEnum, modelValue: string) => {
     const [provider, model] = modelValue.split('>');
     const newParameters = getDefaultAgentModelParams(provider, agentName);
@@ -425,19 +434,20 @@ export const useModelSettings = (_isDarkMode: boolean) => {
 
     try {
       if (model) {
-        if (isOpenAIReasoningModel(modelValue)) {
-          const defaultReasoningEffort = agentName === AgentNameEnum.Planner ? 'low' : 'minimal';
-          setReasoningEffort(prev => ({ ...prev, [agentName]: prev[agentName] || defaultReasoningEffort }));
-        } else {
-          setReasoningEffort(prev => ({ ...prev, [agentName]: undefined }));
-        }
+        // OpenAI reasoning models default low for the planner and minimal for the navigator; Gemini defaults to
+        // low, the same thinking budget used when no effort is stored.
+        const [, modelName] = modelValue.split('>');
+        const openAIEffort = getLlmCapabilities(providers[provider]?.type ?? provider, modelName).reasoning === 'openai_effort';
+        const defaultEffort = openAIEffort && agentName === AgentNameEnum.Navigator ? 'minimal' : 'low';
+        const effort = reasoningEffortSupported(modelValue) ? reasoningEffort[agentName] || defaultEffort : undefined;
+        setReasoningEffort(prev => ({ ...prev, [agentName]: effort }));
 
         const parametersToSave = isAnthropicModel(modelValue) ? { temperature: newParameters.temperature } : newParameters;
         await agentModelStore.setAgentModel(agentName, {
           provider,
           modelName: model,
           parameters: parametersToSave,
-          reasoningEffort: isOpenAIReasoningModel(modelValue) ? reasoningEffort[agentName] || (agentName === AgentNameEnum.Planner ? 'low' : 'minimal') : undefined,
+          reasoningEffort: effort,
         });
       } else {
         await agentModelStore.resetAgentModel(agentName);
@@ -449,7 +459,7 @@ export const useModelSettings = (_isDarkMode: boolean) => {
 
   const handleReasoningEffortChange = async (agentName: AgentNameEnum, value: 'minimal' | 'low' | 'medium' | 'high') => {
     setReasoningEffort(prev => ({ ...prev, [agentName]: value }));
-    if (selectedModels[agentName] && isOpenAIReasoningModel(selectedModels[agentName])) {
+    if (reasoningEffortSupported(selectedModels[agentName])) {
       try {
         const [provider, modelName] = selectedModels[agentName].split('>');
         if (provider && modelName) {
@@ -474,7 +484,12 @@ export const useModelSettings = (_isDarkMode: boolean) => {
         const [provider, modelName] = selectedModels[agentName].split('>');
         if (provider && modelName) {
           const parametersToSave = isAnthropicModel(selectedModels[agentName]) ? { temperature: newParameters.temperature } : newParameters;
-          await agentModelStore.setAgentModel(agentName, { provider, modelName, parameters: parametersToSave });
+          await agentModelStore.setAgentModel(agentName, {
+            provider,
+            modelName,
+            parameters: parametersToSave,
+            reasoningEffort: reasoningEffortSupported(selectedModels[agentName]) ? reasoningEffort[agentName] : undefined,
+          });
         }
       } catch (error) {
         console.error('Error saving agent parameters:', error);
@@ -513,6 +528,7 @@ export const useModelSettings = (_isDarkMode: boolean) => {
     selectedModels,
     modelParameters,
     reasoningEffort,
+    reasoningSupported,
     newModelInputs,
     isProviderSelectorOpen,
     setIsProviderSelectorOpen,

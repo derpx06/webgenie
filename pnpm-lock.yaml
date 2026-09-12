@@ -142,9 +142,6 @@ importers:
       '@langchain/deepseek':
         specifier: 0.1.0
         version: 0.1.0(@langchain/core@0.3.79(@opentelemetry/api@1.9.1)(openai@5.12.2(ws@8.18.3)(zod@3.25.76)))(ws@8.18.3)
-      '@langchain/google-genai':
-        specifier: 0.2.18
-        version: 0.2.18(@langchain/core@0.3.79(@opentelemetry/api@1.9.1)(openai@5.12.2(ws@8.18.3)(zod@3.25.76)))
       '@langchain/google-vertexai-web':
         specifier: ^0.2.18
         version: 0.2.18(@langchain/core@0.3.79(@opentelemetry/api@1.9.1)(openai@5.12.2(ws@8.18.3)(zod@3.25.76)))
@@ -824,10 +821,6 @@ packages:
     resolution: {integrity: sha512-Ys+3g2TaW7gADOJzPt83SJtCDhMjndcDMFVQ/Tj9iA1BfJzFKD9mAUXT3OenpuPHbI6P/myECxRJrofUsDx/5g==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
-  '@google/generative-ai@0.24.1':
-    resolution: {integrity: sha512-MqO+MLfM6kjxcKoy0p1wRzG3b4ZZXtPI+z2IE26UogS2Cm/XHO+7gGRBh6gcJsOiIVoH93UwKvW4HdgiOZCy9Q==}
-    engines: {node: '>=18.0.0'}
-
   '@humanwhocodes/config-array@0.11.14':
     resolution: {integrity: sha512-3T8LkOmg45BV5FICb15QQMsyUSWrQ8AygVfC7ZG32zOalnqrilm018ZVCw0eapXux8FtA33q8PSRSstjee3jSg==}
     engines: {node: '>=10.10.0'}
@@ -894,12 +887,6 @@ packages:
 
   '@langchain/google-common@0.2.18':
     resolution: {integrity: sha512-HjWB6Bx4zj7KkiHnqRpx8YNaXdA97sKQMQ17keyWl7nQJlRauNyymm8QGeduKSEfECDr2nGzY8Y/SNY64X6cSA==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      '@langchain/core': '>=0.3.58 <0.4.0'
-
-  '@langchain/google-genai@0.2.18':
-    resolution: {integrity: sha512-m9EiN3VKC01A7/625YQ6Q1Lqq8zueewADX4W5Tcme4RImN75zkg2Z7FYbD1Fo6Zwolc4wBNO6LUtbg3no4rv1Q==}
     engines: {node: '>=18'}
     peerDependencies:
       '@langchain/core': '>=0.3.58 <0.4.0'
@@ -4603,10 +4590,6 @@ packages:
     deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
-  uuid@11.1.0:
-    resolution: {integrity: sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A==}
-    hasBin: true
-
   v8-compile-cache-lib@3.0.1:
     resolution: {integrity: sha512-wa7YjyUGfNZngI/vtK0UHAN+lgDCxBPCylVXGp0zu59Fz5aiGtNXaq3DhIov063MorB+VfufLh3JlF2KdTK3xg==}
 
@@ -5521,8 +5504,6 @@ snapshots:
 
   '@eslint/js@8.57.0': {}
 
-  '@google/generative-ai@0.24.1': {}
-
   '@humanwhocodes/config-array@0.11.14':
     dependencies:
       '@humanwhocodes/object-schema': 2.0.3
@@ -5618,12 +5599,6 @@ snapshots:
     dependencies:
       '@langchain/core': 0.3.79(@opentelemetry/api@1.9.1)(openai@5.12.2(ws@8.18.3)(zod@3.25.76))
       uuid: 10.0.0
-
-  '@langchain/google-genai@0.2.18(@langchain/core@0.3.79(@opentelemetry/api@1.9.1)(openai@5.12.2(ws@8.18.3)(zod@3.25.76)))':
-    dependencies:
-      '@google/generative-ai': 0.24.1
-      '@langchain/core': 0.3.79(@opentelemetry/api@1.9.1)(openai@5.12.2(ws@8.18.3)(zod@3.25.76))
-      uuid: 11.1.0
 
   '@langchain/google-vertexai-web@0.2.18(@langchain/core@0.3.79(@opentelemetry/api@1.9.1)(openai@5.12.2(ws@8.18.3)(zod@3.25.76)))':
     dependencies:
@@ -10098,8 +10073,6 @@ snapshots:
       which-typed-array: 1.1.20
 
   uuid@10.0.0: {}
-
-  uuid@11.1.0: {}
 
   v8-compile-cache-lib@3.0.1: {}
 

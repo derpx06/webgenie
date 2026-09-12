@@ -37,6 +37,7 @@ import {
 } from '@extension/storage';
 import type { GeneralSettingsConfig } from '@extension/storage';
 import { createChatModel } from '../../agent/helper';
+import { invokeLLM } from '../../agent/agents/base';
 import { HumanMessage } from '@langchain/core/messages';
 
 const logger = createLogger('TabOrchestrator');
@@ -218,7 +219,8 @@ export class TabOrchestrator {
       if (!providerConfig) return undefined;
 
       const generalSettings = await generalSettingsStore.getSettings();
-      const chatModel = createChatModel(providerConfig, plannerModel, generalSettings);
+      // A title needs no reasoning; minimal effort keeps the call fast on models that think.
+      const chatModel = createChatModel(providerConfig, { ...plannerModel, reasoningEffort: 'minimal' }, generalSettings);
       const prompt = [
         new HumanMessage(
           `Create a very short browser tab group title for this task.
@@ -234,16 +236,8 @@ ${taskDescription}`,
         ),
       ];
 
-      const response = await chatModel.invoke(prompt);
-      const content = response.content;
-      const raw =
-        typeof content === 'string'
-          ? content
-          : Array.isArray(content)
-            ? content
-                .map((part) => (typeof part === 'object' && part !== null && 'text' in part ? String(part.text) : ''))
-                .join(' ')
-            : '';
+      const response = await invokeLLM(chatModel, prompt, { component: 'TabOrchestrator', model: plannerModel.modelName });
+      const raw = response.text;
 
       const sanitized = raw
         .replace(/[`"']/g, '')

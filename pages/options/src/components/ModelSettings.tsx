@@ -39,6 +39,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
     selectedModels,
     modelParameters,
     reasoningEffort,
+    reasoningSupported,
     handleModelChange,
     handleParameterChange,
     handleReasoningEffortChange,
@@ -67,6 +68,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
             selectedModels={selectedModels}
             modelParameters={modelParameters}
             reasoningEffort={reasoningEffort}
+            reasoningSupported={reasoningSupported}
             handleModelChange={handleModelChange}
             handleParameterChange={handleParameterChange}
             handleReasoningEffortChange={handleReasoningEffortChange}
@@ -78,6 +80,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
             selectedModels={selectedModels}
             modelParameters={modelParameters}
             reasoningEffort={reasoningEffort}
+            reasoningSupported={reasoningSupported}
             handleModelChange={handleModelChange}
             handleParameterChange={handleParameterChange}
             handleReasoningEffortChange={handleReasoningEffortChange}
