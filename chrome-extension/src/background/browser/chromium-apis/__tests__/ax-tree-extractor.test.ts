@@ -99,6 +99,45 @@ describe('buildDomState', () => {
   });
 });
 
+describe('pointer targets', () => {
+  it('indexes elements the page made clickable or draggable and standalone images, not wrappers of controls', () => {
+    const box = (x: number, extra: Partial<{ clickable: boolean; attributes: Record<string, string>; width: number; height: number }> = {}) => ({
+      tagName: 'div', attributes: {}, x, y: 10, width: 100, height: 40, ...extra,
+    });
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3', '4', '5', '7', '9'] },
+      { nodeId: '2', role: { value: 'generic' }, backendDOMNodeId: 2, childIds: ['2t'] },
+      text('2t', 'Box A'),
+      { nodeId: '3', role: { value: 'generic' }, backendDOMNodeId: 3, childIds: ['3t'] },
+      text('3t', 'Open details'),
+      { nodeId: '4', role: { value: 'image' }, name: { value: 'User avatar' }, backendDOMNodeId: 4 },
+      { nodeId: '5', role: { value: 'generic' }, backendDOMNodeId: 5, childIds: ['6'] },
+      { nodeId: '6', role: { value: 'button' }, name: { value: 'Buy' }, backendDOMNodeId: 6 },
+      { nodeId: '7', role: { value: 'link' }, name: { value: 'Home' }, backendDOMNodeId: 7, childIds: ['8'] },
+      { nodeId: '8', role: { value: 'image' }, name: { value: 'Logo' }, backendDOMNodeId: 8 },
+      { nodeId: '9', role: { value: 'generic' }, backendDOMNodeId: 9, childIds: ['9t'] },
+      text('9t', 'Whole page'),
+    ];
+    const layout = {
+      scrollX: 0,
+      scrollY: 0,
+      nodes: new Map([
+        [2, box(0, { attributes: { draggable: 'true' } })],
+        [3, box(110, { clickable: true })],
+        [4, box(220)],
+        [5, box(330, { clickable: true })],
+        [8, box(440)],
+        [9, box(0, { clickable: true, width: 1000, height: 800 })],
+      ]),
+    };
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout }], { width: 1000, height: 800 }));
+    const indexed = [...state.selectorMap.values()].map(node => node.attributes['aria-label'] ?? node.getAllTextTillNextClickableElement());
+
+    expect(indexed).toEqual(['Box A', 'Open details', 'User avatar', 'Buy', 'Home']);
+    expect(state.selectorMap.get(0)?.attributes.draggable).toBe('true');
+  });
+});
+
 describe('documentLayout', () => {
   it('maps backend node ids to their first layout box, lowercase tag and selected attributes', () => {
     const strings = ['INPUT', 'type', 'password', 'class', 'x', 'frame-1'];
@@ -113,7 +152,7 @@ describe('documentLayout', () => {
     );
 
     expect(layout.scrollY).toBe(300);
-    expect(layout.nodes.get(11)).toEqual({ tagName: 'input', attributes: { type: 'password' }, x: 1, y: 2, width: 30, height: 40 });
+    expect(layout.nodes.get(11)).toEqual({ tagName: 'input', attributes: { type: 'password' }, clickable: false, x: 1, y: 2, width: 30, height: 40 });
     expect(layout.nodes.get(12)?.x).toBe(5);
   });
 });

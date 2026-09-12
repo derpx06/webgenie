@@ -375,7 +375,8 @@ export default class Page {
   }
 
   async removeHighlight(): Promise<void> {
-    if (this._validWebPage) {
+    // A script injected while a JavaScript dialog is open blocks until the dialog closes.
+    if (this._validWebPage && !this._pendingDialog) {
       await _removeHighlights(this._tabId, this._browserAdapter);
     }
   }
@@ -1404,7 +1405,8 @@ export default class Page {
     try {
       if (accept) await dialog.accept(promptText);
       else await dialog.dismiss();
-    } catch {
+    } catch (error) {
+      logger.warning(`Answering the ${description} failed: ${error instanceof Error ? error.message : String(error)}`);
       return `The ${description} was already closed.`;
     }
     return `${accept ? 'Accepted' : 'Dismissed'} the ${description}${accept && promptText !== undefined ? ' after entering the text' : ''}.`;

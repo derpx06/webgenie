@@ -32,6 +32,7 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'aria-valuemax',
   'aria-valuetext',
   'aria-autocomplete',
+  'draggable',
   'data-value',
 ];
 

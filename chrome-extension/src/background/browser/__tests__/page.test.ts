@@ -142,3 +142,15 @@ describe('normalizeKeyCombo', () => {
     expect(() => normalizeKeyCombo('Hyper+a')).toThrow(/Unknown modifier "Hyper"/);
   });
 });
+
+describe('Page with an open dialog', () => {
+  it('does not inject scripts into the page, which would block until the dialog closes', async () => {
+    const adapter = { executeScript: vi.fn() };
+    const page = new Page(1, 'https://example.com/', 'Example', {}, adapter as unknown as IBrowserAdapter);
+    Object.assign(page as unknown as Record<string, unknown>, { _pendingDialog: { type: () => 'confirm' } });
+
+    await page.removeHighlight();
+
+    expect(adapter.executeScript).not.toHaveBeenCalled();
+  });
+});

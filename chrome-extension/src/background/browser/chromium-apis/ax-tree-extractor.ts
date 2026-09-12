@@ -40,6 +40,8 @@ export interface AXNode {
 export interface NodeLayout {
   tagName: string;
   attributes: Record<string, string>;
+  /** The page attached a click listener (or it is a natively clickable element). */
+  clickable?: boolean;
   x: number;
   y: number;
   width: number;
@@ -65,7 +67,7 @@ export interface FrameTree {
 
 export interface SnapshotDocument {
   frameId: number;
-  nodes: { nodeName?: number[]; backendNodeId?: number[]; attributes?: number[][] };
+  nodes: { nodeName?: number[]; backendNodeId?: number[]; attributes?: number[][]; isClickable?: { index: number[] } };
   layout: { nodeIndex: number[]; bounds: number[][] };
   scrollOffsetX?: number;
   scrollOffsetY?: number;
@@ -109,7 +111,7 @@ const STATE_PROPERTIES = new Set(['checked', 'expanded', 'selected', 'pressed'])
 const INTERNAL_PROPERTIES = new Set(['focusable', 'focused', 'editable', 'settable', 'root', 'hiddenRoot']);
 
 /** DOM attributes the accessibility tree does not expose but the model needs (a password or date field). */
-const SNAPSHOT_ATTRIBUTES = new Set(['type', 'name', 'placeholder']);
+const SNAPSHOT_ATTRIBUTES = new Set(['type', 'name', 'placeholder', 'draggable']);
 
 const ROLE_TAGS: Record<string, string> = {
   button: 'button',
@@ -151,6 +153,7 @@ export function documentLayout(doc: SnapshotDocument, strings: string[]): Docume
   const nodeName = doc.nodes.nodeName ?? [];
   const backendNodeId = doc.nodes.backendNodeId ?? [];
   const attributes = doc.nodes.attributes ?? [];
+  const clickable = new Set(doc.nodes.isClickable?.index ?? []);
   doc.layout.nodeIndex.forEach((nodeIndex, i) => {
     const id = backendNodeId[nodeIndex];
     const bounds = doc.layout.bounds[i];
@@ -165,6 +168,7 @@ export function documentLayout(doc: SnapshotDocument, strings: string[]): Docume
     nodes.set(id, {
       tagName: (strings[nodeName[nodeIndex]] ?? '').toLowerCase(),
       attributes: selected,
+      clickable: clickable.has(nodeIndex),
       x: bounds[0],
       y: bounds[1],
       width: bounds[2],
@@ -241,7 +245,7 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
     const scrollY = tree.layout?.scrollY ?? 0;
 
     /** Returns whether the subtree produced any text. */
-    const visit = (node: AXNode, into: DOMElementNode): boolean => {
+    const visit = (node: AXNode, into: DOMElementNode, insideControl: boolean): boolean => {
       if (visited.has(node.nodeId)) return false;
       visited.add(node.nodeId);
       const role = String(node.role?.value ?? '');
@@ -262,11 +266,11 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         height: layout.height,
       };
 
-      const visitChildren = (target: DOMElementNode): boolean => {
+      const visitChildren = (target: DOMElementNode, childrenInsideControl: boolean): boolean => {
         let text = false;
         for (const id of node.childIds ?? []) {
           const child = nodesById.get(id);
-          if (child && visit(child, target)) text = true;
+          if (child && visit(child, target, childrenInsideControl)) text = true;
         }
         for (const childFrame of childFrames) {
           if (childFrame.hostBackendNodeId === node.backendDOMNodeId && !attached.has(childFrame.key)) {
@@ -277,13 +281,23 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         return text;
       };
 
-      if (node.ignored) return visitChildren(into);
+      if (node.ignored) return visitChildren(into, insideControl);
 
       const props = propertyMap(node);
       const interactive =
         INTERACTIVE_ROLES.has(role) ||
         (Boolean(props.editable) && props.focusable === true) ||
         (role === 'gridcell' && props.focusable === true);
+      // Elements the page itself made pointer targets — a script click listener, draggable="true", an image —
+      // get an index too, unless a control already surrounds them or they are page-sized wrappers.
+      const pointerCandidate =
+        !interactive &&
+        !insideControl &&
+        Boolean(layout && rect) &&
+        (layout?.attributes.draggable === 'true' || Boolean(layout?.clickable) || role === 'image' || role === 'img') &&
+        rect!.width >= 8 &&
+        rect!.height >= 8 &&
+        (!viewport || rect!.width * rect!.height <= 0.5 * viewport.width * viewport.height);
       const coords = rect && coordinates(rect.x, rect.y, rect.width, rect.height);
       const element = new DOMElementNode({
         tagName: layout?.tagName || ROLE_TAGS[role] || 'div',
@@ -308,7 +322,14 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
       if (interactive) selectorMap.set(selectorMap.size, element);
       into.children.push(element);
 
-      const hasText = visitChildren(element);
+      const indexedBefore = selectorMap.size;
+      const hasText = visitChildren(element, insideControl || interactive);
+      // Only a leaf-most target: a clickable card that contains a real button keeps the button as the target.
+      if (pointerCandidate && selectorMap.size === indexedBefore) {
+        element.isInteractive = true;
+        element.highlightIndex = selectorMap.size;
+        selectorMap.set(selectorMap.size, element);
+      }
       // A named image, region or heading without text children shows its name as text; for interactive
       // nodes the name stays an attribute.
       if (!interactive && name && !hasText && !UNNAMED_ROLES.has(role)) {
@@ -319,7 +340,7 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
     };
 
     const root = tree.nodes.find(node => !node.parentId || !nodesById.has(node.parentId));
-    if (root) visit(root, parent);
+    if (root) visit(root, parent, false);
   };
 
   const main = frames.find(frame => !frame.parentKey || !keys.has(frame.parentKey));
