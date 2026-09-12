@@ -50,7 +50,7 @@ export const plannerLLMOutputSchema = z.object({
     .array(z.string())
     .optional()
     .describe(
-      'When the next phase acts on one item the task describes (a product, listing, result, person or date): every item on the current page that fits the task\'s description of it, each with what sets it apart, e.g. "Room A, 2 beds, $120". Omit otherwise.',
+      'When the next phase acts on one single item the task describes (a product, listing, result, person or date): every item on the current page that fits the task\'s description of that one item, each with what sets it apart, e.g. "Room A, 2 beds, $120". Omit it when the task asks for several items, all matching items, or picks one by a rule such as cheapest, first or newest.',
     ),
   success_condition: z
     .string()
