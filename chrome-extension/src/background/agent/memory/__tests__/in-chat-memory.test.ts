@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GoalManager, ProgressTracker, RecentActionBuffer, InChatMemory, ContextBuilder, TaskArchive, ConversationTimeline, jaroWinklerSimilarity } from '..';
+import { GoalManager, InChatMemory, ContextBuilder, jaroWinklerSimilarity } from '..';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import { AgentContext } from '../../types';
 
@@ -77,6 +77,7 @@ describe('Compression Safety & Context Packet Generation', () => {
   it('protects structured items from compression and formats Context Packet correctly', () => {
     const mockContext = {
       memory: new InChatMemory('Task Goal'),
+      messageManager: { getTranscript: () => [] },
     } as unknown as AgentContext;
 
     const memory = mockContext.memory;
@@ -85,23 +86,21 @@ describe('Compression Safety & Context Packet Generation', () => {
     memory.addDecision('chosen = Mac', 'HIGH');
     memory.addPinned('Token = abc', 'CRITICAL');
     memory.progressTracker.updateProgress(['step A'], ['step C'], ['step B']);
-    memory.recentActions.pushAction('clicked button');
 
     // Build context packet
     const systemMsg = new SystemMessage('System instructions');
     const stateMsg = new HumanMessage('Interactive page elements');
 
-    const [mergedSystem, state] = ContextBuilder.buildContextPacket(mockContext, systemMsg, stateMsg);
-    expect(state).toBe(stateMsg);
+    const packet = ContextBuilder.buildContextPacket(mockContext, systemMsg, stateMsg);
+    expect(packet[0]).toBe(systemMsg);
 
-    const content = mergedSystem.content;
-    expect(content).toContain('PRIMARY GOAL: Task Goal');
+    const content = String(packet[packet.length - 1].content);
+    expect(content.endsWith('Interactive page elements')).toBe(true);
     expect(content).toContain('- user = Bob');
     expect(content).toContain('- avoid HP');
     expect(content).toContain('- chosen = Mac');
     expect(content).toContain('- Token = abc');
     expect(content).toContain('Completed: * step A');
-    expect(content).toContain('Step Action 1: clicked button');
   });
 });
 
@@ -111,18 +110,11 @@ describe('Simulations (300-Step & 15-Task)', () => {
     
     // Simulate 300 steps of executing actions
     for (let i = 1; i <= 300; i++) {
-      memory.recentActions.pushAction(`action ${i}`);
       if (i % 50 === 0) {
         memory.addFact(`stepCheckpoint = ${i}`, 'MEDIUM');
         memory.resolveConflicts();
       }
     }
-
-    // Recent action buffer must only hold the last 5 actions
-    const actions = memory.recentActions.getActions();
-    expect(actions.length).toBe(5);
-    expect(actions[4]).toBe('action 300');
-    expect(actions[0]).toBe('action 296');
 
     // Facts must be resolved and keep only the latest checkpoint
     const activeFacts = memory.getActiveItemsByType('fact');
@@ -241,6 +233,7 @@ describe('ContextBuilder Token Budgeting & Safeguards', () => {
   it('truncates sections when exceeding character budget limits', () => {
     const mockContext = {
       memory: new InChatMemory('Task Goal'),
+      messageManager: { getTranscript: () => [] },
     } as unknown as AgentContext;
 
     const memory = mockContext.memory;
@@ -252,8 +245,8 @@ describe('ContextBuilder Token Budgeting & Safeguards', () => {
     const systemMsg = new SystemMessage('System instructions');
     const stateMsg = new HumanMessage('Interactive page elements');
 
-    const [mergedSystem] = ContextBuilder.buildContextPacket(mockContext, systemMsg, stateMsg);
-    const content = mergedSystem.content;
+    const packet = ContextBuilder.buildContextPacket(mockContext, systemMsg, stateMsg);
+    const content = String(packet[packet.length - 1].content);
 
     // Verify it is truncated with the budget warning suffix
     expect(content).toContain('truncated due to token budget');

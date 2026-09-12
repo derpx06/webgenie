@@ -23,7 +23,7 @@ class ParseFailingPlannerAgent extends PlannerAgent {
 function makeContext() {
   const emittedEvents: AgentEvent[] = [];
   const messageManager = {
-    getMessages: () => [new HumanMessage('Current URL: https://x.com/home')],
+    getTranscript: () => [],
     cumulativeInputTokens: 0,
     cumulativeOutputTokens: 0,
   } as unknown as MessageManager;
@@ -67,7 +67,7 @@ describe('PlannerAgent parse fallback', () => {
       prompt,
     });
 
-    const output = await agent.execute();
+    const output = await agent.execute(new HumanMessage('Current URL: https://x.com/home'));
 
     expect(output.error).toBeUndefined();
     expect(output.result).toMatchObject({

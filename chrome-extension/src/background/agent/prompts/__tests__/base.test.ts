@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { SystemMessage, type HumanMessage } from '@langchain/core/messages';
 import { ActionResult, type AgentContext } from '../../types';
 import { DOMElementNode } from '../../../browser/dom/views';
-import { NavigatorAgent } from '../../agents/navigator';
 import { BasePrompt, capPromptSection, scrollViewportPercentage } from '../base';
 
 class BrowserStatePrompt extends BasePrompt {
@@ -56,28 +55,20 @@ describe('browser prompt budgeting', () => {
       extractedContent: 'Bookmark created: Example',
       includeInMemory: true,
     });
-    const stateMessages: HumanMessage[] = [];
     const context = {
       browserContext: { getState: vi.fn().mockResolvedValue(browserState) },
       options: { useVision: false, includeAttributes: [], logDOMSnapshot: false },
       actionResults: [actionResult],
-      stateMessageAdded: false,
       lastGoal: undefined,
-      messageManager: {
-        getWorkingMemory: vi.fn().mockReturnValue(''),
-        addMessageWithTokens: vi.fn(),
-        addStateMessage: vi.fn((message: HumanMessage) => stateMessages.push(message)),
-      },
+      messageManager: { getWorkingMemory: vi.fn().mockReturnValue('') },
       isSelectorBlocked: vi.fn().mockReturnValue(false),
     } as unknown as AgentContext;
 
-    await NavigatorAgent.prototype.addStateMessageToMemory.call({
-      context,
-      prompt: new BrowserStatePrompt(),
-    } as unknown as NavigatorAgent);
+    const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);
 
-    expect(stateMessages).toHaveLength(1);
-    expect(String(stateMessages[0].content)).toContain('Bookmark created: Example');
-    expect(context.actionResults).toEqual([]);
+    expect(content).toContain('Results of your last actions:');
+    expect(content).toContain('Bookmark created: Example');
+    expect(content).not.toContain('observation id');
+    expect(content).not.toContain('target fingerprints');
   });
 });

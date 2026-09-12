@@ -52,18 +52,26 @@ describe('invokeTools', () => {
     expect(stub.bindTools).toHaveBeenCalledWith(tools, {});
   });
 
-  it('sends Zod issues back as one ToolMessage per call id, then accepts the corrected call', async () => {
+  it('answers a single invalid call with a ToolMessage carrying the Zod issues, then accepts the corrected call', async () => {
+    const bad = new AIMessage({ content: '', tool_calls: [call('a', 'click_element', { element_index: 1, memory: 'm' })] });
+    const { chatModel, seen } = stubModel([bad, new AIMessage({ content: '', tool_calls: [call('c', 'click_element', { index: 1, memory: 'm' })] })]);
+    const result = await invokeTools({ ...base, chatModel });
+
+    expect(result.attempts).toBe(2);
+    expect(seen[1][1]).toBe(bad);
+    const toolMessages = seen[1].filter((m): m is ToolMessage => m instanceof ToolMessage);
+    expect(toolMessages.map(m => m.tool_call_id)).toEqual(['a']);
+    expect(String(toolMessages[0].content)).toContain('index');
+  });
+
+  it('gives text feedback when a reply with several calls is invalid', async () => {
     const bad = new AIMessage({ content: '', tool_calls: [call('a', 'click_element', { element_index: 1, memory: 'm' }), call('b', 'done', { text: 't', success: true, memory: 'm' })] });
     const { chatModel, seen } = stubModel([bad, new AIMessage({ content: '', tool_calls: [call('c', 'click_element', { index: 1, memory: 'm' })] })]);
     const result = await invokeTools({ ...base, chatModel });
 
     expect(result.attempts).toBe(2);
-    const second = seen[1];
-    expect(second[1]).toBe(bad);
-    const toolMessages = second.filter((m): m is ToolMessage => m instanceof ToolMessage);
-    expect(toolMessages.map(m => m.tool_call_id)).toEqual(['a', 'b']);
-    expect(String(toolMessages[0].content)).toContain('index');
-    expect(String(toolMessages[1].content)).toContain('Not executed');
+    expect(seen[1].some(m => m instanceof ToolMessage || m === bad)).toBe(false);
+    expect(String(seen[1].at(-1)?.content)).toContain('index');
   });
 
   it('rejects unknown tools and invalid_tool_calls with feedback', async () => {
@@ -76,9 +84,10 @@ describe('invokeTools', () => {
       new AIMessage({ content: '', tool_calls: [call('c', 'click_element', { index: 2, memory: 'm' })] }),
     ]);
     await invokeTools({ ...base, chatModel });
-    const feedback = seen[1].filter((m): m is ToolMessage => m instanceof ToolMessage).map(m => String(m.content));
-    expect(feedback[0]).toContain('unknown tool "teleport"');
-    expect(feedback[1]).toContain('not valid JSON');
+    const feedback = String(seen[1].at(-1)?.content);
+    expect(seen[1].some(m => m instanceof ToolMessage)).toBe(false);
+    expect(feedback).toContain('unknown tool "teleport"');
+    expect(feedback).toContain('not valid JSON');
   });
 
   it('re-asks when the reply was truncated or malformed and has no calls', async () => {
@@ -145,6 +154,23 @@ describe('invokeTools', () => {
 });
 
 describe('invokeLLM', () => {
+  it('waits and retries when the provider rate-limits, then returns the reply', async () => {
+    const { chatModel, stub } = stubModel([() => Promise.reject(new Error('429 Resource exhausted')), new AIMessage({ content: 'ok' })]);
+
+    const reply = await invokeLLM(chatModel, packet, { component: 'test', rateLimitDelaysMs: [1] });
+
+    expect(reply.text).toBe('ok');
+    expect(stub.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up with the rate-limit error after the configured waits', async () => {
+    const limited = () => Promise.reject(new Error('429 Resource exhausted'));
+    const { chatModel, stub } = stubModel([limited, limited, limited]);
+
+    await expect(invokeLLM(chatModel, packet, { component: 'test', rateLimitDelaysMs: [1, 1] })).rejects.toThrow('429');
+    expect(stub.invoke).toHaveBeenCalledTimes(3);
+  });
+
   it('turns a timeout into a plain error, not a user cancel', async () => {
     const { chatModel } = stubModel([
       signal => new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new Error('Aborted')))),

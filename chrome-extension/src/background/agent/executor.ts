@@ -1,6 +1,6 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { ActionResult, AgentContext, type AgentOptions, type AgentOutput } from './types';
-import { HumanMessage } from '@langchain/core/messages';
+import type { HumanMessage } from '@langchain/core/messages';
 import { t } from '@extension/i18n';
 import { NavigatorAgent, NavigatorActionRegistry } from './agents/navigator';
 import { PlannerAgent, type PlannerOutput } from './agents/planner';
@@ -117,8 +117,6 @@ export class Executor {
     this.context = context;
     this.context.checkpointStore = new TaskCheckpointStore();
     this.context.traceStore = new TraceStore();
-    // Initialize message history
-    this.context.messageManager.initTaskMessages(this.navigatorPrompt.getSystemMessage(), task);
   }
 
   subscribeExecutionEvents(callback: EventCallback): void {
@@ -140,7 +138,6 @@ export class Executor {
 
   addFollowUpTask(task: string): void {
     this.tasks.push(task);
-    this.context.messageManager.addNewTask(task);
 
     // need to reset previous action results that are not included in memory
     this.context.actionResults = this.context.actionResults.filter(result => result.includeInMemory);
@@ -168,6 +165,7 @@ export class Executor {
     await this.context.messageManager.loadFromSession();
     await this.context.messageManager.loadWorkingMemory();
     const taskText = this.tasks[this.tasks.length - 1];
+    this.context.messageManager.addTask(taskText);
     setTraceContext({ taskId: this.context.taskId, step: 0 });
 
     // Reset the step counter
@@ -280,13 +278,17 @@ export class Executor {
 
         // Run planner on cadence, completion handoff, or stagnation
         const replanDecision = this.getReplanDecision(step, navigatorDone);
+        // One page-state build per step, shared by the planner and the navigator. It is built lazily, after the
+        // replan decision above has read the previous step's action results.
+        let stepState: Promise<HumanMessage> | null = null;
+        const getStepState = () => (stepState ??= this.buildStepState());
         await this.trace('executor', 'replan.decided', {
           contractId: context.currentContract?.id,
           payload: { ...replanDecision },
         });
         if (this.planner && replanDecision.shouldReplan) {
           navigatorDone = false;
-          latestPlanOutput = await this.runPlanner();
+          latestPlanOutput = await this.runPlanner(getStepState);
           await this.saveCheckpoint(taskText, 'running');
 
           // Check if task is complete after planner run
@@ -296,12 +298,8 @@ export class Executor {
         }
 
         // Execute navigator
-        navigatorDone = await this.navigate();
+        navigatorDone = await this.navigate(getStepState);
         await this.saveCheckpoint(taskText, context.waitingForHuman ? 'waiting_human' : 'running');
-
-        // Compact history at the end of each step
-        context.messageManager.compactHistory();
-        context.messageManager.cutMessages();
 
         // If navigator indicates completion, the next periodic planner run will validate it
         if (navigatorDone) {
@@ -609,17 +607,20 @@ export class Executor {
   /**
    * Helper method to run planner and store its output
    */
-  private async runPlanner(): Promise<AgentOutput<PlannerOutput> | null> {
+  /** The current page state. The previous step's action results are rendered into it once, then cleared. */
+  private async buildStepState(): Promise<HumanMessage> {
+    const state = await this.navigatorPrompt.getUserMessage(this.context);
+    this.context.actionResults = [];
+    return state;
+  }
+
+  private async runPlanner(getState: () => Promise<HumanMessage>): Promise<AgentOutput<PlannerOutput> | null> {
     const context = this.context;
     try {
-      // Add current browser state to memory
-      // The planner needs the page on every run, including the first; without it it plans blind.
-      await this.navigator.addStateMessageToMemory();
-      const positionForPlan = this.context.messageManager.length() - 1;
-
       // Execute planner
       console.log(`\n[Planner] ── invoking LLM ── ${new Date().toISOString()}`);
-      const planOutput = await this.planner.execute();
+      // The planner gets the page on every run, including the first; without it it plans blind.
+      const planOutput = await this.planner.execute(await getState());
       this.lastPlanningStep = this.context.nSteps;
       const currentPage = await this.context.browserContext.getCurrentPage().catch(() => null);
       if (currentPage) {
@@ -643,7 +644,6 @@ export class Executor {
           `  final_answer: ${p.final_answer}\n` +
           `[Planner] ${planDivider}`,
         );
-        this.context.messageManager.addPlan(JSON.stringify(planOutput.result), positionForPlan);
       }
       return planOutput;
     } catch (error) {
@@ -670,7 +670,7 @@ export class Executor {
     }
   }
 
-  private async navigate(): Promise<boolean> {
+  private async navigate(getState: () => Promise<HumanMessage>): Promise<boolean> {
     const context = this.context;
     try {
       // Get and execute navigation action
@@ -679,7 +679,7 @@ export class Executor {
         return false;
       }
       console.log(`\n[Navigator] ── invoking LLM ── step=${context.nSteps + 1}  ${new Date().toISOString()}`);
-      const navOutput = await this.navigator.execute();
+      const navOutput = await this.navigator.execute(await getState());
       // check if the task is paused or stopped
       if (context.paused || context.stopped) {
         return false;
@@ -787,8 +787,8 @@ export class Executor {
 
   async submitHumanResponse(response: string): Promise<void> {
     logger.info(`Submitting human response: ${response}`);
-    const humanMsg = new HumanMessage(`User response: ${response}`);
-    this.context.messageManager.addMessageWithTokens(humanMsg);
+    this.context.messageManager.addHumanAnswer(response);
+    this.context.blockedState = null;
     this.context.waitingForHuman = false;
     this.context.humanQuestion = null;
     // Emit resume event

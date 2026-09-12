@@ -12,7 +12,7 @@ import {
   mergeSuccessiveMessages,
   removeThinkTags,
 } from '../messages/utils';
-import { isBadRequestError, ResponseParseError } from './errors';
+import { isBadRequestError, isRateLimitError, ResponseParseError } from './errors';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CallOptions = Record<string, any>;
@@ -98,7 +98,7 @@ export abstract class BaseAgent<M = unknown> {
     }
   }
 
-  abstract execute(): Promise<AgentOutput<M>>;
+  abstract execute(state: HumanMessage): Promise<AgentOutput<M>>;
 }
 
 // ── Provider-neutral LLM calls ───────────────────────────────────────────────
@@ -106,6 +106,8 @@ export abstract class BaseAgent<M = unknown> {
 // response_metadata), so it behaves the same for every chat model adapter.
 
 export const LLM_CALL_TIMEOUT_MS = 60_000;
+/** Extra waits after a rate-limited call: adapters retry 429s for only a few seconds, and shared quotas need longer. */
+export const RATE_LIMIT_DELAYS_MS = [5_000, 15_000, 30_000];
 const DEFAULT_MAX_REASKS = 2;
 
 export interface ToolCallRequest {
@@ -129,6 +131,8 @@ export interface InvokeLLMOptions {
   callOptions?: CallOptions;
   timeoutMs?: number;
   onUsage?: (usage: LLMUsage) => void;
+  /** Waits before each retry of a rate-limited call; defaults to RATE_LIMIT_DELAYS_MS. */
+  rateLimitDelaysMs?: number[];
 }
 
 export interface InvokeToolsOptions extends InvokeLLMOptions {
@@ -252,8 +256,49 @@ function asPlainTranscript(messages: BaseMessage[]): BaseMessage[] {
   return mergeSuccessiveMessages(mergeSuccessiveMessages(plain, HumanMessage), AIMessage);
 }
 
-/** The single path for every LLM request: timeout, abort, trace record and usage accounting. */
+function waitUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('Aborted'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(new Error('Aborted'));
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/** The single path for every LLM request: timeout, abort, rate-limit backoff, trace record and usage accounting. */
 export async function invokeLLM(
+  model: InvokableModel,
+  messages: BaseMessage[],
+  options: InvokeLLMOptions,
+): Promise<AIMessage> {
+  const delays = options.rateLimitDelaysMs ?? RATE_LIMIT_DELAYS_MS;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await invokeOnce(model, messages, options);
+    } catch (error) {
+      if (attempt >= delays.length || options.signal?.aborted || !isRateLimitError(error)) throw error;
+      record({
+        level: 'warning',
+        kind: 'llm',
+        component: options.component,
+        msg: `rate limited; retrying in ${delays[attempt] / 1000}s`,
+        data: { model: options.model, attempt: attempt + 1 },
+      });
+      await waitUnlessAborted(delays[attempt], options.signal);
+    }
+  }
+}
+
+async function invokeOnce(
   model: InvokableModel,
   messages: BaseMessage[],
   options: InvokeLLMOptions,
@@ -385,7 +430,9 @@ export async function invokeTools(
       data: { attempt, issues: Object.fromEntries(problems), calls, text: message.text?.slice(0, 500) },
     });
     const ids = [...calls.map(call => call.id), ...parseErrors.map(error => error.id)];
-    const canPair = options.native && (message.tool_calls ?? []).every(call => !!call.id);
+    // ToolMessage feedback only for a single call: adapters pair parallel results inconsistently, and a result
+    // for an invalid_tool_call has no call to answer (OpenAI rejects it).
+    const canPair = options.native && parseErrors.length === 0 && calls.length === 1 && !!message.tool_calls?.[0]?.id;
     messages = canPair
       ? [
           ...base,

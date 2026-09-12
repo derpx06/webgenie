@@ -198,7 +198,7 @@ export class ContentHandler extends BaseHandler {
     const page = await this.context.browserContext.getCurrentPage();
     try {
       const content = await page.getCompletePageContent();
-      const maxContentChars = 20000;
+      const maxContentChars = 12000;
       const boundedContent = content.length > maxContentChars
         ? `${content.slice(0, maxContentChars)}\n[page content truncated; use a narrower extraction or search action for the remaining content]`
         : content;

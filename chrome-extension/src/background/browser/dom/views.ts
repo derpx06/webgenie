@@ -73,6 +73,11 @@ export class DOMTextNode extends DOMBaseNode {
 }
 
 export class DOMElementNode extends DOMBaseNode {
+  /** Short label for logs and error messages, e.g. `[3]<select>`. */
+  toString(): string {
+    return `[${this.highlightIndex ?? '?'}]<${this.tagName}>`;
+  }
+
   tagName: string | null;
   /**
    * xpath: the xpath of the element from the last root node (shadow root or iframe OR document if no shadow root or iframe).

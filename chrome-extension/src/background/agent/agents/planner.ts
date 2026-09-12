@@ -35,21 +35,11 @@ export class PlannerAgent extends BaseAgent<PlannerOutput> {
     super(options, { ...extraOptions, id: 'planner' });
   }
 
-  async execute(): Promise<AgentOutput<PlannerOutput>> {
+  async execute(state: HumanMessage): Promise<AgentOutput<PlannerOutput>> {
     try {
       this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_START, 'Planning...');
 
-      // Extract current page state message from MessageManager (last added message)
-      const allMsgs = this.context.messageManager.getMessages();
-      const currentStateMsg = allMsgs[allMsgs.length - 1] as HumanMessage;
-
-      // Build structured context packet
-      const contextPacket = ContextBuilder.buildContextPacket(
-        this.context,
-        this.prompt.getSystemMessage(),
-        currentStateMsg,
-        'planner',
-      );
+      const contextPacket = ContextBuilder.buildContextPacket(this.context, this.prompt.getSystemMessage(), state, 'planner');
 
       const plannerMessages = preparePlannerMessages(
         contextPacket,

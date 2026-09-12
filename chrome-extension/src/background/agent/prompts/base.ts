@@ -8,9 +8,14 @@ import { ensureBrowserObservation, fingerprintFailureKey } from '../validation/o
 const logger = createLogger('BasePrompt');
 
 const MAX_INTERACTIVE_ELEMENTS_CHARS = 26000;
-const MAX_TARGET_FINGERPRINT_CHARS = 12000;
 const MAX_ACTION_RESULTS_CHARS = 16000;
 const MAX_REFLECTION_CHARS = 6000;
+const MAX_RESULT_CHARS = 12000;
+const MAX_OTHER_TABS = 10;
+
+function clip(value: string | undefined, maxChars: number): string {
+  return value && value.length > maxChars ? `${value.slice(0, maxChars)}…` : (value ?? '');
+}
 
 export function capPromptSection(text: string, maxChars: number, label: string): string {
   if (text.length <= maxChars) return text;
@@ -128,13 +133,6 @@ abstract class BasePrompt {
     }
 
     const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
-    const observationTargetsText = capPromptSection(
-      observation.targets
-        .map(target => `[${target.index}] obs=${observation.id} backend=${target.backendNodeId ?? '-'} role=${target.role ?? '-'} name=${target.accessibleName ?? '-'} xpath=${target.xpath ?? '-'}`)
-        .join('\n'),
-      MAX_TARGET_FINGERPRINT_CHARS,
-      'target fingerprints',
-    );
 
     // ── DOM SNAPSHOT LOGGING ──────────────────────────────────────────────────
     // When the "Log DOM Snapshot" developer option is enabled, dump the full
@@ -203,14 +201,14 @@ abstract class BasePrompt {
     }
 
     const timeStr = new Date().toISOString().slice(0, 16).replace('T', ' '); // Format: YYYY-MM-DD HH:mm
-    stepInfoDescription += `Current date and time: ${timeStr}`;
+    stepInfoDescription += `${stepInfoDescription ? '\n' : ''}Current date and time: ${timeStr}`;
 
     let actionResultsDescription = '';
     if (context.actionResults.length > 0) {
       for (let i = 0; i < context.actionResults.length; i++) {
         const result = context.actionResults[i];
         if (result.extractedContent) {
-          actionResultsDescription += `\nAction result ${i + 1}/${context.actionResults.length}: ${capPromptSection(result.extractedContent, 6000, 'action result')}`;
+          actionResultsDescription += `\nAction result ${i + 1}/${context.actionResults.length}: ${capPromptSection(result.extractedContent, MAX_RESULT_CHARS, 'action result')}`;
         }
         if (result.error) {
           // only use last line of error
@@ -232,22 +230,13 @@ abstract class BasePrompt {
     actionResultsDescription = capPromptSection(actionResultsDescription, MAX_ACTION_RESULTS_CHARS, 'action results');
 
     const currentTab = `{id: ${browserState.tabId}, url: ${browserState.url}, title: ${browserState.title}}`;
-    const otherTabs = browserState.tabs
-      .filter(tab => tab.id !== browserState.tabId)
-      .map(tab => `- {id: ${tab.id}, url: ${tab.url}, title: ${tab.title}}`);
+    const allOtherTabs = browserState.tabs.filter(tab => tab.id !== browserState.tabId);
+    const otherTabs = allOtherTabs
+      .slice(0, MAX_OTHER_TABS)
+      .map(tab => `- {id: ${tab.id}, url: ${clip(tab.url, 120)}, title: ${clip(tab.title, 80)}}`);
+    if (allOtherTabs.length > MAX_OTHER_TABS) otherTabs.push(`- ...and ${allOtherTabs.length - MAX_OTHER_TABS} more tabs`);
 
-    // ── SELF-REFLECTION + MEMORY INJECTION ───────────────────────────────────
-    // Injection order (priority high → low):
-    //   1. [Domain Intelligence] — orient fast on known sites
-    //   2. [Previous goal evaluation] — self-grade of last action
-    //   3. [Agent memory] — durable working scratchpad (never compacted)
-    //   4. [Past Sessions] — intent-matched proven routes
-    //   5. [Selector Memory] — 💡 FAST PATH verified selectors
-    //
-    // The working memory is read from the MessageManager's durable scratchpad
-    // (separate session-storage key, survives service worker restarts) rather
-    // than context.lastMemory which is only set when the LLM explicitly outputs it.
-    // Research ref: browser_agent_research_pt2.md §Working Memory, A-MEM §3.2.
+    // Notes shown above the page: domain briefing, the navigator's memory, past sessions, selector hints.
     let reflectionPrefix = '';
     if (domainPrime) {
       reflectionPrefix += domainPrime;
@@ -267,22 +256,14 @@ abstract class BasePrompt {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    const stateDescription = `
-${reflectionPrefix}[Task history memory ends]
-[Current state starts here]
-The following is one-time information - if you need to remember it write it to memory:
+    const stateDescription = `${reflectionPrefix}[Current browser state]
 Current tab: ${currentTab}
-Current browser observation id: ${observation.id}
-For indexed actions, include this observationId. If you are uncertain whether the page changed, observe again before acting.
-Other available tabs:
-  ${otherTabs.join('\n')}
-Interactive elements from the current page (with offscreen markers for out-of-viewport elements):
+Other open tabs:
+${otherTabs.join('\n') || '(none)'}
+Interactive elements of the current page (offscreen elements are marked):
 ${formattedElementsText}
-Compact target fingerprints for indexed actions:
-${observationTargetsText || '(none)'}
 ${stepInfoDescription}
-${actionResultsDescription}
-`;
+${actionResultsDescription ? `Results of your last actions:${actionResultsDescription}` : ''}`.trim();
 
     if (browserState.screenshot && context.options.useVision) {
       return new HumanMessage({

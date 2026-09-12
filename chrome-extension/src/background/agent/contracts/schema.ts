@@ -66,7 +66,7 @@ export const plannerLLMOutputSchema = z.object({
   allowed_actions: z
     .array(z.string())
     .optional()
-    .describe('Optional: names of the actions the navigator should use for this phase'),
+    .describe('Optional: action names the navigator needs for this phase beyond the usual ones for the macro_objective'),
   success_condition: z
     .string()
     .optional()

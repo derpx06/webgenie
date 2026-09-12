@@ -82,7 +82,6 @@ export class AgentContext {
   nSteps: number;
   stepInfo: AgentStepInfo | null;
   actionResults: ActionResult[];
-  stateMessageAdded: boolean;
   history: AgentStepHistory;
   finalAnswer: string | null;
   waitingForHuman: boolean;
@@ -170,7 +169,6 @@ export class AgentContext {
     this.consecutiveFailures = 0;
     this.stepInfo = null;
     this.actionResults = [];
-    this.stateMessageAdded = false;
     this.history = new AgentStepHistory();
     this.finalAnswer = null;
     this.waitingForHuman = false;

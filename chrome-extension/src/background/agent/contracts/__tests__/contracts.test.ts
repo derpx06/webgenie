@@ -85,6 +85,7 @@ function contextStub() {
   const messageManager = {
     cumulativeInputTokens: 0,
     cumulativeOutputTokens: 0,
+    getTranscript: () => [],
   };
   const eventManager = {
     subscribe: () => undefined,
@@ -94,7 +95,7 @@ function contextStub() {
   return new AgentContext(
     'task-1',
     {} as BrowserContext,
-    messageManager as MessageManager,
+    messageManager as unknown as MessageManager,
     eventManager as unknown as EventManager,
     {},
   );
@@ -126,7 +127,7 @@ describe('P1 contracts', () => {
     expect(normalized.expectedObservation.observationId).toBe(observation().id);
   });
 
-  it('builds a next-step contract from compact planner output', () => {
+  it('builds a next-step contract whose actions are the macro set widened by the planner request', () => {
     const obs = observation();
     const cleaned = normalizePlannerOutputContract({
       done: false,
@@ -141,10 +142,10 @@ describe('P1 contracts', () => {
       mode: 'multi_step_task',
       goal: 'open example',
       macroObjective: 'NAVIGATE',
-      allowedActions: ['go_to_url'],
       successCondition: 'URL is open',
       expectedObservation: { observationId: obs.id },
     });
+    expect(cleaned.next_step_contract?.allowedActions).toEqual(expect.arrayContaining(['go_to_url', 'click_element', 'input_text']));
     expect(cleaned.next_step_contract?.id).toMatch(/^contract_/);
   });
 
@@ -289,15 +290,18 @@ describe('P1 context budget and routing', () => {
       createdAt: 1000,
     }];
 
-    const [system] = ContextBuilder.buildContextPacket(
+    const packet = ContextBuilder.buildContextPacket(
       ctx,
       new SystemMessage('system'),
       new HumanMessage('browser state'),
     );
+    const finalMessage = String(packet[packet.length - 1].content);
 
-    expect(String(system.content)).toContain('<current_contract>');
-    expect(String(system.content)).toContain('<validated_progress>');
-    expect(String(system.content)).toContain('URL changed');
+    expect(packet[0].content).toBe('system');
+    expect(finalMessage).toContain('[CURRENT PLAN]');
+    expect(finalMessage).toContain('[VALIDATED PROGRESS]');
+    expect(finalMessage).toContain('URL changed');
+    expect(finalMessage.endsWith('browser state')).toBe(true);
   });
 
   it('reports token budget sections for planner and navigator calls', () => {

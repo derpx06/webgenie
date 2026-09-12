@@ -1663,12 +1663,14 @@ export default class Page {
       if (element.backendNodeId != null) {
         try {
           logger.info(`Locating element via backendNodeId: ${element.backendNodeId}`);
-          const adopted = await (currentFrame as any).mainRealm().adoptBackendNode(element.backendNodeId);
+          // mainRealm() is a Frame method; elements of the top-level document go through the page's main frame.
+          const frame: Frame = 'mainFrame' in currentFrame ? currentFrame.mainFrame() : currentFrame;
+          const adopted = await frame.mainRealm().adoptBackendNode(element.backendNodeId);
           if (adopted) {
-            elementHandle = adopted;
+            elementHandle = adopted as unknown as ElementHandle;
           }
         } catch (err) {
-          logger.debug(`Failed to adopt backendNodeId ${element.backendNodeId}:`, err);
+          logger.warning(`Failed to adopt backendNodeId ${element.backendNodeId}:`, err);
         }
       }
 

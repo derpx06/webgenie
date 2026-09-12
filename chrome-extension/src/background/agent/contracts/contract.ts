@@ -14,8 +14,21 @@ function stringField(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value : fallback;
 }
 
-/** Actions the navigator may use whatever the current contract allows. */
-export const ALWAYS_ALLOWED_ACTIONS = ['done', 'ask_human', 'wait', 'go_back'];
+/** Actions the navigator may use whatever the current contract allows: finishing, asking, waiting and read-only observation. */
+export const ALWAYS_ALLOWED_ACTIONS = [
+  'done',
+  'ask_human',
+  'wait',
+  'go_back',
+  'get_complete_page_content',
+  'get_dropdown_options',
+  'scroll_to_text',
+  'scroll_to_top',
+  'scroll_to_bottom',
+  'scroll_to_percent',
+  'next_page',
+  'previous_page',
+];
 
 const ALLOWED_ACTIONS_BY_MACRO_OBJECTIVE: Record<MacroObjective, string[]> = {
   NAVIGATE: ['go_to_url', 'search_google', 'search_web', 'open_tab', 'switch_tab', 'click_element', 'wait', 'done'],
@@ -78,11 +91,9 @@ const ALLOWED_ACTIONS_BY_MACRO_OBJECTIVE: Record<MacroObjective, string[]> = {
   ASK_HUMAN: ['ask_human', 'wait', 'done'],
 };
 
-function filterAllowedActions(macroObjective: MacroObjective, requested: string[]): string[] {
-  const allowedForMacro = ALLOWED_ACTIONS_BY_MACRO_OBJECTIVE[macroObjective];
-  const requestedAllowed = requested.filter(action => allowedForMacro.includes(action));
-  if (requestedAllowed.length > 0) return [...new Set(requestedAllowed)];
-  return allowedForMacro;
+/** The macro's actions plus any the planner asked for: the planner's list widens a phase, it never narrows it. */
+function allowedActionsFor(macroObjective: MacroObjective, requested: string[]): string[] {
+  return [...new Set([...ALLOWED_ACTIONS_BY_MACRO_OBJECTIVE[macroObjective], ...requested])];
 }
 
 function contractMode(output: PlannerLLMOutput): PlanningMode {
@@ -103,7 +114,7 @@ export function buildNextStepContractFromPlannerOutput(
     mode,
     goal: stringField(output.next_goal, stringField(context.goal, 'Continue task safely')),
     macroObjective,
-    allowedActions: filterAllowedActions(macroObjective, Array.isArray(output.allowed_actions) ? output.allowed_actions : []),
+    allowedActions: allowedActionsFor(macroObjective, Array.isArray(output.allowed_actions) ? output.allowed_actions : []),
     expectedObservation: {
       observationId: observationId(context.currentObservation),
     },

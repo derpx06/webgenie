@@ -18,11 +18,14 @@ export class MessageMetadata {
   tokens: number;
   message_type: string | null = null;
   level?: PyramidLevel;
+  /** Raw task text on `task` messages, so resuming does not add the same task twice. */
+  task?: string;
 
-  constructor(tokens: number, message_type?: string | null, level?: PyramidLevel) {
+  constructor(tokens: number, message_type?: string | null, level?: PyramidLevel, task?: string) {
     this.tokens = tokens;
     this.message_type = message_type ?? null;
     this.level = level;
+    this.task = task;
   }
 }
 
@@ -61,26 +64,6 @@ export class MessageHistory {
     this.totalTokens += metadata.tokens;
   }
 
-  removeMessage(index = -1): void {
-    if (this.messages.length > 0) {
-      const msg = this.messages.splice(index, 1)[0];
-      this.totalTokens -= msg.metadata.tokens;
-    }
-  }
-
-  /**
-   * Removes the last message from the history if it is a human message.
-   * This is used to remove the state message from the history.
-   */
-  removeLastStateMessage(): void {
-    if (this.messages.length > 0 && this.messages[this.messages.length - 1].metadata.message_type === 'page_state') {
-      const msg = this.messages.pop();
-      if (msg) {
-        this.totalTokens -= msg.metadata.tokens;
-      }
-    }
-  }
-
   /**
    * Get all messages
    */
@@ -93,19 +76,6 @@ export class MessageHistory {
    */
   getTotalTokens(): number {
     return this.totalTokens;
-  }
-
-  /**
-   * Remove oldest non-system message
-   */
-  removeOldestMessage(): void {
-    for (let i = 0; i < this.messages.length; i++) {
-      if (!(this.messages[i].message instanceof SystemMessage)) {
-        const msg = this.messages.splice(i, 1)[0];
-        this.totalTokens -= msg.metadata.tokens;
-        break;
-      }
-    }
   }
 }
 
@@ -127,6 +97,7 @@ export interface SerializedManagedMessage {
     tokens: number;
     message_type: string | null;
     level?: string;
+    task?: string;
   };
 }
 
@@ -162,6 +133,7 @@ export function serializeHistory(history: MessageHistory): SerializedHistoryData
           tokens: m.metadata.tokens,
           message_type: m.metadata.message_type,
           level: m.metadata.level,
+          task: m.metadata.task,
         },
       };
     }),
@@ -229,7 +201,8 @@ export function deserializeHistory(data: unknown): MessageHistory {
       const metadata = new MessageMetadata(
         m.metadata?.tokens || 0,
         m.metadata?.message_type,
-        m.metadata?.level as PyramidLevel | undefined
+        m.metadata?.level as PyramidLevel | undefined,
+        m.metadata?.task,
       );
       return new ManagedMessage(message, metadata);
     });

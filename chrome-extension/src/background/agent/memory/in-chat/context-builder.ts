@@ -1,16 +1,86 @@
-import { SystemMessage } from '@langchain/core/messages';
-import type { HumanMessage, BaseMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, ToolMessage, type BaseMessage, type SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '../../types';
+import type { TranscriptEntry } from '../../messages/service';
 import { ContextBudgetReporter } from '../../contracts';
 
-export class ContextBuilder {
-  private static capCharacters(text: string, maxChars: number): string {
-    if (text.length <= maxChars) return text;
-    return text.slice(0, maxChars) + '... [truncated due to token limit]';
-  }
+/** Navigator tool turns sent as real messages; older turns are summarized as text. */
+const RECENT_TURNS = 5;
+const EARLIER_STEPS_CHARS = 1500;
+const PLANNER_STEPS_CHARS = 4000;
+const STEP_TEXT_CHARS = 200;
 
+interface ToolTurn {
+  kind: 'turn';
+  ai: AIMessage;
+  results: ToolMessage[];
+}
+
+type TranscriptItem = { kind: 'user'; message: BaseMessage } | ToolTurn;
+
+function oneLine(text: string, maxChars: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > maxChars ? `${flat.slice(0, maxChars)}…` : flat;
+}
+
+function isComplete(turn: ToolTurn): boolean {
+  const answered = new Set(turn.results.map(result => result.tool_call_id));
+  const calls = turn.ai.tool_calls ?? [];
+  return calls.length > 0 && calls.length === turn.results.length && calls.every(call => !!call.id && answered.has(call.id));
+}
+
+/** User messages and complete tool turns, in order. Entries from older versions and incomplete turns are skipped. */
+function readTranscript(entries: TranscriptEntry[]): TranscriptItem[] {
+  const items: TranscriptItem[] = [];
+  for (const { message, type } of entries) {
+    if (type === 'task' || type === 'human_answer') {
+      items.push({ kind: 'user', message });
+    } else if (type === 'turn_ai' && message instanceof AIMessage) {
+      items.push({ kind: 'turn', ai: message, results: [] });
+    } else if (type === 'turn_tool' && message instanceof ToolMessage) {
+      const last = items[items.length - 1];
+      if (last?.kind === 'turn') last.results.push(message);
+    }
+  }
+  return items.filter(item => item.kind === 'user' || isComplete(item));
+}
+
+/** One line per tool turn (actions, results, memory); the newest lines are kept within the budget. */
+export function renderTurnsAsText(turns: Array<{ ai: AIMessage; results: ToolMessage[] }>, maxChars: number): string {
+  const lines = turns.map(({ ai, results }) => {
+    const resultById = new Map(
+      results.map(result => [result.tool_call_id, typeof result.content === 'string' ? result.content : JSON.stringify(result.content)]),
+    );
+    let memory = '';
+    const actions = (ai.tool_calls ?? []).map(call => {
+      const args = { ...(call.args as Record<string, unknown>) };
+      if (!memory && typeof args.memory === 'string') memory = args.memory;
+      delete args.memory;
+      return `${call.name} ${JSON.stringify(args)} → ${oneLine(resultById.get(call.id ?? '') ?? '', STEP_TEXT_CHARS)}`;
+    });
+    return `- ${actions.join('; ')}${memory ? ` (memory: ${oneLine(memory, STEP_TEXT_CHARS)})` : ''}`;
+  });
+
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (used + lines[i].length + 1 > maxChars) {
+      kept.unshift(`- ...${i + 1} earlier steps omitted`);
+      break;
+    }
+    kept.unshift(lines[i]);
+    used += lines[i].length + 1;
+  }
+  return kept.join('\n');
+}
+
+function withHeader(state: HumanMessage, header: string): HumanMessage {
+  if (!header) return state;
+  if (typeof state.content === 'string') return new HumanMessage(`${header}\n\n${state.content}`);
+  return new HumanMessage({ content: [{ type: 'text', text: `${header}\n\n` }, ...state.content] });
+}
+
+export class ContextBuilder {
   private static formatLinesWithBudget(lines: string[], maxChars: number): string {
-    if (lines.length === 0) return 'None';
     let result = '';
     for (let i = 0; i < lines.length; i++) {
       const line = `${lines[i]}\n`;
@@ -23,9 +93,49 @@ export class ContextBuilder {
     return result.trim();
   }
 
+  /** Non-empty blocks shown above the browser state. */
+  private static stateSections(context: AgentContext): { sections: string[]; contractBlock: string; validatedBlock: string } {
+    const memory = context.memory;
+    const sections: string[] = [];
+    const addList = (title: string, lines: string[], maxChars: number) => {
+      if (lines.length > 0) sections.push(`[${title}]\n${this.formatLinesWithBudget(lines, maxChars)}`);
+    };
+
+    addList('ACTIVE FACTS', memory.getActiveItemsByType('fact').map(item => `- ${item.content}`), 1050);
+    addList('ACTIVE CONSTRAINTS', memory.getActiveItemsByType('constraint').map(item => `- ${item.content}`), 750);
+    addList('ACTIVE DECISIONS', memory.getActiveItemsByType('decision').map(item => `- ${item.content}`), 750);
+    addList('PINNED MEMORY', memory.getActiveItemsByType('pinned').map(item => `- ${item.content}`), 600);
+    const progress = memory.progressTracker.getProgressString();
+    if (progress !== 'No progress recorded yet.') sections.push(`[PROGRESS STATUS]\n${progress.slice(0, 600)}`);
+    addList('COMPLETED EARLIER TASKS', memory.taskArchive.getRecords().map(record => `- "${record.goal}" → ${record.outcome}`), 900);
+
+    const contract = context.currentContract;
+    const contractBlock = contract
+      ? [
+        '[CURRENT PLAN]',
+        `goal: ${contract.goal}`,
+        `phase: ${contract.macroObjective}`,
+        `allowed actions: ${contract.allowedActions.join(', ') || 'any'}`,
+        `success condition: ${contract.successCondition}`,
+      ].join('\n')
+      : '';
+    if (contractBlock) sections.push(contractBlock);
+
+    const progressLines = (context.validatedProgress ?? []).slice(-12).map(record => `- ${record.status}: ${record.summary}`);
+    const validatedBlock = progressLines.length > 0
+      ? `[VALIDATED PROGRESS]\n${this.formatLinesWithBudget(progressLines, 1000)}`
+      : '';
+    if (validatedBlock) sections.push(validatedBlock);
+
+    if (context.blockedState) sections.push(`[BLOCKED]\n${JSON.stringify(context.blockedState).slice(0, 700)}`);
+    return { sections, contractBlock, validatedBlock };
+  }
+
   /**
-   * Builds the structured context packet for LLM consumption.
-   * Ensures raw history is replaced by structured memory state.
+   * The messages for one model call: the static system prompt, the user's tasks and answers (plus, for the
+   * navigator, its last tool turns), then one message with the context blocks and the current browser state.
+   * The planner gets the steps as text so its packet never contains tool calls.
+   * Stable content comes first so providers can cache the prefix.
    */
   public static buildContextPacket(
     context: AgentContext,
@@ -33,114 +143,27 @@ export class ContextBuilder {
     currentStateMessage: HumanMessage,
     actor: 'planner' | 'navigator' = 'navigator',
   ): BaseMessage[] {
-    const memory = context.memory;
-    const goalManager = memory.goalManager;
-    const progressTracker = memory.progressTracker;
-    const recentActions = memory.recentActions;
+    const items = readTranscript(context.messageManager.getTranscript());
+    const turns = items.filter((item): item is ToolTurn => item.kind === 'turn');
+    const recentTurns = new Set<TranscriptItem>(actor === 'navigator' ? turns.slice(-RECENT_TURNS) : []);
 
-    // 1. Build the goals block (budget ~200 tokens -> 600 chars)
-    const rawGoalsBlock = [
-      `PRIMARY GOAL: ${goalManager.getPrimaryGoal() || 'None'}`,
-      `CURRENT GOAL: ${goalManager.getCurrentGoal() || 'None'}`,
-      `CURRENT SUBGOAL: ${goalManager.getCurrentSubgoal() || 'None'}`,
-      `GOAL REVISION: ${goalManager.getGoalRevision()}`,
-    ].join('\n');
-    const goalsBlock = this.capCharacters(rawGoalsBlock, 600);
+    const transcript: BaseMessage[] = [];
+    for (const item of items) {
+      if (item.kind === 'user') transcript.push(item.message);
+      else if (recentTurns.has(item)) transcript.push(item.ai, ...item.results);
+    }
 
-    // 2. Build the facts block (budget ~350 tokens -> 1050 chars)
-    const activeFacts = memory.getActiveItemsByType('fact').map(f => `- ${f.content}`);
-    const factsBlock = this.formatLinesWithBudget(activeFacts, 1050);
+    const { sections, contractBlock, validatedBlock } = this.stateSections(context);
+    const olderTurns = turns.filter(turn => !recentTurns.has(turn));
+    if (olderTurns.length > 0) {
+      sections.push(
+        actor === 'planner'
+          ? `[Steps so far, oldest first]\n${renderTurnsAsText(olderTurns, PLANNER_STEPS_CHARS)}`
+          : `[Earlier steps]\n${renderTurnsAsText(olderTurns, EARLIER_STEPS_CHARS)}`,
+      );
+    }
+    const header = sections.join('\n\n');
 
-    // 3. Build the constraints block (budget ~250 tokens -> 750 chars)
-    const activeConstraints = memory.getActiveItemsByType('constraint').map(c => `- ${c.content}`);
-    const constraintsBlock = this.formatLinesWithBudget(activeConstraints, 750);
-
-    // 4. Build the decisions block (budget ~250 tokens -> 750 chars)
-    const activeDecisions = memory.getActiveItemsByType('decision').map(d => `- ${d.content}`);
-    const decisionsBlock = this.formatLinesWithBudget(activeDecisions, 750);
-
-    // 5. Build the progress block (budget ~200 tokens -> 600 chars)
-    const progressBlock = this.capCharacters(progressTracker.getProgressString(), 600);
-
-    // 6. Build the pinned memory block (budget ~200 tokens -> 600 chars)
-    const activePinned = memory.getActiveItemsByType('pinned').map(p => `- ${p.content}`);
-    const pinnedBlock = this.formatLinesWithBudget(activePinned, 600);
-
-    // 7. Build the recent actions block (budget ~200 tokens -> 600 chars)
-    const actions = recentActions.getActions().map((act, i) => `Step Action ${i + 1}: ${act}`);
-    const actionsBlock = this.formatLinesWithBudget(actions, 600);
-
-    // 8. Build the task archive / references block (budget ~300 tokens -> 900 chars)
-    const records = memory.taskArchive.getRecords().map(r => `- Goal: "${r.goal}" | Outcome: "${r.outcome}" | Summary: ${r.summary}`);
-    const taskArchiveBlock = this.formatLinesWithBudget(records, 900);
-
-    const currentContractBlock = context.currentContract
-      ? this.capCharacters(JSON.stringify({
-        id: context.currentContract.id,
-        mode: context.currentContract.mode,
-        goal: context.currentContract.goal,
-        macroObjective: context.currentContract.macroObjective,
-        allowedActions: context.currentContract.allowedActions,
-        expectedObservation: context.currentContract.expectedObservation,
-        successCondition: context.currentContract.successCondition,
-        failureSignals: context.currentContract.failureSignals,
-        replanTrigger: context.currentContract.replanTrigger,
-      }), 1200)
-      : 'None';
-
-    const validatedProgressBlock = this.formatLinesWithBudget(
-      (context.validatedProgress ?? []).slice(-12).map(record =>
-        `- ${record.status}: ${record.summary} | contract=${record.contractId} observation=${record.observationId ?? 'none'}`
-      ),
-      1000,
-    );
-
-    const blockedStateBlock = context.blockedState
-      ? this.capCharacters(JSON.stringify(context.blockedState), 700)
-      : 'None';
-
-    // Assemble the structured memory content
-    const memoryStateContent = `
-<structured_memory>
-[GOAL HIERARCHY]
-${goalsBlock}
-
-[ACTIVE FACTS]
-${factsBlock}
-
-[ACTIVE CONSTRAINTS]
-${constraintsBlock}
-
-[ACTIVE DECISIONS]
-${decisionsBlock}
-
-[PROGRESS STATUS]
-${progressBlock}
-
-[PINNED SENSITIVE MEMORY]
-${pinnedBlock}
-
-[RECENT EXECUTION HISTORY]
-${actionsBlock}
-
-[COMPLETED TASK REFERENCES]
-${taskArchiveBlock}
-</structured_memory>
-
-<current_contract>
-${currentContractBlock}
-</current_contract>
-
-<validated_progress>
-${validatedProgressBlock}
-</validated_progress>
-
-<blocked_state>
-${blockedStateBlock}
-</blocked_state>
-`.trim();
-
-    const combinedSystemContent = `${systemMessage.content}\n\n${memoryStateContent}`;
     const stateContent = typeof currentStateMessage.content === 'string'
       ? currentStateMessage.content
       : JSON.stringify(currentStateMessage.content);
@@ -152,24 +175,15 @@ ${blockedStateBlock}
       outputTokens: 0,
       sections: {
         systemPrompt: String(systemMessage.content ?? ''),
-        structuredMemory: memoryStateContent,
-        currentContract: currentContractBlock,
-        validatedProgress: validatedProgressBlock,
+        structuredMemory: header,
+        currentContract: contractBlock,
+        validatedProgress: validatedBlock,
         compactBrowserState: stateContent,
         interactiveElements: stateContent.match(/Interactive elements[\s\S]*/i)?.[0] ?? stateContent,
         screenshots: stateContent.includes('image_url') ? '[vision payload]' : '',
       },
     }));
-    const mergedSystemMessage = new SystemMessage({
-      content: combinedSystemContent
-    });
 
-    // We build the final message pack:
-    // - Merged System Message (instructions + memory state)
-    // - Current Browser State (Interactive elements, screenshot, URL)
-    return [
-      mergedSystemMessage,
-      currentStateMessage
-    ];
+    return [systemMessage, ...transcript, withHeader(currentStateMessage, header)];
   }
 }

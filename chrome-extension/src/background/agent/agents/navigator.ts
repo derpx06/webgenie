@@ -7,9 +7,8 @@ import { calcBranchPathHashSet } from '@src/background/browser/dom/views';
 import { BrowserStateHistory, URLNotAllowedError, type BrowserState } from '@src/background/browser/views';
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
-import { HumanMessage } from '@langchain/core/messages';
+import type { HumanMessage } from '@langchain/core/messages';
 import { WebGenieMemoryStore, ContextRouter, ContextBuilder } from '../memory';
-import { PyramidLevel } from '@src/background/agent/messages/views';
 
 import { NavigatorActionRegistry } from './navigator/registry';
 export { NavigatorActionRegistry };
@@ -56,7 +55,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     this.historyReplayer = new HistoryReplayer(this.context, actionRegistry, this.doMultiAction.bind(this));
   }
 
-  async execute(): Promise<AgentOutput<NavigatorResult>> {
+  async execute(state: HumanMessage): Promise<AgentOutput<NavigatorResult>> {
     const agentOutput: AgentOutput<NavigatorResult> = { id: this.id };
     const cancelled = false;
     let browserStateHistory: BrowserStateHistory | null = null;
@@ -66,23 +65,15 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     try {
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_START, 'Navigating...');
 
-      await this.prepareExecution();
       const currentState = await this.context.browserContext.getCachedState();
       browserStateHistory = new BrowserStateHistory(currentState);
+      if (currentState.screenshot) {
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.SIGHT_UPDATE, 'Sight updated', currentState.screenshot);
+      }
 
       if (this.isTaskInterrupted()) return agentOutput;
 
-      // Extract current page state message from MessageManager (last added message)
-      const allMsgs = this.context.messageManager.getMessages();
-      const currentStateMsg = allMsgs[allMsgs.length - 1] as HumanMessage;
-
-      // Build structured context packet
-      const contextPacket = ContextBuilder.buildContextPacket(
-        this.context,
-        this.prompt.getSystemMessage(),
-        currentStateMsg,
-        'navigator',
-      );
+      const contextPacket = ContextBuilder.buildContextPacket(this.context, this.prompt.getSystemMessage(), state, 'navigator');
 
       const contractActions = this.context.currentContract?.allowedActions ?? [];
       const { calls } = await this.invokeWithTools(
@@ -110,19 +101,10 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         void this.context.messageManager.setWorkingMemory(memory);
       }
 
-      this.removeLastStateMessageFromMemory();
-      this.context.messageManager.addModelOutput(modelOutput);
-
       actionResults = await this.doMultiAction(actions);
       this.context.actionResults = actionResults;
-
-      // Push actions to RecentActionBuffer
-      for (const act of actions) {
-        const entries = Object.entries(act).filter(([, value]) => value !== null && value !== undefined);
-        const name = entries.map(([key]) => key).join('|') || 'invalid_action';
-        const args = JSON.stringify(Object.fromEntries(entries));
-        this.context.memory.recentActions.pushAction(`${name} ${args}`);
-      }
+      // Calls beyond maxActionsPerStep or after a stopping result are recorded as not executed.
+      this.context.messageManager.addToolTurn(calls, actionResults);
 
       if (this.isTaskInterrupted()) return agentOutput;
 
@@ -142,51 +124,11 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     }
   }
 
-  private async prepareExecution() {
-    await this.addStateMessageToMemory();
-    const currentState = await this.context.browserContext.getCachedState();
-    if (currentState.screenshot) {
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.SIGHT_UPDATE, 'Sight updated', currentState.screenshot);
-    }
-
-    // Fast-Path Selection: Check memory store for learned selectors
-    try {
-      const currentUrl = currentState.url;
-      if (currentUrl && this.context.lastGoal) {
-        const domain = new URL(currentUrl).hostname;
-        const pagePath = ContextRouter.getPagePath(currentUrl);
-        const layoutHash = this.context.activeLayoutHash;
-        
-        if (domain && pagePath && layoutHash) {
-          const learnedSelectors = await WebGenieMemoryStore.recallSelectors(
-            domain, pagePath, layoutHash
-          );
-          
-          if (learnedSelectors && learnedSelectors.length > 0) {
-            const learnedSelector = learnedSelectors.find(s => s.intentKey === this.context.lastGoal?.toLowerCase().trim()) || learnedSelectors[0];
-
-            if (learnedSelector) {
-              this.context.messageManager.addMessageWithTokens(
-                new HumanMessage(`[Fast-Path] Found proven selector for this goal: ${learnedSelector.selector} (xpath: ${learnedSelector.xpath}). Use this directly instead of exploring.`),
-                PyramidLevel.TRACE,
-                'fast_path_hint'
-              );
-              logger.info(`Injected Fast-Path hint for intent="${this.context.lastGoal}"`);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      logger.error('Failed to inject Fast-Path hint:', e);
-    }
-  }
-
   private isTaskInterrupted(): boolean {
     return this.context.paused || this.context.stopped;
   }
 
   private handleExecutionError(error: unknown, output: AgentOutput<NavigatorResult>): AgentOutput<NavigatorResult> {
-    this.removeLastStateMessageFromMemory();
     try {
       handleAgentError(error, 'Navigation failed');
     } catch (e) {
@@ -202,7 +144,6 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
   private finalizeExecution(cancelled: boolean, history: BrowserStateHistory | null, results: ActionResult[], outputStr: string | null) {
     if (this.isTaskInterrupted()) {
-      this.removeLastStateMessageFromMemory();
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_CANCEL, 'Navigation cancelled');
     }
 
@@ -210,45 +151,6 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
       const resultsCopy = results.map(r => new ActionResult({ ...r }));
       this.context.history.history.push(new AgentStepRecord(outputStr, resultsCopy, history));
     }
-  }
-
-  public async addStateMessageToMemory() {
-    if (this.context.stateMessageAdded) return;
-
-    // Process pending action results
-    this.context.actionResults.forEach((r) => {
-      if (!r.includeInMemory) return;
-
-      if (r.extractedContent) {
-        this.context.messageManager.addMessageWithTokens(
-          new HumanMessage(`Action result: ${r.extractedContent}`),
-          PyramidLevel.TRACE,
-          'action_result'
-        );
-      }
-      if (r.error) {
-        const lastLine = r.error.toString().split('\n').pop() || '';
-        this.context.messageManager.addMessageWithTokens(
-          new HumanMessage(`Action error: ${lastLine}`),
-          PyramidLevel.TRACE,
-          'action_error'
-        );
-      }
-    });
-
-    const state = await this.prompt.getUserMessage(this.context);
-    this.context.messageManager.addStateMessage(state);
-    this.context.stateMessageAdded = true;
-    // Results are now represented in the state prompt and trace memory. Keep
-    // the context clean so the same native capability output is not injected
-    // again after the state message is removed on the next step.
-    this.context.actionResults = [];
-  }
-
-  protected async removeLastStateMessageFromMemory() {
-    if (!this.context.stateMessageAdded) return;
-    this.context.messageManager.removeLastStateMessage();
-    this.context.stateMessageAdded = false;
   }
 
   public async executePreplannedActions(actions: Record<string, unknown>[]): Promise<ActionResult[]> {

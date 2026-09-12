@@ -1,6 +1,5 @@
 import { GoalManager } from './goal-manager';
 import { ProgressTracker } from './progress-tracker';
-import { RecentActionBuffer } from './recent-actions';
 import { TaskArchive } from './task-archive';
 import { ConversationTimeline, type TimelineEventType } from './conversation-timeline';
 import type { MemoryItem } from './types';
@@ -67,7 +66,6 @@ export function jaroWinklerSimilarity(s1: string, s2: string): number {
 export class InChatMemory {
   public goalManager: GoalManager;
   public progressTracker: ProgressTracker;
-  public recentActions: RecentActionBuffer;
   public taskArchive: TaskArchive;
   public timeline: ConversationTimeline;
   public failureRegistry: Map<string, FailureRecord>;
@@ -76,7 +74,6 @@ export class InChatMemory {
   constructor(primaryGoal = '') {
     this.goalManager = new GoalManager(primaryGoal);
     this.progressTracker = new ProgressTracker();
-    this.recentActions = new RecentActionBuffer(5);
     this.taskArchive = new TaskArchive();
     this.timeline = new ConversationTimeline();
     this.failureRegistry = new Map<string, FailureRecord>();
@@ -297,7 +294,6 @@ export class InChatMemory {
     return {
       goals: this.goalManager.toJSON(),
       progress: this.progressTracker.toJSON(),
-      recentActions: this.recentActions.toJSON(),
       taskArchive: this.taskArchive.toJSON(),
       timeline: this.timeline.toJSON(),
       items: this.items,
@@ -309,7 +305,6 @@ export class InChatMemory {
     if (!data) return;
     if (data.goals) this.goalManager.fromJSON(data.goals);
     if (data.progress) this.progressTracker.fromJSON(data.progress);
-    if (data.recentActions) this.recentActions.fromJSON(data.recentActions);
     if (data.taskArchive) this.taskArchive.fromJSON(data.taskArchive);
     if (data.timeline) this.timeline.fromJSON(data.timeline);
     if (Array.isArray(data.failureRegistry)) {
