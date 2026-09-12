@@ -1,488 +1,407 @@
 /**
- * AXTreeExtractor — Native CDP Accessibility Tree DOM Extraction (V2)
+ * Page perception from the accessibility tree, read per frame through puppeteer's CDP sessions.
  *
- * Two-layer perception pipeline:
- *   Layer 1 (Semantic):     Accessibility.getFullAXTree  → role-indexed interactive node list
- *   Layer 2 (Coordinates):  DOM.getBoxModel (parallel)   → bounding boxes for click dispatch only
+ * - Accessibility.getFullAXTree for every frame through that frame's session: same-process frames share the
+ *   page session, cross-site (out-of-process) iframes have their own.
+ * - One DOMSnapshot.captureSnapshot per session gives every node's layout box, real tag name and a few attributes.
+ * - Each child frame's tree is stitched under its owner <iframe> (DOM.getFrameOwner).
  *
- * Properties:
- *   - Fully CSP-proof: zero script injection, operates entirely via chrome.debugger CDP
- *   - Accessibility domain is ALWAYS disabled in a finally block (avoids persistent overhead)
- *   - Bounding boxes fetched in parallel for interactive nodes only (not sent to LLM)
- *   - Falls back to empty DOMState on any unrecoverable error (caller handles fallback)
- *   - Multi-Process OOPIF Stitching: queries targets via chrome.debugger.getTargets,
- *     attaches to iframe targets to retrieve their accessibility subtrees, and stitches them.
- *
- * Integration point:
- *   page.ts → getClickableElements() when domPerceptionMode === 'axtree'
+ * buildDomState and documentLayout are pure so the tree rules are testable without a browser.
  */
-
-import { DOMElementNode, DOMTextNode, type DOMState } from '../dom/views';
-import { type CoordinateSet } from '../dom/history/view';
-import { cdpBridge, type AXNode, type BoxModel } from './cdp-bridge';
-import { createLogger } from '@src/background/log';
-import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
-import { ChromeBrowserAdapter } from '../../adapters/ChromeBrowserAdapter';
+import type { CDPSession } from 'puppeteer-core/lib/esm/puppeteer/api/CDPSession.js';
+import type { Frame } from 'puppeteer-core/lib/esm/puppeteer/api/Frame.js';
 import type { Page as PuppeteerPage } from 'puppeteer-core/lib/esm/puppeteer/api/Page.js';
+import type { CoordinateSet } from '../dom/history/view';
+import { DOMElementNode, DOMTextNode, type DOMState } from '../dom/views';
+import { createLogger } from '@src/background/log';
 
 const logger = createLogger('AXTreeExtractor');
 
-// ── Interactive role sets ─────────────────────────────────────────────────────
+const FRAME_TIMEOUT_MS = 3000;
 
-/**
- * ARIA roles that represent actionable UI elements.
- * Only these receive a highlightIndex and appear in the selectorMap.
- */
-const INTERACTIVE_ROLES = new Set([
-  'button', 'link', 'textbox', 'checkbox', 'radio', 'combobox',
-  'menuitem', 'menuitemcheckbox', 'menuitemradio', 'tab', 'listbox',
-  'option', 'spinbutton', 'slider', 'searchbox', 'switch', 'treeitem',
-  'gridcell', 'columnheader', 'rowheader', 'scrollbar',
-]);
+export interface AXValue {
+  type?: string;
+  value?: unknown;
+}
 
-interface RawBoxModel {
-  content: number[];
-  padding: number[];
-  border: number[];
-  margin: number[];
+export interface AXNode {
+  nodeId: string;
+  ignored?: boolean;
+  role?: AXValue;
+  name?: AXValue;
+  description?: AXValue;
+  value?: AXValue;
+  properties?: Array<{ name: string; value?: AXValue }>;
+  childIds?: string[];
+  parentId?: string;
+  backendDOMNodeId?: number;
+}
+
+export interface NodeLayout {
+  tagName: string;
+  attributes: Record<string, string>;
+  x: number;
+  y: number;
   width: number;
   height: number;
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+/** Layout of one document, in that document's coordinates. */
+export interface DocumentLayout {
+  scrollX: number;
+  scrollY: number;
+  nodes: Map<number, NodeLayout>;
+}
 
-/**
- * Extract page DOMState using the CDP Accessibility tree as the primary source.
- *
- * The returned DOMState:
- *  - selectorMap  → only interactive nodes, each with a numeric highlightIndex
- *  - elementTree  → full semantic tree (for context/text serialization)
- *  - Interactive nodes have pageCoordinates enriched from bounding box resolution.
- *    Coordinate resolution strategy (in priority order):
- *    1. puppeteerPage.evaluate(getBoundingClientRect) — works even when Puppeteer
- *       owns the CDP session (avoids chrome.debugger conflict).
- *    2. DOM.getBoxModel via cdpBridge — fallback when Puppeteer is not attached.
- *    (Coordinates are used by cdpClick in page.ts — NOT sent to the LLM prompt)
- */
-export async function getAXTreeState(
-  tabId: number,
-  viewportWidth = 1280,
-  viewportHeight = 900,
-  browserAdapter?: IBrowserAdapter,
-  puppeteerPage?: PuppeteerPage | null,
-): Promise<DOMState> {
-  logger.info(`[AXTreeExtractor] Starting extraction for tab ${tabId}`);
+export interface FrameTree {
+  key: string;
+  parentKey?: string;
+  /** backendNodeId of the <iframe> element in the parent frame that holds this frame. */
+  hostBackendNodeId?: number;
+  nodes: AXNode[];
+  layout?: DocumentLayout;
+  frame?: Frame;
+}
 
-  if (browserAdapter) {
-    cdpBridge.setBrowserAdapter(browserAdapter);
-  }
-  const activeAdapter = browserAdapter || new ChromeBrowserAdapter();
+export interface SnapshotDocument {
+  frameId: number;
+  nodes: { nodeName?: number[]; backendNodeId?: number[]; attributes?: number[][] };
+  layout: { nodeIndex: number[]; bounds: number[][] };
+  scrollOffsetX?: number;
+  scrollOffsetY?: number;
+}
 
-  // ── Step 1: Fetch the full main Accessibility tree ───────────────────────
-  let axNodes: AXNode[] = [];
-  try {
-    await cdpBridge.send(tabId, 'Accessibility.enable', {}, browserAdapter);
-    const result = await cdpBridge.send<{ nodes: AXNode[] }>(
-      tabId,
-      'Accessibility.getFullAXTree',
-      {},
-      browserAdapter,
-    );
-    axNodes = result.nodes ?? [];
-    logger.debug(`[AXTreeExtractor] Raw main AXTree: ${axNodes.length} nodes`);
-  } finally {
-    try { await cdpBridge.send(tabId, 'Accessibility.disable', {}, browserAdapter); } catch { /* non-fatal */ }
-  }
+const INTERACTIVE_ROLES = new Set([
+  'button',
+  'link',
+  'textbox',
+  'searchbox',
+  'checkbox',
+  'radio',
+  'combobox',
+  'listbox',
+  'option',
+  'menuitem',
+  'menuitemcheckbox',
+  'menuitemradio',
+  'tab',
+  'slider',
+  'spinbutton',
+  'switch',
+  'treeitem',
+  'DisclosureTriangle',
+  'date',
+  'dateTime',
+  'inputTime',
+  'colorWell',
+]);
 
-  if (axNodes.length === 0) {
-    logger.warning('[AXTreeExtractor] Empty main AXTree received');
-    return buildEmptyDOMState();
-  }
+/** Roles that carry nothing for the model: text boxes duplicate their StaticText, markers and scrollbars are chrome. */
+const SKIPPED_ROLES = new Set(['InlineTextBox', 'LineBreak', 'ListMarker', 'scrollbar']);
 
-  // ── Step 2: Discover and query subframes (OOPIFs) ────────────────────────
-  const subframeBoxes = new Map<string, BoxModel>();
-  try {
-    const targets = await activeAdapter.getDebuggerTargets();
+/** Non-interactive roles whose accessible name is not page text. */
+const UNNAMED_ROLES = new Set(['RootWebArea', 'WebArea', 'generic', 'none', 'presentation']);
 
-    const mainTarget = targets.find(t => t.tabId === tabId && t.type === 'page');
-    if (mainTarget) {
-      const childIframeTargets = targets.filter((t: any) => t.parentId === mainTarget.id && t.type === 'iframe');
-      logger.info(`[AXTreeExtractor] Found ${childIframeTargets.length} child iframe targets`);
+/** Properties that stay meaningful when false (a state the model may need to change). */
+const STATE_PROPERTIES = new Set(['checked', 'expanded', 'selected', 'pressed']);
 
-      for (const subTarget of childIframeTargets) {
-        try {
-          await activeAdapter.attachDebugger({ targetId: subTarget.id }, '1.3');
+/** Properties used only to decide interactivity. */
+const INTERNAL_PROPERTIES = new Set(['focusable', 'focused', 'editable', 'settable', 'root', 'hiddenRoot']);
 
-          await activeAdapter.sendDebuggerCommand({ targetId: subTarget.id }, 'Accessibility.enable');
-          const result = await activeAdapter.sendDebuggerCommand({ targetId: subTarget.id }, 'Accessibility.getFullAXTree') as { nodes: AXNode[] };
-          
-          if (result && result.nodes) {
-            logger.info(`[AXTreeExtractor] Fetched ${result.nodes.length} nodes for subframe target ${subTarget.id}`);
-            
-            // Query box models for interactive nodes in the subframe while session is active
-            try {
-              await activeAdapter.sendDebuggerCommand({ targetId: subTarget.id }, 'DOM.enable');
-              for (const node of result.nodes) {
-                if (
-                  !node.ignored &&
-                  node.role &&
-                  INTERACTIVE_ROLES.has(node.role.value) &&
-                  node.backendDOMNodeId != null
-                ) {
-                  try {
-                    const box = await activeAdapter.sendDebuggerCommand(
-                      { targetId: subTarget.id },
-                      'DOM.getBoxModel',
-                      { backendNodeId: node.backendDOMNodeId }
-                    ) as { model: RawBoxModel };
-                    
-                    if (box && box.model && box.model.content) {
-                      const c = box.model.content;
-                      subframeBoxes.set(`${subTarget.id}:${node.nodeId}`, {
-                        x: (c[0] + c[4]) / 2,
-                        y: (c[1] + c[5]) / 2,
-                        width: Math.abs(c[2] - c[0]),
-                        height: Math.abs(c[5] - c[1]),
-                        left: c[0],
-                        top: c[1],
-                      });
-                    }
-                  } catch {
-                    // Ignore node box errors
-                  }
-                }
-              }
-            } finally {
-              try { await activeAdapter.sendDebuggerCommand({ targetId: subTarget.id }, 'DOM.disable'); } catch {}
-            }
+/** DOM attributes the accessibility tree does not expose but the model needs (a password or date field). */
+const SNAPSHOT_ATTRIBUTES = new Set(['type', 'name', 'placeholder']);
 
-            // Prefix IDs to prevent collisions between frames
-            const prefix = `${subTarget.id}:`;
-            for (const node of result.nodes) {
-              node.nodeId = prefix + node.nodeId;
-              if (node.parentId) {
-                node.parentId = prefix + node.parentId;
-              }
-              if (node.childIds) {
-                node.childIds = node.childIds.map(id => prefix + id);
-              }
-            }
+const ROLE_TAGS: Record<string, string> = {
+  button: 'button',
+  link: 'a',
+  textbox: 'input',
+  searchbox: 'input',
+  checkbox: 'input',
+  radio: 'input',
+  slider: 'input',
+  spinbutton: 'input',
+  switch: 'input',
+  option: 'option',
+  menuitem: 'li',
+  menuitemcheckbox: 'li',
+  menuitemradio: 'li',
+  treeitem: 'li',
+  heading: 'h2',
+  paragraph: 'p',
+  image: 'img',
+  img: 'img',
+  list: 'ul',
+  listitem: 'li',
+  table: 'table',
+  row: 'tr',
+  cell: 'td',
+  gridcell: 'td',
+  columnheader: 'th',
+  rowheader: 'th',
+  Iframe: 'iframe',
+  dialog: 'dialog',
+  navigation: 'nav',
+  main: 'main',
+  form: 'form',
+};
 
-            // Stitch subframe root node to main iframe node
-            const subframeRoot = result.nodes.find(n => !n.parentId);
-            if (subframeRoot) {
-              const mainIframeNodes = axNodes.filter(n => n.role?.value?.toLowerCase() === 'iframe');
-              let matchedIframeNode = mainIframeNodes.find(
-                n => n.name?.value?.includes(subTarget.url) || n.description?.value?.includes(subTarget.url)
-              );
-              if (!matchedIframeNode) {
-                const targetIndex = childIframeTargets.indexOf(subTarget);
-                matchedIframeNode = mainIframeNodes[targetIndex] ?? mainIframeNodes[0];
-              }
-
-              if (matchedIframeNode) {
-                subframeRoot.parentId = matchedIframeNode.nodeId;
-                if (!matchedIframeNode.childIds) matchedIframeNode.childIds = [];
-                matchedIframeNode.childIds.push(subframeRoot.nodeId);
-              }
-            }
-
-            axNodes.push(...result.nodes);
-          }
-
-          try {
-            await activeAdapter.sendDebuggerCommand({ targetId: subTarget.id }, 'Accessibility.disable');
-          } catch {}
-          await safeDetach(subTarget.id, activeAdapter);
-        } catch (subframeErr) {
-          logger.warning(`[AXTreeExtractor] Error processing subframe target ${subTarget.id}:`, subframeErr);
-          await safeDetach(subTarget.id, activeAdapter);
-        }
-      }
+/** Maps each backendNodeId with a layout box to its box, tag name and selected attributes. */
+export function documentLayout(doc: SnapshotDocument, strings: string[]): DocumentLayout {
+  const nodes = new Map<number, NodeLayout>();
+  const nodeName = doc.nodes.nodeName ?? [];
+  const backendNodeId = doc.nodes.backendNodeId ?? [];
+  const attributes = doc.nodes.attributes ?? [];
+  doc.layout.nodeIndex.forEach((nodeIndex, i) => {
+    const id = backendNodeId[nodeIndex];
+    const bounds = doc.layout.bounds[i];
+    // A node can own several layout objects (line boxes); the first is its own box.
+    if (id === undefined || !bounds || nodes.has(id)) return;
+    const selected: Record<string, string> = {};
+    const pairs = attributes[nodeIndex] ?? [];
+    for (let j = 0; j + 1 < pairs.length; j += 2) {
+      const name = strings[pairs[j]];
+      if (SNAPSHOT_ATTRIBUTES.has(name)) selected[name] = strings[pairs[j + 1]] ?? '';
     }
-  } catch (discoveryErr) {
-    logger.warning('[AXTreeExtractor] Subframe discovery failed:', discoveryErr);
-  }
-  // ── Step 3: Build DOMElementNode instances (first pass) ─────────────────
-  const selectorMap = new Map<number, DOMElementNode>();
-  let highlightCounter = 0;
-  const domNodeMap = new Map<string, DOMElementNode>();
-
-  for (const axNode of axNodes) {
-    if (axNode.ignored) continue;
-
-    const role = axNode.role?.value ?? 'generic';
-    const name = axNode.name?.value ?? '';
-    const description = axNode.description?.value ?? '';
-    const isDisabled = axNode.disabled?.value === true;
-
-    const attributes: Record<string, string> = {};
-    if (role)        attributes['role']             = role;
-    if (name)        attributes['aria-label']        = name;
-    if (description) attributes['aria-description'] = description;
-    if (isDisabled)  attributes['aria-disabled']    = 'true';
-    if (axNode.value?.value != null) attributes['value'] = String(axNode.value.value);
-
-    for (const prop of axNode.properties ?? []) {
-      if (prop.value?.value != null) {
-        attributes[`aria-${prop.name}`] = String(prop.value.value);
-      }
-    }
-
-    const isInteractive = INTERACTIVE_ROLES.has(role) && !isDisabled;
-    const highlightIndex = isInteractive ? highlightCounter++ : null;
-
-    const domNode = new DOMElementNode({
-      tagName:        axRoleToTagName(role),
-      xpath:          null,
-      attributes,
-      children:       [],
-      isVisible:      true,
-      isInteractive,
-      isTopElement:   !isInteractive,
-      isInViewport:   false,
-      shadowRoot:     false,
-      highlightIndex,
-      parent:         null,
-      backendNodeId:  axNode.backendDOMNodeId ?? undefined,
+    nodes.set(id, {
+      tagName: (strings[nodeName[nodeIndex]] ?? '').toLowerCase(),
+      attributes: selected,
+      x: bounds[0],
+      y: bounds[1],
+      width: bounds[2],
+      height: bounds[3],
     });
+  });
+  return { scrollX: doc.scrollOffsetX ?? 0, scrollY: doc.scrollOffsetY ?? 0, nodes };
+}
 
-    // Accessibility trees carry visible headings, labels, and static copy in
-    // the node name rather than as DOM text children. Preserve that text in
-    // the semantic tree so the model can read page context even when it is not
-    // itself actionable; only interactive roles receive selector indexes.
-    const roleLower = role.toLowerCase();
-    const exposesText = Boolean(name.trim()) && !['webarea', 'rootwebarea', 'generic', 'group', 'none'].includes(roleLower);
-    if (exposesText) {
-      domNode.children.push(new DOMTextNode(name.trim(), true, domNode));
-    }
+function coordinates(x: number, y: number, width: number, height: number): CoordinateSet {
+  return {
+    topLeft: { x, y },
+    topRight: { x: x + width, y },
+    bottomLeft: { x, y: y + height },
+    bottomRight: { x: x + width, y: y + height },
+    center: { x: x + width / 2, y: y + height / 2 },
+    width,
+    height,
+  };
+}
 
-    domNodeMap.set(axNode.nodeId, domNode);
-    if (highlightIndex !== null) selectorMap.set(highlightIndex, domNode);
-  }
+function propertyMap(node: AXNode): Record<string, unknown> {
+  const props: Record<string, unknown> = {};
+  for (const property of node.properties ?? []) props[property.name] = property.value?.value;
+  return props;
+}
 
-  // ── Step 4: Stitch parent-child relationships (second pass) ─────────────
-  let rootNode: DOMElementNode | null = null;
-
-  for (const axNode of axNodes) {
-    if (axNode.ignored) continue;
-    const domNode = domNodeMap.get(axNode.nodeId);
-    if (!domNode) continue;
-
-    if (!axNode.parentId) {
-      if (!rootNode) rootNode = domNode;
+function nodeAttributes(role: string, name: string, node: AXNode, props: Record<string, unknown>, layout?: NodeLayout) {
+  const attributes: Record<string, string> = { ...layout?.attributes };
+  if (role) attributes.role = role;
+  if (name) attributes['aria-label'] = name;
+  const description = String(node.description?.value ?? '').trim();
+  if (description) attributes['aria-description'] = description;
+  if (node.value?.value !== undefined && node.value.value !== null) attributes.value = String(node.value.value);
+  for (const [property, value] of Object.entries(props)) {
+    if (INTERNAL_PROPERTIES.has(property) || value === undefined || value === null || value === '') continue;
+    // Relations (labelledby, controls, ...) point at other nodes; they are not values.
+    if (!['string', 'number', 'boolean'].includes(typeof value)) continue;
+    if (property === 'url') {
+      attributes.href = String(value);
       continue;
     }
-    const parent = domNodeMap.get(axNode.parentId);
-    if (parent) {
-      domNode.parent = parent;
-      parent.children.push(domNode);
-    }
+    if ((value === false || value === 'false') && !STATE_PROPERTIES.has(property)) continue;
+    attributes[`aria-${property.toLowerCase()}`] = String(value);
   }
-
-  if (!rootNode) {
-    logger.warning('[AXTreeExtractor] Could not determine root node');
-    return buildEmptyDOMState();
-  }
-
-  logger.info(
-    `[AXTreeExtractor] Tree built — ${highlightCounter} interactive / ${axNodes.length} total AX nodes`,
-  );
-
-  // ── Step 5: Enrich interactive nodes with bounding boxes ─────────────────
-  await enrichWithBoundingBoxes(tabId, axNodes, domNodeMap, viewportWidth, viewportHeight, subframeBoxes, activeAdapter, puppeteerPage);
-
-  return { elementTree: rootNode, selectorMap };
+  return attributes;
 }
 
-// ── Bounding box enrichment ───────────────────────────────────────────────────
-
-async function enrichWithBoundingBoxes(
-  tabId: number,
-  axNodes: AXNode[],
-  domNodeMap: Map<string, DOMElementNode>,
-  viewportWidth: number,
-  viewportHeight: number,
-  subframeBoxes: Map<string, BoxModel>,
-  browserAdapter: IBrowserAdapter,
-  puppeteerPage?: PuppeteerPage | null,
-): Promise<void> {
-  const mainTargets = axNodes.filter(n => {
-    const parts = n.nodeId.split(':');
-    const isSubframe = parts.length > 1;
-    const dom = domNodeMap.get(n.nodeId);
-    return dom?.isInteractive && n.backendDOMNodeId != null && !isSubframe;
+/**
+ * Builds the element tree and selector map from per-frame accessibility trees.
+ * Ignored nodes create nothing and their children attach to the nearest kept ancestor, so text under
+ * ignored wrappers (html, body, most divs) stays in the tree. Interactive nodes are indexed 0..n-1 in
+ * document order across frames.
+ */
+export function buildDomState(frames: FrameTree[], viewport: { width: number; height: number } | null): DOMState {
+  const elementTree = new DOMElementNode({
+    tagName: 'body',
+    xpath: '',
+    attributes: {},
+    children: [],
+    isVisible: true,
+    isTopElement: true,
   });
+  const selectorMap = new Map<number, DOMElementNode>();
+  const keys = new Set(frames.map(frame => frame.key));
+  const attached = new Set<string>();
 
-  if (mainTargets.length > 0) {
-    logger.debug(`[AXTreeExtractor] Fetching main frame bounding boxes for ${mainTargets.length} nodes`);
-    let resolvedCount = 0;
+  const visitFrame = (tree: FrameTree, parent: DOMElementNode, offset: { x: number; y: number }): void => {
+    attached.add(tree.key);
+    const nodesById = new Map(tree.nodes.map(node => [node.nodeId, node]));
+    const childFrames = frames.filter(frame => frame.parentKey === tree.key && frame.hostBackendNodeId !== undefined);
+    const visited = new Set<string>();
+    const scrollX = tree.layout?.scrollX ?? 0;
+    const scrollY = tree.layout?.scrollY ?? 0;
 
-    try {
-      await cdpBridge.send(tabId, 'DOM.enable', {}, browserAdapter);
-    } catch (err) {
-      logger.warning('[AXTreeExtractor] Failed to enable DOM via cdpBridge:', err);
-    }
+    /** Returns whether the subtree produced any text. */
+    const visit = (node: AXNode, into: DOMElementNode): boolean => {
+      if (visited.has(node.nodeId)) return false;
+      visited.add(node.nodeId);
+      const role = String(node.role?.value ?? '');
+      if (SKIPPED_ROLES.has(role)) return false;
+      const name = String(node.name?.value ?? '').trim();
 
-    try {
-      await Promise.allSettled(
-        mainTargets.map(async axNode => {
-          let rawBox: RawBoxModel | null = null;
-          
-          try {
-            const res = await cdpBridge.send<{ model: RawBoxModel }>(
-              tabId,
-              'DOM.getBoxModel',
-              { backendNodeId: axNode.backendDOMNodeId! },
-              browserAdapter
-            );
-            rawBox = res?.model || null;
-          } catch {
-            // ignore
+      if (role === 'StaticText') {
+        if (!name) return false;
+        into.children.push(new DOMTextNode(name, true, into));
+        return true;
+      }
+
+      const layout = node.backendDOMNodeId !== undefined ? tree.layout?.nodes.get(node.backendDOMNodeId) : undefined;
+      const rect = layout && {
+        x: offset.x + layout.x - scrollX,
+        y: offset.y + layout.y - scrollY,
+        width: layout.width,
+        height: layout.height,
+      };
+
+      const visitChildren = (target: DOMElementNode): boolean => {
+        let text = false;
+        for (const id of node.childIds ?? []) {
+          const child = nodesById.get(id);
+          if (child && visit(child, target)) text = true;
+        }
+        for (const childFrame of childFrames) {
+          if (childFrame.hostBackendNodeId === node.backendDOMNodeId && !attached.has(childFrame.key)) {
+            visitFrame(childFrame, target, rect ? { x: rect.x, y: rect.y } : offset);
+            text = true;
           }
+        }
+        return text;
+      };
 
-          if (!rawBox) return;
+      if (node.ignored) return visitChildren(into);
 
-          const domNode = domNodeMap.get(axNode.nodeId);
-          if (!domNode) return;
+      const props = propertyMap(node);
+      const interactive =
+        INTERACTIVE_ROLES.has(role) ||
+        (Boolean(props.editable) && props.focusable === true) ||
+        (role === 'gridcell' && props.focusable === true);
+      const coords = rect && coordinates(rect.x, rect.y, rect.width, rect.height);
+      const element = new DOMElementNode({
+        tagName: layout?.tagName || ROLE_TAGS[role] || 'div',
+        xpath: null,
+        attributes: nodeAttributes(role, name, node, props, layout),
+        children: [],
+        isVisible: true,
+        isInteractive: interactive,
+        isTopElement: true,
+        // Without a layout box the position is unknown; never mark such an element offscreen.
+        isInViewport:
+          !rect || !viewport ||
+          (rect.x + rect.width > 0 && rect.y + rect.height > 0 && rect.x < viewport.width && rect.y < viewport.height),
+        highlightIndex: interactive ? selectorMap.size : null,
+        viewportCoordinates: coords,
+        pageCoordinates: coords,
+        parent: into,
+        backendNodeId: node.backendDOMNodeId,
+        frame: tree.frame,
+        frameKey: tree.key,
+      });
+      if (interactive) selectorMap.set(selectorMap.size, element);
+      into.children.push(element);
 
-          const c = rawBox.content;
-          const box = {
-            x: (c[0] + c[4]) / 2,
-            y: (c[1] + c[5]) / 2,
-            width: Math.abs(c[2] - c[0]),
-            height: Math.abs(c[5] - c[1]),
-            left: c[0],
-            top: c[1],
-          };
-
-          const coords: CoordinateSet = {
-            topLeft:     { x: box.left,             y: box.top              },
-            topRight:    { x: box.left + box.width, y: box.top              },
-            bottomLeft:  { x: box.left,             y: box.top + box.height },
-            bottomRight: { x: box.left + box.width, y: box.top + box.height },
-            center:      { x: box.x,                y: box.y               },
-            width:       box.width,
-            height:      box.height,
-          };
-
-          domNode.pageCoordinates     = coords;
-          domNode.viewportCoordinates = coords;
-          domNode.isInViewport =
-            box.x >= 0 && box.y >= 0 &&
-            box.x < viewportWidth && box.y < viewportHeight;
-          resolvedCount++;
-        })
-      );
-    } finally {
-      try {
-        await cdpBridge.send(tabId, 'DOM.disable', {}, browserAdapter);
-      } catch {}
-    }
-
-    // Safety-net: if getBoxModel failed for ALL nodes (e.g. CSP or CDP session
-    // restrictions), pageCoordinates will be undefined on every node. The pruner
-    // uses pageCoordinates as the guard for Rule 5, so this is already safe.
-    // But also set isInViewport=true so serialisation marks them correctly.
-    if (resolvedCount === 0) {
-      logger.warning('[AXTreeExtractor] No bounding boxes resolved — assuming all interactive nodes are in-viewport');
-      for (const axNode of mainTargets) {
-        const domNode = domNodeMap.get(axNode.nodeId);
-        if (domNode) domNode.isInViewport = true;
+      const hasText = visitChildren(element);
+      // A named image, region or heading without text children shows its name as text; for interactive
+      // nodes the name stays an attribute.
+      if (!interactive && name && !hasText && !UNNAMED_ROLES.has(role)) {
+        element.children.unshift(new DOMTextNode(name, true, element));
+        return true;
       }
-    } else {
-      logger.debug(`[AXTreeExtractor] Resolved bounding boxes for ${resolvedCount}/${mainTargets.length} nodes`);
-    }
-  }
-
-  // Process subframe bounding boxes relative to parent iframe coordinate offsets
-  const subframeTargets = axNodes.filter(n => {
-    const parts = n.nodeId.split(':');
-    const isSubframe = parts.length > 1;
-    return isSubframe;
-  });
-
-  for (const axNode of subframeTargets) {
-    const box = subframeBoxes.get(axNode.nodeId);
-    if (!box) continue;
-
-    const domNode = domNodeMap.get(axNode.nodeId);
-    if (!domNode) continue;
-
-    let offsetX = 0;
-    let offsetY = 0;
-    let parent = domNode.parent;
-    while (parent) {
-      if (parent.tagName === 'iframe' && parent.pageCoordinates) {
-        offsetX += parent.pageCoordinates.topLeft.x;
-        offsetY += parent.pageCoordinates.topLeft.y;
-      }
-      parent = parent.parent;
-    }
-
-    const absX = offsetX + box.x;
-    const absY = offsetY + box.y;
-    const absLeft = offsetX + box.left;
-    const absTop = offsetY + box.top;
-
-    const coords: CoordinateSet = {
-      topLeft:     { x: absLeft,             y: absTop              },
-      topRight:    { x: absLeft + box.width, y: absTop              },
-      bottomLeft:  { x: absLeft,             y: absTop + box.height },
-      bottomRight: { x: absLeft + box.width, y: absTop + box.height },
-      center:      { x: absX,                y: absY               },
-      width:       box.width,
-      height:      box.height,
+      return hasText;
     };
 
-    domNode.pageCoordinates     = coords;
-    domNode.viewportCoordinates = coords;
-    domNode.isInViewport =
-      absX >= 0 && absY >= 0 &&
-      absX < viewportWidth && absY < viewportHeight;
-  }
-}
-
-// ── Utilities ─────────────────────────────────────────────────────────────────
-
-/**
- * Map an ARIA role to a representative HTML tag name.
- * Populates DOMElementNode.tagName for compatibility with the existing
- * clickableElementsToString() serializer.
- */
-function axRoleToTagName(role: string): string {
-  const map: Record<string, string> = {
-    button: 'button', link: 'a',
-    textbox: 'input', searchbox: 'input', checkbox: 'input',
-    radio: 'input', spinbutton: 'input', slider: 'input', switch: 'input',
-    combobox: 'select', listbox: 'select', option: 'option',
-    menuitem: 'li', menuitemcheckbox: 'li', menuitemradio: 'li',
-    tab: 'button', treeitem: 'li',
-    gridcell: 'td', columnheader: 'th', rowheader: 'th',
-    scrollbar: 'div', heading: 'h2', img: 'img',
-    list: 'ul', listitem: 'li', table: 'table', row: 'tr',
-    paragraph: 'p', generic: 'div', none: 'div', presentation: 'div',
-    iframe: 'iframe', internalFrame: 'iframe',
+    const root = tree.nodes.find(node => !node.parentId || !nodesById.has(node.parentId));
+    if (root) visit(root, parent);
   };
-  return map[role] ?? 'div';
-}
 
-function buildEmptyDOMState(): DOMState {
-  const elementTree = new DOMElementNode({
-    tagName: 'body', xpath: '', attributes: {}, children: [],
-    isVisible: false, isInteractive: false, isTopElement: false,
-    isInViewport: false, highlightIndex: null, shadowRoot: false, parent: null,
-  });
-  return { elementTree, selectorMap: new Map() };
-}
-
-/**
- * Safely detach a debugger target.
- */
-async function safeDetach(targetId: string, browserAdapter: IBrowserAdapter): Promise<void> {
-  try {
-    await browserAdapter.detachDebugger({ targetId });
-  } catch {
-    // Ignore detach errors
+  const main = frames.find(frame => !frame.parentKey || !keys.has(frame.parentKey));
+  if (main) visitFrame(main, elementTree, { x: 0, y: 0 });
+  // Frames whose owner element was not found still belong to the page.
+  for (const frame of frames) {
+    if (!attached.has(frame.key)) visitFrame(frame, elementTree, { x: 0, y: 0 });
   }
+  return { elementTree, selectorMap };
+}
+
+// ponytail: frame.client and frame._id are puppeteer internals (pinned 24.31.0); replace with a public
+// per-frame session API if puppeteer adds one.
+type FrameInternals = { client: CDPSession; _id: string };
+const internals = (frame: Frame) => frame as unknown as FrameInternals;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function readFrame(frame: Frame): Promise<FrameTree | null> {
+  const { client, _id: key } = internals(frame);
+  const parent = frame.parentFrame();
+  try {
+    const [tree, hostBackendNodeId] = await Promise.all([
+      withTimeout(client.send('Accessibility.getFullAXTree', { frameId: key }), FRAME_TIMEOUT_MS),
+      parent
+        ? withTimeout(internals(parent).client.send('DOM.getFrameOwner', { frameId: key }), FRAME_TIMEOUT_MS).then(
+          owner => owner.backendNodeId,
+          () => undefined,
+        )
+        : undefined,
+    ]);
+    return {
+      key,
+      parentKey: parent ? internals(parent)._id : undefined,
+      hostBackendNodeId,
+      nodes: tree.nodes as unknown as AXNode[],
+      frame,
+    };
+  } catch (error) {
+    logger.warning(`Skipping frame ${frame.url()}: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+async function readLayouts(sessions: CDPSession[]): Promise<Map<string, DocumentLayout>> {
+  const layouts = new Map<string, DocumentLayout>();
+  await Promise.all(
+    sessions.map(async client => {
+      try {
+        const snapshot = await withTimeout(client.send('DOMSnapshot.captureSnapshot', { computedStyles: [] }), FRAME_TIMEOUT_MS);
+        for (const doc of snapshot.documents) {
+          layouts.set(snapshot.strings[doc.frameId], documentLayout(doc as unknown as SnapshotDocument, snapshot.strings));
+        }
+      } catch (error) {
+        logger.warning(`Layout snapshot failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }),
+  );
+  return layouts;
+}
+
+/** Reads every attached frame of the page into one DOMState. */
+export async function getAXTreeState(page: PuppeteerPage): Promise<DOMState> {
+  const frames = page.frames().filter(frame => !frame.detached);
+  const mainClient = internals(page.mainFrame()).client;
+  const [trees, layouts, viewport] = await Promise.all([
+    Promise.all(frames.map(readFrame)),
+    readLayouts([...new Set(frames.map(frame => internals(frame).client))]),
+    withTimeout(mainClient.send('Page.getLayoutMetrics'), FRAME_TIMEOUT_MS).then(
+      metrics => ({ width: metrics.cssVisualViewport.clientWidth, height: metrics.cssVisualViewport.clientHeight }),
+      () => null,
+    ),
+  ]);
+  const available = trees.filter((tree): tree is FrameTree => tree !== null);
+  for (const tree of available) tree.layout = layouts.get(tree.key);
+  const state = buildDomState(available, viewport);
+  logger.info(`${state.selectorMap.size} interactive elements from ${available.length}/${frames.length} frames`);
+  return state;
 }

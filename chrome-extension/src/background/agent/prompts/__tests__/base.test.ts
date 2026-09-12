@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SystemMessage, type HumanMessage } from '@langchain/core/messages';
 import { ActionResult, type AgentContext } from '../../types';
 import { DOMElementNode } from '../../../browser/dom/views';
-import { BasePrompt, capPromptSection, scrollViewportPercentage } from '../base';
+import { BasePrompt, capPromptSection, scrollViewportPercentage, windowAroundViewport } from '../base';
 
 class BrowserStatePrompt extends BasePrompt {
   getSystemMessage(): SystemMessage {
@@ -23,6 +23,21 @@ describe('browser prompt budgeting', () => {
     expect(capped).toContain('interactive DOM truncated');
     expect(capped).toContain('head');
     expect(capped).toContain('tail');
+  });
+
+  it('windows a long element list around the first on-screen element', () => {
+    const above = Array.from({ length: 50 }, (_, i) => `[${i}]<a offscreen="true">above ${i} />`);
+    const visible = ['Visible heading', '[50]<button>On screen />'];
+    const below = Array.from({ length: 50 }, (_, i) => `[${51 + i}]<a offscreen="true">below ${i} />`);
+    const text = [...above, ...visible, ...below].join('\n');
+
+    const windowed = windowAroundViewport(text, 600);
+
+    expect(windowed).toContain('[50]<button>On screen />');
+    expect(windowed).toMatch(/^\.\.\. \d+ lines above; scroll up to see them \.\.\./);
+    expect(windowed).toMatch(/\.\.\. \d+ lines below; scroll down to see them \.\.\.$/);
+    expect(windowed.length).toBeLessThan(700);
+    expect(windowAroundViewport('short', 600)).toBe('short');
   });
 
   it('does not emit Infinity or NaN for a non-scrollable page', () => {

@@ -1,0 +1,119 @@
+import { describe, expect, it } from 'vitest';
+import { buildDomState, documentLayout, type AXNode, type FrameTree } from '../ax-tree-extractor';
+import { pruneAXTree } from '../../dom/ax-tree-pruner';
+import type { DOMElementNode } from '../../dom/views';
+
+const text = (id: string, name: string): AXNode => ({ nodeId: id, role: { value: 'StaticText' }, name: { value: name }, childIds: [`${id}-box`] });
+const box = (id: string, name: string): AXNode => ({ nodeId: `${id}-box`, role: { value: 'InlineTextBox' }, name: { value: name } });
+const layoutOf = (entries: Array<[number, Partial<{ tagName: string; x: number; y: number; attributes: Record<string, string> }>]>) => ({
+  scrollX: 0,
+  scrollY: 0,
+  nodes: new Map(entries.map(([id, l]) => [id, { tagName: l.tagName ?? 'div', attributes: l.attributes ?? {}, x: l.x ?? 0, y: l.y ?? 0, width: 50, height: 20 }])),
+});
+
+function fixture(): FrameTree[] {
+  const main: AXNode[] = [
+    { nodeId: '1', role: { value: 'RootWebArea' }, name: { value: 'Page' }, childIds: ['2'] },
+    { nodeId: '2', ignored: true, role: { value: 'none' }, childIds: ['3'] },
+    { nodeId: '3', ignored: true, role: { value: 'none' }, childIds: ['4', '6', '9', '11', '13', '15', '17', '19'] },
+    { nodeId: '4', role: { value: 'heading' }, name: { value: 'Welcome' }, backendDOMNodeId: 40, childIds: ['5'] },
+    text('5', 'Welcome'),
+    box('5', 'Welcome'),
+    { nodeId: '6', role: { value: 'button' }, name: { value: 'Save' }, backendDOMNodeId: 60, childIds: ['7'] },
+    text('7', 'Save'),
+    box('7', 'Save'),
+    { nodeId: '9', role: { value: 'button' }, name: { value: 'Delete' }, backendDOMNodeId: 90, properties: [{ name: 'disabled', value: { value: true } }], childIds: ['10'] },
+    text('10', 'Delete'),
+    { nodeId: '11', role: { value: 'gridcell' }, name: { value: 'Cell' }, backendDOMNodeId: 110, childIds: ['12'] },
+    text('12', 'Cell'),
+    {
+      nodeId: '13',
+      role: { value: 'generic' },
+      backendDOMNodeId: 130,
+      properties: [{ name: 'editable', value: { value: 'richtext' } }, { name: 'focusable', value: { value: true } }],
+    },
+    { nodeId: '15', role: { value: 'link' }, name: { value: 'Docs' }, backendDOMNodeId: 150, properties: [{ name: 'url', value: { value: 'https://example.com/docs' } }], childIds: ['16'] },
+    text('16', 'Docs'),
+    { nodeId: '17', role: { value: 'Iframe' }, name: { value: 'Embedded editor' }, backendDOMNodeId: 170 },
+    { nodeId: '19', role: { value: 'image' }, name: { value: 'Company logo' }, backendDOMNodeId: 190 },
+  ];
+  const child: AXNode[] = [
+    { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+    { nodeId: '2', role: { value: 'textbox' }, name: { value: 'Notes' }, backendDOMNodeId: 5, properties: [{ name: 'focusable', value: { value: true } }] },
+  ];
+  return [
+    {
+      key: 'main',
+      nodes: main,
+      layout: layoutOf([[60, { tagName: 'button', y: 10 }], [150, { tagName: 'a', y: 5000 }], [170, { tagName: 'iframe', x: 100, y: 200 }]]),
+    },
+    { key: 'child', parentKey: 'main', hostBackendNodeId: 170, nodes: child, layout: layoutOf([[5, { tagName: 'div', x: 10, y: 20 }]]) },
+  ];
+}
+
+describe('buildDomState', () => {
+  const state = pruneAXTree(buildDomState(fixture(), { width: 1000, height: 800 }));
+  const serialized = state.elementTree.clickableElementsToString();
+  const byLabel = (label: string) => [...state.selectorMap.values()].find(node => node.attributes['aria-label'] === label);
+
+  it('indexes interactive nodes 0..n-1 in document order across frames', () => {
+    expect([...state.selectorMap.keys()]).toEqual([0, 1, 2, 3, 4]);
+    expect([...state.selectorMap.values()].map(node => node.attributes['aria-label'] ?? node.attributes.role)).toEqual([
+      'Save',
+      'Delete',
+      'generic',
+      'Docs',
+      'Notes',
+    ]);
+  });
+
+  it('keeps text under ignored wrappers and shows element text once', () => {
+    expect(serialized.match(/Welcome/g)).toHaveLength(1);
+    expect(serialized.match(/Save/g)).toHaveLength(1);
+    expect(serialized).toContain('Company logo');
+    expect(serialized).not.toContain('Page');
+  });
+
+  it('applies the interactive rule: disabled controls and contenteditable are indexed, plain grid cells are not', () => {
+    expect(byLabel('Delete')?.attributes['aria-disabled']).toBe('true');
+    expect(byLabel('Cell')).toBeUndefined();
+    expect(serialized).toContain('Cell');
+    expect(state.selectorMap.get(2)?.frameKey).toBe('main');
+  });
+
+  it('maps link urls to href and marks offscreen elements', () => {
+    const docs = byLabel('Docs')!;
+    expect(docs.attributes.href).toBe('https://example.com/docs');
+    expect(docs.tagName).toBe('a');
+    expect(docs.isInViewport).toBe(false);
+    expect(byLabel('Save')?.isInViewport).toBe(true);
+  });
+
+  it('places child-frame nodes under their iframe with frame-offset coordinates', () => {
+    const notes = byLabel('Notes')!;
+    expect(notes.frameKey).toBe('child');
+    let ancestor: DOMElementNode | null = notes.parent;
+    while (ancestor && ancestor.tagName !== 'iframe') ancestor = ancestor.parent;
+    expect(ancestor?.backendNodeId).toBe(170);
+    expect(notes.viewportCoordinates?.topLeft).toEqual({ x: 110, y: 220 });
+  });
+});
+
+describe('documentLayout', () => {
+  it('maps backend node ids to their first layout box, lowercase tag and selected attributes', () => {
+    const strings = ['INPUT', 'type', 'password', 'class', 'x', 'frame-1'];
+    const layout = documentLayout(
+      {
+        frameId: 5,
+        nodes: { nodeName: [0, 0], backendNodeId: [11, 12], attributes: [[1, 2, 3, 4], []] },
+        layout: { nodeIndex: [0, 0, 1], bounds: [[1, 2, 30, 40], [9, 9, 9, 9], [5, 6, 7, 8]] },
+        scrollOffsetY: 300,
+      },
+      strings,
+    );
+
+    expect(layout.scrollY).toBe(300);
+    expect(layout.nodes.get(11)).toEqual({ tagName: 'input', attributes: { type: 'password' }, x: 1, y: 2, width: 30, height: 40 });
+    expect(layout.nodes.get(12)?.x).toBe(5);
+  });
+});

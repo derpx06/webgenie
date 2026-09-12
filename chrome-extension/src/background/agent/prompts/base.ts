@@ -27,6 +27,32 @@ export function capPromptSection(text: string, maxChars: number, label: string):
   return `${text.slice(0, headLength)}${marker}${tailLength > 0 ? text.slice(-tailLength) : ''}`;
 }
 
+/**
+ * Cuts a long element list to the part around the viewport: from the first on-screen element, growing
+ * downward and then upward, with a note of how many lines were left out on each side.
+ */
+export function windowAroundViewport(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const lines = text.split('\n');
+  const firstOnScreen = lines.findIndex(line => /^\t*\[\d+\]/.test(line) && !line.includes('offscreen="true"'));
+  let start = Math.max(0, firstOnScreen);
+  let end = start;
+  let size = Math.min(lines[start].length, maxChars) + 1;
+  const fits = (index: number) => size + lines[index].length + 1 <= maxChars;
+  for (;;) {
+    const down = end + 1 < lines.length && fits(end + 1);
+    if (down) size += lines[++end].length + 1;
+    const up = start > 0 && fits(start - 1);
+    if (up) size += lines[--start].length + 1;
+    if (!down && !up) break;
+  }
+  const parts = lines.slice(start, end + 1);
+  parts[0] = parts[0].slice(0, maxChars);
+  if (start > 0) parts.unshift(`... ${start} lines above; scroll up to see them ...`);
+  if (end < lines.length - 1) parts.push(`... ${lines.length - 1 - end} lines below; scroll down to see them ...`);
+  return parts.join('\n');
+}
+
 export function scrollViewportPercentage(scrollHeight: number, viewportHeight: number): number | null {
   const scrollableDistance = scrollHeight - viewportHeight;
   if (!Number.isFinite(scrollableDistance) || scrollableDistance <= 0) return null;
@@ -122,7 +148,7 @@ abstract class BasePrompt {
       // The `nano_untrusted_content` wrapper + system prompt already tell the LLM
       // to ignore injections — strict pattern-matching here causes more harm than good.
       const elementsText = wrapUntrustedContent(
-        capPromptSection(rawElementsText, MAX_INTERACTIVE_ELEMENTS_CHARS, 'interactive DOM'),
+        windowAroundViewport(rawElementsText, MAX_INTERACTIVE_ELEMENTS_CHARS),
         /* filterFirst= */ false,
       );
 

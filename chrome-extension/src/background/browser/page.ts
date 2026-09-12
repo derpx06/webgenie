@@ -10,9 +10,7 @@ import {
 import type { Browser } from 'puppeteer-core/lib/esm/puppeteer/api/Browser.js';
 import type { Page as PuppeteerPage } from 'puppeteer-core/lib/esm/puppeteer/api/Page.js';
 import type { ElementHandle } from 'puppeteer-core/lib/esm/puppeteer/api/ElementHandle.js';
-import type { Frame } from 'puppeteer-core/lib/esm/puppeteer/api/Frame.js';
 import {
-  getClickableElements as _getClickableElements,
   removeHighlights as _removeHighlights,
   getScrollInfo as _getScrollInfo,
   drawHighlightOverlaysViaCoordinates,
@@ -21,10 +19,8 @@ import { DOMElementNode, type DOMState } from './dom/views';
 import { type BrowserContextConfig, DEFAULT_BROWSER_CONTEXT_CONFIG, type PageState, URLNotAllowedError } from './views';
 import { createLogger } from '@src/background/log';
 import { isUrlAllowed, isNewTabPage } from './util';
-import { getDOMStateViaSnapshot } from './chromium-apis/dom-snapshot-extractor';
 import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
 import { pruneAXTree } from './dom/ax-tree-pruner';
-import { healElement } from './dom/selector-healer';
 import { cdpBridge } from './chromium-apis/cdp-bridge';
 import type { IBrowserAdapter } from '../adapters/IBrowserAdapter';
 import type { IStorageProvider } from '../adapters/IStorageProvider';
@@ -423,83 +419,20 @@ export default class Page {
     }
   }
 
-  async getClickableElements(showHighlightElements: boolean, focusElement: number): Promise<DOMState | null> {
+  /** The page's interactive elements and text, from the accessibility tree of every frame. */
+  async getClickableElements(showHighlightElements: boolean): Promise<DOMState | null> {
     if (!this._validWebPage) {
       return null;
     }
-
-    // Wait for layout/DOM stability before any extraction
-    try {
-      await this._waitForDomStability();
-    } catch (err) {
-      logger.warning('[Page] Error waiting for DOM stability:', err);
+    await this.ensurePuppeteerConnected();
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer is not connected');
     }
-
-    const mode = this._config.domPerceptionMode ?? 'snapshot';
-
-    if (mode === 'axtree') {
-      try {
-        const { width, height } = this._config.browserWindowSize;
-        const rawState = await getAXTreeState(this._tabId, width, height, this._browserAdapter, this._puppeteerPage);
-        if (rawState && rawState.selectorMap.size > 0) {
-          let goal: string | undefined;
-          try {
-            const registryStateVal = await this._storageProvider.get<any>('tab-orchestration-state');
-            const tabRecord = registryStateVal?.tabs?.[this._tabId];
-            if (tabRecord && tabRecord.purpose) {
-              goal = tabRecord.purpose;
-            }
-          } catch {
-            // Ignore
-          }
-          const state = pruneAXTree(rawState, goal);
-          logger.info(`[Page] AXTree: ${state.selectorMap.size} interactive elements after pruning`);
-          if (showHighlightElements) {
-            await this._drawHighlightsFromCoords(state);
-          }
-          return state;
-        }
-        logger.warning('[Page] AXTree returned empty selectorMap — falling through to snapshot');
-      } catch (err) {
-        logger.error('[Page] AXTree extraction error — falling through to snapshot:', err);
-      }
+    const state = pruneAXTree(await getAXTreeState(this._puppeteerPage));
+    if (showHighlightElements) {
+      await this._drawHighlightsFromCoords(state);
     }
-
-    // ── Path B: DOMSnapshot ───────────────────────────────────────────────────
-    // Current default. Coordinate-rich, high-fidelity, CSP-proof via CDP.
-    if (mode === 'snapshot' || mode === 'axtree') {
-      try {
-        const { width, height } = this._config.browserWindowSize;
-        const state = await getDOMStateViaSnapshot(this._tabId, width, height, this._browserAdapter);
-        if (state && state.selectorMap.size > 0) {
-          if (showHighlightElements) {
-            await this._drawHighlightsFromCoords(state);
-          }
-          return state;
-        }
-      } catch (error) {
-        logger.error('[Page] DOMSnapshot extraction failed, falling back to legacy DOM service:', error);
-      }
-    }
-
-    // ── Path C: Legacy script-injection ──────────────────────────────────────
-    // Final fallback — CSP-vulnerable but works without debugger permission.
-    let tabUrl = this._state.url;
-    try {
-      const tab = await this._browserAdapter.getTab(this._tabId);
-      tabUrl = tab.url ?? tabUrl;
-    } catch {
-      // Tab closed or inaccessible
-    }
-    return _getClickableElements(
-      this._tabId,
-      tabUrl,
-      showHighlightElements,
-      focusElement,
-      this._config.viewportExpansion,
-      false,
-      this._browserAdapter,
-    );
+    return state;
   }
 
   /**
@@ -806,7 +739,7 @@ export default class Page {
     return build_initial_state(this._tabId, tab?.url ?? this._state.url, tab?.title ?? this._state.title);
   }
 
-  async _updateState(useVision = false, focusElement = -1): Promise<PageState> {
+  async _updateState(useVision = false): Promise<PageState> {
     // ── Puppeteer liveness check ─────────────────────────────────────────────
     // _puppeteerPage may be null when the page was constructed from a newtab URL
     // and Puppeteer hasn't attached yet (e.g. Gmail is still loading). In that
@@ -848,7 +781,7 @@ export default class Page {
       // This part would need to be implemented based on your DomService logic
       // showHighlightElements is true if either useVision or displayHighlights is true
       const displayHighlights = this._config.displayHighlights || useVision;
-      const content = await this.getClickableElements(displayHighlights, focusElement);
+      const content = await this.getClickableElements(displayHighlights);
       if (!content) {
         throw new Error('Failed to get clickable elements');
       }
@@ -1573,135 +1506,23 @@ export default class Page {
     }
   }
 
+  /** The live element for a node of the last read, adopted by backendNodeId in the frame it came from. */
   async locateElement(element: DOMElementNode): Promise<ElementHandle | null> {
     await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      // throw new Error('Puppeteer page is not connected');
-      logger.warning('Puppeteer is not connected');
+    if (!this._puppeteerPage || element.backendNodeId == null) {
       return null;
     }
-    let currentFrame: PuppeteerPage | Frame = this._puppeteerPage;
-
-    // Start with the target element and collect all parents
-    const parents: DOMElementNode[] = [];
-    let current = element;
-    while (current.parent) {
-      parents.push(current.parent);
-      current = current.parent;
-    }
-
-    // Process all iframe parents in sequence (in reverse order - top to bottom)
-    const iframes = parents.reverse().filter(item => item.tagName === 'iframe');
-    for (const parent of iframes) {
-      const cssSelector = parent.enhancedCssSelectorForElement(this._config.includeDynamicAttributes);
-      const frameElement: ElementHandle | null = await currentFrame.$(cssSelector);
-      if (!frameElement) {
-        // throw new Error(`Could not find iframe with selector: ${cssSelector}`);
-        logger.warning(`Could not find iframe with selector: ${cssSelector}`);
-        return null;
-      }
-      const frame: Frame | null = await frameElement.contentFrame();
-      if (!frame) {
-        // throw new Error(`Could not access frame content for selector: ${cssSelector}`);
-        logger.warning(`Could not access frame content for selector: ${cssSelector}`);
-        return null;
-      }
-      currentFrame = frame;
-      logger.info('currentFrame changed', currentFrame);
-    }
-
-    let elementHandle: ElementHandle | null = null;
-
+    const frame = element.frame ?? this._puppeteerPage.mainFrame();
     try {
-      // 0. Try adopting via backendNodeId if available (SOTA and precise)
-      if (element.backendNodeId != null) {
-        try {
-          logger.info(`Locating element via backendNodeId: ${element.backendNodeId}`);
-          // mainRealm() is a Frame method; elements of the top-level document go through the page's main frame.
-          const frame: Frame = 'mainFrame' in currentFrame ? currentFrame.mainFrame() : currentFrame;
-          const adopted = await frame.mainRealm().adoptBackendNode(element.backendNodeId);
-          if (adopted) {
-            elementHandle = adopted as unknown as ElementHandle;
-          }
-        } catch (err) {
-          logger.warning(`Failed to adopt backendNodeId ${element.backendNodeId}:`, err);
-        }
+      const handle = (await frame.mainRealm().adoptBackendNode(element.backendNodeId)) as unknown as ElementHandle;
+      if (!(await handle.isHidden())) {
+        await this._scrollIntoViewIfNeeded(handle);
       }
-
-      // 1. Try CSS selector first — trust it; SPAs change DOM structure between snapshot
-      //    and action time so XPath re-validation causes false negatives on valid elements.
-      if (!elementHandle) {
-        const cssSelector = element.enhancedCssSelectorForElement(this._config.includeDynamicAttributes);
-        if (cssSelector) {
-          elementHandle = await currentFrame.$(cssSelector);
-        }
-      }
-
-      // 2. CSS failed — try raw XPath as a structural fallback
-      if (!elementHandle) {
-        const xpath = element.xpath;
-        if (xpath) {
-          try {
-            logger.info('CSS selector failed, trying XPath:', xpath);
-            const fullXpath = xpath.startsWith('/') ? xpath : `/${xpath}`;
-            elementHandle = await currentFrame.$(`::-p-xpath(${fullXpath})`);
-          } catch (xpathError) {
-            logger.debug('XPath selector failed:', xpathError);
-          }
-        }
-      }
-
-      // 3. Both selectors failed — try SelectorHealer fuzzy match against selectorMap
-      if (!elementHandle && this._state.selectorMap.size > 0) {
-        logger.info('CSS and XPath failed, trying SelectorHealer fuzzy match...');
-        const candidates = Array.from(this._state.selectorMap.values());
-        const healed = healElement(element, candidates, 0.60);
-        if (healed) {
-          logger.info(
-            `[SelectorHealer] Healed target element to candidate [${healed.node.highlightIndex}] (Score: ${healed.score.toFixed(
-              2,
-            )}, Matched by: ${healed.matchedBy.join(', ')})`,
-          );
-          const healedCss = healed.node.enhancedCssSelectorForElement(this._config.includeDynamicAttributes);
-          if (healedCss) {
-            try {
-              elementHandle = await currentFrame.$(healedCss);
-            } catch (healedCssError) {
-              logger.debug('Healed CSS lookup failed:', healedCssError);
-            }
-          }
-          if (!elementHandle && healed.node.xpath) {
-            try {
-              const fullXpath = healed.node.xpath.startsWith('/') ? healed.node.xpath : `/${healed.node.xpath}`;
-              elementHandle = await currentFrame.$(`::-p-xpath(${fullXpath})`);
-            } catch (healedXpathError) {
-              logger.debug('Healed XPath lookup failed:', healedXpathError);
-            }
-          }
-        }
-      }
-
-      // 4. All specific selectors failed — try general semantic heuristic (stable attributes + text + role)
-      if (!elementHandle) {
-        logger.info('Fuzzy matching failed, trying general heuristic matching...');
-        elementHandle = await this._heuristicLocate(currentFrame, element);
-      }
-
-      // Scroll into view if found and visible
-      if (elementHandle) {
-        const isHidden = await elementHandle.isHidden();
-        if (!isHidden) {
-          await this._scrollIntoViewIfNeeded(elementHandle);
-        }
-        return elementHandle;
-      }
-
-      logger.info('locateElement: element not found by any strategy');
+      return handle;
     } catch (error) {
-      logger.error('Failed to locate element:', error);
+      logger.warning(`${element} is no longer in the page: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
     }
-
-    return null;
   }
 
   async inputTextElementNode(useVision: boolean, elementNode: DOMElementNode, text: string): Promise<void> {
@@ -2001,87 +1822,6 @@ export default class Page {
 
       // Small delay before next check
       await new Promise(resolve => setTimeout(resolve, 100));
-    }
-  }
-
-  private async _heuristicLocate(
-    frame: PuppeteerPage | Frame,
-    elementNode: DOMElementNode,
-  ): Promise<ElementHandle<Element> | null> {
-    const tagName = elementNode.tagName?.toLowerCase();
-    if (!tagName) return null;
-
-    const attributes = elementNode.attributes || {};
-    const text = elementNode.getAllTextTillNextClickableElement(2) || '';
-
-    try {
-      const handle = await frame.evaluateHandle(
-        (tag, attrs, txt) => {
-          // Pierce shadow DOM by collecting candidates from all shadow roots
-          function queryShadow(root: Document | ShadowRoot, selector: string): Element[] {
-            const results: Element[] = [];
-            const direct = Array.from(root.querySelectorAll(selector));
-            results.push(...direct);
-            // Walk all elements to find shadow roots
-            Array.from(root.querySelectorAll('*')).forEach(el => {
-              if (el.shadowRoot) {
-                results.push(...queryShadow(el.shadowRoot, selector));
-              }
-            });
-            return results;
-          }
-
-          const candidates = queryShadow(document, tag);
-
-          // 1. Try matching by stable attributes (most reliable)
-          const stableAttrs = [
-            'data-testid', 'data-cy', 'data-test',
-            'aria-label', 'aria-description',
-            'placeholder', 'id', 'name',
-          ];
-          for (const attrName of stableAttrs) {
-            const attrVal = (attrs as Record<string, string>)[attrName];
-            if (attrVal) {
-              const found = candidates.find(el => el.getAttribute(attrName) === attrVal);
-              if (found) return found;
-            }
-          }
-
-          // 2. Try matching by exact text content (short labels)
-          if (txt && txt.length > 0 && txt.length < 80) {
-            const found = candidates.find(el => el.textContent?.trim() === txt);
-            if (found) return found;
-          }
-
-          // 3. Fuzzy match by role + text prefix
-          const roleVal = (attrs as Record<string, string>)['role'];
-          if (roleVal && txt.length > 0) {
-            const found = candidates.find(
-              el =>
-                el.getAttribute('role') === roleVal &&
-                el.textContent?.trim().startsWith(txt.substring(0, 8)),
-            );
-            if (found) return found;
-          }
-
-          return null;
-        },
-        tagName,
-        attributes,
-        text,
-      );
-
-      // evaluateHandle returns a JSHandle wrapping null when the in-page function returns null.
-      // We must check asElement() before using it.
-      const asEl = handle.asElement() as ElementHandle<Element> | null;
-      if (!asEl) {
-        await handle.dispose();
-        return null;
-      }
-      return asEl;
-    } catch (err) {
-      logger.debug('[HeuristicLocate] error:', err);
-      return null;
     }
   }
 

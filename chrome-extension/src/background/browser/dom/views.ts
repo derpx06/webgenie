@@ -1,3 +1,4 @@
+import type { Frame } from 'puppeteer-core/lib/esm/puppeteer/api/Frame.js';
 import type { CoordinateSet, HashedDomElement, ViewportInfo } from './history/view';
 import { HistoryTreeProcessor } from './history/service';
 import { capTextLength } from '../util';
@@ -23,6 +24,14 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'aria-pressed',
   'aria-current',
   'aria-haspopup',
+  'aria-disabled',
+  'aria-required',
+  'aria-readonly',
+  'aria-invalid',
+  'aria-valuemin',
+  'aria-valuemax',
+  'aria-valuetext',
+  'aria-autocomplete',
   'data-value',
 ];
 
@@ -95,6 +104,9 @@ export class DOMElementNode extends DOMBaseNode {
   pageCoordinates?: CoordinateSet;
   viewportInfo?: ViewportInfo;
   backendNodeId?: number;
+  /** The frame the node was read from; its backendNodeId is only meaningful there. */
+  frame?: Frame;
+  frameKey?: string;
 
   /*
 	### State injected by the browser context.
@@ -120,6 +132,8 @@ export class DOMElementNode extends DOMBaseNode {
     isNew?: boolean | null;
     parent?: DOMElementNode | null;
     backendNodeId?: number;
+    frame?: Frame;
+    frameKey?: string;
   }) {
     super(params.isVisible, params.parent);
     this.tagName = params.tagName;
@@ -136,6 +150,8 @@ export class DOMElementNode extends DOMBaseNode {
     this.viewportInfo = params.viewportInfo;
     this.isNew = params.isNew ?? null;
     this.backendNodeId = params.backendNodeId;
+    this.frame = params.frame;
+    this.frameKey = params.frameKey;
   }
 
   // Cache for the hash value
@@ -347,7 +363,7 @@ export class DOMElementNode extends DOMBaseNode {
              }
            }
  
-           const highlightIndicator = node.isNew ? `*[${node.highlightIndex}]` : `[${node.highlightIndex}]`;
+           const highlightIndicator = `[${node.highlightIndex}]`;
            let line = `${depthStr}${highlightIndicator}<${node.tagName ?? 'DIV'}`;
            if (attributesHtmlStr) {
              line += ` ${attributesHtmlStr}`;

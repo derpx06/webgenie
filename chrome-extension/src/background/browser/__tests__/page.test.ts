@@ -18,61 +18,42 @@ import { DOMElementNode } from '../dom/views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
 
 describe('Page locateElement', () => {
-  it('does not query an empty healed CSS selector before trying XPath or heuristics', async () => {
-    const adapter = {
-      detachDebugger: vi.fn().mockResolvedValue(undefined),
-    } as any;
-    const page = new Page(1, 'https://x.com/sama', 'X', {}, adapter);
-    const handle = {
-      isHidden: vi.fn().mockResolvedValue(false),
-    };
-    const query = vi.fn(async (selector: string) => {
-      if (selector === '') {
-        throw new DOMException(
-          "Failed to execute 'querySelector' on 'Document': The provided selector is empty.",
-          'SyntaxError',
-        );
-      }
-      if (selector === '::-p-xpath(/html/body/button[1])') {
-        return handle;
-      }
-      return null;
+  it('adopts the element by backendNodeId in the frame it was read from', async () => {
+    const handle = { isHidden: vi.fn().mockResolvedValue(true) };
+    const adoptInFrame = vi.fn().mockResolvedValue(handle);
+    const adoptInMain = vi.fn();
+    const page = new Page(1, 'https://example.com/', 'Example', {}, {} as IBrowserAdapter);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _validWebPage: true,
+      _puppeteerPage: { mainFrame: () => ({ mainRealm: () => ({ adoptBackendNode: adoptInMain }) }) },
+      ensurePuppeteerConnected: vi.fn().mockResolvedValue(undefined),
     });
-
-    const target = new DOMElementNode({
+    const node = new DOMElementNode({
       tagName: 'button',
       xpath: null,
-      attributes: {
-        role: 'button',
-        'aria-label': 'Follow @sama',
-        'aria-description': 'Click to Follow sama',
-      },
+      attributes: {},
       children: [],
       isVisible: true,
-      highlightIndex: 42,
-    });
-    const healedCandidate = new DOMElementNode({
-      tagName: 'button',
-      xpath: null,
-      attributes: {
-        role: 'button',
-        'aria-label': 'Follow @sama',
-        'aria-description': 'Click to Follow sama',
-      },
-      children: [],
-      isVisible: true,
-      highlightIndex: 42,
+      highlightIndex: 3,
+      backendNodeId: 42,
+      frame: { mainRealm: () => ({ adoptBackendNode: adoptInFrame }) } as unknown as DOMElementNode['frame'],
     });
 
-    (page as any)._validWebPage = true;
-    (page as any)._puppeteerPage = { $: query };
-    (page as any)._state.selectorMap = new Map([[42, healedCandidate]]);
-    (page as any).ensurePuppeteerConnected = vi.fn().mockResolvedValue(undefined);
-    (page as any)._scrollIntoViewIfNeeded = vi.fn().mockResolvedValue(undefined);
-    (page as any)._heuristicLocate = vi.fn().mockResolvedValue(handle);
+    await expect(page.locateElement(node)).resolves.toBe(handle);
+    expect(adoptInFrame).toHaveBeenCalledWith(42);
+    expect(adoptInMain).not.toHaveBeenCalled();
+  });
 
-    await expect(page.locateElement(target)).resolves.toBe(handle);
-    expect(query).not.toHaveBeenCalledWith('');
+  it('returns null when the node is gone from the page', async () => {
+    const page = new Page(1, 'https://example.com/', 'Example', {}, {} as IBrowserAdapter);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _validWebPage: true,
+      _puppeteerPage: { mainFrame: () => ({ mainRealm: () => ({ adoptBackendNode: vi.fn().mockRejectedValue(new Error('No node with given id found')) }) }) },
+      ensurePuppeteerConnected: vi.fn().mockResolvedValue(undefined),
+    });
+    const node = new DOMElementNode({ tagName: 'a', xpath: null, attributes: {}, children: [], isVisible: true, backendNodeId: 7 });
+
+    await expect(page.locateElement(node)).resolves.toBeNull();
   });
 });
 

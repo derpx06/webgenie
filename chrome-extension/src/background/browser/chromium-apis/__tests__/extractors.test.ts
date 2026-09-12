@@ -6,8 +6,6 @@ vi.mock('webextension-polyfill', () => {
 });
 
 import { cdpBridge } from '../cdp-bridge';
-import { getDOMStateViaSnapshot } from '../dom-snapshot-extractor';
-import { getAXTreeState } from '../ax-tree-extractor';
 
 describe('Chromium APIs Dependency Injection Tests', () => {
   let mockAdapter: any;
@@ -94,34 +92,6 @@ describe('Chromium APIs Dependency Injection Tests', () => {
 
       await cdpBridge.detach(123);
       expect(mockAdapter.detachDebugger).toHaveBeenCalledWith({ tabId: 123 });
-    });
-  });
-
-  describe('DOMSnapshotExtractor DI', () => {
-    it('extracts DOM state via injected adapter', async () => {
-      const state = await getDOMStateViaSnapshot(123, 1024, 768, mockAdapter);
-      expect(state).toBeDefined();
-      expect(state.selectorMap.size).toBe(1); // 1 element matching our mock document
-      expect(mockAdapter.sendDebuggerCommand).toHaveBeenCalledWith(
-        { tabId: 123 },
-        'DOMSnapshot.captureSnapshot',
-        expect.any(Object)
-      );
-    });
-  });
-
-  describe('AXTreeExtractor DI', () => {
-    it('extracts AXTree state via injected adapter', async () => {
-      const state = await getAXTreeState(123, 1024, 768, mockAdapter);
-      expect(state).toBeDefined();
-      expect(state.selectorMap.size).toBe(1); // 1 interactive element (button)
-      expect(state.elementTree.clickableElementsToString()).toContain('Visible page heading');
-      expect(state.elementTree.clickableElementsToString()).toContain('Click Me');
-      expect(mockAdapter.sendDebuggerCommand).toHaveBeenCalledWith(
-        { tabId: 123 },
-        'Accessibility.getFullAXTree',
-        expect.any(Object)
-      );
     });
   });
 });
