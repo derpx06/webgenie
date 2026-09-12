@@ -4,7 +4,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type { BrowserState } from '../../../browser/views';
 import { createBrowserObservation } from '../observation';
 import type { ValidationEvidence } from '../types';
-import { commitActionLabel, currentIndexFor, isApproval, normalizeIndexedAction, validateActionOutcome } from '../service';
+import { changesUserValue, commitActionLabel, currentIndexFor, isApproval, normalizeIndexedAction, validateActionOutcome } from '../service';
 
 function element(index: number, params: Partial<ConstructorParameters<typeof DOMElementNode>[0]> = {}) {
   return new DOMElementNode({
@@ -389,5 +389,20 @@ describe('committing actions', () => {
   it('reads yes-like answers as approval and anything else as a decline', () => {
     for (const answer of ['Yes', 'yes please', 'OK', 'Go ahead', 'Confirm']) expect(isApproval(answer)).toBe(true);
     for (const answer of ['No', "Don't", 'not now', 'Cancel', '']) expect(isApproval(answer)).toBe(false);
+  });
+});
+
+describe('changesUserValue', () => {
+  const user = 'Sign up with the email "someone@example" and the date 05/20/2024. Answer from the user: use someone@example.org';
+
+  it('flags replacing a value the user gave with one the agent made up', () => {
+    expect(changesUserValue('someone@example', 'someone@example.com', user)).toBe(true);
+  });
+
+  it('allows reformatting, values the user gave, first entries and agent-chosen values', () => {
+    expect(changesUserValue('05/20/2024', '2024-05-20', user)).toBe(false);
+    expect(changesUserValue('someone@example', 'someone@example.org', user)).toBe(false);
+    expect(changesUserValue(undefined, 'anything', user)).toBe(false);
+    expect(changesUserValue('draft text', 'better text', user)).toBe(false);
   });
 });

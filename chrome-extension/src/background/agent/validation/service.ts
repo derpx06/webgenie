@@ -30,6 +30,21 @@ export function commitActionLabel(node: DOMElementNode | undefined): string | nu
   return label.length <= 60 && COMMIT_LABEL.test(label) ? label : null;
 }
 
+/**
+ * Whether typing `next` into a field replaces `previous`, a value the user gave (it appears in their messages), with
+ * one of the agent's own. A reformat (the same letters and digits in another order or with other punctuation) or a
+ * value that also appears in the user's messages is not a replacement.
+ */
+export function changesUserValue(previous: string | undefined, next: string, userText: string): boolean {
+  const before = previous?.trim().toLowerCase() ?? '';
+  const after = next.trim().toLowerCase();
+  const text = userText.toLowerCase();
+  if (before.length < 3 || before === after || !text.includes(before) || text.includes(after)) return false;
+  // Whitespace and ASCII punctuation are formatting; letters and digits in any script are the value.
+  const chars = (value: string) => [...value.replace(/[\s!-/:-@[-`{-~]/g, '')].sort().join('');
+  return chars(before) !== chars(after);
+}
+
 /** Affirmative answers to a confirmation; anything else counts as no. */
 export function isApproval(answer: string): boolean {
   return /^\s*(yes|y|yeah|yep|ok|okay|sure|confirm(ed)?|approve(d)?|go ahead|proceed|do it|place it|buy it|pay)\b/i.test(answer);

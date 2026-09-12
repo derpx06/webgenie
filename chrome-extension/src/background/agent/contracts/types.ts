@@ -46,6 +46,7 @@ export interface PlannerLLMOutput {
   final_answer?: string;
   macro_objective: MacroObjective;
   next_goal: string;
+  matching_items?: string[];
   success_condition?: string;
 }
 

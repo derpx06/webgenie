@@ -15,6 +15,7 @@ import { HistoryReplayer } from './navigator/replay';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
 import { ensureBrowserObservation } from '../validation/observation';
 import {
+  changesUserValue,
   commitActionLabel,
   currentIndexFor,
   isMutatingAction,
@@ -203,6 +204,15 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     return settleResult.state;
   }
 
+  /** Everything the user wrote in this conversation: tasks and answers. */
+  private userText(): string {
+    return this.context.messageManager
+      .getTranscript()
+      .filter(entry => entry.type === 'task' || entry.type === 'human_answer')
+      .map(entry => String(entry.message.content))
+      .join('\n');
+  }
+
   private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
     const results: ActionResult[] = [];
     const browserContext = this.context.browserContext;
@@ -345,8 +355,35 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           break;
         }
 
+        // A value the user gave is theirs to change: when the page rejects it, report that or ask, never substitute one.
+        const typedNode = actionName === 'input_text'
+          ? beforeState.selectorMap.get((actionArgs as { index?: number }).index ?? -1)
+          : undefined;
+        const isSearchField = typedNode?.attributes.type === 'search' || /^(searchbox|combobox)$/.test(typedNode?.attributes.role ?? '');
+        const typedField = typedNode?.backendNodeId !== undefined && !isSearchField ? `${typedNode.frameKey ?? ''}:${typedNode.backendNodeId}` : null;
+        const typedText = String((actionArgs as { text?: unknown }).text ?? '');
+        const previousValue = typedField ? this.context.typedValues.get(typedField) : undefined;
+        if (typedField && changesUserValue(previousValue, typedText, this.userText())) {
+          const msg = `This field held "${previousValue}", a value from the user. Do not replace it with a value of your own: if the page rejected it, report the page's message to the user or ask_human for a new value.`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          results.push(new ActionResult({
+            executed: false,
+            executionStatus: 'not_attempted',
+            validated: 'unknown',
+            retryability: 'replan',
+            failureReason: msg,
+            extractedContent: msg,
+            includeInMemory: true,
+            contractId,
+            actionId,
+            validationId,
+          }));
+          break;
+        }
+
         const actionStartedAt = Date.now();
         let result = await actionInstance.call(actionArgs);
+        if (typedField && !result?.error) this.context.typedValues.set(typedField, typedText);
         record({
           level: result?.error ? 'warning' : 'info',
           kind: 'span',

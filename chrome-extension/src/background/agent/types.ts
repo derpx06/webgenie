@@ -77,6 +77,8 @@ export class AgentContext {
   pendingQuestion: { type: string; question: string } | null;
   /** The user's answer to the last confirmation: committing actions (orders, payments) wait for 'approved'. */
   commitDecision: 'approved' | 'declined' | null;
+  /** Text typed into each field this task (frame key and backend node id), to catch replacing a value the user gave. */
+  typedValues = new Map<string, string>();
   /** The page read shown to the models this step; element indexes in their actions refer to it. */
   promptState?: BrowserState;
   currentContract?: NextStepContract | null;
@@ -114,6 +116,7 @@ export class AgentContext {
     this.humanQuestion = null;
     this.pendingQuestion = null;
     this.commitDecision = null;
+    this.typedValues.clear();
     this.memory = new InChatMemory();
     this.currentContract = null;
     this.validatedProgress = [];

@@ -3,6 +3,10 @@ import { WebGenieMemoryStore, intentSimilarity } from './memory-store';
 
 const logger = createLogger('ContextRouter');
 
+/** Masks tokens that carry personal or task-specific values: anything with a digit or an @.
+ * ponytail: names without digits stay; drop episodic text entirely if they leak too. */
+export const withoutValues = (text: string): string => text.replace(/\S*[\d@]\S*/g, '…');
+
 export class ContextRouter {
 
   /**
@@ -85,9 +89,12 @@ export class ContextRouter {
       // Show intent-similarity to help LLM judge relevance
       const sim = intent ? intentSimilarity(intent, note.intent) : 0;
       const relevanceLabel = sim > 0.5 ? '🔥 high match' : sim > 0 ? 'partial match' : 'domain context';
+      // A past task's answer and its values (phone numbers, addresses, emails, amounts) belong to that task; shown
+      // here they were reused as if the user had given them. Keep only what the route was.
+      const route = note.outcomeSteps.replace(/\s*Result:[\s\S]*$/, '');
       context +=
-        `- [${relevanceLabel}] Task: "${note.intent}" | succeeded ${note.successCount}x | ${timeLabel}\n` +
-        `  Route: ${note.outcomeSteps}\n`;
+        `- [${relevanceLabel}] Task: "${withoutValues(note.intent)}" | succeeded ${note.successCount}x | ${timeLabel}\n` +
+        `  Route: ${withoutValues(route)}\n`;
     }
     return context + '\n';
   }

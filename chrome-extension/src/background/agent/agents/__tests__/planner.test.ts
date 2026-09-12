@@ -5,7 +5,7 @@ import type BrowserContext from '../../../browser/context';
 import { ResponseParseError } from '../errors';
 import { PlannerAgent, planToolSchema } from '../planner';
 import { buildToolDefinitions } from '../../actions/builder';
-import { createPlannerParseFallbackOutput } from '../planner/utils';
+import { cleanPlannerOutput, createPlannerParseFallbackOutput } from '../planner/utils';
 import type { BasePrompt } from '../../prompts/base';
 import { AgentContext } from '../../types';
 import type MessageManager from '../../messages/service';
@@ -116,9 +116,33 @@ describe('PlannerAgent response shape', () => {
 
     expect(tool.function.name).toBe('plan');
     expect(Object.keys(parameters.properties).sort()).toEqual([
-      'done', 'final_answer', 'macro_objective', 'next_goal', 'success_condition',
+      'done', 'final_answer', 'macro_objective', 'matching_items', 'next_goal', 'success_condition',
     ]);
     expect([...parameters.required].sort()).toEqual(['done', 'macro_objective', 'next_goal']);
     expect(plannerSystemPromptTemplate).toContain('plan tool');
+  });
+});
+
+describe('cleanPlannerOutput', () => {
+  const plan = (matching_items?: string[]) => ({
+    done: false,
+    macro_objective: 'FORM_FILL' as const,
+    next_goal: 'Add the item to the cart.',
+    matching_items,
+  });
+
+  it('turns a step with several matching items into a question offering them', () => {
+    const output = cleanPlannerOutput(plan(['Item A, small, $20', 'Item A, large, $35']));
+    expect(output.macro_objective).toBe('ASK_HUMAN');
+    expect(output.mode).toBe('blocked_human_needed');
+    expect(output.next_goal).toContain('Item A, small, $20; Item A, large, $35');
+    expect(output.next_step_contract?.goal).toBe(output.next_goal);
+  });
+
+  it('leaves the plan alone with one match, after the user answered, or when done', () => {
+    expect(cleanPlannerOutput(plan(['Item A, small, $20'])).macro_objective).toBe('FORM_FILL');
+    expect(cleanPlannerOutput(plan(['Item A, small, $20', 'Item A, small, $20'])).macro_objective).toBe('FORM_FILL');
+    expect(cleanPlannerOutput(plan(['A', 'B']), { userAnswered: true }).macro_objective).toBe('FORM_FILL');
+    expect(cleanPlannerOutput({ ...plan(['A', 'B']), done: true, final_answer: 'ok' }).mode).toBe('direct_answer');
   });
 });

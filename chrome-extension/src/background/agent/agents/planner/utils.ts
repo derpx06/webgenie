@@ -50,8 +50,17 @@ export function preparePlannerMessages(
  */
 export function cleanPlannerOutput(
   output: PlannerOutputInput,
-  context?: { goal?: string; currentObservation?: BrowserObservation | null },
+  context?: { goal?: string; currentObservation?: BrowserObservation | null; userAnswered?: boolean },
 ): PlannerOutput {
+  // Several items fit the task and it does not say which: that choice is the user's, not the model's.
+  const items = [...new Set((output.matching_items ?? []).map(item => item.trim()).filter(Boolean))];
+  if (!output.done && output.macro_objective !== 'ASK_HUMAN' && items.length > 1 && !context?.userAnswered) {
+    output = {
+      ...output,
+      macro_objective: 'ASK_HUMAN',
+      next_goal: `Several items fit the task; ask the user which one they mean, offering these options: ${items.join('; ')}.`,
+    };
+  }
   return normalizePlannerOutputContract(output, {
     goal: context?.goal ?? output.next_goal ?? 'Continue task safely',
     currentObservation: context?.currentObservation ?? null,
