@@ -638,7 +638,10 @@ const COMPLEX = [
       };
       const travel = await cheapest('https://books.toscrape.com/catalogue/category/books/travel_2/index.html');
       const mystery = await cheapest('https://books.toscrape.com/catalogue/category/books/mystery_3/index.html');
-      const mentions = book => !!book && answer.includes(book.price) && has(answer, book.title.slice(0, 20));
+      // 2026-09-13: match the main title (before ":" or " ("); answers often drop series suffixes such as
+      // "(DI Marnie Rome #3)". Ground truth re-checked: Travel £23.21, Mystery "Tastes Like Fear" £10.69.
+      const mainTitle = title => title.split(/:| \(/)[0].trim();
+      const mentions = book => !!book && answer.includes(book.price) && has(answer, mainTitle(book.title));
       return { pass: mentions(travel) && mentions(mystery), detail: `expected ${JSON.stringify({ travel, mystery })}` };
     },
   },
