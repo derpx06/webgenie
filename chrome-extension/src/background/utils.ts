@@ -268,6 +268,12 @@ export function optimizeSchemaConstraints(schema: unknown): unknown {
   return optimize(schema);
 }
 
+/** JSON Schema for a tool's parameters: no $ref, no type arrays, no bounds/format keywords. */
+export function zodToToolParameters(schema: z.ZodType): Record<string, unknown> {
+  const jsonSchema = toJsonSchema(schema, { target: 'openApi3', $refStrategy: 'none' });
+  return optimizeSchemaConstraints(jsonSchema) as Record<string, unknown>;
+}
+
 export function buildProviderSafeJsonSchema(
   zodSchema: z.ZodType,
   name: string,

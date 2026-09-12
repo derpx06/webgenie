@@ -35,9 +35,11 @@ import {
   managePrivacyActionSchema,
   manageExtensionsActionSchema,
   manageSystemActionSchema,
-  manageSessionsActionSchema
+  manageSessionsActionSchema,
+  MODEL_HIDDEN_FIELDS,
 } from './schemas';
 import { z } from 'zod';
+import { zodToToolParameters } from '@src/background/utils';
 import { SystemHandler } from './handlers/system';
 import { NavigationHandler } from './handlers/navigation';
 import { InteractionHandler } from './handlers/interaction';
@@ -103,27 +105,6 @@ export class Action {
   }
 
   /**
-   * Returns the prompt for the action
-   * @returns {string} The prompt for the action
-   */
-  prompt(): string {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const schemaShape = (this.schema.schema as z.ZodObject<any>).shape || {};
-    const schemaProperties = Object.entries(schemaShape).map(([key, value]) => {
-      const zodValue = value as z.ZodTypeAny;
-      const description = zodValue.description;
-      const status = zodValue.isOptional() ? "'optional': true" : "'required': true";
-      return `'${key}': {'type': '${description}', ${status}}`;
-    });
-
-    const schemaContent = schemaProperties.length > 0 ? `{${schemaProperties.join(', ')}}` : '{}';
-
-    const schemaStr = `{${this.name()}: ${schemaContent}}`;
-
-    return `${this.schema.description}:\n${schemaStr}`;
-  }
-
-  /**
    * Get the index argument from the input if this action has an index
    * @param input The input to extract the index from
    * @returns The index value if found, null otherwise
@@ -168,6 +149,48 @@ export function buildDynamicActionSchema(actions: Action[]): z.ZodType {
     });
   }
   return schema;
+}
+
+/** OpenAI-format tool definition; every LangChain chat adapter accepts this shape in bindTools. */
+export interface ToolDefinition {
+  type: 'function';
+  function: { name: string; description: string; parameters: Record<string, unknown> };
+}
+
+/** Extra field every navigator tool carries so the model's working memory rides along with each action. */
+export const NAVIGATOR_TOOL_FIELDS = {
+  memory: z
+    .string()
+    .describe(
+      'Working memory for the next step, 1-3 sentences: whether your last action worked, what is done and what remains (with counts), and any values you must remember.',
+    ),
+};
+
+function modelFacingSchema(action: ActionSchema, extraFields: z.ZodRawShape): z.AnyZodObject {
+  const hidden = Object.fromEntries(
+    MODEL_HIDDEN_FIELDS.filter(field => field in action.schema.shape).map(field => [field, true as const]),
+  );
+  return action.schema.omit(hidden).extend(extraFields);
+}
+
+/** Model-facing tool definitions, one per action. Deterministic, so the output is byte-stable for prompt caching. */
+export function buildToolDefinitions(actions: ActionSchema[], extraFields: z.ZodRawShape = {}): ToolDefinition[] {
+  return actions.map(action => ({
+    type: 'function',
+    function: {
+      name: action.name,
+      description: action.description,
+      parameters: zodToToolParameters(modelFacingSchema(action, extraFields)),
+    },
+  }));
+}
+
+/** Validators for tool-call arguments: the full internal schema plus the extra fields. */
+export function buildToolValidators(
+  actions: ActionSchema[],
+  extraFields: z.ZodRawShape = {},
+): Record<string, z.AnyZodObject> {
+  return Object.fromEntries(actions.map(action => [action.name, action.schema.extend(extraFields)]));
 }
 
 export class ActionBuilder {
@@ -233,7 +256,7 @@ export class ActionBuilder {
       new Action((input) => this.navigationHandler.handleSearchWeb(input), searchWebActionSchema),
       new Action((input) => this.navigationHandler.handleSearchGoogle(input), searchGoogleActionSchema),
       new Action((input) => this.navigationHandler.handleGoToUrl(input), goToUrlActionSchema),
-      new Action((input) => this.navigationHandler.handleGoBack(input), goBackActionSchema),
+      new Action(() => this.navigationHandler.handleGoBack(), goBackActionSchema),
       new Action((input) => this.navigationHandler.handleWait(input), waitActionSchema),
     ];
   }
@@ -274,7 +297,7 @@ export class ActionBuilder {
       new Action((input) => this.contentHandler.handlePreviousPage(input), previousPageActionSchema),
       new Action((input) => this.contentHandler.handleNextPage(input), nextPageActionSchema),
       new Action((input) => this.contentHandler.handleScrollToText(input), scrollToTextActionSchema),
-      new Action((input) => this.contentHandler.handleGetCompletePageContent(input), getCompletePageContentActionSchema),
+      new Action(() => this.contentHandler.handleGetCompletePageContent(), getCompletePageContentActionSchema),
     ];
   }
 

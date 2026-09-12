@@ -9,7 +9,7 @@ type ManageReadingListInput = z.infer<typeof manageReadingListActionSchema.schem
 export class ManageReadingListHandler extends BaseHandler {
   async handleManageReadingList(input: ManageReadingListInput): Promise<ActionResult> {
     const action = input.action;
-    const intent = input.intent || `Managing reading list with action ${action}`;
+    const intent = `Managing reading list with action ${action}`;
     const browser = this.context.browserContext.browser;
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

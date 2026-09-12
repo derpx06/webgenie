@@ -9,7 +9,7 @@ type ManageTabsInput = z.infer<typeof manageTabsActionSchema.schema>;
 export class ManageTabsHandler extends BaseHandler {
   async handleManageTabs(input: ManageTabsInput): Promise<ActionResult> {
     const action = input.action;
-    const intent = input.intent || `Managing tabs with action ${action}`;
+    const intent = `Managing tabs with action ${action}`;
     const browser = this.context.browserContext.browser;
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

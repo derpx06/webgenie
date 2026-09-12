@@ -9,7 +9,7 @@ type ManageExtensionsInput = z.infer<typeof manageExtensionsActionSchema.schema>
 export class ManageExtensionsHandler extends BaseHandler {
   async handleManageExtensions(input: ManageExtensionsInput): Promise<ActionResult> {
     const action = input.action;
-    const intent = input.intent || `Managing extensions with action ${action}`;
+    const intent = `Managing extensions with action ${action}`;
     const browser = this.context.browserContext.browser;
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

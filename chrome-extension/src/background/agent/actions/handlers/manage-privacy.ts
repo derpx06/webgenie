@@ -9,7 +9,7 @@ type ManagePrivacyInput = z.infer<typeof managePrivacyActionSchema.schema>;
 export class ManagePrivacyHandler extends BaseHandler {
   async handleManagePrivacy(input: ManagePrivacyInput): Promise<ActionResult> {
     const action = input.action;
-    const intent = input.intent || `Managing privacy with action ${action}`;
+    const intent = `Managing privacy with action ${action}`;
     const browser = this.context.browserContext.browser;
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

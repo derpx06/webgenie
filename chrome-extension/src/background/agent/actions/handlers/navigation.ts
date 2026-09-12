@@ -1,5 +1,5 @@
 import { ActionResult } from '@src/background/agent/types';
-import type { searchGoogleActionSchema, searchWebActionSchema, goToUrlActionSchema, goBackActionSchema, waitActionSchema } from '../schemas';
+import type { searchGoogleActionSchema, searchWebActionSchema, goToUrlActionSchema, waitActionSchema } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
@@ -7,7 +7,7 @@ import { BaseHandler } from './base';
 
 export class NavigationHandler extends BaseHandler {
   async handleSearchWeb(input: z.infer<typeof searchWebActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || `Searching the web for: ${input.query}`;
+    const intent = `Searching the web for: ${input.query}`;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const encodedQuery = encodeURIComponent(input.query);
@@ -28,14 +28,13 @@ export class NavigationHandler extends BaseHandler {
 
   async handleSearchGoogle(input: z.infer<typeof searchGoogleActionSchema.schema>): Promise<ActionResult> {
     return this.handleSearchWeb({
-      intent: input.intent || t('act_searchGoogle_start', [input.query]),
       query: input.query,
       engine: 'google',
     });
   }
 
   async handleGoToUrl(input: z.infer<typeof goToUrlActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_goToUrl_start', [input.url]);
+    const intent = t('act_goToUrl_start', [input.url]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     await this.context.browserContext.navigateTo(input.url);
@@ -47,8 +46,8 @@ export class NavigationHandler extends BaseHandler {
     });
   }
 
-  async handleGoBack(input: z.infer<typeof goBackActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_goBack_start');
+  async handleGoBack(): Promise<ActionResult> {
+    const intent = t('act_goBack_start');
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
@@ -63,7 +62,7 @@ export class NavigationHandler extends BaseHandler {
 
   async handleWait(input: z.infer<typeof waitActionSchema.schema>): Promise<ActionResult> {
     const seconds = input.seconds || 3;
-    const intent = input.intent || t('act_wait_start', [seconds.toString()]);
+    const intent = t('act_wait_start', [seconds.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     await new Promise<void>((resolve) => {

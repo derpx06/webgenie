@@ -9,7 +9,7 @@ type ManageSystemInput = z.infer<typeof manageSystemActionSchema.schema>;
 export class ManageSystemHandler extends BaseHandler {
   async handleManageSystem(input: ManageSystemInput): Promise<ActionResult> {
     const action = input.action;
-    const intent = input.intent || `Managing system with action ${action}`;
+    const intent = `Managing system with action ${action}`;
     const browser = this.context.browserContext.browser;
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

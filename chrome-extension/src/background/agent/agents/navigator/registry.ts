@@ -1,10 +1,19 @@
 import { z } from 'zod';
-import { Action , buildDynamicActionSchema } from '../../actions/builder';
+import {
+  Action,
+  buildDynamicActionSchema,
+  buildToolDefinitions,
+  buildToolValidators,
+  NAVIGATOR_TOOL_FIELDS,
+  type ToolDefinition,
+} from '../../actions/builder';
 import { agentBrainSchema } from '../../types';
 
 export class NavigatorActionRegistry {
   private actions: Record<string, Action> = {};
   private refinedDescriptions: Record<string, string> = {};
+  private tools: ToolDefinition[] | null = null;
+  private validators: Record<string, z.AnyZodObject> | null = null;
 
   constructor(actions: Action[]) {
     for (const action of actions) {
@@ -14,10 +23,22 @@ export class NavigatorActionRegistry {
 
   registerAction(action: Action): void {
     this.actions[action.name()] = action;
+    this.tools = this.validators = null;
   }
 
   unregisterAction(name: string): void {
     delete this.actions[name];
+    this.tools = this.validators = null;
+  }
+
+  getTools(): ToolDefinition[] {
+    this.tools ??= buildToolDefinitions(this.getAllActions().map(action => action.schema), NAVIGATOR_TOOL_FIELDS);
+    return this.tools;
+  }
+
+  getValidators(): Record<string, z.AnyZodObject> {
+    this.validators ??= buildToolValidators(this.getAllActions().map(action => action.schema), NAVIGATOR_TOOL_FIELDS);
+    return this.validators;
   }
 
   getAction(name: string): Action | undefined {

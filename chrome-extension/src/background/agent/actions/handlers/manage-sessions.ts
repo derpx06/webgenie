@@ -9,7 +9,7 @@ type ManageSessionsInput = z.infer<typeof manageSessionsActionSchema.schema>;
 export class ManageSessionsHandler extends BaseHandler {
   async handleManageSessions(input: ManageSessionsInput): Promise<ActionResult> {
     const action = input.action;
-    const intent = input.intent || `Managing sessions with action ${action}`;
+    const intent = `Managing sessions with action ${action}`;
     const browser = this.context.browserContext.browser;
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

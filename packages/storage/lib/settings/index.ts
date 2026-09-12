@@ -6,3 +6,4 @@ export * from './firewall';
 export * from './speechToText';
 export * from './analyticsSettings';
 export * from './advancedSettings';
+export * from './llmCapabilities';

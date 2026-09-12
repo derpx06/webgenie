@@ -9,7 +9,7 @@ type ManageDownloadsInput = z.infer<typeof manageDownloadsActionSchema.schema>;
 export class ManageDownloadsHandler extends BaseHandler {
   async handleManageDownloads(input: ManageDownloadsInput): Promise<ActionResult> {
     const action = input.action;
-    const intent = input.intent || `Managing downloads with action ${action}`;
+    const intent = `Managing downloads with action ${action}`;
     const browser = this.context.browserContext.browser;
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

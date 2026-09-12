@@ -7,7 +7,6 @@ import type {
   previousPageActionSchema,
   nextPageActionSchema,
   scrollToTextActionSchema,
-  getCompletePageContentActionSchema,
 } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
@@ -20,7 +19,7 @@ const logger = createLogger('Action');
 
 export class ContentHandler extends BaseHandler {
   async handleCacheContent(input: z.infer<typeof cacheContentActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_cache_start', [input.content]);
+    const intent = t('act_cache_start', [input.content]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const rawMsg = t('act_cache_ok', [input.content]);
@@ -31,7 +30,7 @@ export class ContentHandler extends BaseHandler {
   }
 
   async handleScrollToPercent(input: z.infer<typeof scrollToPercentActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_scrollToPercent_start');
+    const intent = t('act_scrollToPercent_start');
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
 
@@ -53,7 +52,7 @@ export class ContentHandler extends BaseHandler {
   }
 
   async handleScrollToTop(input: z.infer<typeof scrollToTopActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_scrollToTop_start');
+    const intent = t('act_scrollToTop_start');
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
 
@@ -74,7 +73,7 @@ export class ContentHandler extends BaseHandler {
   }
 
   async handleScrollToBottom(input: z.infer<typeof scrollToBottomActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_scrollToBottom_start');
+    const intent = t('act_scrollToBottom_start');
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
 
@@ -95,7 +94,7 @@ export class ContentHandler extends BaseHandler {
   }
 
   async handlePreviousPage(input: z.infer<typeof previousPageActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_previousPage_start');
+    const intent = t('act_previousPage_start');
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
 
@@ -134,7 +133,7 @@ export class ContentHandler extends BaseHandler {
   }
 
   async handleNextPage(input: z.infer<typeof nextPageActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_nextPage_start');
+    const intent = t('act_nextPage_start');
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
 
@@ -173,15 +172,16 @@ export class ContentHandler extends BaseHandler {
   }
 
   async handleScrollToText(input: z.infer<typeof scrollToTextActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_scrollToText_start', [input.text, input.nth.toString()]);
+    const nth = input.nth ?? 1;
+    const intent = t('act_scrollToText_start', [input.text, nth.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
     try {
-      const scrolled = await page.scrollToText(input.text, input.nth);
+      const scrolled = await page.scrollToText(input.text, nth);
       const msg = scrolled
-        ? t('act_scrollToText_ok', [input.text, input.nth.toString()])
-        : t('act_scrollToText_notFound', [input.text, input.nth.toString()]);
+        ? t('act_scrollToText_ok', [input.text, nth.toString()])
+        : t('act_scrollToText_notFound', [input.text, nth.toString()]);
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
       return new ActionResult({ extractedContent: msg, includeInMemory: true });
     } catch (error) {
@@ -191,8 +191,8 @@ export class ContentHandler extends BaseHandler {
     }
   }
 
-  async handleGetCompletePageContent(input: z.infer<typeof getCompletePageContentActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || 'Extracting complete page content...';
+  async handleGetCompletePageContent(): Promise<ActionResult> {
+    const intent = 'Extracting complete page content...';
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();

@@ -9,7 +9,7 @@ type ManageBookmarksInput = z.infer<typeof manageBookmarksActionSchema.schema>;
 export class ManageBookmarksHandler extends BaseHandler {
   async handleManageBookmarks(input: ManageBookmarksInput): Promise<ActionResult> {
     const action = input.action;
-    const intent = input.intent || `Managing bookmarks with action ${action}`;
+    const intent = `Managing bookmarks with action ${action}`;
     const browser = this.context.browserContext.browser;
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

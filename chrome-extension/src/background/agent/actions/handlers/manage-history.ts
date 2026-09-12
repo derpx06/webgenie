@@ -9,7 +9,7 @@ type ManageHistoryInput = z.infer<typeof manageHistoryActionSchema.schema>;
 export class ManageHistoryHandler extends BaseHandler {
   async handleManageHistory(input: ManageHistoryInput): Promise<ActionResult> {
     const action = input.action;
-    const intent = input.intent || `Managing history with action ${action}`;
+    const intent = `Managing history with action ${action}`;
     const browser = this.context.browserContext.browser;
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

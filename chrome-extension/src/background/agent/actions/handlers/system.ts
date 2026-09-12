@@ -16,7 +16,13 @@ export class SystemHandler extends BaseHandler {
   }
 
   async handleAskHuman(input: z.infer<typeof askHumanActionSchema.schema>): Promise<ActionResult> {
-    if (input.type === 'confirmation' && input.actionType) {
+    const type = input.type ?? 'question';
+    const fields = (input.fields as Array<Record<string, unknown>> | undefined)?.map(field => ({
+      ...field,
+      type: field.type ?? 'text',
+      required: field.required ?? true,
+    }));
+    if (type === 'confirmation' && input.actionType) {
       const key = `auto_confirm_${input.actionType}`;
       const storage = await chrome.storage.local.get(key);
       if (storage[key]) {
@@ -29,14 +35,14 @@ export class SystemHandler extends BaseHandler {
     const details = JSON.stringify({
       question: input.question,
       options: input.options,
-      fields: input.fields,
-      type: input.type,
+      fields,
+      type,
       actionType: input.actionType,
     });
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_ASK_HUMAN, details);
     return new ActionResult({
       isWaitingForHuman: true,
-      extractedContent: `Intervention requested (${input.type}): ${input.question}${input.options ? ` Options: ${input.options.join(', ')}` : ''}`,
+      extractedContent: `Intervention requested (${type}): ${input.question}${input.options ? ` Options: ${input.options.join(', ')}` : ''}`,
     });
   }
 }

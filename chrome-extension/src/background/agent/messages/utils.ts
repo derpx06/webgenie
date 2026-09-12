@@ -178,7 +178,7 @@ export function convertInputMessages(inputMessages: BaseMessage[], modelName: st
  * @param inputMessages - List of messages to convert
  * @returns Converted list of messages
  */
-function convertMessagesForNonFunctionCallingModels(inputMessages: BaseMessage[]): BaseMessage[] {
+export function convertMessagesForNonFunctionCallingModels(inputMessages: BaseMessage[]): BaseMessage[] {
   const outputMessages: BaseMessage[] = [];
 
   for (const message of inputMessages) {
@@ -208,7 +208,7 @@ function convertMessagesForNonFunctionCallingModels(inputMessages: BaseMessage[]
  * @param classToMerge - Message class type to merge
  * @returns Merged list of messages
  */
-function mergeSuccessiveMessages(
+export function mergeSuccessiveMessages(
   messages: BaseMessage[],
   classToMerge: typeof HumanMessage | typeof AIMessage,
 ): BaseMessage[] {

@@ -121,7 +121,7 @@ export class InteractionHandler extends BaseHandler {
   }
 
   async handleClickElement(input: z.infer<typeof clickElementActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_click_start', [input.index.toString()]);
+    const intent = t('act_click_start', [input.index.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
@@ -200,7 +200,7 @@ export class InteractionHandler extends BaseHandler {
   }
 
   async handleHoverElement(input: z.infer<typeof hoverElementActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || `Hovering over element ${input.index}`;
+    const intent = `Hovering over element ${input.index}`;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
@@ -231,7 +231,7 @@ export class InteractionHandler extends BaseHandler {
   }
 
   async handleRightClickElement(input: z.infer<typeof rightClickElementActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || `Right clicking element ${input.index}`;
+    const intent = `Right clicking element ${input.index}`;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
@@ -262,7 +262,7 @@ export class InteractionHandler extends BaseHandler {
   }
 
   async handleInputText(input: z.infer<typeof inputTextActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_inputText_start', [input.index.toString()]);
+    const intent = t('act_inputText_start', [input.index.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
@@ -286,7 +286,7 @@ export class InteractionHandler extends BaseHandler {
   async handleGetDropdownOptions(
     input: z.infer<typeof getDropdownOptionsActionSchema.schema>,
   ): Promise<ActionResult> {
-    const intent = input.intent || t('act_getDropdownOptions_start', [input.index.toString()]);
+    const intent = t('act_getDropdownOptions_start', [input.index.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
@@ -344,7 +344,7 @@ export class InteractionHandler extends BaseHandler {
   async handleSelectDropdownOption(
     input: z.infer<typeof selectDropdownOptionActionSchema.schema>,
   ): Promise<ActionResult> {
-    const intent = input.intent || t('act_selectDropdownOption_start', [input.text, input.index.toString()]);
+    const intent = t('act_selectDropdownOption_start', [input.text, input.index.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();

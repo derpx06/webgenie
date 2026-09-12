@@ -148,6 +148,9 @@ importers:
       '@langchain/google-vertexai-web':
         specifier: ^0.2.18
         version: 0.2.18(@langchain/core@0.3.79(@opentelemetry/api@1.9.1)(openai@5.12.2(ws@8.18.3)(zod@3.25.76)))
+      '@langchain/google-webauth':
+        specifier: 0.2.18
+        version: 0.2.18(@langchain/core@0.3.79(@opentelemetry/api@1.9.1)(openai@5.12.2(ws@8.18.3)(zod@3.25.76)))
       '@langchain/groq':
         specifier: 0.2.4
         version: 0.2.4(@langchain/core@0.3.79(@opentelemetry/api@1.9.1)(openai@5.12.2(ws@8.18.3)(zod@3.25.76)))
@@ -2041,7 +2044,7 @@ packages:
   basic-ftp@5.0.5:
     resolution: {integrity: sha512-4Bcg1P8xhUuqcii/S0Z9wiHIrQVPMermM1any+MX5GeGD7faD3/msQUDGLol9wOcz4/jbg/WJnGqoJF6LiBdtg==}
     engines: {node: '>=10.0.0'}
-    deprecated: Security vulnerability fixed in 5.2.0, please upgrade
+    deprecated: Security vulnerability fixed in 5.2.1, please upgrade
 
   binary-extensions@2.3.0:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}

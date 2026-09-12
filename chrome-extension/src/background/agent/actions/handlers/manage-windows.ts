@@ -9,7 +9,7 @@ type ManageWindowsInput = z.infer<typeof manageWindowsActionSchema.schema>;
 export class ManageWindowsHandler extends BaseHandler {
   async handleManageWindows(input: ManageWindowsInput): Promise<ActionResult> {
     const action = input.action;
-    const intent = input.intent || `Managing windows with action ${action}`;
+    const intent = `Managing windows with action ${action}`;
     const browser = this.context.browserContext.browser;
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);

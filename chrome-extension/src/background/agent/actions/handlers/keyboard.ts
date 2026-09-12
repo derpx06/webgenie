@@ -7,7 +7,7 @@ import { BaseHandler } from './base';
 
 export class KeyboardHandler extends BaseHandler {
   async handleSendKeys(input: z.infer<typeof sendKeysActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_sendKeys_start', [input.keys]);
+    const intent = t('act_sendKeys_start', [input.keys]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();

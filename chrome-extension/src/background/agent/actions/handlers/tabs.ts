@@ -7,7 +7,7 @@ import { BaseHandler } from './base';
 
 export class TabHandler extends BaseHandler {
   async handleSwitchTab(input: z.infer<typeof switchTabActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_switchTab_start', [input.tab_id.toString()]);
+    const intent = t('act_switchTab_start', [input.tab_id.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     await this.context.browserContext.switchTab(input.tab_id);
@@ -21,7 +21,7 @@ export class TabHandler extends BaseHandler {
     if (!url || url.startsWith('chrome://')) {
       url = 'https://www.google.com';
     }
-    const intent = input.intent || t('act_openTab_start', [url]);
+    const intent = t('act_openTab_start', [url]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     await this.context.browserContext.openTab(url);
@@ -31,7 +31,7 @@ export class TabHandler extends BaseHandler {
   }
 
   async handleCloseTab(input: z.infer<typeof closeTabActionSchema.schema>): Promise<ActionResult> {
-    const intent = input.intent || t('act_closeTab_start', [input.tab_id.toString()]);
+    const intent = t('act_closeTab_start', [input.tab_id.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     await this.context.browserContext.closeTab(input.tab_id);
