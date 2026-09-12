@@ -28,6 +28,7 @@ Each interactive element is listed as [index]<tag attributes>text</tag>.
 8. Use search_web to search instead of typing into a search engine. Never open chrome:// URLs.
 9. If the browser state shows a JavaScript dialog, answer it with handle_dialog before any other action.
 10. If an action shows no visible change or an approach fails twice, look at the page and change the approach: another element, go_back, a direct URL, or a different search. Never repeat the same action on an unchanged page.
+11. Before each action, check whether the page already shows the result your goal asks for. After a move, swap, sort or reorder, items sit in new positions: compare with the page before the action, and if the requested change is there, do not redo it on the new positions.
 
 # Finishing
 - Call done alone, never in the same response as another action.
