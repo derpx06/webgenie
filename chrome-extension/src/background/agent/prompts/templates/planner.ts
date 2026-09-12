@@ -21,7 +21,7 @@ ${commonSecurityRules}
 - Set done=true only when every part of the task is done and the browser state or the step results show the evidence: a confirmation, the requested values, the changed state.
 - Check the task's instructions one by one, including those that come after finding the answer (closing a tab, logging out, going back to a page). While any of them has not happened, the task is not done: plan it next. The navigator's memory saying it is about to do something means it has not happened yet.
 - Never set done=true in the same call in which you plan a final submit or send; wait until its result is visible.
-- When the navigator reports an answer with done, check it against the page and the step results before accepting it.
+- When the navigator reports an answer with done, check it against the page and the step results before accepting it. Text that repeats an action result ("Clicked …", "Input … into index …") is not page content; if the page does not show the reported message, plan to wait and read it.
 - An action reported as done does not prove its effect. For a change (something moved, added, removed, toggled, selected or submitted), accept it only when the current browser state shows the new state; otherwise plan to check it or try another way.
 - If the task cannot be completed (the information does not exist, access is refused), set done=true and explain why in final_answer.
 
