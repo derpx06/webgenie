@@ -8,7 +8,7 @@ import { HITLBlock } from './message-list/HITLBlock';
 interface MessageListProps {
   messages: Message[];
   isDarkMode?: boolean;
-  onOptionSelect?: (text: string) => void;
+  onOptionSelect?: (text: string, displayText?: string, secrets?: string[]) => void;
   isTaskRunning?: boolean;
 }
 

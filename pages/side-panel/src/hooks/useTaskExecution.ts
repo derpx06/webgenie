@@ -92,7 +92,7 @@ export const useTaskExecution = ({
      * @param displayText Optional text to display in the UI (if different from execution text).
      */
     const handleSendMessage = useCallback(
-        async (text: string, displayText?: string) => {
+        async (text: string, displayText?: string, secrets?: string[]) => {
             // ... implementation
             const trimmedText = text.trim();
             if (!trimmedText) return;
@@ -128,6 +128,7 @@ export const useTaskExecution = ({
                     await sendMessage({
                         type: 'human_response',
                         response: text,
+                        secrets: secrets ?? [],
                     });
                     setIsWaitingForHuman(false);
                     return;

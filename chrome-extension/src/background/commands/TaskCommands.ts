@@ -27,8 +27,8 @@ export class PauseTaskCommand implements ICommand {
 export class HumanResponseCommand implements ICommand {
   async execute(message: unknown, context: ICommandContext): Promise<void> {
     if (!context.currentExecutor) return context.port.postMessage({ type: "error", error: t("bg_errors_noRunningTask") });
-    const msg = message as { response?: string };
-    await context.currentExecutor.submitHumanResponse(msg.response || "");
+    const msg = message as { response?: string; secrets?: string[] };
+    await context.currentExecutor.submitHumanResponse(msg.response || "", Array.isArray(msg.secrets) ? msg.secrets : []);
     return context.port.postMessage({ type: "success" });
   }
 }

@@ -33,9 +33,11 @@ export class SystemHandler extends BaseHandler {
       }
     }
 
+    // A confirmation is answered with a button even when the model gave no options.
+    const options = input.options?.length ? input.options : type === 'confirmation' ? ['Yes', 'No'] : undefined;
     const details = JSON.stringify({
       question: input.question,
-      options: input.options,
+      options,
       fields,
       type,
       actionType: input.actionType,
@@ -43,7 +45,7 @@ export class SystemHandler extends BaseHandler {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_ASK_HUMAN, details);
     return new ActionResult({
       isWaitingForHuman: true,
-      extractedContent: `Intervention requested (${type}): ${input.question}${input.options ? ` Options: ${input.options.join(', ')}` : ''}`,
+      extractedContent: `Intervention requested (${type}): ${input.question}${options ? ` Options: ${options.join(', ')}` : ''}`,
     });
   }
 }

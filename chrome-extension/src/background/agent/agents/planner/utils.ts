@@ -75,17 +75,8 @@ function hasActionableTarget(observation: BrowserObservation | null): boolean {
   });
 }
 
-function hasHumanBlocker(observation: BrowserObservation | null): boolean {
-  if (!observation) return false;
-  return observation.targets.some(target => {
-    const text = targetText(target);
-    return /\b(sign in|log in|login|password|passcode|2fa|two-factor|captcha|permission required|verify|verification)\b/.test(text);
-  });
-}
-
 function chooseFallbackMacroObjective(observation: BrowserObservation | null): MacroObjective {
   if (!observation?.url) return 'NAVIGATE';
-  if (hasHumanBlocker(observation)) return 'ASK_HUMAN';
   if (hasActionableTarget(observation)) return 'NAVIGATE';
   return 'EXPLORE_PAGE';
 }

@@ -371,7 +371,7 @@ chrome.runtime.onConnect.addListener(port => {
 
           case 'human_response': {
             if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
-            await currentExecutor.submitHumanResponse(message.response);
+            await currentExecutor.submitHumanResponse(message.response, Array.isArray(message.secrets) ? message.secrets : []);
             return port.postMessage({ type: 'success' });
           }
 

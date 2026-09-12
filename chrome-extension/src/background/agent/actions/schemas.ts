@@ -257,9 +257,9 @@ export const askHumanActionSchema: ActionSchema = {
           id: z.string().describe('Unique ID for the field'),
           label: z.string().describe('Label to show for the field'),
           type: z
-            .enum(['text', 'number', 'date', 'select'])
+            .enum(['text', 'password', 'number', 'date', 'select'])
             .optional()
-            .describe('The type of input field; defaults to text'),
+            .describe('The type of input field; defaults to text. Use password for secrets.'),
           required: z.boolean().optional().describe('Whether the field is required; defaults to true'),
           options: z.array(z.string()).optional().describe('Options for select type field'),
           placeholder: z.string().optional().describe('Placeholder text'),

@@ -206,7 +206,7 @@ class Harness {
   }
 
   /** Runs the task over the port until a terminal state, a human request, or a limit. */
-  async drive({ taskId, tabId, task, maxMs, maxSteps, allowHuman }) {
+  async drive({ taskId, tabId, task, maxMs, maxSteps, allowHuman, human = [] }) {
     await this.ctl.evaluate(
       ({ task, taskId, tabId }) => {
         window.__ev = [];
@@ -223,6 +223,9 @@ class Harness {
     let inputTokens = 0;
     let stopReason = null;
     let stopAt = 0;
+    // Every question the agent asks; scripted answers are given in order, anything else stops the task.
+    const questions = [];
+    let answered = 0;
     const stop = async reason => {
       stopReason = reason;
       stopAt = Date.now();
@@ -242,9 +245,26 @@ class Harness {
         if (!e.state) continue;
         maxStep = Math.max(maxStep, e.data?.step ?? 0);
         inputTokens = Math.max(inputTokens, e.data?.usage?.inputTokens ?? 0);
-        if (e.state === 'act.ask_human' && !allowHuman && !stopReason) {
-          answer = String(e.data?.details ?? '');
-          await stop('asked_human');
+        if (e.state === 'act.ask_human' && !stopReason) {
+          let question = String(e.data?.details ?? '');
+          try {
+            question = JSON.parse(question).question ?? question;
+          } catch {
+            // plain-text question
+          }
+          questions.push(question);
+          const script = human[answered];
+          if (script && (!script.expect || script.expect.test(question))) {
+            answered++;
+            await this.ctl.evaluate(
+              (response, secrets) => window.__port.postMessage({ type: 'human_response', response, secrets }),
+              script.answer,
+              script.secrets ?? [],
+            );
+          } else if (!allowHuman) {
+            answer = question;
+            await stop('asked_human');
+          }
         }
         if (TERMINAL.has(e.state)) {
           outcome = stopReason ?? e.state;
@@ -258,7 +278,7 @@ class Harness {
       }
       if (!outcome && stopReason && Date.now() - stopAt > 15_000) outcome = stopReason;
     }
-    return { outcome, answer, maxStep, events, seconds: +((Date.now() - started) / 1000).toFixed(1) };
+    return { outcome, answer, maxStep, events, questions, seconds: +((Date.now() - started) / 1000).toFixed(1) };
   }
 
   async runTask(task, runId, repeat, outDir) {
@@ -284,6 +304,7 @@ class Harness {
       maxMs: (task.maxSeconds ?? 180) * 1000,
       maxSteps: task.maxSteps ?? 25,
       allowHuman: task.allowHuman,
+      human: task.human,
     });
     await sleep(2000); // let the trace sink flush its last batch
 
@@ -302,6 +323,7 @@ class Harness {
         activeTabUrl: () => this.activeTabUrl(),
         fetchText,
         fixtures: this.fixtures,
+        questions: run.questions,
       });
       check = typeof verdict === 'boolean' ? { pass: verdict, detail: '' } : verdict;
     } catch (error) {
@@ -328,6 +350,7 @@ class Harness {
       detail: check.detail,
       steps: run.maxStep,
       seconds: run.seconds,
+      questions: run.questions,
       metrics,
     };
   }

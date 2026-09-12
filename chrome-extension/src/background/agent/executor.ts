@@ -8,7 +8,7 @@ import type { ToolMode } from './agents/base';
 import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
-import { setTraceContext } from '@src/background/trace';
+import { registerSecret, setTraceContext } from '@src/background/trace';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -770,7 +770,9 @@ export class Executor {
     this.context.pause();
   }
 
-  async submitHumanResponse(response: string): Promise<void> {
+  /** `secrets` are values the user typed into password fields; they never appear in traces. */
+  async submitHumanResponse(response: string, secrets: string[] = []): Promise<void> {
+    for (const secret of secrets) registerSecret(secret);
     logger.info(`Submitting human response: ${response}`);
     this.context.messageManager.addHumanAnswer(response);
     this.context.blockedState = null;

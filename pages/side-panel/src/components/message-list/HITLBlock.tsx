@@ -15,7 +15,7 @@ interface FormField {
 interface HITLBlockProps {
   messages: Message[];
   isDarkMode: boolean;
-  onOptionSelect?: (text: string) => void;
+  onOptionSelect?: (text: string, displayText?: string, secrets?: string[]) => void;
 }
 
 const formatTimeOnly = (timestamp: number) => {
@@ -57,11 +57,13 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const responseArr = Object.entries(formData).map(([id, val]) => {
-      const field = fields.find(f => f.id === id);
-      return `${field?.label || id}: ${val}`;
-    });
-    onOptionSelect?.(responseArr.join('\n'));
+    const entries = Object.entries(formData).map(([id, val]) => ({ field: fields.find(f => f.id === id), id, val }));
+    const line = (label: string, value: string) => `${label}: ${value}`;
+    const response = entries.map(({ field, id, val }) => line(field?.label || id, val)).join('\n');
+    // Password answers go to the agent but are shown as dots and kept out of traces.
+    const shown = entries.map(({ field, id, val }) => line(field?.label || id, field?.type === 'password' ? '•'.repeat(val.length) : val)).join('\n');
+    const secrets = entries.filter(({ field, val }) => field?.type === 'password' && val).map(({ val }) => val);
+    onOptionSelect?.(response, shown, secrets);
   };
 
   return (
