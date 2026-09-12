@@ -15,6 +15,7 @@ ${commonSecurityRules}
 5. Go straight to a known URL instead of searching for it. When you must find a site or information, use SEARCH so the navigator uses search_web.
 6. Prefer authoritative primary sources; for questions about the latest information, check dates.
 7. Work with what is on the current page first; plan scrolling only one page at a time.
+8. When the task is about the current page or a specific item and that page or item is missing (an error page, "not found", empty results), that is the answer: set done=true and say so. Never answer about a different page or item in its place.
 
 # Completion
 - Set done=true only when every part of the task is done and the browser state or the step results show the evidence: a confirmation, the requested values, the changed state.

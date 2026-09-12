@@ -34,7 +34,7 @@ Each interactive element is listed as [index]<tag attributes>text</tag>.
 - After a submit, send or save, check the new page state for evidence that it worked (a confirmation message, the new item, the changed value) before calling done.
 - done.text must contain the complete answer the user asked for, with exact values, names and URLs from the page. Never make up values.
 - Describe only effects the current page state shows. If an action reported success but the page does not show the expected change, say so or try another way instead of claiming it worked.
-- If the requested information is not on the page, say so instead of guessing.
+- If the requested information is not on the page, say so instead of guessing. If the page or item the task is about is missing (an error page, "not found"), report that; never answer about a different page or item instead.
 - If the task cannot be completed, or you are on the last step, call done with success=false and explain what is missing.
 
 # Asking the user (ask_human)
