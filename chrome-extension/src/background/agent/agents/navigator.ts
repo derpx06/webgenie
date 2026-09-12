@@ -381,9 +381,41 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           break;
         }
 
+        // Dragging the same item onto the same target again undoes a swap or repeats a move the page already shows.
+        const dragKey = actionName === 'drag_element'
+          ? (() => {
+            const labelOf = (index: number | undefined) => {
+              const node = beforeState.selectorMap.get(index ?? -1);
+              return node ? [node.attributes['aria-label'], node.getAllTextTillNextClickableElement(2)].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim() : '';
+            };
+            const { index, target_index } = actionArgs as { index?: number; target_index?: number };
+            const source = labelOf(index);
+            const target = labelOf(target_index);
+            return source && target ? `${source} -> ${target}` : null;
+          })()
+          : null;
+        if (dragKey && dragKey === this.context.lastDragKey) {
+          const msg = `You already dragged ${dragKey.replace(' -> ', ' onto ')}, and the page changed. Do not drag it again: check whether the page now shows what the task asked for, and finish if it does.`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          results.push(new ActionResult({
+            executed: false,
+            executionStatus: 'not_attempted',
+            validated: 'unknown',
+            retryability: 'replan',
+            failureReason: msg,
+            extractedContent: msg,
+            includeInMemory: true,
+            contractId,
+            actionId,
+            validationId,
+          }));
+          break;
+        }
+
         const actionStartedAt = Date.now();
         let result = await actionInstance.call(actionArgs);
         if (typedField && !result?.error) this.context.typedValues.set(typedField, typedText);
+        if (!result?.error && isMutatingAction(actionName)) this.context.lastDragKey = dragKey;
         record({
           level: result?.error ? 'warning' : 'info',
           kind: 'span',

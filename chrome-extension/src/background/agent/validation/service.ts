@@ -49,7 +49,7 @@ export function changesUserValue(previous: string | undefined, next: string, use
 
 /** Whether an answer quotes the agent's own action results ("Clicked button with index 2", "Input … into index 3") instead of page text. */
 export function echoesActionResult(text: string): boolean {
-  return /\b(with|into) index \d+\b/i.test(text);
+  return /\b(with|into) index \d+\b|\belement \d+ \(/i.test(text);
 }
 
 /** Affirmative answers to a confirmation; anything else counts as no. */

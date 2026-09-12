@@ -411,6 +411,7 @@ describe('echoesActionResult', () => {
   it('recognises action-result wording and leaves page text alone', () => {
     expect(echoesActionResult('The status message is: Clicked button with index 1: Save')).toBe(true);
     expect(echoesActionResult('Input WebGenie into index 3')).toBe(true);
+    expect(echoesActionResult("The page shows 'Dragged element 2 (A) onto element 1 (B)'")).toBe(true);
     expect(echoesActionResult('Saved: hello frames')).toBe(false);
     expect(echoesActionResult('The book index lists 3 chapters')).toBe(false);
   });

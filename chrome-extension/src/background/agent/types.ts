@@ -81,6 +81,8 @@ export class AgentContext {
   typedValues = new Map<string, string>();
   /** The tab's address when the current task began; relative instructions ("the next page") refer to it. */
   taskStartUrl: string | null = null;
+  /** Labels of the last drag's source and target, to refuse repeating a drag that already happened. */
+  lastDragKey: string | null = null;
   /** The page read shown to the models this step; element indexes in their actions refer to it. */
   promptState?: BrowserState;
   currentContract?: NextStepContract | null;
@@ -119,6 +121,7 @@ export class AgentContext {
     this.pendingQuestion = null;
     this.commitDecision = null;
     this.typedValues.clear();
+    this.lastDragKey = null;
     this.memory = new InChatMemory();
     this.currentContract = null;
     this.validatedProgress = [];
