@@ -100,12 +100,13 @@ describe('buildDomState', () => {
 });
 
 describe('pointer targets', () => {
-  it('indexes elements the page made clickable or draggable, not plain images or wrappers of controls', () => {
+  it('indexes elements the page made clickable or draggable and named images, not unnamed images or wrappers of controls', () => {
     const box = (x: number, extra: Partial<{ clickable: boolean; attributes: Record<string, string>; width: number; height: number }> = {}) => ({
       tagName: 'div', attributes: {}, x, y: 10, width: 100, height: 40, ...extra,
     });
     const nodes: AXNode[] = [
-      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3', '4', '5', '7', '9'] },
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3', '4', '5', '7', '9', '10'] },
+      { nodeId: '10', role: { value: 'image' }, backendDOMNodeId: 10 },
       { nodeId: '2', role: { value: 'generic' }, backendDOMNodeId: 2, childIds: ['2t'] },
       text('2t', 'Box A'),
       { nodeId: '3', role: { value: 'generic' }, backendDOMNodeId: 3, childIds: ['3t'] },
@@ -128,12 +129,14 @@ describe('pointer targets', () => {
         [5, box(330, { clickable: true })],
         [8, box(440)],
         [9, box(0, { clickable: true, width: 1000, height: 800 })],
+        [10, box(550)],
       ]),
     };
     const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout }], { width: 1000, height: 800 }));
     const indexed = [...state.selectorMap.values()].map(node => node.attributes['aria-label'] ?? node.getAllTextTillNextClickableElement());
 
-    expect(indexed).toEqual(['Box A', 'Open details', 'Buy', 'Home']);
+    // The named avatar is a hover target; the unnamed image (10) and the logo inside a link get no index of their own.
+    expect(indexed).toEqual(['Box A', 'Open details', 'User avatar', 'Buy', 'Home']);
     expect(state.selectorMap.get(0)?.attributes.draggable).toBe('true');
   });
 

@@ -337,13 +337,15 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         (Boolean(props.editable) && props.focusable === true) ||
         (role === 'gridcell' && props.focusable === true);
       // Elements the page itself made pointer targets — a script click listener, a native click action, draggable="true" —
-      // get an index too, unless a control already surrounds them or they are page-sized wrappers. A plain image is not a
-      // target: its name is shown as text, and indexing every picture only lengthens the element list.
+      // get an index too, unless a control already surrounds them or they are page-sized wrappers. So does a named image of
+      // some size: hovering one can reveal content (a profile card with CSS-only hover, C5). Unnamed decorative images get
+      // none, since indexing every picture only lengthens the element list.
+      const namedImage = (role === 'image' || role === 'img') && Boolean(name) && Boolean(rect && rect.width >= 24 && rect.height >= 24);
       const pointerCandidate =
         !interactive &&
         !insideControl &&
         Boolean(layout && rect) &&
-        pageTarget &&
+        (pageTarget || namedImage) &&
         rect!.width >= 8 &&
         rect!.height >= 8 &&
         (!viewport || rect!.width * rect!.height <= 0.5 * viewport.width * viewport.height);
