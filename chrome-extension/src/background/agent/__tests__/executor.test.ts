@@ -494,6 +494,34 @@ describe('Personal details nobody gave', () => {
   });
 });
 
+describe('Follow-ups and saved memory', () => {
+  it('runs a follow-up even when a cancel reached the previous task as it finished', async () => {
+    const h = createHarness({
+      task: 'What does the page say the answer is?',
+      pages: [{ url: 'https://example.test/', title: 'Example', text: ['The answer is 42'] }],
+      planner: [plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the answer' }), planDone('42'), plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read it again' }), planDone('Still 42')],
+      navigator: [done('42'), done('Still 42')],
+    });
+    await settle(h.executor.execute());
+    // The side panel sends the follow-up as soon as the answer shows; the background stops the task that is still ending.
+    await h.executor.cancel();
+    h.executor.addFollowUpTask('Is it still 42?');
+    await settle(h.executor.execute());
+
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'Still 42' } });
+    expect(h.states()).not.toContain(ExecutionState.TASK_CANCEL);
+  });
+
+  it('redacts a registered password before saving working memory', async () => {
+    const { registerSecret } = await import('../../trace');
+    const h = createHarness({ task: 'Log in' });
+    registerSecret('Hunter2-Secret!');
+    await h.executor.getContext().messageManager.setWorkingMemory('Typed Hunter2-Secret! into the password field.');
+
+    expect(h.executor.getContext().messageManager.getWorkingMemory()).not.toContain('Hunter2-Secret!');
+  });
+});
+
 describe('Screenshots', () => {
   const chart = { url: 'https://stats.test/', title: 'Stats', text: ['Bar chart of monthly sign-ups'] };
   const hasImage = (request: LLMRequest) =>

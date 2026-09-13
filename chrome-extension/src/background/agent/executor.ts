@@ -214,6 +214,12 @@ export class Executor {
     const context = this.context;
     context.nSteps = 0;
     context.interruption = null;
+    // A cancel that reached a task already finishing (final run L3: the follow-up was sent the moment the answer arrived)
+    // must not cancel the follow-up: every run starts un-stopped, with a fresh abort signal.
+    if (context.stopped) {
+      context.stopped = false;
+      context.controller = new AbortController();
+    }
     this.running = true;
     const allowedMaxSteps = this.context.options.maxSteps;
     await this.restoreCheckpointIfPresent(taskText);

@@ -1,6 +1,7 @@
 import { type BaseMessage, AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { MessageHistory, MessageMetadata, serializeHistory, deserializeHistory } from '@src/background/agent/messages/views';
 import { createLogger } from '@src/background/log';
+import { redactSecrets } from '@src/background/trace';
 import {
   defangTags,
   filterExternalContent,
@@ -108,7 +109,9 @@ export default class MessageManager {
   // ── Working memory ────────────────────────────────────────────────────────
 
   public async setWorkingMemory(memory: string): Promise<void> {
-    this.workingMemory = memory.slice(0, MAX_WORKING_MEMORY_CHARS);
+    // The model may copy a password it read or typed into its memory; memory is saved to session storage, so a secret
+    // registered this task is redacted first (final run C34: the typed password sat under `:wm`).
+    this.workingMemory = redactSecrets(memory).slice(0, MAX_WORKING_MEMORY_CHARS);
     if (!this.sessionId) return;
     try {
       await chrome.storage.session.set({ [`${this.sessionId}:wm`]: this.workingMemory });
