@@ -229,6 +229,26 @@ describe("The user's personal data", () => {
     expect(textOf(h.llm.requestsFor('navigator').at(-1)!.messages)).toContain("the user's request does not ask to enter jamie@example.com");
   });
 
+  it('is entered without a check when the user gave it in answer to the agent', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Book a delivery for Web Genie to 1 Main Street.',
+      pages: [article],
+      planner: Array(6).fill(planner),
+      navigator: [askHuman('What phone number should I use?'), typeText(0, '555-0100'), done('Booked')],
+    });
+
+    const run = h.executor.execute();
+    await until(() => h.has(ExecutionState.ACT_ASK_HUMAN));
+    await h.executor.submitHumanResponse('Phone: 555-0100');
+    await settle(run);
+
+    expect(h.browser.actions).toEqual([{ type: 'input', index: 0, text: '555-0100' }]);
+    expect(h.llm.requests.some(request => request.tools.some(tool => tool.function.name === 'intent_check'))).toBe(false);
+  });
+
   it('is entered when the request asks for it', async () => {
     const h = await run('Sign me up for the newsletter on this page with my email jamie@example.com.', true);
     expect(h.browser.actions).toEqual([{ type: 'input', index: 0, text: 'jamie@example.com' }]);
