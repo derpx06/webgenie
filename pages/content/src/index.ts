@@ -96,6 +96,8 @@ function injectBorder() {
   // Inject Div
   const border = document.createElement('div');
   border.id = BORDER_ID;
+  // Decoration for the user only: hidden from the accessibility tree the agent reads.
+  border.setAttribute('aria-hidden', 'true');
   target.appendChild(border);
 }
 
@@ -417,6 +419,8 @@ function updateStatusCapsule(text: string, active: boolean) {
     if (!active) return; // Don't create if not active
     capsule = document.createElement('div');
     capsule.id = CAPSULE_ID;
+    // The agent reads pages through the accessibility tree; its own status text must not look like page content.
+    capsule.setAttribute('aria-hidden', 'true');
 
     const dot = document.createElement('div');
     dot.className = 'webgenie-agent-dot';
@@ -497,6 +501,7 @@ function initCursor() {
 
   cursorEl = document.createElement('div');
   cursorEl.id = 'webgenie-cursor';
+  cursorEl.setAttribute('aria-hidden', 'true');
   target.appendChild(cursorEl);
 }
 

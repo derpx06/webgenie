@@ -152,6 +152,29 @@ describe('pointer targets', () => {
     expect(withoutListener.selectorMap.size).toBe(0);
     expect(withListener.selectorMap.get(0)?.backendNodeId).toBe(30);
   });
+
+  it('reads nothing hidden with aria-hidden, even a draggable element with its own listener', () => {
+    // Like the agent's own status overlay: aria-hidden, draggable, with a text label inside.
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3'] },
+      text('2', 'Log in'),
+      {
+        nodeId: '3',
+        ignored: true,
+        ignoredReasons: [{ name: 'ariaHiddenElement', value: { type: 'boolean', value: true } }],
+        role: { value: 'none' },
+        backendDOMNodeId: 30,
+        childIds: ['4'],
+      },
+      { nodeId: '4', ignored: true, ignoredReasons: [{ name: 'ariaHiddenSubtree' }], role: { value: 'StaticText' }, name: { value: 'Input tomsmith into index 2' } },
+    ];
+    const layout = { scrollX: 0, scrollY: 0, nodes: new Map([[30, { tagName: 'div', attributes: { draggable: 'true' }, x: 10, y: 60, width: 250, height: 40 }]]) };
+
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout, pointerListeners: new Set([30]) }], { width: 1000, height: 800 }));
+
+    expect(state.selectorMap.size).toBe(0);
+    expect(JSON.stringify(state.elementTree, (key, value) => (key === 'parent' ? undefined : value))).not.toContain('Input tomsmith');
+  });
 });
 
 describe('coordinates', () => {

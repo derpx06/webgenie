@@ -27,6 +27,7 @@ export interface AXValue {
 export interface AXNode {
   nodeId: string;
   ignored?: boolean;
+  ignoredReasons?: Array<{ name: string; value?: AXValue }>;
   role?: AXValue;
   name?: AXValue;
   description?: AXValue;
@@ -290,9 +291,11 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
       const role = String(node.role?.value ?? '');
       if (SKIPPED_ROLES.has(role)) return false;
       const name = String(node.name?.value ?? '').trim();
+      // aria-hidden content is not for reading (decoration, the agent's own status overlay, content inert behind a modal).
+      const hiddenByAria = Boolean(node.ignoredReasons?.some(reason => reason.name === 'ariaHiddenElement' || reason.name === 'ariaHiddenSubtree'));
 
       if (role === 'StaticText') {
-        if (!name) return false;
+        if (!name || hiddenByAria) return false;
         into.children.push(new DOMTextNode(name, true, into));
         return true;
       }
@@ -322,7 +325,8 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
 
       // The page made this element a pointer target: a listener of its own, a native click action, draggable=true.
       const listenerTarget = node.backendDOMNodeId !== undefined && Boolean(tree.pointerListeners?.has(node.backendDOMNodeId));
-      const pageTarget = Boolean(layout) && (layout?.attributes.draggable === 'true' || Boolean(layout?.clickable) || listenerTarget);
+      const pageTarget =
+        !hiddenByAria && Boolean(layout) && (layout?.attributes.draggable === 'true' || Boolean(layout?.clickable) || listenerTarget);
 
       // An ignored node creates nothing, unless the page made it a pointer target (an empty div with a handler).
       if (node.ignored && !pageTarget) return visitChildren(into, insideControl);
