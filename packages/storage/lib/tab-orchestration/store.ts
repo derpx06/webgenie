@@ -83,13 +83,15 @@ export const tabOrchestrationStore: TabOrchestrationStorage = {
   ..._storage,
 
   async upsertTab(record: TabRecord): Promise<void> {
+    // Query strings and fragments can carry what a page was sent (a GET form's password, a token): never stored.
+    const url = record.url?.split(/[?#]/)[0] ?? record.url;
     await _storage.set(prev => {
       const current = prev ?? DEFAULT_TAB_ORCHESTRATION_STATE;
       return {
         ...current,
         tabs: {
           ...current.tabs,
-          [record.tabId]: record,
+          [record.tabId]: { ...record, url },
         },
         lastUpdated: Date.now(),
       };

@@ -16,6 +16,11 @@ import { TabState, WorkflowStage, tabOrchestrationStore } from '@extension/stora
 
 const logger = createLogger('TabRegistry');
 
+/** A tab address as stored: without query or fragment, which can carry what the page was sent (a GET form's password, a token). */
+export function storableUrl(url: string): string {
+  return url ? url.split(/[?#]/)[0] : url;
+}
+
 const FLUSH_DEBOUNCE_MS = 500;
 
 export class TabRegistry {
@@ -166,7 +171,7 @@ export class TabRegistry {
       // Batch: build a single merged state update
       const tabsRecord: Record<number, TabRecord> = {};
       for (const tab of tabs) {
-        tabsRecord[tab.tabId] = tab;
+        tabsRecord[tab.tabId] = { ...tab, url: storableUrl(tab.url) };
       }
 
       // Direct storage update using the underlying chrome.storage.local key

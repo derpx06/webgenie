@@ -1435,15 +1435,17 @@ const MEMORY = [
     kind: 'workflow',
     title: 'A route from an earlier task is offered on the same start page',
     url: f => `${f.hostOrigin}/catalog`,
-    task: 'Open the Whisk product page and tell me its price.',
-    sequence: [{ url: f => `${f.hostOrigin}/catalog`, task: 'Open the Colander product page and tell me its price.' }],
-    check: ({ answers, records, storage, taskId }) => {
+    // The material is only on the product page, so each task has to navigate (a route to remember).
+    task: 'What material is the Whisk made of, according to its product page?',
+    sequence: [{ url: f => `${f.hostOrigin}/catalog`, task: 'What material is the Colander made of, according to its product page?' }],
+    check: ({ answers, records, storage, taskId, fixtures }) => {
+      const material = name => fixtures.catalog.find(item => item.name === name).material;
       const routes = JSON.stringify(storage?.['local:wg_mem:routes'] ?? '').toLowerCase();
-      const leaked = ['whisk', 'colander', 'price'].filter(word => routes.includes(word));
+      const leaked = ['whisk', 'colander', 'material'].filter(word => routes.includes(word));
       const shown = routeShown(records, `${taskId}-s2`);
       return {
-        pass: answers.length === 2 && has(answers[0], '6.50') && has(answers[1], '13.00') && shown && routes.length > 2 && leaked.length === 0,
-        detail: `route shown=${shown} stored=${routes.slice(0, 160)} leaked=${leaked.join(',')}`,
+        pass: answers.length === 2 && has(answers[0], material('Whisk')) && has(answers[1], material('Colander')) && shown && routes.includes('/catalog') && leaked.length === 0,
+        detail: `route shown=${shown} catalog route stored=${routes.includes('/catalog')} leaked=${leaked.join(',')} answers=${JSON.stringify(answers)}`,
       };
     },
   },
@@ -1452,11 +1454,12 @@ const MEMORY = [
     kind: 'workflow',
     title: 'No route is offered on a different start page',
     url: f => `${f.hostOrigin}/catalog`,
-    task: 'Open the Rake product page and tell me its price.',
+    task: 'What material is the Rake made of, according to its product page?',
     sequence: [{ url: f => `${f.hostOrigin}/catalog/cart`, task: 'Is my cart empty?' }],
-    check: ({ answers, records, taskId }) => {
+    check: ({ answers, records, taskId, fixtures }) => {
       const shown = routeShown(records, `${taskId}-s2`);
-      return { pass: answers.length === 2 && has(answers[0], '17.50') && /empty/i.test(answers[1]) && !shown, detail: `route shown on the other page=${shown} answers=${JSON.stringify(answers)}` };
+      const material = fixtures.catalog.find(item => item.name === 'Rake').material;
+      return { pass: answers.length === 2 && has(answers[0], material) && /empty/i.test(answers[1]) && !shown, detail: `route shown on the other page=${shown} answers=${JSON.stringify(answers)}` };
     },
   },
 ];
