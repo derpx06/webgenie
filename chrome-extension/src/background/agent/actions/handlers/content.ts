@@ -33,12 +33,22 @@ export class ContentHandler extends BaseHandler {
    * viewport, so without this an infinite-scroll page gives no sign that more content loaded (C14 scrolled six times).
    */
   private async pageGrowth(page: { getScrollInfo(): Promise<[number, number, number]> }, heightBefore: number): Promise<string> {
-    for (let waited = 0; waited < 1000; waited += 100) {
-      const [, , height] = await page.getScrollInfo();
-      if (height > heightBefore) return ` The page grew from ${heightBefore} to ${height} px: new content loaded.`;
-      await new Promise(resolve => setTimeout(resolve, 100));
+    const sleep = () => new Promise(resolve => setTimeout(resolve, 100));
+    let height = heightBefore;
+    for (let waited = 0; waited < 1000 && height <= heightBefore; waited += 100) {
+      await sleep();
+      [, , height] = await page.getScrollInfo();
     }
-    return ' The page height did not change: no more content loaded.';
+    if (height <= heightBefore) return ' The page height did not change: no more content loaded.';
+    // The first growth is often just a loading indicator: report the height once it holds for 300 ms (1.5 s at most).
+    let steady = 0;
+    for (let waited = 0; waited < 1500 && steady < 3; waited += 100) {
+      await sleep();
+      const [, , next] = await page.getScrollInfo();
+      steady = next === height ? steady + 1 : 0;
+      height = next;
+    }
+    return ` The page grew from ${heightBefore} to ${height} px: new content loaded.`;
   }
 
   async handleScrollToPercent(input: z.infer<typeof scrollToPercentActionSchema.schema>): Promise<ActionResult> {
