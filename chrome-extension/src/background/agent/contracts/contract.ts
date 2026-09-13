@@ -19,7 +19,7 @@ function contractMode(output: PlannerLLMOutput): PlanningMode {
   return output.macro_objective === 'ASK_HUMAN' ? 'blocked_human_needed' : 'multi_step_task';
 }
 
-export function buildNextStepContractFromPlannerOutput(
+function buildNextStepContractFromPlannerOutput(
   output: PlannerLLMOutput,
   context: PlannerContractContext,
 ): NextStepContract | null {

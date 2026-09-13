@@ -48,8 +48,4 @@ const createLogger = (namespace: string): Logger => {
   };
 };
 
-// Create default logger
-const logger = createLogger('Agent');
-
-export type { Logger, LogLevel };
-export { createLogger, logger };
+export { createLogger };

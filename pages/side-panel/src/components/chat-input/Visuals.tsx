@@ -35,60 +35,6 @@ export const AttachmentBar: React.FC<AttachmentBarProps> = ({ attachedFiles, onR
     );
 };
 
-interface Mention {
-    id: number;
-    title: string;
-    url: string;
-}
-
-interface MentionBarProps {
-    mentions: Mention[];
-    onRemoveMention: (index: number) => void;
-    onSwitchTab: (tabId: number) => void;
-    isDarkMode: boolean;
-}
-
-export const MentionBar: React.FC<MentionBarProps> = ({ mentions, onRemoveMention, onSwitchTab, isDarkMode }) => {
-    if (mentions.length === 0) return null;
-
-    return (
-        <div className={`flex flex-wrap gap-2 px-5 py-2 ${isDarkMode ? 'bg-black/10' : 'bg-slate-50/50'}`}>
-            {mentions.map((mention, index) => (
-                <div 
-                    key={index} 
-                    className={`group/mention flex cursor-pointer items-center gap-2 rounded-xl px-3 py-1.5 text-[11px] font-black tracking-tight transition-all hover:scale-105 ${
-                        isDarkMode 
-                            ? 'bg-cyan-500/10 text-cyan-300 ring-1 ring-white/5 hover:bg-cyan-500/20' 
-                            : 'bg-cyan-50 text-cyan-600 ring-1 ring-cyan-100/50 hover:bg-cyan-100'
-                    }`}
-                    onClick={() => onSwitchTab(mention.id)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            onSwitchTab(mention.id);
-                        }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                >
-                    <div className="size-1.5 animate-pulse rounded-full bg-cyan-400" />
-                    <span className="max-w-[140px] truncate font-outfit uppercase">{mention.title}</span>
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onRemoveMention(index);
-                        }}
-                        className="ml-1 flex size-4 items-center justify-center rounded-full p-0.5 transition-colors hover:bg-black/10 hover:text-red-500"
-                    >
-                        <span className="text-[10px]">✕</span>
-                    </button>
-                </div>
-            ))}
-        </div>
-    );
-};
-
 interface RecordingOverlayProps {
     isRecording: boolean;
 }

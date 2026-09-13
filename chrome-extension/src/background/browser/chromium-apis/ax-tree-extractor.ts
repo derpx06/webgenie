@@ -19,7 +19,7 @@ const logger = createLogger('AXTreeExtractor');
 
 const FRAME_TIMEOUT_MS = 3000;
 
-export interface AXValue {
+interface AXValue {
   type?: string;
   value?: unknown;
 }
@@ -38,7 +38,7 @@ export interface AXNode {
   backendDOMNodeId?: number;
 }
 
-export interface NodeLayout {
+interface NodeLayout {
   tagName: string;
   attributes: Record<string, string>;
   /** The page attached a click listener (or it is a natively clickable element). */

@@ -10,7 +10,7 @@ export class HashedDomElement {
   ) {}
 }
 
-export interface Coordinates {
+interface Coordinates {
   x: number;
   y: number;
 }

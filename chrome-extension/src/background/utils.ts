@@ -1,52 +1,11 @@
 import type { z } from 'zod';
-import { jsonrepair } from 'jsonrepair';
-import { createLogger } from '@src/background/log';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
-const logger = createLogger('Utils');
 type JsonSchemaConverter = (
   schema: unknown,
   options?: Record<string, unknown> | string,
 ) => Record<string, unknown>;
 const toJsonSchema = zodToJsonSchema as JsonSchemaConverter;
-
-export function getCurrentTimestampStr(): string {
-  /**
-   * Get the current timestamp as a string in the format yyyy/MM/dd HH:mm:ss
-   * using local timezone.
-   *
-   * @returns Formatted datetime string in local time
-   */
-  return new Date()
-    .toLocaleString('en-US', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    })
-    .replace(',', '');
-}
-
-/**
- * Fix malformed action string using the jsonrepair library
- * Only called when initial JSON.parse fails
- */
-export function repairJsonString(actionString: string): string {
-  try {
-    // Use jsonrepair to fix malformed JSON
-    const repairedJson = jsonrepair(actionString.trim());
-    logger.info('Successfully repaired JSON string', { original: actionString, repaired: repairedJson });
-    return repairedJson;
-  } catch (error) {
-    // If jsonrepair fails, log the error and return the original string
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.warning('jsonrepair failed to fix JSON string', { original: actionString, error: errorMessage });
-    return actionString.trim();
-  }
-}
 
 /**
  * Some providers accept only a subset of JSON Schema for structured output.

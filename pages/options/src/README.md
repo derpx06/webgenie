@@ -9,7 +9,6 @@ The options page enables users to:
 - **Set Firewall Rules**: URL allowlisting and blocking
 - **General Settings**: App behavior, experimental features
 - **Analytics**: Track and manage performance metrics
-- **Voice Settings**: Configure voice interaction
 
 ## Directory Structure
 
@@ -20,8 +19,7 @@ options/src/
 │   ├── FirewallSettings.tsx # URL filtering and permissions
 │   ├── GeneralSettings.tsx  # App-wide settings
 │   ├── AnalyticsSettings.tsx # Performance tracking
-│   ├── Layout.tsx         # Page structure
-│   └── voiceOrb/         # Voice interaction UI
+│   └── Layout.tsx         # Page structure
 ├── Options.tsx          # Main options container
 └── index.tsx           # Entry point
 ```

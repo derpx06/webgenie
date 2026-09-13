@@ -5,8 +5,8 @@
 import Dexie from 'dexie';
 import { advancedSettingsStore } from '@extension/storage';
 
-export type TraceLevel = 'debug' | 'info' | 'warning' | 'error';
-export type TraceKind = 'log' | 'event' | 'llm' | 'span' | 'trace';
+type TraceLevel = 'debug' | 'info' | 'warning' | 'error';
+type TraceKind = 'log' | 'event' | 'llm' | 'span' | 'trace';
 
 export interface TraceRecord {
   seq?: number;

@@ -14,7 +14,7 @@ const logger = createLogger('SecurityGuardrails');
  * Main security guardrails service
  * Kept simple for v1 with room for expansion
  */
-export class SecurityGuardrails {
+class SecurityGuardrails {
   private strictMode: boolean = false;
   private enabled: boolean = true;
 

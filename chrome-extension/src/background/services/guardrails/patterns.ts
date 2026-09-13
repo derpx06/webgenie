@@ -9,7 +9,7 @@ import { ThreatType } from './types';
 /**
  * Core security patterns for content sanitization
  */
-export const SECURITY_PATTERNS: SecurityPattern[] = [
+const SECURITY_PATTERNS: SecurityPattern[] = [
   // Task override attempts
   {
     pattern: /\b(ignore|forget|disregard)[\s\-_]*(previous|all|above)[\s\-_]*(instructions?|tasks?|commands?)\b/gi,
@@ -107,7 +107,7 @@ export const SECURITY_PATTERNS: SecurityPattern[] = [
  * Additional patterns that can be enabled for stricter security
  * These are kept separate to allow for configurable security levels
  */
-export const STRICT_PATTERNS: SecurityPattern[] = [
+const STRICT_PATTERNS: SecurityPattern[] = [
   {
     pattern: /\b(password|pwd|passwd|api[\s_-]*key|secret|token)\s*[:=]\s*["']?[\w-]+["']?/gi,
     type: ThreatType.SENSITIVE_DATA,
@@ -135,24 +135,4 @@ export const STRICT_PATTERNS: SecurityPattern[] = [
  */
 export function getPatterns(strict: boolean = false): SecurityPattern[] {
   return strict ? [...SECURITY_PATTERNS, ...STRICT_PATTERNS] : SECURITY_PATTERNS;
-}
-
-/**
- * Tags to preserve during sanitization (wrapped content tags)
- */
-export const PRESERVED_TAGS = [
-  'nano_untrusted_content',
-  'nano_user_request',
-  'nano_attached_files',
-  'nano_file_content',
-];
-
-/**
- * Check if a tag should be preserved during sanitization
- * @param tag - The tag to check
- * @returns True if the tag should be preserved
- */
-export function isPreserveTag(tag: string): boolean {
-  const tagName = tag.replace(/<\/?|\s|>/g, '').toLowerCase();
-  return PRESERVED_TAGS.includes(tagName);
 }

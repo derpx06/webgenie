@@ -11,7 +11,7 @@ interface TaskMetrics {
   startTime: number;
 }
 
-export class AnalyticsService {
+class AnalyticsService {
   private initialized = false;
   private enabled = false;
   private taskMetrics = new Map<string, TaskMetrics>();

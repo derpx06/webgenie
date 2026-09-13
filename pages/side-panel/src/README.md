@@ -9,7 +9,6 @@ The side panel provides:
 - **Task Monitoring**: Visual feedback on agent execution
 - **Agent Sight**: Window into what the agent is observing
 - **Chat History**: Access to past conversations and tasks
-- **Bookmarks**: Quick access to frequently used prompts
 
 ## Directory Structure
 
@@ -18,14 +17,12 @@ side-panel/src/
 ├── components/           # React components organized by feature
 │   ├── chat-input/      # User input and controls
 │   ├── welcome/         # Onboarding screens
-│   ├── visual/          # Agent visualization
 │   ├── ChatInput.tsx    # Main input component
 │   ├── ChatHistoryList.tsx
 │   ├── MessageList.tsx
 │   ├── WelcomeScreen.tsx
 │   ├── SidePanelHeader.tsx
 │   ├── AgentSight.tsx
-│   ├── BookmarkList.tsx
 │   └── EmptyChat.tsx
 ├── hooks/               # Custom React hooks
 │   ├── useAgentConnection.ts
@@ -34,7 +31,6 @@ side-panel/src/
 │   ├── useTheme.ts
 │   └── useSidePanelController.ts
 ├── types/               # TypeScript definitions
-│   ├── message.ts
 │   └── event.ts
 └── index.tsx           # Main entry point
 ```
@@ -55,7 +51,6 @@ side-panel/src/
 
 ### Utilities
 
-- **BookmarkList**: Saved prompts and quick actions
 - **EmptyChat**: Empty state messaging
 
 ## Hooks

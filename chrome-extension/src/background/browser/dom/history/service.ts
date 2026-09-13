@@ -4,7 +4,7 @@ import { DOMHistoryElement, HashedDomElement } from './view';
 /**
  * Convert a DOM element to a history element
  */
-export function convertDomElementToHistoryElement(domElement: DOMElementNode): DOMHistoryElement {
+function convertDomElementToHistoryElement(domElement: DOMElementNode): DOMHistoryElement {
   const parentBranchPath = _getParentBranchPath(domElement);
   const cssSelector = domElement.getEnhancedCssSelector();
   return new DOMHistoryElement(
@@ -26,7 +26,7 @@ import { healElement } from '../selector-healer';
 /**
  * Find a history element in the DOM tree using a cascading match strategy
  */
-export async function findHistoryElementInTree(
+async function findHistoryElementInTree(
   domHistoryElement: DOMHistoryElement,
   tree: DOMElementNode,
 ): Promise<DOMElementNode | null> {
@@ -125,7 +125,7 @@ async function hashDomHistoryElement(domHistoryElement: DOMHistoryElement): Prom
 /**
  * Hash a DOM element
  */
-export async function hashDomElement(domElement: DOMElementNode): Promise<HashedDomElement> {
+async function hashDomElement(domElement: DOMElementNode): Promise<HashedDomElement> {
   const parentBranchPath = _getParentBranchPath(domElement);
   const [branchPathHash, attributesHash, xpathHash] = await Promise.all([
     _parentBranchPathHash(parentBranchPath),
@@ -138,7 +138,7 @@ export async function hashDomElement(domElement: DOMElementNode): Promise<Hashed
 /**
  * Get the branch path from parent elements
  */
-export function _getParentBranchPath(domElement: DOMElementNode): string[] {
+function _getParentBranchPath(domElement: DOMElementNode): string[] {
   const parents: DOMElementNode[] = [];
   let currentElement: DOMElementNode = domElement;
 

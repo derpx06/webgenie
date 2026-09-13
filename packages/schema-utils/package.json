@@ -19,9 +19,7 @@
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "pnpm lint --fix",
     "prettier": "prettier . --write --ignore-path ../../.prettierignore",
-    "type-check": "tsc --noEmit",
-    "example:convert": "pnpm run ready && node dist/examples/convert.js",
-    "example:flatten": "pnpm run ready && node dist/examples/flatten.js"
+    "type-check": "tsc --noEmit"
   },
   "devDependencies": {
     "@extension/tsconfig": "workspace:*"

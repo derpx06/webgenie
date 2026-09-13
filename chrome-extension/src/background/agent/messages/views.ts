@@ -1,6 +1,6 @@
 import { type BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolMessage, type MessageContent } from '@langchain/core/messages';
 
-export interface ToolCall {
+interface ToolCall {
   name: string;
   args: Record<string, unknown>;
   id?: string;
@@ -79,7 +79,7 @@ export class MessageHistory {
   }
 }
 
-export interface SerializedMessage {
+interface SerializedMessage {
   type: string;
   content: MessageContent;
   id?: string;
@@ -91,7 +91,7 @@ export interface SerializedMessage {
   _type?: string;
 }
 
-export interface SerializedManagedMessage {
+interface SerializedManagedMessage {
   message: SerializedMessage;
   metadata: {
     tokens: number;

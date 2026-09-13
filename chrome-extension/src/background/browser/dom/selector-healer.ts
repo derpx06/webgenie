@@ -11,7 +11,7 @@ export interface HealCandidate {
  * Compare a target element (from history or previous observation) with a candidate DOMElementNode.
  * Returns a score between 0.0 and 1.0.
  */
-export function calculateSimilarityScore(
+function calculateSimilarityScore(
   targetAttributes: Record<string, string>,
   targetTagName: string,
   candidate: DOMElementNode

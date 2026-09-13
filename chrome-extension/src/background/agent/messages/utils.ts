@@ -13,14 +13,11 @@ export const UNTRUSTED_CONTENT_TAG_END = '</nano_untrusted_content>';
 /**
  * Tag for user request
  */
-export const USER_REQUEST_TAG_START = '<nano_user_request>';
-export const USER_REQUEST_TAG_END = '</nano_user_request>';
+const USER_REQUEST_TAG_START = '<nano_user_request>';
+const USER_REQUEST_TAG_END = '</nano_user_request>';
 
-export const ATTACHED_FILES_TAG_START = '<nano_attached_files>';
-export const ATTACHED_FILES_TAG_END = '</nano_attached_files>';
-
-export const FILE_CONTENT_TAG_START = '<nano_file_content>';
-export const FILE_CONTENT_TAG_END = '</nano_file_content>';
+const ATTACHED_FILES_TAG_START = '<nano_attached_files>';
+const ATTACHED_FILES_TAG_END = '</nano_attached_files>';
 
 /**
  * Remove think tags from model output
@@ -152,25 +149,6 @@ export function extractJsonFromModelOutput(content: string): Record<string, unkn
   } catch (e) {
     throw new ResponseParseError(`Could not manually extract JSON from model output`);
   }
-}
-
-/**
- * Convert input messages to a format that is compatible with the planner model
- * @param inputMessages - List of messages to convert
- * @param modelName - Name of the model to convert messages for
- * @returns Converted list of messages
- */
-export function convertInputMessages(inputMessages: BaseMessage[], modelName: string | null): BaseMessage[] {
-  if (modelName === null) {
-    return inputMessages;
-  }
-  if (modelName === 'deepseek-reasoner' || modelName.includes('deepseek-r1')) {
-    const convertedInputMessages = convertMessagesForNonFunctionCallingModels(inputMessages);
-    let mergedInputMessages = mergeSuccessiveMessages(convertedInputMessages, HumanMessage);
-    mergedInputMessages = mergeSuccessiveMessages(mergedInputMessages, AIMessage);
-    return mergedInputMessages;
-  }
-  return inputMessages;
 }
 
 /**

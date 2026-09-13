@@ -71,5 +71,3 @@ export class AgentEvent {
   ) { }
 }
 
-// The type of callback for event subscribers
-export type EventCallback = (event: AgentEvent) => Promise<void>;

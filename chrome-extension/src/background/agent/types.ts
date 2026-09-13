@@ -235,10 +235,6 @@ export class ActionResult {
   }
 }
 
-export type WrappedActionResult = ActionResult & {
-  toolCallId: string;
-};
-
 export class StepMetadata {
   stepStartTime: number;
   stepEndTime: number;

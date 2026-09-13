@@ -4,7 +4,7 @@
     <img src="chrome-extension/public/webgenie-logo.png" alt="WebGenie Logo" width="160" style="margin-top: 8px; margin-bottom: 12px;">
 </div>
 
-> **The Open-Source AI Web Automation Extension** — Run multi-agent systems directly in your browser. Automate web tasks, execute actions, and manage workflows.
+> **The Open-Source AI Web Automation Extension** — an LLM browser agent that runs entirely inside your browser.
 
 <div align="center">
 
@@ -24,203 +24,119 @@ https://github.com/user-attachments/assets/f2a8e7eb-eeee-4b39-abce-5368a4facd80
 
 ## Vision
 
-WebGenie is an open-source, local alternative to cloud-based web automation agents. By running multi-agent AI loops inside a standard Chrome Extension, WebGenie lets you automate web browsing tasks without vendor lock-in or sending browsing sessions to a remote server. You can build custom workflows, test automation scripts, and run autonomous agents entirely within your local browser.
+WebGenie is an open-source, local alternative to cloud-based web automation agents. The agent loop runs inside a standard Chrome extension, so your browsing session never goes through a remote server — only the prompts you send to the model provider you configure.
 
 > [!NOTE]
-> WebGenie is fully local and built on Chrome Manifest V3. The extension communicates directly with your configured AI endpoints with no intermediate backend databases.
+> WebGenie is built on Chrome Manifest V3 and has no backend. It talks directly to your configured AI endpoints.
 
 ---
 
-## Key Features
+## How it works
 
-### 1. Multi-Agent System
-WebGenie uses a multi-agent loop where separate components coordinate to complete tasks:
-* **Navigator Agent** — Translates the page DOM into a clean interactive tree and performs actions like clicks, text input, and scrolling.
-* **Planner Agent** — Breaks down high-level user tasks into sequential steps for the navigator to execute.
-* **Validator Agent** — Checks the page state at each step to ensure that the navigator's action succeeded.
-* **Chrome Messaging Coordination** — Coordinates communication between the side panel UI and background service worker using Chrome runtime message passing.
+### Planner and navigator
+* **Planner** — decides the plan, replans when the navigator reports completion, hits an error, stalls or stops making validated progress, and makes the final call on whether the task is done.
+* **Navigator** — reads the page and acts through tools: click, type (optionally pressing Enter), keys, scroll, hover, drag, dropdowns, dialogs, tabs, back/forward, waiting for text, reading the full page text, saving findings, and asking you.
+* **Verification** — every page-changing action is checked by comparing the page before and after it; a `done` is checked against what was actually read on the page. There is no separate validator model.
 
-### 2. Browser Subsystem Integration
-Unlike remote browser automation setups, WebGenie runs directly inside your local Chrome instance. The agent can use the following native Chrome capabilities:
-* **Bookmarks** — Search, query, and create bookmarks.
-* **Reading List** — Fetch unread items, add new links, or update read status.
-* **Browsing History** — Inspect recent visits and analyze domain frequency to navigate efficiently.
-* **Downloads** — Trigger, monitor, and query downloads.
+### Perception
+The agent reads the page's accessibility tree over the Chrome DevTools Protocol (`chrome.debugger`), across frames, and acts with real input events. No script is injected to read the page.
 
-### 3. Agent Memory & Caching
-* **Session Cache** — The agent caches temporary text findings, variables, or keys across execution steps.
-* **DOM Compression** — Serializes the interactive accessibility tree into structured, indexable nodes while filtering out non-interactive layout nodes to save tokens.
+### Asking you, not guessing
+* **Confirmations for commits** — before an order, payment, subscription or account change, WebGenie itself asks you to confirm (showing the amount on the page); a "no" is respected for the rest of the task.
+* **Passwords** you type into its questions are never shown to the model; they are filled in only into a password field on the site where you gave them.
+* **Personal data and addresses** — before sending an email address or number from your task to a site, or opening a link that came from page text rather than from you, a separate check that sees only your messages confirms you asked for it.
+* **Prompt injection** — page text is wrapped as untrusted content, with look-alike delimiters defanged.
+* **Domain firewall** — an allow/deny list checked on every navigation.
 
-### 4. Security & Privacy
-* **Local Sandboxing** — All prompt assembly and decision execution occur locally inside the extension.
-* **Local Storage** — Configuration values, histories, and firewall rules are stored in `chrome.storage.local`.
-* **Domain Firewall** — A configurable allow/deny list to prevent agents from navigating to unauthorized domains.
-* **Content Sanitization** — Inputs are sanitized before writing to DOM elements to mitigate script injection.
+### Interruptions
+Tasks are checkpointed every step. Closing the side panel or the tab, an unanswered question, or a provider rate limit pauses the task instead of failing it; reopen the panel to resume or discard it, or answer a pending question late.
 
-### 5. UI Customization
-* **Settings Dashboard** — A dark-first layout with clean typography and custom configuration inputs.
-* **History Switcher** — Side-panel filters separating **All**, **Chats**, and **Tasks** for precise history management.
-* **Collapsible Action Steps** — Groups lower-level agent actions (such as scrolling and typing) into collapsible blocks, keeping the main chat thread clean.
-* **Bulk History Management** — Instantly batch-delete old sessions or task history with a sticky operations bar.
+### Memory
+After a successful task WebGenie remembers the *route* it took (pages and the kinds of elements used — never what you typed), keyed by the start page, and offers it as a hint the next time a task starts there.
+
+### Browser data tools (opt-in)
+With **Options → Advanced → browser data tools** on, the agent can also manage bookmarks, the reading list, history, downloads, tab groups, windows, sessions, extensions and browsing data. Clearing data and toggling extensions require your confirmation.
+
+### Model providers
+OpenAI, Anthropic, Gemini, Vertex AI, Azure OpenAI, AWS Bedrock, DeepSeek, Grok, Groq, Cerebras, Llama API, OpenRouter, Ollama and any OpenAI-compatible endpoint. Calls have per-model timeouts, hedged duplicate requests for slow replies, and rate-limit backoff.
 
 ---
 
-## System Architecture
-
-WebGenie is built on a modular, layered architecture that separates UI components, service abstractions, storage protocols, and core AI agents.
+## Architecture
 
 ```mermaid
 graph TB
-    subgraph Browser["Browser Environment"]
-        BS["Side Panel UI<br/>React + TypeScript"]
-        OS["Options Page<br/>Settings & Configuration"]
-        CS["Content Script<br/>Page Injection & Monitoring"]
-    end
-
-    subgraph Extension["Extension Core"]
-        BG["Background Service Worker<br/>Manifest V3"]
-        EX["Executor<br/>Task Orchestrator & Coordinator"]
-    end
-
-    subgraph Agents["Multi-Agent System"]
-        NAV["Navigator Agent<br/>DOM Interaction & Navigation"]
-        PLN["Planner Agent<br/>Strategy & Task Planning"]
-        VAL["Validator Agent<br/>Task Verification & Completion"]
-    end
-
-    subgraph BrowserLayer["Browser Abstraction"]
-        DOM["DOM Service<br/>Accessibility Trees & Analysis"]
-        PAGE["Page Controller<br/>User Actions & Navigation"]
-        CTX["Context Manager<br/>State & History Tracking"]
-    end
-
-    subgraph Services["Services Layer"]
-        SEC["Security Module<br/>Sanitization & Threat Detection"]
-        VOICE["Voice Processing<br/>Speech-to-Text Conversion"]
-        ANALYTICS["Analytics Engine<br/>Performance Metrics & Tracking"]
-    end
-
-    subgraph LLM["Large Language Models"]
-        OPENAI["OpenAI<br/>GPT-4 Family"]
-        CLAUDE["Anthropic Claude<br/>Claude 3 Series"]
-        GEMINI["Google Gemini<br/>Multimodal Intelligence"]
-        BEDROCK["AWS Bedrock<br/>Claude/Llama/Titan Models"]
-        LLAMA["Llama API<br/>Hosted Llama Models"]
-        OLLAMA["Ollama Local<br/>Self-Hosted Models"]
-        AZURE["Azure OpenAI<br/>Enterprise Deployments"]
-        OPENROUTER["OpenRouter<br/>Unified Model Gateway"]
-    end
-
-    subgraph Storage["Data Persistence"]
-        CHROME["Chrome Storage API<br/>Config & User State"]
-    end
-
-    BS -->|Message Passing| BG
-    OS -->|Configuration| CHROME
-    CS -->|DOM Observation| BG
-    
-    BG --> EX
-    EX --> NAV
-    EX --> PLN
-    EX --> VAL
-    
-    NAV --> DOM
-    NAV --> PAGE
-    PLN --> CTX
-    VAL --> PAGE
-    
-    DOM --> SEC
-    PAGE --> SEC
-    
-    EX -->|LLM Queries| LLM
-    OPENAI -.-> LLM
-    CLAUDE -.-> LLM
-    GEMINI -.-> LLM
-    BEDROCK -.-> LLM
-    LLAMA -.-> LLM
-    OLLAMA -.-> LLM
-    AZURE -.-> LLM
-    OPENROUTER -.-> LLM
-    
-    SEC --> VOICE
-    EX --> ANALYTICS
-    
-    CHROME -.-> Extension
-    
-    style BG fill:#667eea,stroke:#333,stroke-width:2px,color:#fff
-    style EX fill:#764ba2,stroke:#333,stroke-width:2px,color:#fff
-    style NAV fill:#f093fb,stroke:#333,stroke-width:2px,color:#fff
-    style PLN fill:#f093fb,stroke:#333,stroke-width:2px,color:#fff
-    style VAL fill:#f093fb,stroke:#333,stroke-width:2px,color:#fff
-    style DOM fill:#4facfe,stroke:#333,stroke-width:2px,color:#fff
-    style PAGE fill:#4facfe,stroke:#333,stroke-width:2px,color:#fff
-    style SEC fill:#fa709a,stroke:#333,stroke-width:2px,color:#fff
+    SP["Side panel (React)"] -->|port: side-panel-connection| BG["Background service worker"]
+    OP["Options page"] -->|chrome.storage| ST["Storage"]
+    BG --> EX["Executor<br/>checkpoints, replanning"]
+    EX --> PL["Planner"]
+    EX --> NV["Navigator<br/>tools + safety checks"]
+    NV --> VA["Validation<br/>before/after observations"]
+    NV --> PG["Page (puppeteer-core over chrome.debugger)"]
+    PG --> AX["Accessibility tree per frame (CDP)"]
+    PL --> LLM["LLM providers"]
+    NV --> LLM
+    EX --> MEM["Route memory"]
+    BG --> CS["Content script<br/>ambient border, status capsule"]
+    ST -.-> BG
 ```
 
-### Modular Directory Breakdown
 ```
-WebGenie/
-├── chrome-extension/              # background service workers & manifest definition
-│   ├── src/background/
-│   │   ├── agent/                 # Navigator, Planner, and Validator orchestrations
-│   │   ├── browser/               # Chrome subsystems integrations (Bookmarks, History)
-│   │   ├── services/              # security, analytics, and voice utilities
-│   │   └── task/                  # execution loop coordinators
-│   └── public/                    # manifest.json and static icons
-│
-├── pages/                         # React UI layers
-│   ├── side-panel/                # main user chat interface with collapsible details
-│   ├── options/                   # settings management dashboard
-│   └── content/                   # page analyzers & DOM accessibility tree generators
-│
-└── packages/                      # shared monorepo modules
-    ├── shared/                    # cross-boundary types
-    ├── storage/                   # type-safe Chrome local storage schemas
-    ├── ui/                        # custom UI buttons, inputs, and cards
-    ├── i18n/                      # translation bindings
-    └── schema-utils/              # Zod validation schemas
+chrome-extension/
+├── manifest.js                 # manifest source of truth
+├── src/background/
+│   ├── index.ts                # port commands, task lifecycle wiring
+│   ├── agent/                  # executor, planner/navigator, actions, validation, contracts, memory, prompts
+│   ├── browser/                # BrowserContext, Page, accessibility-tree perception
+│   ├── core/                   # tab orchestration (tab groups, workflow stage for the ambient UI)
+│   ├── services/               # guardrails, analytics, speech-to-text, keep-alive
+│   ├── adapters/               # Chrome API adapters for testability
+│   └── trace.ts                # IndexedDB trace capture
+└── e2e/                        # live e2e harness and Online-Mind2Web tooling
+pages/
+├── side-panel/                 # chat UI
+├── options/                    # settings
+└── content/                    # ambient border and status capsule
+packages/                       # storage, i18n, ui, shared, schema-utils, build tooling
+docs/
+├── agent.md                    # how the agent works, in detail
+├── e2e.md                      # the live test harness
+└── adr/                        # architecture decisions
 ```
 
 ---
 
-## Settings Configuration Reference
+## Settings reference
 
-| Tab | Feature Name | Description |
+| Tab | Setting | Description |
 | :--- | :--- | :--- |
-| **General** | Interaction Highlights | Toggles visual outlines over elements the Navigator agent focuses on. |
-| | Task Tab Grouping | Groups tabs spawned by the automation cycle into a dedicated Chrome Tab Group. |
-| **Advanced** | Viewport Dimensions | Configures the fixed viewport width and height used during DOM element calculation. |
-| | Action Latency Buffer | Sets the delay (in milliseconds) before evaluating DOM updates after actions like clicking. |
-| | Planner Vision Mode | Allows the planner to process screenshot buffers when supported by multimodal models. |
-| **Developer**| Log DOM Snapshot | Prints the serialized DOM tree that the LLM processes to the service worker console. |
-| | Developer Options | Master toggle that activates testing controls. |
-| **Firewall** | Domain Filter Rules | Enforces navigation safety using segmented Allow or Deny lists of domain patterns (e.g. `*.github.com`). |
+| **General** | Maximum Mission Steps, Actions Per Step, Retry Limit | Task bounds. |
+| | Planning Interval, Action Settle Timeout, Action Delay, Page Load Buffer | Execution tuning. |
+| **Advanced** | Vision for Planner Agent | Lets the planner see screenshots on multimodal models. |
+| | Interaction Highlights, Show Ambient Border, Show Status Capsule | On-page feedback. |
+| | Task Tab Grouping, Auto-Close Ephemeral Tabs | Tab management. |
+| | Browser data tools | Enables the bookmark/history/downloads/tabs/windows/sessions/extensions/privacy tools. |
+| **Models** | Providers, per-agent models, speech-to-text model | Planner and navigator can use different models. |
+| **Firewall** | Domain filtering | Allow or deny lists of domain patterns (e.g. `*.github.com`). |
+| **Developer** | Enable Developer Options, Log DOM Snapshot, Capture Traces | Diagnostics; traces can be downloaded as JSONL. |
+| | Langsmith Tracing | Sends runs to a LangSmith endpoint. |
 
 ---
 
-## Installation & Developer Quickstart
+## Installation & developer quickstart
 
-### 1. Build from Source
 ```bash
-# Clone the repository
 git clone https://github.com/derpx06/webgenie.git
 cd webgenie
-
-# Install dependencies (requires Node.js and pnpm)
-pnpm install
-
-# Run type checks to verify project integrity
+pnpm install            # Node >= 22.12, pnpm 9
 pnpm type-check
-
-# Compile for production
-pnpm build
+pnpm -F chrome-extension test
+pnpm build              # -> dist/
 ```
 
-### 2. Load into Chrome
-1. Open Google Chrome and go to `chrome://extensions/`.
-2. Toggle **Developer mode** in the top-right corner.
-3. Click **Load unpacked** in the top-left corner.
-4. Select the `dist/` directory generated in your workspace folder.
+Load into Chrome: open `chrome://extensions/`, enable **Developer mode**, click **Load unpacked** and select `dist/`.
+
+`pnpm e2e` builds and runs the live suite against real sites with Vertex AI (gcloud login required); see [docs/e2e.md](docs/e2e.md).
 
 ---
 
