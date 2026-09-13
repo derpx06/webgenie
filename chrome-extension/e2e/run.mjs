@@ -592,7 +592,7 @@ export class Harness {
 }
 
 /** Every browser gets a fresh profile: Chromium keeps a cached service-worker script for a reused one. */
-async function launchSession(fixtures) {
+export async function launchSession(fixtures) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'webgenie-e2e-'));
   const browser = await puppeteer.launch({
     executablePath: CHROMIUM,
@@ -614,7 +614,7 @@ async function launchSession(fixtures) {
   }
 }
 
-async function closeSession(session) {
+export async function closeSession(session) {
   await session.browser.close().catch(() => {});
   fs.rmSync(session.profile, { recursive: true, force: true });
 }
@@ -746,7 +746,9 @@ async function main() {
   process.exitCode = fullRun ? (comparison.regressions.length ? 1 : 0) : allPassed ? 0 : 1;
 }
 
-main().catch(error => {
-  console.error(`E2E FAILED: ${error.message}`);
-  process.exitCode = 1;
-});
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(error => {
+    console.error(`E2E FAILED: ${error.message}`);
+    process.exitCode = 1;
+  });
+}
