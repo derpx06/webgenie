@@ -5,8 +5,7 @@ vi.mock('@extension/i18n', () => ({ t: (key: string) => key }));
 
 import { ToolMessage } from '@langchain/core/messages';
 import { ExecutionState } from '../event/types';
-import { askHuman, call, click, createHarness, done, plan, planDone, settle, stubChrome, textOf, typeText, until } from './fakes';
-import { MemoryStorage } from './fakes';
+import { askHuman, call, click, createHarness, done, plan, planDone, settle, stubChrome, textOf, typeText, until , MemoryStorage } from './fakes';
 import type { LLMRequest, ToolCall } from './fakes';
 import { DEFAULT_GENERAL_SETTINGS } from '@extension/storage';
 
@@ -393,6 +392,29 @@ describe('Interruptions and resuming', () => {
 
     expect(h.last()).toMatchObject({ state: ExecutionState.TASK_PAUSE, data: { details: 'The side panel was closed.' } });
     expect(await h.executor.getContext().checkpointStore!.load('task-1')).toMatchObject({ status: 'waiting_human', interruption: 'The side panel was closed.' });
+  });
+});
+
+describe('Accepting an evidenced done', () => {
+  const page = { url: 'https://books.test/item', title: 'A Light in the Attic', text: ['A Light in the Attic', 'Price: £51.77'] };
+  const task = 'What is the price of this book?';
+  const finalPlan = plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the price', final_phase: true });
+
+  it('finishes without the planner check when the setting is on and the page backs every value', async () => {
+    const h = createHarness({ task, pages: [page], planner: [finalPlan], navigator: [done('The price is £51.77.')], extraArgs: { agentOptions: { acceptEvidencedDone: true } } });
+    await settle(h.executor.execute());
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The price is £51.77.' } });
+    expect(h.llm.requestsFor('planner')).toHaveLength(1);
+  });
+
+  it('still asks the planner when a value is not on the page, or when the setting is off', async () => {
+    const wrong = createHarness({ task, pages: [page], planner: [finalPlan, planDone('The price is £51.77.')], navigator: [done('The price is £52.00.')], extraArgs: { agentOptions: { acceptEvidencedDone: true } } });
+    await settle(wrong.executor.execute());
+    expect(wrong.llm.requestsFor('planner')).toHaveLength(2);
+
+    const off = createHarness({ task, pages: [page], planner: [finalPlan, planDone()], navigator: [done('The price is £51.77.')] });
+    await settle(off.executor.execute());
+    expect(off.llm.requestsFor('planner')).toHaveLength(2);
   });
 });
 

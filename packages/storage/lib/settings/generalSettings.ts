@@ -28,6 +28,8 @@ export interface GeneralSettingsConfig {
   humanWaitMinutes: number;
   /** Whether the agent gets the tools that read or change bookmarks, history, downloads, browsing data and extensions. */
   enableBrowserDataTools: boolean;
+  /** Finish when the navigator's answer is fully backed by the page and validated steps, without the planner's extra check. */
+  acceptEvidencedDone: boolean;
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
@@ -58,6 +60,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   autoCloseEphemeralTabs: false,
   humanWaitMinutes: 10,
   enableBrowserDataTools: false,
+  acceptEvidencedDone: false,
 };
 
 

@@ -740,6 +740,7 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
       useVisionForPlanner: true,
       planningInterval: generalSettings.planningInterval,
       enableBrowserDataTools: generalSettings.enableBrowserDataTools,
+      acceptEvidencedDone: generalSettings.acceptEvidencedDone,
       logDOMSnapshot: advancedSettings.enableDeveloperOptions && advancedSettings.logDOMSnapshot,
     },
     generalSettings: generalSettings,

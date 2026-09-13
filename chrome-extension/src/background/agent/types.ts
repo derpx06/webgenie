@@ -41,6 +41,8 @@ export interface AgentOptions {
   logDOMSnapshot: boolean; // log full DOM sent to LLM each step (dev option)
   /** Registers the manage_* tools (bookmarks, history, downloads, browsing data, extensions...); off unless the user turns them on. */
   enableBrowserDataTools: boolean;
+  /** Accept the navigator's done without the planner's check when the evidence is complete (validation/done-evidence.ts). */
+  acceptEvidencedDone: boolean;
 }
 
 export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
@@ -56,6 +58,7 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   planningInterval: 3,
   logDOMSnapshot: false,
   enableBrowserDataTools: false,
+  acceptEvidencedDone: false,
 };
 
 export class AgentContext {

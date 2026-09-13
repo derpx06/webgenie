@@ -355,6 +355,19 @@ export class Executor {
           const evidence = doneResult
             ? doneEvidence(context, doneResult.extractedContent ?? '', doneResult.success === true, this.lastPlanFinalPhase)
             : null;
+          if (evidence?.skippable && context.options.acceptEvidencedDone) {
+            // The page and the validated steps already back the answer: the planner's check would only repeat it.
+            record({ level: 'info', kind: 'span', component: 'Executor', msg: 'verify.skipped', data: { reasons: [] } });
+            const answer = doneResult?.extractedContent ?? context.finalAnswer ?? '';
+            const accepted: AgentOutput<PlannerOutput> = {
+              id: 'planner',
+              result: { done: true, final_answer: answer, macro_objective: 'VERIFY_STATE', next_goal: 'Report the result', final_phase: true },
+            };
+            if (this.checkTaskCompletion(accepted)) {
+              latestPlanOutput = accepted;
+              break;
+            }
+          }
           latestPlanOutput = await this.runPlanner(getStepState);
           if (evidence) {
             record({
