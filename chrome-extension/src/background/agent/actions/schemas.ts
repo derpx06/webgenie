@@ -64,10 +64,10 @@ export const goBackActionSchema: ActionSchema = {
 
 export const clickElementActionSchema: ActionSchema = {
   name: 'click_element',
-  description: 'Click element by index',
+  description: 'Click element by index. For a double-click, send one call with double: true; two separate clicks are not a double-click',
   schema: z.object({
     index: elementIndex,
-    double: z.boolean().optional().describe('true to double-click instead of a single click'),
+    double: z.boolean().optional().describe('true to double-click instead of a single click (required whenever the task or the element asks for a double-click)'),
   }),
 };
 
