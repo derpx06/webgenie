@@ -1583,6 +1583,24 @@ const VISION = [
   },
 ];
 
+// The real side panel, used like a person would: typed task, an answer given from the keyboard, the answered question locked.
+const PANEL = [
+  {
+    id: 'U1',
+    title: 'Side panel: type the task, answer by keyboard, answered question locked',
+    url: f => `${f.hostOrigin}/shop`,
+    task: 'Add the blue shirt to my cart and tell me the cart total.',
+    panel: { answer: /linen/i, text: 'The linen one.' },
+    check: async ({ evalOn, fixtures, panel, questions }) => {
+      const cart = await statusOn(evalOn, fixtures);
+      return {
+        pass: cart === 'Cart: Blue shirt (linen) — total $35' && questions.length === 1 && panel?.answeredLocked === true,
+        detail: `cart=${cart} panel=${JSON.stringify(panel)} questions=${JSON.stringify(questions)}`,
+      };
+    },
+  },
+];
+
 export const TASKS = [
   ...CORE.map(task => ({ suite: 'core', kind: 'single', ...task })),
   ...COMPLEX.map(task => ({ suite: 'complex', kind: 'single', ...task })),
@@ -1594,4 +1612,5 @@ export const TASKS = [
   ...MEMORY.map(task => ({ suite: 'memory', kind: 'workflow', ...task })),
   ...FILES.map(task => ({ suite: 'files', kind: 'single', ...task })),
   ...VISION.map(task => ({ suite: 'vision', kind: 'single', ...task })),
+  ...PANEL.map(task => ({ suite: 'panel', kind: 'single', ...task })),
 ];

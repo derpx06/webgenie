@@ -294,6 +294,107 @@ export class Harness {
     );
   }
 
+  /**
+   * The real side panel in a page of its own, used like a person would: the task is typed and sent with Enter, and
+   * questions are answered from the keyboard. Its port traffic is recorded on the way; the only change to the panel is
+   * where it finds the active tab (opened as a page, the active tab would be the panel itself).
+   */
+  async drivePanel({ tabId, task, maxMs, script }) {
+    const ui = await this.browser.newPage();
+    await ui.evaluateOnNewDocument(agentTabId => {
+      window.__sent = [];
+      window.__uiEv = [];
+      const query = chrome.tabs.query.bind(chrome.tabs);
+      chrome.tabs.query = async queryInfo =>
+        queryInfo?.active && queryInfo?.currentWindow ? (await query({})).filter(tab => tab.id === agentTabId) : query(queryInfo);
+      const connect = chrome.runtime.connect.bind(chrome.runtime);
+      chrome.runtime.connect = (...args) => {
+        const port = connect(...args);
+        const post = port.postMessage.bind(port);
+        port.postMessage = message => {
+          window.__sent.push({ type: message?.type, taskId: message?.taskId });
+          post(message);
+        };
+        port.onMessage.addListener(message => {
+          if (message.screenshot) message.screenshot = '[omitted]';
+          window.__uiEv.push(message);
+        });
+        return port;
+      };
+    }, tabId);
+    await ui.goto(`chrome-extension://${this.extensionId}/side-panel/index.html`);
+    await ui.waitForSelector('textarea', { timeout: 15_000 });
+    await sleep(1500); // the panel connects its port after it renders; the newest port gets the task's events
+    const started = Date.now();
+    await ui.type('textarea', task);
+    await ui.keyboard.press('Enter');
+
+    const events = [];
+    const questions = [];
+    const panel = { questions: 0, byKeyboard: false, answeredLocked: false, uiTaskId: null };
+    let outcome = null;
+    let answer = '';
+    let maxStep = 0;
+    while (!outcome) {
+      await sleep(300);
+      if (Date.now() - started > maxMs) {
+        outcome = 'limit_time';
+        await this.post({ type: 'cancel_task' }).catch(() => {});
+        break;
+      }
+      for (const e of await ui.evaluate(() => window.__uiEv.splice(0))) {
+        events.push({ t: Date.now() - started, ts: Date.now(), ...e });
+        if (!e.state) continue;
+        maxStep = Math.max(maxStep, e.data?.step ?? 0);
+        if (TERMINAL.has(e.state)) {
+          outcome = e.state;
+          answer = String(e.data?.details ?? '');
+        }
+        if (e.state !== 'act.ask_human') continue;
+        let question = String(e.data?.details ?? '');
+        try {
+          question = JSON.parse(question).question ?? question;
+        } catch {
+          // plain-text question
+        }
+        questions.push(question);
+        panel.questions++;
+        panel.byKeyboard = (await this.answerFromKeyboard(ui, script)) || panel.byKeyboard;
+      }
+    }
+    await sleep(800);
+    panel.answeredLocked = await ui.evaluate(
+      () => document.querySelectorAll('fieldset[disabled]').length > 0 && document.querySelectorAll('fieldset:not([disabled]) button').length === 0,
+    );
+    panel.uiTaskId = await ui.evaluate(() => window.__sent.find(message => message.type === 'new_task')?.taskId ?? null);
+    // Closing the panel drops its port; a new harness port becomes the current one again.
+    await ui.close().catch(() => {});
+    await this.connectPort();
+    return { outcome, answer, events, questions, questionTimes: [], seconds: +((Date.now() - started) / 1000).toFixed(1), maxStep, marks: {}, extraTaskIds: [], panel };
+  }
+
+  /** Answers the open question like a keyboard user: Tab to the option the script names and press Enter, else type the answer. */
+  async answerFromKeyboard(ui, script) {
+    await ui.waitForSelector('fieldset:not([disabled])', { timeout: 10_000 }).catch(() => {});
+    await sleep(300);
+    const focusedOn = source => document.activeElement?.tagName === 'BUTTON' && new RegExp(source, 'i').test(document.activeElement.textContent ?? '');
+    const hasOption = await ui.evaluate(
+      source => [...document.querySelectorAll('fieldset:not([disabled]) button')].some(button => new RegExp(source, 'i').test(button.textContent ?? '')),
+      script.answer.source,
+    );
+    if (hasOption) {
+      for (let presses = 0; presses < 15 && !(await ui.evaluate(focusedOn, script.answer.source)); presses++) await ui.keyboard.press('Tab');
+      if (await ui.evaluate(focusedOn, script.answer.source)) {
+        await ui.keyboard.press('Enter');
+        return true;
+      }
+    }
+    await ui.focus('textarea');
+    await ui.keyboard.type(script.text);
+    await ui.keyboard.press('Enter');
+    return false;
+  }
+
   /** Runs the task over the port until a terminal state, a human request, or a limit. */
   /**
    * `during` ({ when(event), run(ctx) }) acts once mid-task: ctx can stop the service worker, close the agent's tab, pause
@@ -538,17 +639,21 @@ export class Harness {
       maxInputTokens: task.maxInputTokens ?? TASK_TOKEN_CAP,
       allowHuman: task.allowHuman,
     };
-    let run = await this.drive({
-      ...limits,
-      task: typeof task.task === 'function' ? task.task(this.fixtures) : task.task,
-      files: task.files,
-      human: task.human,
-      page: web,
-      during: task.during,
-      reconnect: task.reconnect,
-      lateAnswer: task.lateAnswer,
-    });
-    const taskIds = [taskId, ...run.extraTaskIds];
+    const text = typeof task.task === 'function' ? task.task(this.fixtures) : task.task;
+    let run = task.panel
+      ? await this.drivePanel({ ...limits, task: text, script: task.panel })
+      : await this.drive({
+          ...limits,
+          task: text,
+          files: task.files,
+          human: task.human,
+          page: web,
+          during: task.during,
+          reconnect: task.reconnect,
+          lateAnswer: task.lateAnswer,
+        });
+    // The side panel names its own task id.
+    const taskIds = [run.panel?.uiTaskId ?? taskId, ...run.extraTaskIds];
     // Follow-up messages in the same conversation, each sent after the previous one finished.
     const answers = [run.answer];
     for (const followUp of task.followUps ?? []) {
@@ -586,7 +691,7 @@ export class Harness {
     const pages = await this.webPages();
     await withTimeout(pages.at(-1)?.screenshot({ path: path.join(outDir, `${attempt}.png`) }) ?? Promise.resolve(), 10_000, 'screenshot').catch(() => {});
 
-    const check = await this.check(task, run, answers, { records, storage, taskId, downloadsDir: this.downloadsDir });
+    const check = await this.check(task, run, answers, { records, storage, taskId, downloadsDir: this.downloadsDir, panel: run.panel });
     const metrics = taskMetrics(records, run.events, { secret: task.secret, taskText: typeof task.task === 'function' ? task.task(this.fixtures) : task.task, storage });
     const pass = (task.outcomes ?? ['task.ok']).includes(run.outcome) && check.pass && metrics.secretLeaks === 0 && metrics.storageLeaks === 0;
     if (metrics.secretLeaks || metrics.storageLeaks) {
@@ -612,7 +717,7 @@ export class Harness {
       seconds: run.seconds,
       questions: run.questions,
       /** Questions the task wants asked (scripted answers); more is needless, fewer is missed. */
-      questionsExpected: (task.human ?? []).filter(script => !script.optional).length + (task.lateAnswer ? 1 : 0),
+      questionsExpected: (task.human ?? []).filter(script => !script.optional).length + (task.lateAnswer ? 1 : 0) + (task.panel ? 1 : 0),
       metrics,
     };
   }
