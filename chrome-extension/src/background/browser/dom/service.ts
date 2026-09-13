@@ -78,22 +78,19 @@ export async function drawHighlightOverlaysViaCoordinates(
           backgroundColor: 'transparent'
         });
 
-        const colors = [
-          '#FF0000', '#00FF00', '#0000FF', '#FFA500', '#800080',
-          '#008080', '#FF00FF', '#00FFFF', '#808000', '#008000'
-        ];
+        // One neutral ink and no fill: a coloured box or label over a small element reads as that element's colour in a
+        // screenshot (V2 took the swatch under a green label for the green one). Labels sit just above their box.
+        const ink = '#111111';
 
         const fragment = document.createDocumentFragment();
 
         for (const rect of rectsToDraw) {
-          const color = colors[rect.index % colors.length];
-
-          // Create outline overlay
           const overlay = document.createElement('div');
           Object.assign(overlay.style, {
             position: 'absolute',
-            border: `2px solid ${color}`,
-            backgroundColor: `${color}1A`, // 10% opacity
+            border: `2px solid ${ink}`,
+            outline: '1px solid #ffffff',
+            backgroundColor: 'transparent',
             pointerEvents: 'none',
             boxSizing: 'border-box',
             left: `${rect.x - rect.w / 2}px`,
@@ -103,19 +100,21 @@ export async function drawHighlightOverlaysViaCoordinates(
           });
           fragment.appendChild(overlay);
 
-          // Create index label overlay
+          const fontSize = Math.min(12, Math.max(8, rect.h / 2));
           const label = document.createElement('div');
           label.className = 'playwright-highlight-label';
           label.textContent = String(rect.index);
           Object.assign(label.style, {
             position: 'absolute',
-            background: color,
-            color: 'white',
-            padding: '1px 4px',
-            borderRadius: '4px',
-            fontSize: `${Math.min(12, Math.max(8, rect.h / 2))}px`,
-            left: `${rect.x + rect.w / 2 - 20}px`,
-            top: `${rect.y - rect.h / 2}px`,
+            background: ink,
+            color: '#ffffff',
+            outline: '1px solid #ffffff',
+            padding: '0 3px',
+            borderRadius: '3px',
+            fontSize: `${fontSize}px`,
+            lineHeight: `${fontSize + 2}px`,
+            left: `${Math.max(0, rect.x - rect.w / 2)}px`,
+            top: `${Math.max(0, rect.y - rect.h / 2 - fontSize - 3)}px`,
             zIndex: '2147483647',
             pointerEvents: 'none',
           });

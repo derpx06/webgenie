@@ -89,7 +89,7 @@ abstract class BasePrompt {
     context.screenshotWanted = false;
     const browserState = await context.browserContext.getCachedState(withScreenshot);
     if (withScreenshot) {
-      record({ level: 'info', kind: 'span', component: 'Prompt', msg: 'screenshot attached', data: { taken: Boolean(browserState.screenshot) } });
+      record({ level: 'info', kind: 'span', component: 'Prompt', msg: 'screenshot attached', data: { taken: Boolean(browserState.screenshot), chars: browserState.screenshot?.length ?? 0 } });
     }
 
     const observation = ensureBrowserObservation(browserState);

@@ -387,8 +387,15 @@ export class Executor {
                 ],
               });
               stepState = Promise.resolve(withShot);
-              record({ level: 'info', kind: 'span', component: 'Executor', msg: 'look before asking', data: { question: latestPlanOutput.result.next_goal } });
-              latestPlanOutput = (await this.runPlanner(getStepState, { seeImage: true })) ?? latestPlanOutput;
+              record({ level: 'info', kind: 'span', component: 'Executor', msg: 'look before asking', data: { question: latestPlanOutput.result.next_goal, imageChars: shot.length } });
+              const looked = await this.runPlanner(getStepState, { seeImage: true });
+              if (looked) {
+                latestPlanOutput = looked;
+              } else {
+                // The call with the image failed (H2: it hung twice): keep the question and the text-only state, so the
+                // navigator's call does not carry the image into the same failure.
+                stepState = Promise.resolve(seen);
+              }
             }
           }
           if (evidence) {

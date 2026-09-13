@@ -918,12 +918,16 @@ export default class Page {
         }
       });
 
-      // Take the screenshot using JPEG format with 80% quality
+      // At most 1280 px wide: a full window on a scaled display is over 2000 px, and those uploads made image calls hang
+      // past their limits (run E). Gemini reads a screen at this size just as well.
+      const view = await this._puppeteerPage.evaluate(() => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio }));
+      const scale = Math.min(1, 1280 / Math.max(1, view.width * view.dpr));
       const screenshot = await this._puppeteerPage.screenshot({
-        fullPage: fullPage,
         encoding: 'base64',
         type: 'jpeg',
-        quality: 80, // Good balance between quality and file size
+        quality: 60,
+        optimizeForSpeed: true,
+        ...(fullPage ? { fullPage: true } : { clip: { x: 0, y: 0, width: view.width, height: view.height, scale } }),
       });
 
       // Clean up the style element
