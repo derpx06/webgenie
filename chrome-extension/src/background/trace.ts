@@ -71,6 +71,13 @@ async function scrubStored(taskId: string | undefined): Promise<void> {
   }
 }
 
+/** Registered secrets replaced in text leaving the background (event details, answers); no truncation. */
+export function redactSecrets(value: string): string {
+  let redacted = value;
+  for (const secret of secrets) redacted = redacted.split(secret).join('[redacted]');
+  return redacted;
+}
+
 function redactString(value: string): string {
   let redacted = value.replace(SECRET_VALUE, '[redacted]');
   for (const secret of secrets) redacted = redacted.split(secret).join('[redacted]');

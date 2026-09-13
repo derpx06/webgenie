@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { registerSecret, sanitize } from '../trace';
+import { redactSecrets, registerSecret, sanitize } from '../trace';
 
 describe('trace sanitize', () => {
   it('redacts secret fields and token-shaped values but keeps token counts', () => {
@@ -40,5 +40,16 @@ describe('trace sanitize', () => {
       msg: 'next goal: type [redacted] and submit',
       nested: ['[redacted]'],
     });
+  });
+});
+
+describe('redactSecrets', () => {
+  it('removes registered secrets from text such as an answer, without truncating it', () => {
+    registerSecret('Answer-Secret-42');
+    const answer = `Logged in with password "Answer-Secret-42". ${'x'.repeat(9_000)}`;
+    const out = redactSecrets(answer);
+    expect(out).not.toContain('Answer-Secret-42');
+    expect(out).toContain('[redacted]');
+    expect(out.length).toBeGreaterThan(9_000);
   });
 });

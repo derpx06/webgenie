@@ -1,3 +1,4 @@
+import { redactSecrets } from '../trace';
 import type BrowserContext from '../browser/context';
 import type { BrowserState } from '../browser/views';
 import { DEFAULT_INCLUDE_ATTRIBUTES } from '../browser/dom/views';
@@ -136,7 +137,8 @@ export class AgentContext {
       taskId: this.taskId,
       step: this.nSteps,
       maxSteps: this.options.maxSteps,
-      details: eventDetails,
+      // A password typed this task never reaches the side panel either, even inside an answer that repeats it.
+      details: redactSecrets(eventDetails),
       usage: {
         inputTokens: this.messageManager.cumulativeInputTokens,
         outputTokens: this.messageManager.cumulativeOutputTokens,
