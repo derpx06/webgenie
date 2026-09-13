@@ -144,6 +144,28 @@ describe('invokeTools', () => {
 
 });
 
+describe('slow calls', () => {
+  const hang = (signal?: AbortSignal) =>
+    new Promise<AIMessage>((_, reject) => signal?.addEventListener('abort', () => reject(new Error('Aborted'))));
+
+  it('sends a duplicate of a slow call and returns the first answer, long before the time limit', async () => {
+    const { chatModel, stub } = stubModel([hang, new AIMessage({ content: 'from the duplicate' })]);
+    const startedAt = Date.now();
+
+    const reply = await invokeLLM(chatModel, packet, { component: 'test', timeoutMs: 5_000, hedgeAfterMs: 30 });
+
+    expect(reply.text).toBe('from the duplicate');
+    expect(stub.invoke).toHaveBeenCalledTimes(2);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
+  it('fails at once, without a duplicate, when a call fails before it is slow', async () => {
+    const { chatModel, stub } = stubModel([() => Promise.reject(new Error('400 Bad Request')), new AIMessage({ content: 'never' })]);
+    await expect(invokeLLM(chatModel, packet, { component: 'test', timeoutMs: 5_000, hedgeAfterMs: 2_000 })).rejects.toThrow('400');
+    expect(stub.invoke).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('rate limits and quotas', () => {
   it("waits as long as the provider asks, capped at 30 s, and otherwise backs off with jitter", () => {
     expect(retryDelayHint(new Error('429 {"error":{"details":[{"retryDelay":"12s"}]}}'))).toBe(12_000);

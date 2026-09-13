@@ -106,6 +106,13 @@ export abstract class BaseAgent<M = unknown> {
 
 /** Limit for each attempt without a per-model limit: a response this slow is usually a one-off, so the retry starts fresh. */
 export const LLM_CALL_TIMEOUTS_MS = [25_000, 37_500];
+/**
+ * A call still running after this long gets a duplicate request, and the first answer wins. Provider latency has a
+ * long tail unrelated to the request (flash: median 2-3 s, yet some calls take 25-36 s for 70 output tokens), and a
+ * second request usually escapes it. Roughly the p95 of successful calls, so few calls are duplicated.
+ */
+export const HEDGE_AFTER_MS = 10_000;
+const SUPERSEDED = 'superseded by a faster duplicate request';
 /** Longest total wait for one call across rate-limit retries; after that the error goes up and the task pauses, saved. */
 export const RATE_LIMIT_BUDGET_MS = 60_000;
 /** When a model may be called again after a rate limit, shared by every caller in this worker (planner, navigator, checks). */
@@ -152,6 +159,8 @@ export interface InvokeLLMOptions {
   onUsage?: (usage: LLMUsage) => void;
   /** Fixed waits before each retry of a rate-limited call (tests); by default the provider's hint or jittered backoff. */
   rateLimitDelaysMs?: number[];
+  /** When to send a duplicate of a slow call (defaults to HEDGE_AFTER_MS); 0 never duplicates. */
+  hedgeAfterMs?: number;
 }
 
 export interface InvokeToolsOptions extends InvokeLLMOptions {
@@ -313,7 +322,7 @@ export async function invokeLLM(
     const cooling = (cooldownUntil.get(cooldownKey) ?? 0) - Date.now();
     if (cooling > 0) await waitUnlessAborted(cooling, options.signal);
     try {
-      return await invokeOnce(model, messages, { ...options, timeoutMs: timeouts[transientRetries] });
+      return await invokeHedged(model, messages, { ...options, timeoutMs: timeouts[transientRetries] });
     } catch (error) {
       if (options.signal?.aborted) throw error;
       if (isRateLimitError(error)) {
@@ -344,6 +353,60 @@ export async function invokeLLM(
       });
     }
   }
+}
+
+/**
+ * One call within its time limit, duplicated once if it is still running after hedgeAfterMs; the first answer wins and
+ * the other request is cancelled. A call that fails before it is slow fails at once (a rate limit, a bad request).
+ */
+function invokeHedged(model: InvokableModel, messages: BaseMessage[], options: InvokeLLMOptions): Promise<AIMessage> {
+  const timeoutMs = options.timeoutMs ?? LLM_CALL_TIMEOUTS_MS[0];
+  const hedgeAfterMs = options.hedgeAfterMs ?? HEDGE_AFTER_MS;
+  if (hedgeAfterMs <= 0 || hedgeAfterMs >= timeoutMs) return invokeOnce(model, messages, options);
+
+  const startedAt = Date.now();
+  const controllers: AbortController[] = [];
+  return new Promise<AIMessage>((resolve, reject) => {
+    let running = 0;
+    let finished = false;
+    const finish = (settle: () => void) => {
+      finished = true;
+      clearTimeout(hedgeTimer);
+      for (const controller of controllers) controller.abort(SUPERSEDED);
+      settle();
+    };
+    const launch = (budgetMs: number) => {
+      const controller = new AbortController();
+      controllers.push(controller);
+      const forward = () => controller.abort(options.signal?.reason);
+      if (options.signal?.aborted) controller.abort(options.signal.reason);
+      else options.signal?.addEventListener('abort', forward, { once: true });
+      running++;
+      invokeOnce(model, messages, { ...options, timeoutMs: budgetMs, signal: controller.signal })
+        .then(
+          reply => {
+            if (!finished) finish(() => resolve(reply));
+          },
+          error => {
+            running--;
+            if (!finished && running === 0) finish(() => reject(error));
+          },
+        )
+        .finally(() => options.signal?.removeEventListener('abort', forward));
+    };
+    const hedgeTimer = setTimeout(() => {
+      if (finished) return;
+      record({
+        level: 'warning',
+        kind: 'llm',
+        component: options.component,
+        msg: 'slow call; sending a duplicate request',
+        data: { model: options.model, afterMs: hedgeAfterMs },
+      });
+      launch(Math.max(1_000, timeoutMs - (Date.now() - startedAt)));
+    }, hedgeAfterMs);
+    launch(timeoutMs);
+  });
 }
 
 async function invokeOnce(
@@ -396,11 +459,13 @@ async function invokeOnce(
     return response;
   } catch (error) {
     const finalError = timedOut && !options.signal?.aborted ? new Error(`LLM call timed out after ${timeoutMs}ms`) : error;
+    // The duplicate of this call answered first: not a failure.
+    const superseded = options.signal?.reason === SUPERSEDED;
     record({
-      level: 'error',
+      level: superseded ? 'info' : 'error',
       kind: 'llm',
       component: options.component,
-      msg: `llm call ${options.model ?? ''} failed`.replace('  ', ' '),
+      msg: superseded ? `llm call ${options.model ?? ''} superseded`.replace('  ', ' ') : `llm call ${options.model ?? ''} failed`.replace('  ', ' '),
       durationMs: Date.now() - startedAt,
       data: { model: options.model, messages: messages.length, promptChars, error: finalError },
     });

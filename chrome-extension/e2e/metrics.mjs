@@ -141,6 +141,7 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
     verifySkippableWrong: skippable.filter(r => !r.data?.plannerDone).length,
     backoffMs,
     failedCallMs,
+    hedgedCalls: llm.filter(r => r.msg === 'slow call; sending a duplicate request').length,
     firstActionMs: firstAction && firstRecord ? firstAction - firstRecord : null,
     costUsd,
     plannerCalls: calls.filter(r => r.component === 'planner').length,
