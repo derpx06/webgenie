@@ -28,7 +28,7 @@ const { values: opts, positionals } = parseArgs({
     concurrency: { type: 'string', default: '2' },
     threshold: { type: 'string', default: '3' },
     project: { type: 'string', default: process.env.E2E_PROJECT },
-    location: { type: 'string', default: process.env.E2E_LOCATION ?? 'us-central1' },
+    location: { type: 'string', default: process.env.E2E_LOCATION ?? 'global' },
     // Vertex AI rejects oversized requests; the outcome call drops its lowest-scored screenshots to stay under this.
     'max-request-mb': { type: 'string', default: '18' },
     'dry-run': { type: 'boolean', default: false },

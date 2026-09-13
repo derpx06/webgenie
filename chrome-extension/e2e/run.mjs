@@ -29,7 +29,8 @@ const CHROMIUM = process.env.CHROMIUM_PATH ?? '/usr/bin/chromium';
 const MODEL = process.env.E2E_MODEL ?? 'gemini-2.5-flash';
 const PLANNER_MODEL = process.env.E2E_PLANNER_MODEL ?? MODEL;
 const ORACLE = !!process.env.E2E_ORACLE;
-const LOCATION = process.env.E2E_LOCATION ?? 'us-central1';
+// global spreads requests across regions: in live runs us-central1 returned 429 on about 1 in 7 model calls.
+const LOCATION = process.env.E2E_LOCATION ?? 'global';
 const RUN_TOKEN_CAP = Number(process.env.E2E_MAX_INPUT_TOKENS ?? 4_000_000);
 const TASK_TOKEN_CAP = Number(process.env.E2E_TASK_MAX_INPUT_TOKENS ?? 400_000);
 const TERMINAL = new Set(['task.ok', 'task.fail', 'task.cancel', 'task.pause']);
@@ -56,7 +57,8 @@ function vertexProvider() {
     type: 'vertex_ai',
     name: 'Google Vertex AI',
     apiKey: token,
-    baseUrl: `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${project}/locations/${LOCATION}`,
+    // The global location has no region prefix on its host; it spreads requests across regions (fewer 429s).
+    baseUrl: `https://${LOCATION === 'global' ? '' : `${LOCATION}-`}aiplatform.googleapis.com/v1/projects/${project}/locations/${LOCATION}`,
     modelNames: [...new Set([MODEL, PLANNER_MODEL])],
     createdAt: Date.now(),
   };
