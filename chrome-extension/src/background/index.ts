@@ -395,11 +395,13 @@ chrome.runtime.onConnect.addListener(port => {
 
           case 'human_response': {
             const secrets = Array.isArray(message.secrets) ? message.secrets : [];
-            if (currentExecutor && runningTask) {
+            if (currentExecutor && runningTask && !currentExecutor.getContext().stopped) {
               await currentExecutor.submitHumanResponse(message.response, secrets);
               return port.postMessage({ type: 'success' });
             }
-            // An answer after the task stopped waiting (the deadline passed, the worker restarted) resumes it.
+            // The task stopped waiting (the deadline passed, it was interrupted, the worker restarted). A run that is
+            // still ending would swallow the answer: let it end, then resume the saved task with it.
+            await runningTask?.catch(() => {});
             const saved = await loadSavedTask(message.taskId);
             if (!saved) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
             await resumeSavedTask(saved, message.tabId, { response: message.response, secrets });
