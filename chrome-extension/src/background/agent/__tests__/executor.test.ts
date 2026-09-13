@@ -460,6 +460,40 @@ describe('Namesakes in a list and questions about the page', () => {
   });
 });
 
+describe('Personal details nobody gave', () => {
+  const delivery = { url: 'https://shop.test/delivery', title: 'Delivery', elements: [{ tag: 'input', attributes: { 'aria-label': 'Phone', type: 'tel' } }] };
+
+  it('are not typed into a phone field', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    h = createHarness({ task: 'Book a delivery for Web Genie to 1 Main Street.', pages: [delivery], planner: Array(6).fill(planner), navigator: [typeText(0, '555-123-4567'), done('Stopped')] });
+    await settle(h.executor.execute());
+
+    expect(h.browser.actions).toEqual([]);
+    expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain('Never make up personal details');
+  });
+
+  it('keep a question the planner reconsidered after looking when the new plan invents one', async () => {
+    const h = createHarness({
+      task: 'Book a delivery for Web Genie to 1 Main Street.',
+      pages: [delivery],
+      planner: [plan({ macro_objective: 'ASK_HUMAN', next_goal: 'What phone number should I use?' }), plan({ macro_objective: 'FORM_FILL', next_goal: 'Type 555-123-4567 into Phone and book the delivery' })],
+      navigator: [askHuman('What phone number should I use?')],
+      extraArgs: { agentOptions: { useVision: true } },
+    });
+    const run = h.executor.execute();
+    await until(() => h.has(ExecutionState.ACT_ASK_HUMAN));
+    await h.executor.cancel();
+    await settle(run);
+
+    expect(h.llm.requestsFor('planner')).toHaveLength(2);
+    expect(h.browser.actions).toEqual([]);
+    // The navigator never saw the plan with the made-up number.
+    expect(textOf(h.llm.requestsFor('navigator')[0].messages)).not.toContain('555-123-4567');
+  });
+});
+
 describe('Screenshots', () => {
   const chart = { url: 'https://stats.test/', title: 'Stats', text: ['Bar chart of monthly sign-ups'] };
   const hasImage = (request: LLMRequest) =>

@@ -126,6 +126,21 @@ export function userPersonalData(actionText: string, userText: string): string[]
   return [...new Set(found)];
 }
 
+/**
+ * Email addresses and phone or card numbers (7+ digits) in an action's arguments that appear nowhere in `knownText` (the
+ * user's messages, tool results and the page): values the model made up. Numbers are compared by their digits, so a
+ * reformatted value still counts as known. H6: after looking at the page the planner filled in "555-123-4567" itself.
+ */
+export function inventedPersonalData(actionText: string, knownText: string): string[] {
+  const knownEmails = new Set((knownText.match(EMAIL) ?? []).map(email => email.toLowerCase()));
+  const knownNumbers = new Set((knownText.match(PHONE_OR_CARD) ?? []).map(digitsOf));
+  const invented = [
+    ...(actionText.match(EMAIL) ?? []).filter(email => !knownEmails.has(email.toLowerCase())),
+    ...(actionText.match(PHONE_OR_CARD) ?? []).filter(number => digitsOf(number).length >= 7 && !knownNumbers.has(digitsOf(number))),
+  ];
+  return [...new Set(invented)];
+}
+
 /** Host (without www.) and path (without a trailing slash), lowercased; query and fragment ignored. Empty when not an address. */
 export function urlKey(url: string, base?: string): string {
   try {

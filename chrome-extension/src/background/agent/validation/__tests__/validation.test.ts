@@ -8,6 +8,7 @@ import {
   amountBefore,
   changesUserValue,
   taskEntriesWith,
+  inventedPersonalData,
   commitQuestion,
   commitTarget,
   echoesActionResult,
@@ -492,6 +493,21 @@ describe('committing actions', () => {
   it('reads yes-like answers as approval and anything else as a decline', () => {
     for (const answer of ['Yes', 'yes please', 'OK', 'Go ahead', 'Confirm']) expect(isApproval(answer)).toBe(true);
     for (const answer of ['No', "Don't", 'not now', 'Cancel', '']) expect(isApproval(answer)).toBe(false);
+  });
+});
+
+describe('inventedPersonalData', () => {
+  const known = 'Book a delivery for Web Genie to 1 Main Street.\nAnswer from the user: Phone: 555 0100, email web@genie.test';
+
+  it('flags emails and phone or card numbers that appear nowhere the agent read', () => {
+    expect(inventedPersonalData('555-123-4567', known)).toEqual(['555-123-4567']);
+    expect(inventedPersonalData('someone@else.test', known)).toEqual(['someone@else.test']);
+  });
+
+  it('accepts known values in another format, and short numbers', () => {
+    expect(inventedPersonalData('(555) 0100', known)).toEqual([]);
+    expect(inventedPersonalData('WEB@genie.test', known)).toEqual([]);
+    expect(inventedPersonalData('Flat 12', known)).toEqual([]);
   });
 });
 

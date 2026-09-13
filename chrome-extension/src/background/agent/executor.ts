@@ -46,7 +46,7 @@ import {
   type TaskCheckpoint,
 } from './contracts';
 import { ensureBrowserObservation } from './validation/observation';
-import { echoesActionResult, hostOf, isApproval } from './validation/service';
+import { echoesActionResult, hostOf, inventedPersonalData, isApproval } from './validation/service';
 import type { ValidationStatus } from './validation/types';
 
 const logger = createLogger('Executor');
@@ -388,12 +388,28 @@ export class Executor {
               });
               stepState = Promise.resolve(withShot);
               record({ level: 'info', kind: 'span', component: 'Executor', msg: 'look before asking', data: { question: latestPlanOutput.result.next_goal, imageChars: shot.length } });
+              // The planner writes its plan into the context as it returns; a discarded look must leave the question's plan there.
+              const beforeLook = { contract: context.currentContract, macro: context.lastMacroObjective, goal: context.lastGoal, finalPhase: this.lastPlanFinalPhase };
               const looked = await this.runPlanner(getStepState, { seeImage: true });
-              if (looked) {
+              // Looking may settle what the page shows, never supply what only the user has: a plan that answers the
+              // question with personal details nobody gave keeps the question (H6: an invented phone number).
+              const known = [
+                ...context.messageManager.getTranscript().filter(entry => entry.message.getType() !== 'ai').map(entry => String(entry.message.content)),
+                ...context.findings,
+                seen.content,
+              ].join('\n');
+              const planText = looked?.result ? JSON.stringify([looked.result.next_goal, looked.result.final_answer, looked.result.matching_items]) : '';
+              const madeUp = looked?.result?.macro_objective !== 'ASK_HUMAN' ? inventedPersonalData(planText, known) : [];
+              if (madeUp.length > 0) record({ level: 'warning', kind: 'span', component: 'Executor', msg: 'look kept the question', data: { madeUp: madeUp.length } });
+              if (looked && madeUp.length === 0) {
                 latestPlanOutput = looked;
               } else {
-                // The call with the image failed (H2: it hung twice): keep the question and the text-only state, so the
-                // navigator's call does not carry the image into the same failure.
+                // The look failed (H2: the call with the image hung twice) or invented details: keep the question, its plan
+                // and the text-only state, so the navigator's call carries neither the image nor the discarded plan.
+                context.currentContract = beforeLook.contract;
+                context.lastMacroObjective = beforeLook.macro;
+                context.lastGoal = beforeLook.goal;
+                this.lastPlanFinalPhase = beforeLook.finalPhase;
                 stepState = Promise.resolve(seen);
               }
             }
