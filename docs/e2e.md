@@ -53,10 +53,12 @@ Human-in-the-loop is scripted: on `act.ask_human` the harness sends the task's n
 
 - A task passes when its outcome is allowed (`task.outcomes`, default `ok`), its checker passes, and no secret leaked into the page or into extension storage (`secretLeaks`, `storageLeaks`).
 - `site_down`: for non-fixture start pages the harness fetches the page twice (20 s timeout, 5 s apart); a network error or HTTP ≥ 500 both times marks the task `site_down`, which is left out of pass rates, health counters, the baseline and the exit code.
+- `provider_down`: a task that did not end `task.ok` and whose last model call failed with no response ("Failed to fetch", or the agent's own "provider unreachable" retries) is recorded as `provider_down` and treated like `site_down`: this machine lost its connection to the model provider, which says nothing about the agent.
+- Task time limit: 300 s unless a task sets `maxSeconds`; it exists to catch hangs, so waiting out a burst of rate limits does not fail a task.
 - `E2E_ORACLE=1` runs only tasks that define `oracle()`: each checker must fail with no action and pass after the scripted oracle actions.
 - Per task (`metrics.mjs`): planner/navigator calls, re-asks, tokens (input, output, cached, reasoning), cost, rate limits, timeouts, backoff time, hedged calls, time to first action, `getState` and per-action latencies, validations, replans.
 - Per suite: pass rate with a Wilson 95% interval, pass-every-attempt (pass^k), wrong `done`, needless/missed questions, median duration, backoff share, cost, latency medians, and health counters (schema rejections, not-allowed re-asks, detached debugger, empty DOM, hung tasks, harness errors, leaks, …).
-- Ratchet against `baseline.json`: a task that always passed now failing, a lower suite pass rate, or any health counter rising is a regression. Latency increases over 1.25× are regressions only when both runs used `E2E_REPEAT` ≥ 2. A full run exits 1 on regressions; a subset run exits 1 unless every task passed or was `site_down`.
+- Ratchet against `baseline.json`: a task that always passed now failing, a lower suite pass rate, or any health counter rising is a regression. Latency increases over 1.25× are regressions only when both runs used `E2E_REPEAT` ≥ 2. A full run exits 1 on regressions; a subset run exits 1 unless every task passed or was `site_down` or `provider_down`.
 - Output: `e2e/results/<timestamp>/summary.json` (models, git sha, build time, health, comparison, results) and per attempt `<id>.events.jsonl`, `<id>.trace.jsonl`, `<id>.png`, plus `<id>.timeline.txt` on failure.
 
 ## Online-Mind2Web (`e2e/mind2web/`)
