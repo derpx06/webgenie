@@ -7,24 +7,25 @@ import { navigatorSystemPromptTemplate } from './templates/navigator';
 
 const logger = createLogger('agent/prompts/navigator');
 
+/** Only when view_screenshot is registered. */
+const NAVIGATOR_VISION_RULES = `# Seeing the page
+- Colours, pictures, charts, maps and where things are on the page are not in the element list. When the task depends on them, call view_screenshot and look before acting; never ask the user what the page shows.`;
+
 export class NavigatorPrompt extends BasePrompt {
   private systemMessage: SystemMessage;
 
-  constructor(private readonly maxActionsPerStep = 10) {
+  constructor(
+    private readonly maxActionsPerStep = 10,
+    vision = false,
+  ) {
     super();
 
-    const promptTemplate = navigatorSystemPromptTemplate;
     // Format the template with the maxActionsPerStep
-    const formattedPrompt = promptTemplate.replace('{{max_actions}}', this.maxActionsPerStep.toString()).trim();
-    this.systemMessage = new SystemMessage(formattedPrompt);
+    const formattedPrompt = navigatorSystemPromptTemplate.replace('{{max_actions}}', this.maxActionsPerStep.toString()).trim();
+    this.systemMessage = new SystemMessage(vision ? `${formattedPrompt}\n\n${NAVIGATOR_VISION_RULES}` : formattedPrompt);
   }
 
   getSystemMessage(): SystemMessage {
-    /**
-     * Get the system prompt for the agent.
-     *
-     * @returns SystemMessage containing the formatted system prompt
-     */
     return this.systemMessage;
   }
 

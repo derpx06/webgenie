@@ -173,6 +173,20 @@ export function changesUserValue(previous: string | undefined, next: string, use
   return chars(before) !== chars(after);
 }
 
+/**
+ * The entries of a list in the user's task (lines, ";"-separated items or numbered items) that contain `value` as a whole
+ * word or phrase, with their position. Empty when the task has fewer than three entries or none contains the value.
+ * ponytail: entries are split by punctuation only; a list written as prose ("Ada from London and Alan from Madrid") is one entry.
+ */
+export function taskEntriesWith(taskText: string, value: string): Array<{ index: number; text: string }> {
+  const wanted = value.trim().toLowerCase();
+  if (wanted.length < 2) return [];
+  const entries = taskText.split(/\n|;|\s(?=\d{1,3}[.)]\s)/).map(entry => entry.trim()).filter(Boolean);
+  if (entries.length < 3) return [];
+  const word = new RegExp(`(^|[^\\p{L}\\p{N}])${wanted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'u');
+  return entries.flatMap((text, index) => (word.test(text.toLowerCase()) ? [{ index, text }] : []));
+}
+
 /** Whether an answer quotes the agent's own action results ("Clicked button with index 2", "Input … into index 3") instead of page text. */
 export function echoesActionResult(text: string): boolean {
   return /\b(with|into) index \d+\b|\belement \d+ \(|\byou (double-clicked|right-clicked|clicked|hovered over|dragged|typed)\b[^.]*\[\d+\]|in this note/i.test(text);

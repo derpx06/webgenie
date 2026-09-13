@@ -109,8 +109,9 @@ export class Executor {
 
     this.generalSettings = extraArgs?.generalSettings;
     this.tasks.push(task);
-    this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep);
-    this.plannerPrompt = new PlannerPrompt();
+    // With vision, both prompts say the navigator can look at the page, so neither asks the user what it shows.
+    this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep, context.options.useVision);
+    this.plannerPrompt = new PlannerPrompt(context.options.useVision);
 
     const actionBuilder = new ActionBuilder(context);
     const navigatorActionRegistry = new NavigatorActionRegistry(actionBuilder.buildDefaultActions());

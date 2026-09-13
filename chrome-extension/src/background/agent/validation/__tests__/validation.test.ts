@@ -7,6 +7,7 @@ import type { ValidationEvidence } from '../types';
 import {
   amountBefore,
   changesUserValue,
+  taskEntriesWith,
   commitQuestion,
   commitTarget,
   echoesActionResult,
@@ -491,6 +492,21 @@ describe('committing actions', () => {
   it('reads yes-like answers as approval and anything else as a decline', () => {
     for (const answer of ['Yes', 'yes please', 'OK', 'Go ahead', 'Confirm']) expect(isApproval(answer)).toBe(true);
     for (const answer of ['No', "Don't", 'not now', 'Cancel', '']) expect(isApproval(answer)).toBe(false);
+  });
+});
+
+describe('taskEntriesWith', () => {
+  const task = 'Guests (name, city, colour): 1. Katherine Johnson, Oslo, white; 2. Ada Lovelace, London, green; 14. Katherine Backus, Oslo, blue';
+
+  it('finds the list entries that hold a value as a whole word', () => {
+    // Entry 0 is the list's heading ("Guests (name, city, colour):").
+    expect(taskEntriesWith(task, 'Oslo').map(entry => entry.index)).toEqual([1, 3]);
+    expect(taskEntriesWith(task, 'blue')).toEqual([{ index: 3, text: '14. Katherine Backus, Oslo, blue' }]);
+    expect(taskEntriesWith(task, 'Lon')).toEqual([]);
+  });
+
+  it('finds nothing in a task that is not a list', () => {
+    expect(taskEntriesWith('Send Alex the message "Running late"; thanks', 'Alex')).toEqual([]);
   });
 });
 

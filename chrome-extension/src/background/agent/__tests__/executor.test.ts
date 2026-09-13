@@ -395,6 +395,33 @@ describe('Overwriting a field this task filled', () => {
   });
 });
 
+describe('Values from a list in the task', () => {
+  const task = 'Add these guests: 1. Katherine, Johnson, Oslo, white; 2. Ada, Lovelace, London, green; 3. Katherine, Backus, Oslo, blue.';
+  const form = { url: 'https://party.test/guest/3', title: 'Guest 3', elements: [{ tag: 'input', attributes: { 'aria-label': 'Last name' } }, { tag: 'input', attributes: { 'aria-label': 'Colour' } }] };
+  const run = async (navigator: ToolCall[]) => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    h = createHarness({ task, pages: [form], planner: Array(6).fill(planner), navigator });
+    await settle(h.executor.execute());
+    return h;
+  };
+
+  it('refuse once a value from another entry than the ones just typed, and take it when repeated', async () => {
+    const h = await run([typeText(0, 'Backus'), typeText(1, 'white'), typeText(1, 'white'), done('Done')]);
+    expect(h.browser.actions).toEqual([
+      { type: 'input', index: 0, text: 'Backus' },
+      { type: 'input', index: 1, text: 'white' },
+    ]);
+    expect(textOf(h.llm.requestsFor('navigator')[2].messages)).toContain('come from a different entry');
+  });
+
+  it('are typed without a refusal when they come from the same entry', async () => {
+    const h = await run([typeText(0, 'Backus'), typeText(1, 'blue'), done('Done')]);
+    expect(h.browser.actions.map(action => action.text)).toEqual(['Backus', 'blue']);
+  });
+});
+
 describe('Screenshots', () => {
   const chart = { url: 'https://stats.test/', title: 'Stats', text: ['Bar chart of monthly sign-ups'] };
   const hasImage = (request: LLMRequest) =>
