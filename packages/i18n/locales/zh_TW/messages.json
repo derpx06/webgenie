@@ -945,6 +945,9 @@
   "exec_task_rateLimitedPaused": {
     "message": "模型供應商持續限制請求頻率。任務已儲存：稍後可從側邊面板繼續。"
   },
+  "exec_task_offlinePaused": {
+    "message": "無法連線到模型供應商。任務已儲存：恢復連線後可從側邊面板繼續。"
+  },
   "options_advanced_browserDataTools": {
     "message": "瀏覽器資料工具"
   },

@@ -12,7 +12,7 @@ import {
   mergeSuccessiveMessages,
   removeThinkTags,
 } from '../messages/utils';
-import { isBadRequestError, isRateLimitError, ResponseParseError } from './errors';
+import { isBadRequestError, isNetworkError, isRateLimitError, ResponseParseError } from './errors';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CallOptions = Record<string, any>;
@@ -329,7 +329,9 @@ export async function invokeLLM(
       return await invokeHedged(model, messages, { ...options, timeoutMs: timeouts[transientRetries] });
     } catch (error) {
       if (options.signal?.aborted) throw error;
-      if (isRateLimitError(error)) {
+      // A lost connection waits like a rate limit: an outage of a minute or two should not end the task (run C).
+      const offline = isNetworkError(error);
+      if (isRateLimitError(error) || offline) {
         const fixed = options.rateLimitDelaysMs;
         const delay = fixed ? fixed[rateLimitRetries] : rateLimitDelayMs(error, rateLimitRetries);
         if (delay === undefined || (!fixed && rateLimitWaitedMs + delay > RATE_LIMIT_BUDGET_MS)) throw error;
@@ -340,7 +342,7 @@ export async function invokeLLM(
           level: 'warning',
           kind: 'llm',
           component: options.component,
-          msg: `rate limited; retrying in ${(delay / 1000).toFixed(1)}s`,
+          msg: `${offline ? 'provider unreachable' : 'rate limited'}; retrying in ${(delay / 1000).toFixed(1)}s`,
           data: { model: options.model, attempt: rateLimitRetries, hinted: retryDelayHint(error) !== null },
         });
         await waitUnlessAborted(delay, options.signal);

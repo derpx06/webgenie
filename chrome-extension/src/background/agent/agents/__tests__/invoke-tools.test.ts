@@ -217,6 +217,16 @@ describe('invokeLLM', () => {
     expect(stub.invoke).toHaveBeenCalledTimes(2);
   });
 
+  it('waits and retries while the provider cannot be reached, then returns the reply', async () => {
+    const offline = () => Promise.reject(new TypeError('Failed to fetch'));
+    const { chatModel, stub } = stubModel([offline, offline, new AIMessage({ content: 'back online' })]);
+
+    const reply = await invokeLLM(chatModel, packet, { component: 'test', rateLimitDelaysMs: [1, 1] });
+
+    expect(reply.text).toBe('back online');
+    expect(stub.invoke).toHaveBeenCalledTimes(3);
+  });
+
   it('gives up with the rate-limit error after the configured waits', async () => {
     const limited = () => Promise.reject(new Error('429 Resource exhausted'));
     const { chatModel, stub } = stubModel([limited, limited, limited]);

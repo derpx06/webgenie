@@ -21,6 +21,7 @@ import {
   ChatModelBadRequestError,
   ChatModelForbiddenError,
   ChatModelRateLimitError,
+  ProviderUnreachableError,
   ChatModelPaymentRequiredError,
   ExtensionConflictError,
   RequestCancelledError,
@@ -496,8 +497,8 @@ export class Executor {
         }
       }
       if (error instanceof ChatModelRateLimitError && !this.context.stopped) {
-        // Still rate limited after every retry: the task is kept, saved, so resuming it later continues where it was.
-        this.context.interruption = t('exec_task_rateLimitedPaused');
+        // Still rate limited or unreachable after every retry: the task is kept, saved, so resuming it later continues where it was.
+        this.context.interruption = t(error instanceof ProviderUnreachableError ? 'exec_task_offlinePaused' : 'exec_task_rateLimitedPaused');
       }
       if (this.context.interruption) {
         await this.endInterrupted(this.tasks[this.tasks.length - 1]);

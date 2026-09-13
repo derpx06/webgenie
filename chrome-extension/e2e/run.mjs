@@ -20,7 +20,7 @@ import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { TASKS } from './tasks.mjs';
 import { startFixtures } from './fixtures.mjs';
-import { baselineFrom, compareWithBaseline, mergeBaseline, suiteHealth, taskMetrics, timeline, wilson } from './metrics.mjs';
+import { baselineFrom, compareWithBaseline, mergeBaseline, suiteHealth, taskMetrics, timeline, UNMEASURED, wilson } from './metrics.mjs';
 
 const HERE = import.meta.dirname;
 const DIST = path.resolve(HERE, '../../dist');
@@ -693,6 +693,12 @@ export class Harness {
 
     const check = await this.check(task, run, answers, { records, storage, taskId, downloadsDir: this.downloadsDir, panel: run.panel });
     const metrics = taskMetrics(records, run.events, { secret: task.secret, taskText: typeof task.task === 'function' ? task.task(this.fixtures) : task.task, storage });
+    // The task ended because the model provider could not be reached (this machine lost its connection): like site_down,
+    // not a verdict on the agent.
+    const lastCall = records.filter(r => r.kind === 'llm').at(-1);
+    if (run.outcome !== 'task.ok' && lastCall && /Failed to fetch|provider unreachable/i.test(`${lastCall.msg} ${JSON.stringify(lastCall.data?.error ?? '')}`)) {
+      run.outcome = 'provider_down';
+    }
     const pass = (task.outcomes ?? ['task.ok']).includes(run.outcome) && check.pass && metrics.secretLeaks === 0 && metrics.storageLeaks === 0;
     if (metrics.secretLeaks || metrics.storageLeaks) {
       check.detail = `${check.detail ?? ''} secretLeaks=${metrics.secretLeaks} storage keys with the secret: ${metrics.storageLeakKeys.join(', ') || 'none'}`.trim();
@@ -858,7 +864,7 @@ async function main() {
     })),
   );
   for (const [name, h] of Object.entries(health)) console.log(`${name}: ${JSON.stringify(h)}`);
-  const counted = results.filter(r => r.outcome !== 'site_down' && r.outcome !== 'oracle');
+  const counted = results.filter(r => !UNMEASURED.has(r.outcome) && r.outcome !== 'oracle');
   if (counted.length) {
     const passedAll = counted.filter(r => r.pass).length;
     const cost = counted.reduce((n, r) => n + (r.metrics?.costUsd ?? 0), 0);
@@ -873,7 +879,7 @@ async function main() {
   if (comparison.regressions.length) console.log(`REGRESSIONS:\n  ${comparison.regressions.join('\n  ')}`);
   console.log(`Results: ${outDir}`);
 
-  const allPassed = results.every(r => r.pass || r.outcome === 'site_down');
+  const allPassed = results.every(r => r.pass || UNMEASURED.has(r.outcome));
   if (process.env.E2E_UPDATE_BASELINE && !ORACLE) {
     if (fullRun && (comparison.regressions.length === 0 || !baseline)) {
       fs.writeFileSync(BASELINE, `${JSON.stringify(baselineFrom(results, health, repeats), null, 2)}\n`);

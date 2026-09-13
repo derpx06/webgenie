@@ -197,6 +197,20 @@ export class ChatModelRateLimitError extends Error {
   }
 }
 
+/** The model provider could not be reached for longer than the retry budget; like a rate limit, the task pauses, saved. */
+export class ProviderUnreachableError extends ChatModelRateLimitError {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
+    this.name = 'ProviderUnreachableError';
+  }
+}
+
+/** No response at all: the browser is offline, DNS failed or the connection dropped ("Failed to fetch" in Chrome). */
+export function isNetworkError(error: unknown): boolean {
+  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return /Failed to fetch|fetch failed|NetworkError|ERR_(INTERNET_DISCONNECTED|NETWORK_CHANGED|NAME_NOT_RESOLVED|CONNECTION_(RESET|REFUSED|CLOSED))|ENOTFOUND|ECONNREFUSED|EAI_AGAIN/i.test(text);
+}
+
 /**
  * Checks if an error is a rate limit error (HTTP 429)
  */

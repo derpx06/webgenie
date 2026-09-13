@@ -62,6 +62,9 @@ export function storageLeaks(dump, needle) {
     .map(([key]) => key);
 }
 
+/** Outcomes that say nothing about the agent (its start page or the model provider was unreachable): left out of pass rates. */
+export const UNMEASURED = new Set(['site_down', 'provider_down']);
+
 export function taskMetrics(records, events, { secret, taskText = '', storage } = {}) {
   const llm = records.filter(r => r.kind === 'llm');
   const calls = llm.filter(r => r.level === 'info' && String(r.msg).startsWith('llm call'));
@@ -212,7 +215,7 @@ export function suiteHealth(results) {
   const health = {};
   for (const suite of [...new Set(results.map(r => r.suite))]) {
     // A site that was down says nothing about the agent.
-    const rows = results.filter(r => r.suite === suite && r.outcome !== 'site_down');
+    const rows = results.filter(r => r.suite === suite && !UNMEASURED.has(r.outcome));
     const all = key => rows.flatMap(r => r.metrics?.[key] ?? []);
     const actions = name => rows.flatMap(r => r.metrics?.actionMs?.[name] ?? []);
     const counters = Object.fromEntries(HEALTH_COUNTERS.map(key => [key, rows.reduce((n, r) => n + (r.metrics?.[key] ?? 0), 0)]));
@@ -250,7 +253,7 @@ export function suiteHealth(results) {
 
 export function baselineFrom(results, health, repeats = 1) {
   const tasks = {};
-  for (const r of results.filter(row => row.outcome !== 'site_down')) {
+  for (const r of results.filter(row => !UNMEASURED.has(row.outcome))) {
     const key = `${r.suite}:${r.id}`;
     const entry = (tasks[key] ??= { passes: 0, runs: 0, seconds: [], llmCalls: [] });
     entry.runs += 1;

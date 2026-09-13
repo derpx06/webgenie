@@ -945,6 +945,9 @@
   "exec_task_rateLimitedPaused": {
     "message": "O provedor do modelo continuou limitando as solicitações. A tarefa foi salva: retome-a pelo painel lateral em instantes."
   },
+  "exec_task_offlinePaused": {
+    "message": "Não foi possível conectar ao provedor do modelo. A tarefa foi salva: retome-a pelo painel lateral quando estiver online."
+  },
   "options_advanced_browserDataTools": {
     "message": "Ferramentas de dados do navegador"
   },

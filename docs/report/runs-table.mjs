@@ -15,7 +15,7 @@ for (const name of fs.readdirSync(dir).sort()) {
   const file = path.join(dir, name, 'summary.json');
   if (!fs.existsSync(file)) continue;
   const summary = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const counted = summary.results.filter(r => !['site_down', 'oracle', 'skipped_budget'].includes(r.outcome));
+  const counted = summary.results.filter(r => !['site_down', 'provider_down', 'oracle', 'skipped_budget'].includes(r.outcome));
   if (counted.length === 0) continue;
   const passed = counted.filter(r => r.pass).length;
   const metric = key => counted.reduce((n, r) => n + (r.metrics?.[key] ?? 0), 0);

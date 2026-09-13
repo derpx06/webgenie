@@ -945,6 +945,9 @@
   "exec_task_rateLimitedPaused": {
     "message": "The model provider kept rate-limiting requests. The task is saved: resume it from the side panel in a moment."
   },
+  "exec_task_offlinePaused": {
+    "message": "The model provider could not be reached. The task is saved: resume it from the side panel once you are back online."
+  },
   "options_advanced_browserDataTools": {
     "message": "Browser Data Tools"
   },

@@ -11,10 +11,12 @@ import {
   isBadRequestError,
   isExtensionConflictError,
   isForbiddenError,
+  isNetworkError,
   isRateLimitError,
   isPaymentRequiredError,
   isQuotaExhaustedError,
   LLM_FORBIDDEN_ERROR_MESSAGE,
+  ProviderUnreachableError,
   RequestCancelledError,
 } from '../errors';
 import { URLNotAllowedError } from '@src/background/browser/views';
@@ -39,6 +41,11 @@ export function handleAgentError(error: unknown, fallbackPrefix: string): never 
 
   if (isRateLimitError(error)) {
     throw new ChatModelRateLimitError('API Rate Limit Exceeded (429). Please try again in a few moments.', error);
+  }
+
+  // Still unreachable after invokeLLM's waits: pause the task rather than count failures that end it in a second.
+  if (isNetworkError(error)) {
+    throw new ProviderUnreachableError(`The model provider could not be reached: ${errorMessage}`, error);
   }
 
   if (isAbortedError(error)) {
