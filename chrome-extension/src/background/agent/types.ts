@@ -97,6 +97,8 @@ export class AgentContext {
   secrets = new Map<string, { value: string; host: string }>();
   /** Text typed into each field this task (frame key and backend node id), to catch replacing a value the user gave. */
   typedValues = new Map<string, string>();
+  /** Overwrites of a field this task filled that were refused once (field key and new text); a repeat goes through. */
+  overwriteChecked = new Set<string>();
   /** The tab's address when the current task began; relative instructions ("the next page") refer to it. */
   taskStartUrl: string | null = null;
   /** Labels of the last drag's source and target, to refuse repeating a drag that already happened. */

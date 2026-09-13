@@ -555,6 +555,36 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           break;
         }
 
+        // Typing something else over what this task typed into a field that still shows it is usually a slip (L1 put the
+        // next guest's surname over the one it had just entered). Refused once; the same action again is a deliberate fix.
+        // A field the page cleared (a submitted form, a reused input) holds nothing to protect.
+        const held = previousValue?.trim().toLowerCase() ?? '';
+        const overwriteKey = `${typedField}|${typedText.trim().toLowerCase()}`;
+        if (
+          typedField &&
+          held &&
+          held !== typedText.trim().toLowerCase() &&
+          (typedNode?.attributes.value ?? '').trim().toLowerCase() === held &&
+          !this.context.overwriteChecked.has(overwriteKey)
+        ) {
+          this.context.overwriteChecked.add(overwriteKey);
+          const msg = `Not typed: this field already holds "${previousValue}", which you typed earlier in this task. Check which value the task wants here; if "${previousValue}" is really wrong, send the same input_text again to replace it.`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          results.push(new ActionResult({
+            executed: false,
+            executionStatus: 'not_attempted',
+            validated: 'unknown',
+            retryability: 'replan',
+            failureReason: msg,
+            extractedContent: msg,
+            includeInMemory: true,
+            contractId,
+            actionId,
+            validationId,
+          }));
+          break;
+        }
+
         // Dragging the same item onto the same target again undoes a swap or repeats a move the page already shows.
         const dragKey = actionName === 'drag_element'
           ? (() => {

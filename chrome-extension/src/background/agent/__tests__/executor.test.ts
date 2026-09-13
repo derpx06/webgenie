@@ -364,6 +364,37 @@ describe("The user's files", () => {
   });
 });
 
+describe('Overwriting a field this task filled', () => {
+  const run = async (fieldValue: string) => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Add two guests: Grace Wirth, then Grace Hopper.',
+      pages: [{ url: 'https://party.test/guest/1', title: 'Guest 1', elements: [{ tag: 'input', attributes: { 'aria-label': 'Last name', value: fieldValue } }] }],
+      planner: Array(6).fill(planner),
+      navigator: [typeText(0, 'Hopper'), typeText(0, 'Hopper'), done('Done')],
+    });
+    h.executor.getContext().typedValues.set(':100', 'Wirth');
+    await settle(h.executor.execute());
+    return h;
+  };
+
+  it('is refused once while the field still shows the earlier value, and goes through when repeated', async () => {
+    const h = await run('Wirth');
+    expect(h.browser.actions).toEqual([{ type: 'input', index: 0, text: 'Hopper' }]);
+    expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain('this field already holds "Wirth"');
+  });
+
+  it('is not refused when the page cleared the field', async () => {
+    const h = await run('');
+    expect(h.browser.actions).toEqual([
+      { type: 'input', index: 0, text: 'Hopper' },
+      { type: 'input', index: 0, text: 'Hopper' },
+    ]);
+  });
+});
+
 describe('Screenshots', () => {
   const chart = { url: 'https://stats.test/', title: 'Stats', text: ['Bar chart of monthly sign-ups'] };
   const hasImage = (request: LLMRequest) =>

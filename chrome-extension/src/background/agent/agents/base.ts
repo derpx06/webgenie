@@ -113,8 +113,12 @@ export const LLM_CALL_TIMEOUTS_MS = [25_000, 37_500];
  */
 export const HEDGE_AFTER_MS = 10_000;
 const SUPERSEDED = 'superseded by a faster duplicate request';
-/** Longest total wait for one call across rate-limit retries; after that the error goes up and the task pauses, saved. */
-export const RATE_LIMIT_BUDGET_MS = 60_000;
+/**
+ * Longest total wait for one call across rate-limit retries; after that the error goes up and the task pauses, saved.
+ * A per-minute quota recovers in 20-60 s (run A: 38 of 63 rate-limited calls needed three or four retries, up to
+ * about a minute), so a shorter budget paused long unattended tasks that would have gone on (B5).
+ */
+export const RATE_LIMIT_BUDGET_MS = 180_000;
 /** When a model may be called again after a rate limit, shared by every caller in this worker (planner, navigator, checks). */
 const cooldownUntil = new Map<string, number>();
 
