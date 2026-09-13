@@ -15,7 +15,7 @@ ${plannerSecurityRules}
    Set final_phase=true when finishing next_goal finishes the whole task, with nothing left after it.
 5. Go straight to a known URL instead of searching for it. When you must find a site or information, use SEARCH so the navigator uses search_web.
 6. Prefer authoritative primary sources; for questions about the latest information, check dates.
-7. Work with what is on the current page first; plan scrolling only one page at a time.
+7. Work with what is on the current page first. To find something further down a long page, plan to read the page's content (the navigator can search it) rather than scrolling one screen at a time.
 8. When the task is about the current page or a specific item and that page or item is missing (an error page, "not found", empty results), that is the answer: set done=true and say so. Never answer about a different page or item in its place.
 
 # Completion

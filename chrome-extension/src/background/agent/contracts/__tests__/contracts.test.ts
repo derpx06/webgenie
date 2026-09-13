@@ -105,12 +105,14 @@ describe('P1 contracts', () => {
       done: false,
       macro_objective: 'NAVIGATE',
       next_goal: 'open example',
+      final_phase: false,
       allowed_actions: ['go_to_url'],
       next_step_contract: { id: 'contract-schema', createdAt: 1000 },
     });
 
-    expect(parsed).toEqual({ done: false, macro_objective: 'NAVIGATE', next_goal: 'open example' });
+    expect(parsed).toEqual({ done: false, macro_objective: 'NAVIGATE', next_goal: 'open example', final_phase: false });
     expect(plannerLLMOutputSchema.safeParse({ done: false, macro_objective: 'NAVIGATE' }).success).toBe(false);
+    expect(plannerLLMOutputSchema.safeParse({ done: false, macro_objective: 'NAVIGATE', next_goal: 'open example' }).success).toBe(false);
   });
 
   it('normalizes invalid planner contracts into a safe blocked contract', () => {

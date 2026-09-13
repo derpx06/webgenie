@@ -126,7 +126,7 @@ export class FakeChatModel {
 
 export const call = (name: string, args: Record<string, unknown> = {}): ToolCall => ({ name, args });
 export const plan = (fields: Partial<PlannerLLMOutput> = {}): ToolCall =>
-  call('plan', { done: false, macro_objective: 'EXPLORE_PAGE', next_goal: 'Continue the task', ...fields });
+  call('plan', { done: false, macro_objective: 'EXPLORE_PAGE', next_goal: 'Continue the task', final_phase: false, ...fields });
 /** The planner confirms completion; without an answer the navigator's done text is the final answer. */
 export const planDone = (finalAnswer?: string): ToolCall =>
   plan({ done: true, macro_objective: 'VERIFY_STATE', next_goal: 'Report the result', ...(finalAnswer ? { final_answer: finalAnswer } : {}) });
