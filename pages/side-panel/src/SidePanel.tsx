@@ -4,6 +4,7 @@ import ChatHistoryList from './components/ChatHistoryList';
 import ChatInput from './components/ChatInput';
 import EmptyChat from './components/EmptyChat';
 import MessageList from './components/MessageList';
+import { ResumableNotice } from './components/message-list/SystemNotice';
 import SidePanelHeader from './components/SidePanelHeader';
 import { AgentSight } from './components/AgentSight';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -22,6 +23,9 @@ const SidePanel = () => {
     messages,
     inputEnabled,
     showStopButton,
+    isPaused,
+    pausedReason,
+    resumableTask,
     showHistory,
     chatSessions,
     isDarkMode,
@@ -33,6 +37,10 @@ const SidePanel = () => {
     setInputTextRef,
     handleSendMessage,
     handleStopTask,
+    handlePauseTask,
+    handleResumeTask,
+    handleResumeSavedTask,
+    handleDiscardSavedTask,
     handleMicClick,
     handleNewChat,
     handleLoadHistory,
@@ -162,9 +170,22 @@ const SidePanel = () => {
                     }}
                     onSelectSession={handleSessionSelect}>
                     <div className="relative z-20 shrink-0 px-2 pb-2 pt-4">
+                      {resumableTask && (
+                        <div className="px-4">
+                          <ResumableNotice
+                            task={resumableTask}
+                            isDarkMode={isDarkMode}
+                            onResume={handleResumeSavedTask}
+                            onDiscard={handleDiscardSavedTask}
+                          />
+                        </div>
+                      )}
                       <ChatInput
                         onSendMessage={handleSendMessage}
                         onStopTask={handleStopTask}
+                        onPauseTask={handlePauseTask}
+                        onResumeTask={handleResumeTask}
+                        isPaused={isPaused}
                         onMicClick={handleMicClick}
                         isRecording={isRecording}
                         isProcessingSpeech={isProcessingSpeech}
@@ -181,11 +202,20 @@ const SidePanel = () => {
                   <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                     <AgentSight screenshot={lastScreenshot} isActive={showStopButton} />
 
-                    <div 
+                    <div
                       className="ws-body relative z-10 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3"
                       style={{ paddingTop: '85px', paddingBottom: '210px' }}
                     >
-                      <MessageList messages={messages} isDarkMode={isDarkMode} onOptionSelect={handleSendMessage} isTaskRunning={showStopButton} />
+                      <MessageList
+                        messages={messages}
+                        isDarkMode={isDarkMode}
+                        onOptionSelect={handleSendMessage}
+                        isTaskRunning={showStopButton}
+                        pausedReason={pausedReason}
+                        resumableTask={resumableTask}
+                        onResumeSavedTask={handleResumeSavedTask}
+                        onDiscardSavedTask={handleDiscardSavedTask}
+                      />
                       <div ref={messagesEndRef} />
                     </div>
 
@@ -193,6 +223,9 @@ const SidePanel = () => {
                       <ChatInput
                         onSendMessage={handleSendMessage}
                         onStopTask={handleStopTask}
+                        onPauseTask={handlePauseTask}
+                        onResumeTask={handleResumeTask}
+                        isPaused={isPaused}
                         onMicClick={handleMicClick}
                         isRecording={isRecording}
                         isProcessingSpeech={isProcessingSpeech}

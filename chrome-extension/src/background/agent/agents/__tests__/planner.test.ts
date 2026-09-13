@@ -24,6 +24,7 @@ function makeContext() {
   const emittedEvents: AgentEvent[] = [];
   const messageManager = {
     getTranscript: () => [],
+    latestTask: () => 'follow sam altman on twitter',
     cumulativeInputTokens: 0,
     cumulativeOutputTokens: 0,
   } as unknown as MessageManager;
@@ -41,7 +42,6 @@ function makeContext() {
     eventManager,
     {},
   );
-  context.memory.goalManager.updateGoals('follow sam altman on twitter', 'follow sam altman on twitter', 'Open X profile');
   context.activeObservation = {
     id: 'obs-x-home',
     tabId: 1,

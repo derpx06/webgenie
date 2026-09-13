@@ -4,7 +4,21 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type { BrowserState } from '../../../browser/views';
 import { appearedText, createBrowserObservation } from '../observation';
 import type { ValidationEvidence } from '../types';
-import { changesUserValue, commitActionLabel, echoesActionResult, currentIndexFor, isApproval, normalizeIndexedAction, validateActionOutcome } from '../service';
+import {
+  amountBefore,
+  changesUserValue,
+  commitQuestion,
+  commitTarget,
+  echoesActionResult,
+  currentIndexFor,
+  isApproval,
+  normalizeIndexedAction,
+  sameSite,
+  urlKey,
+  userPersonalData,
+  validateActionOutcome,
+} from '../service';
+import type { FormCommitInfo } from '../../../browser/page';
 
 function element(index: number, params: Partial<ConstructorParameters<typeof DOMElementNode>[0]> = {}) {
   return new DOMElementNode({
@@ -377,13 +391,83 @@ describe('action outcome validation', () => {
 describe('committing actions', () => {
   const button = (label: string) => element(1, { attributes: { 'aria-label': label } });
 
+  const click = (node: DOMElementNode, args: Record<string, unknown> = {}, form: FormCommitInfo | null = null) =>
+    commitTarget('click_element', { index: 1, ...args }, 'https://shop.test/checkout?step=2', node, form);
+  const noForm: FormCommitInfo = { inForm: false, isSubmitter: false, paymentFields: false, submitLabels: [] };
+
   it('recognises orders, payments, subscriptions and account deletion by the element label', () => {
     for (const label of ['Place order', 'Submit order', 'Buy now', 'Pay $40.00', 'Complete purchase', 'Confirm order', 'Subscribe', 'Delete account']) {
-      expect(commitActionLabel(button(label))).toBe(label);
+      expect(click(button(label))?.label).toBe(label);
     }
     for (const label of ['Add to cart', 'Checkout', 'Send', 'Submit', 'Delete', 'Log in', 'Order history', 'Payment methods', 'Buy', 'Purchase history', 'Subscribe to our newsletter']) {
-      expect(commitActionLabel(button(label))).toBeNull();
+      expect(click(button(label), {}, noForm)).toBeNull();
     }
+  });
+
+  it('keys a commit by page and label, so the same button needs the same approval', () => {
+    const target = click(button('Place order'));
+    expect(target).toEqual({ key: 'shop.test/checkout|place order', label: 'Place order', place: 'shop.test/checkout' });
+  });
+
+  it('tests each label part on its own, so a long accessible name cannot hide the commit wording', () => {
+    const node = element(1, { attributes: { 'aria-label': 'Place order' }, children: [] });
+    node.getAllTextTillNextClickableElement = () => 'Your order of 3 items will be shipped to the address on file within five working days';
+    expect(click(node)?.label).toBe('Place order');
+  });
+
+  it('gates a submit in a payment form whatever its wording, and any action the model marks as a commit', () => {
+    const paymentForm: FormCommitInfo = { inForm: true, isSubmitter: true, paymentFields: true, submitLabels: ['Continue to payment'] };
+    expect(click(button('Continue to payment'), {}, paymentForm)?.label).toBe('Continue to payment');
+    expect(click(button('Continue'), {}, { ...paymentForm, isSubmitter: false })).toBeNull();
+    expect(click(button('Zahlungspflichtig bestellen'), { commits: 'order' })?.label).toBe('Zahlungspflichtig bestellen');
+    expect(click(button('Zahlungspflichtig bestellen'), {}, noForm)).toBeNull();
+    expect(click(button('In den Warenkorb'), { commits: 'none' }, noForm)).toBeNull();
+    expect(commitTarget('send_keys', { keys: 'Control+Enter', commits: 'payment' }, 'https://a.test/pay')?.label).toBe('Control+Enter');
+  });
+
+  it('gates Enter in a form that orders or pays, and browser tools that erase data', () => {
+    const orderForm: FormCommitInfo = { inForm: true, isSubmitter: false, paymentFields: false, submitLabels: ['Place order'] };
+    expect(commitTarget('send_keys', { keys: 'Enter' }, 'https://shop.test/promo', undefined, orderForm)?.label).toBe('Enter, which submits "Place order"');
+    expect(commitTarget('send_keys', { keys: 'Enter' }, 'https://shop.test/search', undefined, { ...orderForm, submitLabels: ['Search'] })).toBeNull();
+    expect(commitTarget('send_keys', { keys: 'Tab' }, 'https://shop.test/promo', undefined, orderForm)).toBeNull();
+    expect(commitTarget('manage_privacy', { action: 'clearData', clearTypes: ['cookies'] }, 'https://a.test/')?.label).toBe('Clear browsing data (cookies)');
+    expect(commitTarget('manage_extensions', { action: 'getAll' }, 'https://a.test/')).toBeNull();
+  });
+
+  it('asks with the amount shown before the button, in words no page can write', () => {
+    const page = '[0]<a>Cart</a>\nAlex — $30.00\n[1]<button>Place order</button>\nSam — 20,00 €\n[2]<button>Place order</button>';
+    expect(amountBefore(page, 1)).toBe('$30.00');
+    expect(amountBefore(page, 2)).toBe('20,00 €');
+    expect(amountBefore('no prices', 1)).toBeNull();
+    const question = commitQuestion({ key: 'k', label: 'Place order', place: 'shop.test/checkout' }, '$40.00');
+    expect(question).toContain('"Place order" on shop.test/checkout (amount shown: $40.00)');
+  });
+
+  it("finds the user's own emails and phone or card numbers in an action, whatever their formatting", () => {
+    const user = 'My email is Jamie.Rivera@example.com and my phone is (555) 010-0199. Card 4242 4242 4242 4242.';
+    expect(userPersonalData('{"text":"jamie.rivera@example.com"}', user)).toEqual(['jamie.rivera@example.com']);
+    expect(userPersonalData('{"url":"https://x.test/?p=555-010-0199"}', user)).toEqual(['555-010-0199']);
+    expect(userPersonalData('{"text":"4242424242424242"}', user)).toEqual(['4242424242424242']);
+    expect(userPersonalData('{"text":"someone@else.com 555-0100 12/30"}', user)).toEqual([]);
+    expect(userPersonalData('{"text":"Web Genie"}', user)).toEqual([]);
+  });
+
+  it('keys addresses by host and path, resolving relative links', () => {
+    expect(urlKey('https://www.Example.com/Wiki/Alan_Turing/?x=1#top')).toBe('example.com/wiki/alan_turing');
+    expect(urlKey('/wiki/Alonzo_Church', 'https://en.wikipedia.org/wiki/Alan_Turing')).toBe('en.wikipedia.org/wiki/alonzo_church');
+    expect(urlKey('https://example.com/')).toBe('example.com');
+    expect(urlKey('javascript:alert(1)')).toBe('');
+    expect(urlKey('not a url')).toBe('');
+  });
+
+  it('treats subdomains of one site as the same site, and nothing else', () => {
+    expect(sameSite('accounts.example.com', 'www.example.com')).toBe(true);
+    expect(sameSite('shop.example.co.uk', 'example.co.uk')).toBe(true);
+    expect(sameSite('example.co.uk', 'evil.co.uk')).toBe(false);
+    expect(sameSite('example.com', 'example.com.evil.net')).toBe(false);
+    expect(sameSite('127.0.0.1:8080', '127.0.0.1:9090')).toBe(true);
+    expect(sameSite('10.0.0.1', '127.0.0.1')).toBe(false);
+    expect(sameSite('', 'example.com')).toBe(false);
   });
 
   it('reads yes-like answers as approval and anything else as a decline', () => {

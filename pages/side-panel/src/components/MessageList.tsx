@@ -4,12 +4,19 @@ import { memo, useState } from 'react';
 import { AnswerRow } from './message-list/AnswerRow';
 import { ThinkBlock } from './message-list/ThinkBlock';
 import { HITLBlock } from './message-list/HITLBlock';
+import { ResumableNotice, SystemNotice } from './message-list/SystemNotice';
+import type { ResumableTask } from '../hooks/useAgentConnection';
 
 interface MessageListProps {
   messages: Message[];
   isDarkMode?: boolean;
   onOptionSelect?: (text: string, displayText?: string, secrets?: string[]) => void;
   isTaskRunning?: boolean;
+  /** Why the running task is paused (a task.pause event's details), or null. */
+  pausedReason?: string | null;
+  resumableTask?: ResumableTask | null;
+  onResumeSavedTask?: () => void;
+  onDiscardSavedTask?: () => void;
 }
 
 const formatTimeOnly = (timestamp: number) => {
@@ -39,6 +46,10 @@ export default memo(function MessageList({
   isDarkMode = false,
   onOptionSelect,
   isTaskRunning = false,
+  pausedReason = null,
+  resumableTask = null,
+  onResumeSavedTask,
+  onDiscardSavedTask,
 }: MessageListProps) {
   const [isStepsExpanded, setIsStepsExpanded] = useState<Record<number, boolean>>({});
 
@@ -108,6 +119,9 @@ export default memo(function MessageList({
         const resultBlocks = cycle.blocks.filter(
           b => b.actor === Actors.SYSTEM || b.actor === Actors.HITL
         );
+        // Every cycle but the last is followed by a user message, which answers its questions; only the
+        // newest question of the last cycle is still open.
+        const openQuestionIdx = isOverallLastCycle ? resultBlocks.map(b => b.actor).lastIndexOf(Actors.HITL) : -1;
 
         // Scoped status of this cycle
         const isCycleCancelled = cycle.blocks.some(b => b.messages.some(m => m.isCancelled));
@@ -283,6 +297,7 @@ export default memo(function MessageList({
                         messages={block.messages}
                         isDarkMode={isDarkMode}
                         onOptionSelect={onOptionSelect}
+                        answered={bIdx !== openQuestionIdx}
                       />
                     );
                   }
@@ -294,6 +309,21 @@ export default memo(function MessageList({
           </div>
         );
       })}
+
+      {/* Transient status, not stored in the chat history. */}
+      {pausedReason && (
+        <SystemNotice isDarkMode={isDarkMode}>
+          <p className="break-words font-semibold">{pausedReason}</p>
+        </SystemNotice>
+      )}
+      {resumableTask && (
+        <ResumableNotice
+          task={resumableTask}
+          isDarkMode={isDarkMode}
+          onResume={onResumeSavedTask}
+          onDiscard={onDiscardSavedTask}
+        />
+      )}
     </div>
   );
 });

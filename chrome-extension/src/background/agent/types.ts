@@ -7,7 +7,8 @@ import type MessageManager from './messages/service';
 import type { EventManager } from './event/manager';
 import { type Actors, type ExecutionState, AgentEvent } from './event/types';
 import { AgentStepHistory } from './history';
-import { InChatMemory } from './memory';
+import { TaskArchive } from './memory';
+import type { RouteStep } from './memory';
 import type { RunTree } from 'langsmith';
 import type { Callbacks } from '@langchain/core/callbacks/manager';
 import type {
@@ -74,10 +75,20 @@ export class AgentContext {
   lastGoal?: string;
   lastMacroObjective?: string; // macro_objective from last planner step
   activeObservation?: BrowserObservation;
-  /** The last question to the user, so their answer can be read as a decision. */
-  pendingQuestion: { type: string; question: string } | null;
-  /** The user's answer to the last confirmation: committing actions (orders, payments) wait for 'approved'. */
-  commitDecision: 'approved' | 'declined' | null;
+  /** The last question to the user, so their answer can be read as a decision; `commitKey` marks a system confirmation. */
+  pendingQuestion: { type: string; question: string; details?: string; commitKey?: string } | null;
+  /** Why the task was stopped from outside without finishing (side panel or tab closed, no answer); it stays resumable. */
+  interruption: string | null = null;
+  /** The commit the user just approved; used by the next matching action only. */
+  approvedCommitKey: string | null = null;
+  /** Commits the user declined in this task; they are refused without asking again. */
+  declinedCommitKeys = new Set<string>();
+  /** Page-blind decisions on whether the user's request asks for an action (entering personal data, opening an address). */
+  intentDecisions = new Map<string, boolean>();
+  /** Pages this task has been on (host and path), so going back to one needs no check. */
+  visitedUrls = new Set<string>();
+  /** Passwords from the user's answers by placeholder, with the host they were given on; never sent to a model. */
+  secrets = new Map<string, { value: string; host: string }>();
   /** Text typed into each field this task (frame key and backend node id), to catch replacing a value the user gave. */
   typedValues = new Map<string, string>();
   /** The tab's address when the current task began; relative instructions ("the next page") refer to it. */
@@ -95,7 +106,12 @@ export class AgentContext {
   traceStore?: TraceStore;
   parentRun?: RunTree;
   traceCallbacks?: Callbacks;
-  memory: InChatMemory;
+  /** Finished tasks of this conversation, for follow-ups. */
+  taskArchive = new TaskArchive();
+  /** Where this task's successful actions happened, saved as a route once the planner confirms the task. */
+  routeSteps: RouteStep[] = [];
+  /** The saved route for this task's start page; undefined until read. */
+  routeNote?: string;
 
   constructor(
     taskId: string,
@@ -122,11 +138,9 @@ export class AgentContext {
     this.waitingForHuman = false;
     this.humanQuestion = null;
     this.pendingQuestion = null;
-    this.commitDecision = null;
     this.typedValues.clear();
     this.lastDragKey = null;
     this.echoRejections = 0;
-    this.memory = new InChatMemory();
     this.currentContract = null;
     this.validatedProgress = [];
     this.blockedState = null;

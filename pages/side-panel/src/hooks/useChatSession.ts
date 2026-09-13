@@ -61,6 +61,8 @@ export const useChatSession = () => {
             const fullSession = await chatHistoryStore.getSession(sessionId);
             if (fullSession && fullSession.messages.length > 0) {
                 setCurrentSessionId(fullSession.id);
+                // Set now, not after the next render: events for a task resumed right after loading belong here.
+                sessionIdRef.current = fullSession.id;
                 setMessages(fullSession.messages);
                 setIsFollowUpMode(false);
                 setIsHistoricalSession(true);

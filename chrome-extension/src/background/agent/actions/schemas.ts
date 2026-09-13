@@ -7,6 +7,14 @@ export interface ActionSchema {
 }
 
 const elementIndex = z.number().int().describe('index of the element in the interactive elements list');
+const COMMIT_KINDS = ['none', 'order', 'payment', 'subscription', 'account_change'] as const;
+const COMMITS_DESCRIPTION =
+  "What this action commits, judged by what the control does in any language or icon: 'none' for everything that spends no money and changes no account (navigating, searching, adding to a cart, going to checkout, a form step, sending a message); 'order' when it places an order or completes a purchase; 'payment' when it pays; 'subscription' when it starts a subscription or trial; 'account_change' when it deletes, closes or changes an account or its security. For anything but 'none' the system asks the user first.";
+const commitsField = z.enum(COMMIT_KINDS).optional().describe(COMMITS_DESCRIPTION);
+/** Tools whose calls must say what they commit: the model decides on every click and key press. */
+export const COMMIT_DECIDING_TOOLS = new Set(['click_element', 'send_keys']);
+/** The model-facing form of `commits`: required, so a purchase in another language cannot slip through unmarked. */
+export const REQUIRED_COMMITS_FIELD = { commits: z.enum(COMMIT_KINDS).describe(COMMITS_DESCRIPTION) };
 const optionalElementIndex = z
   .number()
   .int()
@@ -68,6 +76,7 @@ export const clickElementActionSchema: ActionSchema = {
   schema: z.object({
     index: elementIndex,
     double: z.boolean().optional().describe('true to double-click instead of a single click (required whenever the task or the element asks for a double-click)'),
+    commits: commitsField,
   }),
 };
 
@@ -218,6 +227,7 @@ export const sendKeysActionSchema: ActionSchema = {
     'Send strings of special keys like Backspace, Insert, PageDown, Delete, Enter. Shortcuts such as `Control+o`, `Control+Shift+T` are supported as well. This gets used in keyboard press. Be aware of different operating systems and their shortcuts',
   schema: z.object({
     keys: z.string().describe('keys to send'),
+    commits: commitsField,
   }),
 };
 
@@ -249,7 +259,7 @@ export const waitActionSchema: ActionSchema = {
 
 export const askHumanActionSchema: ActionSchema = {
   name: 'ask_human',
-  description: 'Ask the user to decide or provide something: confirm an order, payment or other important action (with the item and total), give information the task and page do not (never invent it), or choose between items that differ when the task does not say which.',
+  description: 'Ask the user to decide or provide something: confirm an important action the system does not confirm itself (sending, deleting or sharing something the task did not ask for), give information the task and page do not (never invent it), or choose between items that differ when the task does not say which. Orders, payments, subscriptions and account changes are confirmed by the system when you act; do not ask for those.',
   schema: z.object({
     question: z.string().describe('The question or confirmation message to show the human'),
     options: z.array(z.string()).optional().describe('Optional list of choices (buttons) for the human to pick from'),

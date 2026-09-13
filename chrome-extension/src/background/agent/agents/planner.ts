@@ -52,7 +52,7 @@ export class PlannerAgent extends BaseAgent<PlannerOutput> {
       const transcript = this.context.messageManager.getTranscript();
       const latestTask = transcript.map(entry => entry.type).lastIndexOf('task');
       const cleanedPlan = cleanPlannerOutput(calls[0].args as unknown as PlannerLLMOutput, {
-        goal: this.context.memory.goalManager.getCurrentGoal() || this.context.memory.goalManager.getPrimaryGoal() || '',
+        goal: this.context.messageManager.latestTask(),
         currentObservation: this.context.activeObservation ?? null,
         userAnswered: transcript.slice(latestTask + 1).some(entry => entry.type === 'human_answer'),
       });
@@ -121,7 +121,7 @@ export class PlannerAgent extends BaseAgent<PlannerOutput> {
   }
 
   private handleParseFallback(error: ResponseParseError): AgentOutput<PlannerOutput> {
-    const goal = this.context.memory.goalManager.getCurrentGoal() || this.context.memory.goalManager.getPrimaryGoal() || '';
+    const goal = this.context.messageManager.latestTask();
     const fallbackPlan = createPlannerParseFallbackOutput({
       goal,
       currentObservation: this.context.activeObservation ?? null,

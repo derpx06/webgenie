@@ -13,6 +13,9 @@
   "errors_conn_serviceWorker": {
     "message": "Failed to connect to service worker"
   },
+  "errors_conn_lost": {
+    "message": "Lost the connection to the agent."
+  },
   "errors_cmd_unknown": {
     "message": "Unsupported command: $COMMAND$.\n\nAvailable commands: /state, /nohighlight, /replay <historySessionId>",
     "placeholders": {
@@ -63,6 +66,60 @@
   },
   "chat_buttons_send": {
     "message": "Send"
+  },
+  "chat_buttons_pause": {
+    "message": "Pause"
+  },
+  "chat_buttons_resume": {
+    "message": "Resume"
+  },
+  "chat_buttons_discard": {
+    "message": "Discard"
+  },
+  "chat_hitl_answered": {
+    "message": "Answered"
+  },
+  "chat_resumable_interrupted": {
+    "message": "This task was interrupted before it finished."
+  },
+  "chat_resumable_waitingHuman": {
+    "message": "This task is waiting for your answer."
+  },
+  "chat_buttons_runTask": {
+    "message": "Run task"
+  },
+  "chat_hitl_confirmation_title": {
+    "message": "Action Confirmation"
+  },
+  "chat_hitl_confirmation_subtitle": {
+    "message": "Please approve this sensitive action"
+  },
+  "chat_hitl_question_title": {
+    "message": "Human Intervention Needed"
+  },
+  "chat_hitl_question_subtitle": {
+    "message": "The agent is waiting for your decision"
+  },
+  "chat_hitl_submit": {
+    "message": "Submit Information"
+  },
+  "chat_hitl_selectOption": {
+    "message": "Select option..."
+  },
+  "chat_hitl_dontAskAgain": {
+    "message": "Don't ask for confirmation for this again"
+  },
+  "chat_hitl_actionRequired": {
+    "message": "Action Required"
+  },
+  "chat_answer_completed": {
+    "message": "Completed"
+  },
+  "chat_answer_failed": {
+    "message": "Failed"
+  },
+  "chat_answer_cancelled": {
+    "message": "Cancelled"
   },
   "chat_input_placeholder": {
     "message": "What can I help you with?"
@@ -143,7 +200,6 @@
     "message": "Speech recognition is not supported in this browser."
   },
   "chat_stt_input_start": {
-
     "message": "Start voice input"
   },
   "chat_stt_processingFailed": {
@@ -266,7 +322,6 @@
   "options_general_replayHistoricalTasks_desc": {
     "message": "Enable storing and replaying of agent step history (experimental, may have issues)"
   },
-
   "options_models_providers_header": {
     "message": "LLM Providers"
   },
@@ -294,7 +349,6 @@
   "options_models_providers_custom_name_placeholder": {
     "message": "Provider name"
   },
-
   "options_models_providers_apiKey": {
     "message": "API Key"
   },
@@ -313,21 +367,18 @@
   "options_models_providers_apiKey_show": {
     "message": "Show API key"
   },
-
   "options_models_selection_header": {
     "message": "Model Selection"
   },
   "options_models_speechToText_header": {
     "message": "Speech-to-Text Model"
   },
-
   "options_models_agents_navigator": {
     "message": "Navigates websites and performs actions"
   },
   "options_models_agents_planner": {
     "message": "Develops and refines strategies to complete tasks"
   },
-
   "options_models_labels_model": {
     "message": "Model"
   },
@@ -415,7 +466,6 @@
       }
     }
   },
-
   "options_firewall_header": {
     "message": "Firewall"
   },
@@ -452,7 +502,6 @@
   "options_firewall_howItWorks": {
     "message": "The firewall contains a deny list and an allow list.\nIf both lists are empty, all URLs are allowed\nDeny list takes priority - if a URL matches any deny list entry, it's blocked\nWhen allow list is empty, all non-denied URLs are allowed\nWhen allow list is not empty, only matching URLs are allowed\nWildcards are NOT supported yet\nAllow list is preferred over deny list"
   },
-
   "bg_errors_noTabId": {
     "message": "No tab ID provided"
   },
@@ -552,7 +601,6 @@
   "exec_replay_historyEmpty": {
     "message": "History is empty"
   },
-
   "act_searchGoogle_start": {
     "message": "Searching for \"$QUERY$\" in Google",
     "placeholders": {
@@ -971,5 +1019,20 @@
         "example": "Option not found"
       }
     }
+  },
+  "exec_task_waitingForAnswer": {
+    "message": "Still waiting for your answer. The task is saved: reply to the question to continue."
+  },
+  "exec_task_resumed": {
+    "message": "Task resumed"
+  },
+  "bg_interrupt_panelClosed": {
+    "message": "The side panel was closed. The task is saved: open the side panel to resume it."
+  },
+  "bg_interrupt_tabClosed": {
+    "message": "The agent's tab was closed. The task is saved: resume it from the side panel."
+  },
+  "bg_interrupt_debuggerDetached": {
+    "message": "Browser control was cancelled from the debugging banner. The task is saved: resume it from the side panel."
   }
 }

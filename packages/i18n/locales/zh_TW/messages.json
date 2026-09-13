@@ -13,6 +13,9 @@
   "errors_conn_serviceWorker": {
     "message": "連線至 Service Worker 失敗"
   },
+  "errors_conn_lost": {
+    "message": "與代理程式的連線已中斷。"
+  },
   "errors_cmd_unknown": {
     "message": "不支援的指令：$COMMAND$。\n\n可用指令：/state、/nohighlight、/replay <historySessionId>",
     "placeholders": {
@@ -63,6 +66,60 @@
   },
   "chat_buttons_send": {
     "message": "傳送"
+  },
+  "chat_buttons_pause": {
+    "message": "暫停"
+  },
+  "chat_buttons_resume": {
+    "message": "繼續"
+  },
+  "chat_buttons_discard": {
+    "message": "捨棄"
+  },
+  "chat_hitl_answered": {
+    "message": "已回答"
+  },
+  "chat_resumable_interrupted": {
+    "message": "此任務在完成前被中斷。"
+  },
+  "chat_resumable_waitingHuman": {
+    "message": "此任務正在等待您的回覆。"
+  },
+  "chat_buttons_runTask": {
+    "message": "執行任務"
+  },
+  "chat_hitl_confirmation_title": {
+    "message": "動作確認"
+  },
+  "chat_hitl_confirmation_subtitle": {
+    "message": "請核准此敏感動作"
+  },
+  "chat_hitl_question_title": {
+    "message": "需要人工介入"
+  },
+  "chat_hitl_question_subtitle": {
+    "message": "代理程式正在等待您的決定"
+  },
+  "chat_hitl_submit": {
+    "message": "送出資訊"
+  },
+  "chat_hitl_selectOption": {
+    "message": "選擇選項..."
+  },
+  "chat_hitl_dontAskAgain": {
+    "message": "此動作不再要求確認"
+  },
+  "chat_hitl_actionRequired": {
+    "message": "需要操作"
+  },
+  "chat_answer_completed": {
+    "message": "已完成"
+  },
+  "chat_answer_failed": {
+    "message": "失敗"
+  },
+  "chat_answer_cancelled": {
+    "message": "已取消"
   },
   "chat_input_placeholder": {
     "message": "有什麼需要協助的嗎？"
@@ -143,7 +200,6 @@
     "message": "此瀏覽器不支援語音辨識功能。"
   },
   "chat_stt_input_start": {
-
     "message": "開始語音輸入"
   },
   "chat_stt_processingFailed": {
@@ -963,5 +1019,20 @@
         "example": "Option not found"
       }
     }
+  },
+  "exec_task_waitingForAnswer": {
+    "message": "仍在等待您的回答。任務已儲存：回答問題即可繼續。"
+  },
+  "exec_task_resumed": {
+    "message": "任務已繼續"
+  },
+  "bg_interrupt_panelClosed": {
+    "message": "側邊面板已關閉。任務已儲存：開啟側邊面板即可繼續。"
+  },
+  "bg_interrupt_tabClosed": {
+    "message": "代理的分頁已關閉。任務已儲存：可從側邊面板繼續。"
+  },
+  "bg_interrupt_debuggerDetached": {
+    "message": "已從偵錯橫幅取消瀏覽器控制。任務已儲存：可從側邊面板繼續。"
   }
 }

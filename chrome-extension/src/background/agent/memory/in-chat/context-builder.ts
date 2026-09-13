@@ -1,6 +1,7 @@
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage, type SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '../../types';
 import type { TranscriptEntry } from '../../messages/service';
+import { defangTags } from '../../messages/utils';
 
 /** Navigator tool turns sent as real messages; older turns are summarized as text. */
 const RECENT_TURNS = 5;
@@ -94,20 +95,13 @@ export class ContextBuilder {
 
   /** Non-empty blocks shown above the browser state. */
   private static stateSections(context: AgentContext): string[] {
-    const memory = context.memory;
     const sections: string[] = [];
     if (context.taskStartUrl) sections.push(`[TASK STARTED ON]\n${context.taskStartUrl}`);
     const addList = (title: string, lines: string[], maxChars: number) => {
       if (lines.length > 0) sections.push(`[${title}]\n${this.formatLinesWithBudget(lines, maxChars)}`);
     };
 
-    addList('ACTIVE FACTS', memory.getActiveItemsByType('fact').map(item => `- ${item.content}`), 1050);
-    addList('ACTIVE CONSTRAINTS', memory.getActiveItemsByType('constraint').map(item => `- ${item.content}`), 750);
-    addList('ACTIVE DECISIONS', memory.getActiveItemsByType('decision').map(item => `- ${item.content}`), 750);
-    addList('PINNED MEMORY', memory.getActiveItemsByType('pinned').map(item => `- ${item.content}`), 600);
-    const progress = memory.progressTracker.getProgressString();
-    if (progress !== 'No progress recorded yet.') sections.push(`[PROGRESS STATUS]\n${progress.slice(0, 600)}`);
-    addList('COMPLETED EARLIER TASKS', memory.taskArchive.getRecords().map(record => `- "${record.goal}" → ${record.outcome}`), 900);
+    addList('COMPLETED EARLIER TASKS', context.taskArchive.getRecords().map(record => `- "${record.goal}" → ${record.outcome}`), 900);
 
     const contract = context.currentContract;
     const contractBlock = contract
@@ -161,7 +155,8 @@ export class ContextBuilder {
           : `[Earlier steps]\n${renderTurnsAsText(olderTurns, EARLIER_STEPS_CHARS)}`,
       );
     }
-    const header = sections.join('\n\n');
+    // Plans, progress and step summaries are model-written and may quote page text.
+    const header = defangTags(sections.join('\n\n'));
 
     return [systemMessage, ...transcript, withHeader(currentStateMessage, header)];
   }

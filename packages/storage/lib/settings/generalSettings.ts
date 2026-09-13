@@ -24,6 +24,8 @@ export interface GeneralSettingsConfig {
   enableTabGrouping: boolean;
   /** Whether ephemeral (temporary) AI tabs are auto-closed when the task completes. */
   autoCloseEphemeralTabs: boolean;
+  /** Minutes the agent waits for an answer before it saves the task and stops; replying later resumes it. */
+  humanWaitMinutes: number;
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
@@ -52,6 +54,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   langsmithProject: 'web-surfer',
   enableTabGrouping: true,
   autoCloseEphemeralTabs: false,
+  humanWaitMinutes: 10,
 };
 
 

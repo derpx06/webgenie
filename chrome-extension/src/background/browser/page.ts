@@ -77,6 +77,41 @@ function pageTextWithShadowRoots(): string {
   return [text, ...sections].join('\n');
 }
 
+/** What submitting the form around an element would involve, read from the live page. */
+export interface FormCommitInfo {
+  inForm: boolean;
+  /** The element (or the button it sits in) submits that form. */
+  isSubmitter: boolean;
+  /** The form asks for payment card or bank details. */
+  paymentFields: boolean;
+  submitLabels: string[];
+}
+
+/** Runs in the page: must stay self-contained. Without a start element, follows focus into shadow roots and same-origin frames. */
+const inspectForm = (start: Element | null): FormCommitInfo => {
+  let el: Element | null = start ?? document.activeElement;
+  while (!start && el) {
+    if (el.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+    else if (el instanceof HTMLIFrameElement && el.contentDocument?.activeElement) el = el.contentDocument.activeElement;
+    else break;
+  }
+  const submitter = el?.closest('button, input[type="submit"], input[type="image"]') as HTMLButtonElement | HTMLInputElement | null;
+  const form = submitter?.form ?? (el as HTMLInputElement | null)?.form ?? el?.closest('form') ?? null;
+  if (!form) return { inForm: false, isSubmitter: false, paymentFields: false, submitLabels: [] };
+  const controls = Array.from(form.elements) as HTMLInputElement[];
+  const submits = (c: Element) => (c.tagName === 'BUTTON' && (c as HTMLButtonElement).type === 'submit') || (c.tagName === 'INPUT' && ['submit', 'image'].includes((c as HTMLInputElement).type));
+  const describe = (c: HTMLInputElement) => `${c.autocomplete ?? ''} ${c.name ?? ''} ${c.id} ${c.getAttribute('aria-label') ?? ''} ${c.placeholder ?? ''}`;
+  return {
+    inForm: true,
+    isSubmitter: !!submitter && submits(submitter),
+    paymentFields: controls.some(c => /\bcc-|card.?(number|num)|cc.?num|\bcvc\b|\bcvv\b|\bcsc\b|\biban\b|security.?code/i.test(describe(c))),
+    submitLabels: controls
+      .filter(submits)
+      .map(c => ((c as HTMLElement).innerText || c.value || c.getAttribute('aria-label') || '').trim())
+      .filter(Boolean),
+  };
+};
+
 /** What a mouse gesture caused besides changing the page. */
 export interface MouseOutcome {
   dialog?: PageDialog;
@@ -1254,6 +1289,13 @@ export default class Page {
 
   async rightClickNode(node: DOMElementNode): Promise<MouseOutcome> {
     return this._dispatchMouse(await this._requireHandle(node), 'right');
+  }
+
+  /** The form around the element (without one, around the focused element): its payment fields and submit buttons. */
+  async formCommitInfo(node?: DOMElementNode): Promise<FormCommitInfo> {
+    if (node) return (await this._requireHandle(node)).evaluate(inspectForm);
+    if (!this._puppeteerPage) throw new Error('Puppeteer page is not connected');
+    return this._puppeteerPage.evaluate(inspectForm, null);
   }
 
   /**

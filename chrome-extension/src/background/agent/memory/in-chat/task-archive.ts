@@ -1,10 +1,8 @@
+/** A finished task of this conversation, kept in memory only so follow-ups can refer to earlier answers. */
 export interface TaskRecord {
   taskId: string;
   goal: string;
   outcome: string;
-  decisions: string[];
-  facts: string[];
-  summary: string;
 }
 
 export class TaskArchive {
@@ -16,15 +14,5 @@ export class TaskArchive {
 
   public getRecords(): TaskRecord[] {
     return [...this.records];
-  }
-
-  public toJSON(): TaskRecord[] {
-    return this.records;
-  }
-
-  public fromJSON(data: any): void {
-    if (Array.isArray(data)) {
-      this.records = [...data];
-    }
   }
 }

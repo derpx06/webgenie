@@ -13,6 +13,9 @@
   "errors_conn_serviceWorker": {
     "message": "Falha ao conectar ao service worker"
   },
+  "errors_conn_lost": {
+    "message": "A conexão com o agente foi perdida."
+  },
   "errors_cmd_unknown": {
     "message": "Comando não suportado: $COMMAND$.\n\nComandos disponíveis: /state, /nohighlight, /replay <historySessionId>",
     "placeholders": {
@@ -63,6 +66,60 @@
   },
   "chat_buttons_send": {
     "message": "Enviar"
+  },
+  "chat_buttons_pause": {
+    "message": "Pausar"
+  },
+  "chat_buttons_resume": {
+    "message": "Retomar"
+  },
+  "chat_buttons_discard": {
+    "message": "Descartar"
+  },
+  "chat_hitl_answered": {
+    "message": "Respondida"
+  },
+  "chat_resumable_interrupted": {
+    "message": "Esta tarefa foi interrompida antes de terminar."
+  },
+  "chat_resumable_waitingHuman": {
+    "message": "Esta tarefa está aguardando sua resposta."
+  },
+  "chat_buttons_runTask": {
+    "message": "Executar tarefa"
+  },
+  "chat_hitl_confirmation_title": {
+    "message": "Confirmação de ação"
+  },
+  "chat_hitl_confirmation_subtitle": {
+    "message": "Aprove esta ação sensível"
+  },
+  "chat_hitl_question_title": {
+    "message": "Intervenção humana necessária"
+  },
+  "chat_hitl_question_subtitle": {
+    "message": "O agente está aguardando sua decisão"
+  },
+  "chat_hitl_submit": {
+    "message": "Enviar informações"
+  },
+  "chat_hitl_selectOption": {
+    "message": "Selecione uma opção..."
+  },
+  "chat_hitl_dontAskAgain": {
+    "message": "Não pedir confirmação para isso novamente"
+  },
+  "chat_hitl_actionRequired": {
+    "message": "Ação necessária"
+  },
+  "chat_answer_completed": {
+    "message": "Concluída"
+  },
+  "chat_answer_failed": {
+    "message": "Falhou"
+  },
+  "chat_answer_cancelled": {
+    "message": "Cancelada"
   },
   "chat_input_placeholder": {
     "message": "Como posso ajudar?"
@@ -143,7 +200,6 @@
     "message": "O reconhecimento de fala não é suportado neste navegador."
   },
   "chat_stt_input_start": {
-
     "message": "Iniciar entrada de voz"
   },
   "chat_stt_processingFailed": {
@@ -293,7 +349,6 @@
   "options_models_providers_custom_name_placeholder": {
     "message": "Nome do provedor"
   },
-
   "options_models_providers_apiKey": {
     "message": "Chave de API"
   },
@@ -312,21 +367,18 @@
   "options_models_providers_apiKey_show": {
     "message": "Mostrar chave de API"
   },
-
   "options_models_selection_header": {
     "message": "Seleção de Modelo"
   },
   "options_models_speechToText_header": {
     "message": "Modelo de Fala para Texto"
   },
-
   "options_models_agents_navigator": {
     "message": "Navega em sites e executa ações"
   },
   "options_models_agents_planner": {
     "message": "Desenvolve e refina estratégias para completar tarefas"
   },
-
   "options_models_labels_model": {
     "message": "Modelo"
   },
@@ -414,7 +466,6 @@
       }
     }
   },
-
   "options_firewall_header": {
     "message": "Firewall"
   },
@@ -451,7 +502,6 @@
   "options_firewall_howItWorks": {
     "message": "O firewall contém uma lista de negações e uma lista de permissões.\nSe ambas as listas estiverem vazias, todos os URLs são permitidos\nA lista de negações tem prioridade - se um URL corresponder a qualquer entrada da lista de negações, ele será bloqueado\nQuando a lista de permissões está vazia, todos os URLs não negados são permitidos\nQuando a lista de permissões não está vazia, apenas os URLs correspondentes são permitidos\nCuringas ainda NÃO são suportados\nA lista de permissões é preferível à lista de negações"
   },
-
   "bg_errors_noTabId": {
     "message": "Nenhum ID de aba fornecido"
   },
@@ -551,7 +601,6 @@
   "exec_replay_historyEmpty": {
     "message": "O histórico está vazio"
   },
-
   "act_searchGoogle_start": {
     "message": "Procurando por \"$QUERY$\" no Google",
     "placeholders": {
@@ -970,5 +1019,20 @@
         "example": "Opção não encontrada"
       }
     }
+  },
+  "exec_task_waitingForAnswer": {
+    "message": "Ainda aguardando sua resposta. A tarefa foi salva: responda à pergunta para continuar."
+  },
+  "exec_task_resumed": {
+    "message": "Tarefa retomada"
+  },
+  "bg_interrupt_panelClosed": {
+    "message": "O painel lateral foi fechado. A tarefa foi salva: abra o painel lateral para retomá-la."
+  },
+  "bg_interrupt_tabClosed": {
+    "message": "A aba do agente foi fechada. A tarefa foi salva: retome-a pelo painel lateral."
+  },
+  "bg_interrupt_debuggerDetached": {
+    "message": "O controle do navegador foi cancelado pelo aviso de depuração. A tarefa foi salva: retome-a pelo painel lateral."
   }
 }

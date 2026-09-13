@@ -5,6 +5,8 @@ import type { z } from 'zod';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
 
+const NEVER_REMEMBERED = /order|pay|purchas|buy|checkout|subscri|account|password|credential|log.?in|sign|delet|remov|transfer|money|bank|card|privacy|personal/i;
+
 export class SystemHandler extends BaseHandler {
   async handleDone(input: z.infer<typeof doneActionSchema.schema>): Promise<ActionResult> {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, doneActionSchema.name);
@@ -23,12 +25,21 @@ export class SystemHandler extends BaseHandler {
       type: field.type ?? 'text',
       required: field.required ?? true,
     }));
-    if (type === 'confirmation' && input.actionType) {
-      const key = `auto_confirm_${input.actionType}`;
-      const storage = await chrome.storage.local.get(key);
-      if (storage[key]) {
+    // "Don't ask again" is remembered per site and kind of action, never for money, accounts or data.
+    let rememberKey: string | undefined;
+    const origin = (() => {
+      try {
+        return new URL(this.context.promptState?.url ?? '').origin;
+      } catch {
+        return '';
+      }
+    })();
+    if (type === 'confirmation' && input.actionType && origin && origin !== 'null' && !NEVER_REMEMBERED.test(input.actionType)) {
+      rememberKey = `auto_confirm:${origin}:${input.actionType}`;
+      const storage = await chrome.storage.local.get(rememberKey);
+      if (storage[rememberKey]) {
         return new ActionResult({
-          extractedContent: `Automatically approved ${input.actionType} based on user preference.`,
+          extractedContent: `Automatically approved ${input.actionType} on ${origin} based on user preference.`,
         });
       }
     }
@@ -41,8 +52,9 @@ export class SystemHandler extends BaseHandler {
       fields,
       type,
       actionType: input.actionType,
+      rememberKey,
     });
-    this.context.pendingQuestion = { type, question: input.question };
+    this.context.pendingQuestion = { type, question: input.question, details };
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_ASK_HUMAN, details);
     return new ActionResult({
       isWaitingForHuman: true,

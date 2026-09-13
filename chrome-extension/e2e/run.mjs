@@ -104,6 +104,14 @@ class Harness {
     await sleep(2000);
     await this.ctl.evaluate(() => {
       window.__ev = [];
+    });
+    await this.connectPort();
+  }
+
+  /** A port like the side panel's; a new one after a worker restart wakes the worker and becomes the current port. */
+  async connectPort() {
+    await this.ctl.evaluate(() => {
+      window.__ev ??= [];
       window.__portAlive = true;
       const port = chrome.runtime.connect({ name: 'side-panel-connection' });
       port.onMessage.addListener(message => {
@@ -116,6 +124,10 @@ class Harness {
       });
       window.__port = port;
     });
+  }
+
+  post(message) {
+    return this.ctl.evaluate(m => window.__port.postMessage(m), message);
   }
 
   /** Provider, models, trace capture, and a chat session like the side panel creates. */
@@ -135,6 +147,7 @@ class Harness {
           },
           'advanced-settings': { enableDeveloperOptions: true, captureTraces: true, logDOMSnapshot: false },
           'firewall-settings': { enabled: true, allowList: [], denyList: [] },
+          'general-settings': {},
           chat_sessions_meta: sessions,
           ...settings,
         });
@@ -259,7 +272,12 @@ class Harness {
   }
 
   /** Runs the task over the port until a terminal state, a human request, or a limit. */
-  async drive({ taskId, tabId, task, maxMs, maxSteps, maxInputTokens = TASK_TOKEN_CAP, allowHuman, human = [], type = 'new_task' }) {
+  /**
+   * `during` ({ when(event), run(ctx) }) acts once mid-task: ctx can stop the service worker, close the agent's tab, pause
+   * and resume, or start another task. `reconnect` reattaches after the port drops; `lateAnswer` answers once the task
+   * paused waiting for an answer.
+   */
+  async drive({ taskId, tabId, task, maxMs, maxSteps, maxInputTokens = TASK_TOKEN_CAP, allowHuman, human = [], type = 'new_task', page, during, reconnect, lateAnswer }) {
     await this.ctl.evaluate(
       ({ type, task, taskId, tabId }) => {
         window.__ev = [];
@@ -280,6 +298,54 @@ class Harness {
     const questions = [];
     const questionTimes = [];
     let answered = 0;
+    const marks = {};
+    const extraTaskIds = [];
+    let duringDone = false;
+    let pausedByHarness = false;
+    let lateAnswered = false;
+    let reconnects = 0;
+    /** After ctx.startNewTask, terminal events belong to the first task until the second one has started. */
+    let secondTaskId = null;
+    let secondStarted = false;
+    const ctx = {
+      taskId,
+      tabId,
+      sleep,
+      mark: name => {
+        marks[name] = Date.now();
+      },
+      killWorker: async () => {
+        marks.interruptAt = Date.now();
+        const client = await this.ctl.createCDPSession();
+        try {
+          await client.send('ServiceWorker.enable');
+          await client.send('ServiceWorker.stopAllWorkers');
+        } finally {
+          await client.detach().catch(() => {});
+        }
+      },
+      closeAgentTab: async () => {
+        marks.interruptAt = Date.now();
+        await page?.close();
+      },
+      pause: async () => {
+        pausedByHarness = true;
+        marks.pauseAt = Date.now();
+        await this.post({ type: 'pause_task' });
+      },
+      resume: async () => {
+        marks.resumeAt = Date.now();
+        await this.post({ type: 'resume_task' });
+        pausedByHarness = false;
+      },
+      startNewTask: async text => {
+        secondTaskId = `${taskId}-b`;
+        extraTaskIds.push(secondTaskId);
+        marks.secondSentAt = Date.now();
+        await this.configure(secondTaskId, 'second task');
+        await this.post({ type: 'new_task', task: text, taskId: secondTaskId, tabId });
+      },
+    };
     const stop = async reason => {
       stopReason = reason;
       stopAt = Date.now();
@@ -291,12 +357,28 @@ class Harness {
       const batch = await this.ctl.evaluate(() => window.__ev.splice(0));
       for (const e of batch) {
         events.push({ t: Date.now() - started, ts: Date.now(), ...e });
+        if (e.type === 'port_disconnected' && reconnect && reconnects < 3) {
+          // The worker went away (restarted): connect again, which wakes it, and ask it to pick the task up.
+          reconnects++;
+          await sleep(1000);
+          await this.connectPort();
+          await this.post({ type: 'reattach', taskId, tabId });
+          continue;
+        }
         if (e.type === 'error' || e.type === 'port_disconnected') {
           outcome = e.type;
           answer = String(e.error ?? '');
           continue;
         }
         if (!e.state) continue;
+        if (during && !duringDone && during.when(e)) {
+          duringDone = true;
+          await during.run(ctx);
+        }
+        if (e.state === 'task.start' && secondTaskId && e.data?.details === secondTaskId) {
+          secondStarted = true;
+          marks.secondStartedAt = Date.now();
+        }
         maxStep = Math.max(maxStep, e.data?.step ?? 0);
         inputTokens = Math.max(inputTokens, e.data?.usage?.inputTokens ?? 0);
         if (e.state === 'act.ask_human' && !stopReason) {
@@ -321,7 +403,15 @@ class Harness {
             await stop('asked_human');
           }
         }
-        if (TERMINAL.has(e.state)) {
+        if (e.state === 'task.pause' && pausedByHarness) continue;
+        if (e.state === 'task.pause' && lateAnswer && !lateAnswered) {
+          // The task gave up waiting and saved itself: an answer now must resume it.
+          lateAnswered = true;
+          marks.lateAnswerAt = Date.now();
+          await this.post({ type: 'human_response', response: lateAnswer, taskId, tabId });
+          continue;
+        }
+        if (TERMINAL.has(e.state) && (!secondTaskId || secondStarted)) {
           outcome = stopReason ?? e.state;
           answer = stopReason === 'asked_human' ? answer : String(e.data?.details ?? '');
         }
@@ -333,12 +423,15 @@ class Harness {
       }
       if (!outcome && stopReason && Date.now() - stopAt > 15_000) outcome = stopReason;
     }
-    return { outcome, answer, maxStep, events, questions, questionTimes, seconds: +((Date.now() - started) / 1000).toFixed(1) };
+    return { outcome, answer, maxStep, events, questions, questionTimes, marks, extraTaskIds, seconds: +((Date.now() - started) / 1000).toFixed(1) };
   }
 
-  async check(task, run, answers) {
+  async check(task, run, answers, extra = {}) {
     try {
       const verdict = await task.check({
+        ...extra,
+        events: run.events ?? [],
+        marks: run.marks ?? {},
         answer: run.answer,
         answers,
         outcome: run.outcome,
@@ -367,15 +460,17 @@ class Harness {
       const page = await this.browser.newPage();
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       await page.bringToFront();
-      const run = { outcome: 'task.ok', answer: '', questions: [], questionTimes: [] };
+      const run = { outcome: 'task.ok', answer: '', answers: [''], questions: [], questionTimes: [] };
       if (mode === 'oracle') {
         const ask = question => {
           run.questions.push(question);
           run.questionTimes.push(Date.now());
         };
-        run.answer = (await task.oracle({ page, fixtures: this.fixtures, ask })).answer;
+        const solved = await task.oracle({ page, fixtures: this.fixtures, ask });
+        run.answer = solved.answer;
+        run.answers = solved.answers ?? [solved.answer];
       }
-      verdicts[mode] = await this.check(task, run, [run.answer]);
+      verdicts[mode] = await this.check(task, run, run.answers);
       for (const open of await this.webPages()) await open.close().catch(() => {});
     }
     const pass = !verdicts.nothing.pass && verdicts.oracle.pass;
@@ -416,7 +511,16 @@ class Harness {
       maxInputTokens: task.maxInputTokens ?? TASK_TOKEN_CAP,
       allowHuman: task.allowHuman,
     };
-    let run = await this.drive({ ...limits, task: typeof task.task === 'function' ? task.task(this.fixtures) : task.task, human: task.human });
+    let run = await this.drive({
+      ...limits,
+      task: typeof task.task === 'function' ? task.task(this.fixtures) : task.task,
+      human: task.human,
+      page: web,
+      during: task.during,
+      reconnect: task.reconnect,
+      lateAnswer: task.lateAnswer,
+    });
+    const taskIds = [taskId, ...run.extraTaskIds];
     // Follow-up messages in the same conversation, each sent after the previous one finished.
     const answers = [run.answer];
     for (const followUp of task.followUps ?? []) {
@@ -431,16 +535,35 @@ class Harness {
       };
       answers.push(next.answer);
     }
+    // Later tasks in new conversations, each on its own start page, in the same browser (memory across tasks).
+    for (const [n, next] of (task.sequence ?? []).entries()) {
+      if (run.outcome !== 'task.ok') break;
+      const seqId = `${taskId}-s${n + 2}`;
+      const seqUrl = typeof next.url === 'function' ? next.url(this.fixtures) : next.url;
+      await this.configure(seqId, task.title, task.settings);
+      const seqPage = await this.browser.newPage();
+      await seqPage.goto(seqUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
+      await seqPage.bringToFront();
+      const seqTab = await this.ctl.evaluate(async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id, seqPage.url());
+      const out = await this.drive({ ...limits, taskId: seqId, tabId: seqTab, task: next.task, page: seqPage });
+      run = { ...out, events: [...run.events, ...out.events], questions: [...run.questions, ...out.questions], questionTimes: [...run.questionTimes, ...out.questionTimes], seconds: +(run.seconds + out.seconds).toFixed(1) };
+      taskIds.push(seqId);
+      answers.push(out.answer);
+    }
     await sleep(2000); // let the trace sink flush its last batch
 
-    const records = await this.readTraces(taskId).catch(() => []);
+    const records = [];
+    for (const id of taskIds) records.push(...(await this.readTraces(id).catch(() => [])));
     const storage = await this.dumpStorage().catch(() => null);
     const pages = await this.webPages();
     await withTimeout(pages.at(-1)?.screenshot({ path: path.join(outDir, `${attempt}.png`) }) ?? Promise.resolve(), 10_000, 'screenshot').catch(() => {});
 
-    const check = await this.check(task, run, answers);
+    const check = await this.check(task, run, answers, { records, storage, taskId });
     const metrics = taskMetrics(records, run.events, { secret: task.secret, taskText: typeof task.task === 'function' ? task.task(this.fixtures) : task.task, storage });
     const pass = (task.outcomes ?? ['task.ok']).includes(run.outcome) && check.pass && metrics.secretLeaks === 0 && metrics.storageLeaks === 0;
+    if (metrics.secretLeaks || metrics.storageLeaks) {
+      check.detail = `${check.detail ?? ''} secretLeaks=${metrics.secretLeaks} storage keys with the secret: ${metrics.storageLeakKeys.join(', ') || 'none'}`.trim();
+    }
     fs.writeFileSync(path.join(outDir, `${attempt}.events.jsonl`), run.events.map(e => JSON.stringify(e)).join('\n'));
     fs.writeFileSync(path.join(outDir, `${attempt}.trace.jsonl`), records.map(r => JSON.stringify(r)).join('\n'));
     if (!pass) fs.writeFileSync(path.join(outDir, `${attempt}.timeline.txt`), timeline(records, run.events));
@@ -592,6 +715,10 @@ async function main() {
     })),
   );
   for (const [name, h] of Object.entries(health)) console.log(`${name}: ${JSON.stringify(h)}`);
+  for (const r of results.filter(row => row.metrics?.trend)) {
+    const t = r.metrics.trend;
+    console.log(`trend ${r.attempt}: ${t.calls} navigator calls; input tokens ${t.inputTokensFirst} → ${t.inputTokensLast}; latency ${t.latencyFirstMs} → ${t.latencyLastMs} ms; page read ${t.getStateFirstMs} → ${t.getStateLastMs} ms`);
+  }
   if (comparison.improvements.length) console.log(`Improvements:\n  ${comparison.improvements.join('\n  ')}`);
   if (comparison.warnings.length) console.log(`Warnings (latency, single-attempt runs):\n  ${comparison.warnings.join('\n  ')}`);
   if (comparison.regressions.length) console.log(`REGRESSIONS:\n  ${comparison.regressions.join('\n  ')}`);

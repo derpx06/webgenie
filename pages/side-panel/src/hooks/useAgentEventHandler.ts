@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { Actors, type Message } from '@extension/storage';
+import { t } from '@extension/i18n';
 import { ExecutionState, type AgentEvent } from '../types/event';
 
 interface UseAgentEventHandlerProps {
@@ -10,6 +11,7 @@ interface UseAgentEventHandlerProps {
     setIsReplaying: (replaying: boolean) => void;
     setIsHistoricalSession: (historical: boolean) => void;
     setIsWaitingForHuman: (waiting: boolean) => void;
+    setPausedReason: (reason: string | null) => void;
     setLastScreenshot: (screenshot: string | null) => void;
     isReplayingRef: React.MutableRefObject<boolean>;
 }
@@ -18,7 +20,7 @@ interface UseAgentEventHandlerProps {
  * Hook responsible for translating raw agent execution events into UI state changes.
  * This acts as a reducer-like layer that decides which events to display as messages,
  * when to enable/disable input, and how to update the task lifecycle state.
- * 
+ *
  * @param props Configuration and state setters from the connection hook.
  * @returns Object containing the handleTaskState event processor.
  */
@@ -30,6 +32,7 @@ export const useAgentEventHandler = ({
     setIsReplaying,
     setIsHistoricalSession,
     setIsWaitingForHuman,
+    setPausedReason,
     setLastScreenshot,
     isReplayingRef,
 }: UseAgentEventHandlerProps) => {
@@ -37,7 +40,7 @@ export const useAgentEventHandler = ({
     /**
      * Processes an incoming AgentEvent and updates the relevant UI states.
      * It maps execution states (START, OK, FAIL, CANCEL) to visual feedback and interaction rules.
-     * 
+     *
      * @param event The agent execution event received from the background engine.
      */
     const handleTaskState = useCallback((event: AgentEvent) => {
@@ -59,13 +62,16 @@ export const useAgentEventHandler = ({
 
         switch (actor) {
             case Actors.SYSTEM:
-                if (state === ExecutionState.TASK_START) setIsHistoricalSession(false);
-                else if (state === ExecutionState.TASK_OK || state === ExecutionState.TASK_FAIL) {
+                if (state === ExecutionState.TASK_START) {
+                    setIsHistoricalSession(false);
+                    setPausedReason(null);
+                } else if (state === ExecutionState.TASK_OK || state === ExecutionState.TASK_FAIL) {
                     setIsFollowUpMode(true);
                     setInputEnabled(true);
                     setShowStopButton(false);
                     setIsReplaying(false);
                     setIsWaitingForHuman(false);
+                    setPausedReason(null);
                     // Don't clear screenshot here so user can see final result
                     skip = false;
                 } else if (state === ExecutionState.TASK_CANCEL) {
@@ -74,10 +80,17 @@ export const useAgentEventHandler = ({
                     setShowStopButton(false);
                     setIsReplaying(false);
                     setIsWaitingForHuman(false);
+                    setPausedReason(null);
                     skip = false;
+                } else if (state === ExecutionState.TASK_PAUSE) {
+                    // Paused by the user or by an interruption (tab closed, debugger detached, answer deadline):
+                    // show why as a notice, not an answer, and keep Stop and Resume available.
+                    setPausedReason(content || t('exec_task_pause'));
+                    setShowStopButton(true);
                 } else if (state === ExecutionState.TASK_RESUME) {
+                    // The task carries on; nothing to show in the chat.
                     setIsWaitingForHuman(false);
-                    skip = false;
+                    setPausedReason(null);
                 }
                 break;
             case Actors.PLANNER:
@@ -116,7 +129,7 @@ export const useAgentEventHandler = ({
             });
         }
         if (displayProgress) appendMessage({ actor, content: progressMessage, timestamp });
-    }, [appendMessage, setIsFollowUpMode, setInputEnabled, setShowStopButton, setIsReplaying, setIsHistoricalSession, setIsWaitingForHuman, setLastScreenshot, isReplayingRef]);
+    }, [appendMessage, setIsFollowUpMode, setInputEnabled, setShowStopButton, setIsReplaying, setIsHistoricalSession, setIsWaitingForHuman, setPausedReason, setLastScreenshot, isReplayingRef]);
 
     return { handleTaskState };
 };

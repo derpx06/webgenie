@@ -269,11 +269,12 @@ export default class BrowserContext {
   }
 
   public async closeTab(tabId: number): Promise<void> {
-    await this.detachPage(tabId);
-    await this._browserAdapter.removeTab(tabId);
+    // Cleared first: the tab-closed listener treats the removal of the current tab as the user closing it.
     if (this._currentTabId === tabId) {
       this._currentTabId = null;
     }
+    await this.detachPage(tabId);
+    await this._browserAdapter.removeTab(tabId);
   }
 
   /** Forgets a closed tab's page without detaching (the session is already gone). */

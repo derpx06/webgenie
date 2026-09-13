@@ -2,6 +2,7 @@ import { type BaseMessage, AIMessage, HumanMessage, ToolMessage } from '@langcha
 import { MessageHistory, MessageMetadata, serializeHistory, deserializeHistory } from '@src/background/agent/messages/views';
 import { createLogger } from '@src/background/log';
 import {
+  defangTags,
   filterExternalContent,
   wrapUserRequest,
   splitUserTextAndAttachments,
@@ -143,6 +144,11 @@ export default class MessageManager {
     return this.history.cumulativeOutputTokens;
   }
 
+  /** The user's latest task, as given. */
+  public latestTask(): string {
+    return this.history.messages.filter(m => m.metadata.message_type === 'task').at(-1)?.metadata.task ?? '';
+  }
+
   /** Adds a user task, unless it is already the latest task (e.g. the executor resumed after a restart). */
   public addTask(task: string): void {
     const tasks = this.history.messages.filter(m => m.metadata.message_type === 'task');
@@ -160,10 +166,24 @@ export default class MessageManager {
     void this.saveToSession();
   }
 
-  public addHumanAnswer(answer: string): void {
-    const content = wrapUserRequest(`Answer from the user: ${filterExternalContent(answer, false)}`, false);
+  /**
+   * Adds the user's answer. Each secret (a password the user typed) is replaced by a placeholder such as {{secret_1}},
+   * so no model ever sees it; the returned map (placeholder → value) lets the navigator type the real value.
+   */
+  public addHumanAnswer(answer: string, secrets: string[] = []): Map<string, string> {
+    const placeholders = new Map<string, string>();
+    let text = answer;
+    let used = this.history.messages.reduce((n, m) => n + (String(m.message?.content ?? '').match(/\{\{secret_\d+\}\}/g)?.length ?? 0), 0);
+    for (const secret of [...new Set(secrets)].filter(Boolean).sort((a, b) => b.length - a.length)) {
+      if (!text.includes(secret)) continue;
+      const placeholder = `{{secret_${++used}}}`;
+      text = text.split(secret).join(placeholder);
+      placeholders.set(placeholder, secret);
+    }
+    const content = wrapUserRequest(`Answer from the user: ${filterExternalContent(text, false)}`, false);
     this.addMessage(new HumanMessage(content), 'human_answer');
     void this.saveToSession();
+    return placeholders;
   }
 
   /**
@@ -175,7 +195,7 @@ export default class MessageManager {
     calls.forEach((call, i) => {
       const toolCall = { id: call.id, name: call.name, args: call.args, type: 'tool_call' as const };
       this.addMessage(new AIMessage({ content: '', tool_calls: [toolCall] }), 'turn_ai');
-      this.addMessage(new ToolMessage({ tool_call_id: call.id, content: describeResult(results[i]) }), 'turn_tool');
+      this.addMessage(new ToolMessage({ tool_call_id: call.id, content: defangTags(describeResult(results[i])) }), 'turn_tool');
     });
     if (calls.length > 0) void this.saveToSession();
   }

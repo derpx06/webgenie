@@ -110,7 +110,7 @@ describe('browser prompt budgeting', () => {
 
     const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);
 
-    expect(content).toContain('JavaScript confirm dialog open: "Delete everything?"');
+    expect(content).toContain('JavaScript confirm dialog open, written by the page: <nano_untrusted_content>Delete everything?</nano_untrusted_content>');
     expect(content).toContain('handle_dialog');
   });
 });

@@ -1,8 +1,8 @@
 import { HumanMessage, type SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '@src/background/agent/types';
-import { wrapUntrustedContent } from '../messages/utils';
+import { defangTags, untrustedInline, wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
-import { ContextRouter } from '../memory';
+import { RouteMemory } from '../memory';
 import { ensureBrowserObservation } from '../validation/observation';
 
 const logger = createLogger('BasePrompt');
@@ -89,37 +89,10 @@ abstract class BasePrompt {
     context.activeObservation = observation;
     context.promptState = browserState;
 
-    let domain = '';
-    let pagePath = '/';
-    try {
-      domain = new URL(browserState.url).hostname;
-      pagePath = ContextRouter.getPagePath(browserState.url);
-    } catch {
-      // Not a web page (empty or browser URL): no site notes.
-    }
-
-    // JIT Episodic Context Recall — intent-matched top-2 past sessions for this domain
-    let episodicContext = '';
-    if (domain) {
-      try {
-        episodicContext = await ContextRouter.getEpisodicContext(
-          domain,
-          context.lastGoal,  // intent-matched scoring
-          pagePath,
-        );
-      } catch (err) {
-        logger.error('Failed to load episodic context:', err);
-      }
-    }
-
-    // Domain session priming — for known domains, inject a briefing block
-    let domainPrime = '';
-    if (domain) {
-      try {
-        domainPrime = await ContextRouter.primeDomainContext(domain);
-      } catch (err) {
-        logger.error('Failed to load domain prime:', err);
-      }
+    // A route saved from this task's start page, read once per task.
+    if (context.routeNote === undefined) {
+      context.routeNote = context.taskStartUrl ? await RouteMemory.note(context.taskStartUrl) : '';
+      if (context.routeNote) logger.info(`Route from an earlier task shown for ${context.taskStartUrl}`);
     }
 
     const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
@@ -191,35 +164,31 @@ abstract class BasePrompt {
       }
     }
 
-    actionResultsDescription = capPromptSection(actionResultsDescription, MAX_ACTION_RESULTS_CHARS, 'action results');
+    actionResultsDescription = defangTags(capPromptSection(actionResultsDescription, MAX_ACTION_RESULTS_CHARS, 'action results'));
 
-    const currentTab = `{id: ${browserState.tabId}, url: ${browserState.url}, title: ${browserState.title}}`;
+    // Titles and addresses are written by sites: data, never instructions.
+    const currentTab = `{id: ${browserState.tabId}, url: ${defangTags(browserState.url)}, title: ${untrustedInline(browserState.title)}}`;
     const allOtherTabs = browserState.tabs.filter(tab => tab.id !== browserState.tabId);
     const otherTabs = allOtherTabs
       .slice(0, MAX_OTHER_TABS)
-      .map(tab => `- {id: ${tab.id}, url: ${clip(tab.url, 120)}, title: ${clip(tab.title, 80)}}`);
+      .map(tab => `- {id: ${tab.id}, url: ${defangTags(clip(tab.url, 120))}, title: ${untrustedInline(clip(tab.title, 80))}}`);
     if (allOtherTabs.length > MAX_OTHER_TABS) otherTabs.push(`- ...and ${allOtherTabs.length - MAX_OTHER_TABS} more tabs`);
 
-    // Notes shown above the page: domain briefing, the navigator's memory, past sessions.
-    let reflectionPrefix = '';
-    if (domainPrime) {
-      reflectionPrefix += domainPrime;
-    }
+    // Notes shown above the page: a route from an earlier task, the navigator's memory.
+    let reflectionPrefix = context.routeNote ?? '';
     const durableMemory = context.messageManager.getWorkingMemory();
     if (durableMemory) {
       reflectionPrefix += `[Agent memory]: ${durableMemory}\n`;
     }
-    if (episodicContext) {
-      reflectionPrefix += episodicContext;
-    }
     if (reflectionPrefix) {
-      reflectionPrefix = `${capPromptSection(reflectionPrefix, MAX_REFLECTION_CHARS, 'agent memory')}\n`;
+      // Model notes can quote page text.
+      reflectionPrefix = `${defangTags(capPromptSection(reflectionPrefix, MAX_REFLECTION_CHARS, 'agent memory'))}\n`;
     }
     // ─────────────────────────────────────────────────────────────────────────
 
     const dialog = browserState.dialog;
     const dialogNotice = dialog
-      ? `JavaScript ${dialog.type} dialog open: "${clip(dialog.message, 500)}"${dialog.defaultValue ? ` (default text: "${clip(dialog.defaultValue, 100)}")` : ''} — call handle_dialog before anything else.\n`
+      ? `JavaScript ${dialog.type} dialog open, written by the page: ${untrustedInline(clip(dialog.message, 500))}${dialog.defaultValue ? ` (default text: ${untrustedInline(clip(dialog.defaultValue, 100))})` : ''} — call handle_dialog before anything else.\n`
       : '';
 
     const stateDescription = `${reflectionPrefix}[Current browser state]

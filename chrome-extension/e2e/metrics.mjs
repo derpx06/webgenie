@@ -32,11 +32,15 @@ export const HEALTH_COUNTERS = [
   'harnessErrors',
 ];
 
-/** Extension storage entries that contain a needle; the user's own chat messages are theirs to keep. */
+/**
+ * Extension storage entries that contain a needle. Only the conversation itself is exempt (the chat messages the user
+ * keeps, and the session copy of the transcript the agent resumes from): a secret the user typed into a task must not
+ * end up in memory, histories, working memory or other records.
+ */
 export function storageLeaks(dump, needle) {
   if (!needle || !dump) return [];
   return Object.entries(dump)
-    .filter(([key, value]) => !/^local:chat_messages_/.test(key) && JSON.stringify(value).includes(needle))
+    .filter(([key, value]) => !/^local:chat_messages_|^session:[^:]+$/.test(key) && JSON.stringify(value).includes(needle))
     .map(([key]) => key);
 }
 
@@ -82,8 +86,26 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
     cachedShare[agent] = input ? +(own.reduce((n, r) => n + (r.data?.usage?.cacheReadTokens ?? 0), 0) / input).toFixed(2) : 0;
   }
 
+  // Does a long task get slower or costlier as it goes? First third of the navigator calls against the last third.
+  const navigatorCalls = calls.filter(r => r.component === 'navigator');
+  const average = rows => (rows.length ? Math.round(rows.reduce((n, value) => n + value, 0) / rows.length) : null);
+  const third = Math.floor(navigatorCalls.length / 3);
+  const trend =
+    navigatorCalls.length >= 12
+      ? {
+          calls: navigatorCalls.length,
+          inputTokensFirst: average(navigatorCalls.slice(0, third).map(r => r.data?.usage?.inputTokens ?? 0)),
+          inputTokensLast: average(navigatorCalls.slice(-third).map(r => r.data?.usage?.inputTokens ?? 0)),
+          latencyFirstMs: average(navigatorCalls.slice(0, third).map(r => r.durationMs ?? 0)),
+          latencyLastMs: average(navigatorCalls.slice(-third).map(r => r.durationMs ?? 0)),
+          getStateFirstMs: average(getState.slice(0, Math.floor(getState.length / 3))),
+          getStateLastMs: average(getState.slice(-Math.floor(getState.length / 3))),
+        }
+      : null;
+
   return {
     llmCalls: calls.length,
+    trend,
     plannerCalls: calls.filter(r => r.component === 'planner').length,
     navigatorCalls: calls.filter(r => r.component === 'navigator').length,
     cachedShare,
@@ -110,6 +132,7 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
     authBlockerWaits: countOf(records, /authentication or permission blocker/i),
     secretLeaks,
     storageLeaks: storageLeaks(storage, secret).length,
+    storageLeakKeys: storageLeaks(storage, secret),
   };
 }
 

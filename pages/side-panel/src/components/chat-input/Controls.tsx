@@ -1,8 +1,12 @@
 import React from 'react';
+import { t } from '@extension/i18n';
 
 interface ChatActionButtonsProps {
     showStopButton: boolean;
     onStopTask: () => void;
+    isPaused: boolean;
+    onPauseTask: () => void;
+    onResumeTask: () => void;
     isSendButtonDisabled: boolean;
     isDarkMode: boolean;
 }
@@ -10,20 +14,45 @@ interface ChatActionButtonsProps {
 export const ChatActionButtons: React.FC<ChatActionButtonsProps> = ({
     showStopButton,
     onStopTask,
+    isPaused,
+    onPauseTask,
+    onResumeTask,
     isSendButtonDisabled,
     isDarkMode
 }) => {
     if (showStopButton) {
         return (
-            <button
-                type="button"
-                onClick={onStopTask}
-                className={`group/stop flex items-center gap-1.5 rounded-[10px] bg-gradient-to-r from-rose-500 to-red-600 px-3.5 py-1.5 font-sans text-[11px] font-medium uppercase tracking-wider text-white shadow-sm transition-all duration-200 hover:-translate-y-px hover:from-rose-600 hover:to-red-700 hover:shadow-[0_0_15px_rgba(244,63,94,0.4)] active:translate-y-0 active:scale-95`}>
-                <span>Stop</span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="size-3 transition-transform duration-300 group-hover/stop:rotate-90">
-                  <rect width="18" height="18" x="3" y="3" rx="2" />
-                </svg>
-            </button>
+            <>
+                <button
+                    type="button"
+                    onClick={isPaused ? onResumeTask : onPauseTask}
+                    className={`flex items-center gap-1.5 rounded-[10px] border px-3 py-1.5 font-sans text-[11px] font-medium uppercase tracking-wider shadow-sm transition-all duration-200 active:scale-95 ${
+                        isDarkMode
+                            ? 'border-white/10 bg-white/[0.06] text-slate-200 hover:bg-white/10'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}>
+                    <span>{isPaused ? t('chat_buttons_resume') : t('chat_buttons_pause')}</span>
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="size-3">
+                      {isPaused ? (
+                        <polygon points="6 4 20 12 6 20 6 4" />
+                      ) : (
+                        <>
+                          <rect x="6" y="4" width="4" height="16" rx="1" />
+                          <rect x="14" y="4" width="4" height="16" rx="1" />
+                        </>
+                      )}
+                    </svg>
+                </button>
+                <button
+                    type="button"
+                    onClick={onStopTask}
+                    className={`group/stop flex items-center gap-1.5 rounded-[10px] bg-gradient-to-r from-rose-500 to-red-600 px-3.5 py-1.5 font-sans text-[11px] font-medium uppercase tracking-wider text-white shadow-sm transition-all duration-200 hover:-translate-y-px hover:from-rose-600 hover:to-red-700 hover:shadow-[0_0_15px_rgba(244,63,94,0.4)] active:translate-y-0 active:scale-95`}>
+                    <span>{t('chat_buttons_stop')}</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="size-3 transition-transform duration-300 group-hover/stop:rotate-90">
+                      <rect width="18" height="18" x="3" y="3" rx="2" />
+                    </svg>
+                </button>
+            </>
         );
     }
 
@@ -37,12 +66,12 @@ export const ChatActionButtons: React.FC<ChatActionButtonsProps> = ({
                         ? 'border border-white/[0.06] bg-white/[0.04] text-slate-500'
                         : 'border border-slate-200 bg-slate-100 text-slate-400')
                     : `text-white hover:-translate-y-px hover:shadow-md active:translate-y-0 active:scale-95 ${
-                        isDarkMode 
-                            ? 'bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 hover:from-violet-500 hover:via-indigo-500 hover:to-blue-500 hover:shadow-[0_0_20px_rgba(99,102,241,0.45)]' 
+                        isDarkMode
+                            ? 'bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 hover:from-violet-500 hover:via-indigo-500 hover:to-blue-500 hover:shadow-[0_0_20px_rgba(99,102,241,0.45)]'
                             : 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 hover:shadow-[0_0_20px_rgba(99,102,241,0.35)]'
                       }`
             }`}>
-            <span className="relative z-10">Run task</span>
+            <span className="relative z-10">{t('chat_buttons_runTask')}</span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`relative z-10 size-3 transition-all duration-300 ${!isSendButtonDisabled ? 'group-hover/send:-translate-y-px group-hover/send:translate-x-px' : 'opacity-40'}`}>
               <line x1="22" y1="2" x2="11" y2="13" />
               <polygon points="22 2 15 22 11 13 2 9 22 2" />

@@ -23,6 +23,7 @@ import BrowserContext from './browser/context';
 import { ChromeBrowserAdapter } from './adapters/ChromeBrowserAdapter';
 import { IndexedDBStorageProvider } from './adapters/IndexedDBStorageProvider';
 import { Executor } from './agent/executor';
+import { TaskCheckpointStore, isCheckpointResumable, type TaskCheckpoint } from './agent/contracts';
 import { keepAliveManager } from './services/keepAliveManager';
 import { createLogger } from './log';
 import { ExecutionState } from './agent/event/types';
@@ -91,14 +92,73 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   if (!source.tabId || (source as { sessionId?: string }).sessionId) return;
   browserContext.getPageForTab(source.tabId)?.markDetached();
   if (reason === 'canceled_by_user') {
-    currentExecutor?.cancel();
+    void currentExecutor?.interrupt(t('bg_interrupt_debuggerDetached'));
   }
 });
 
 // Cleanup when tab is closed
 chrome.tabs.onRemoved.addListener(tabId => {
+  // The agent clears its current tab before closing one itself, so this is someone closing the tab the agent works in.
+  if (currentExecutor && runningTask && browserContext.getCurrentTabId() === tabId) {
+    void currentExecutor.interrupt(t('bg_interrupt_tabClosed'));
+  }
   browserContext.removeAttachedPage(tabId);
 });
+
+/** The last task started in this browser session, so a restarted worker or a late answer can find its checkpoint. */
+const ACTIVE_TASK_KEY = 'webgenie_active_task';
+const checkpointStore = new TaskCheckpointStore();
+/** The run of `currentExecutor`, awaited before another task starts. */
+let runningTask: Promise<void> | null = null;
+
+/** The saved task for this id (without one, the last task that ran), or null when it cannot be resumed. */
+async function loadSavedTask(taskId?: string): Promise<TaskCheckpoint | null> {
+  const id = taskId ?? (await chrome.storage.session.get(ACTIVE_TASK_KEY))[ACTIVE_TASK_KEY]?.taskId;
+  if (!id) return null;
+  const checkpoint = await checkpointStore.load(id);
+  return isCheckpointResumable(checkpoint) ? checkpoint : null;
+}
+
+/** Cancels the running task, if any, and waits until it has ended: one task drives the browser at a time. */
+async function stopRunningTask(): Promise<void> {
+  const running = runningTask;
+  if (!running) return;
+  await currentExecutor?.cancel();
+  await running.catch(() => {});
+}
+
+/** Runs an executor to its end with keep-alive on; afterwards only this executor is cleaned up, never a newer one. */
+async function runExecutor(executor: Executor, tabId: number | null | undefined, start: () => Promise<void>): Promise<void> {
+  await chrome.storage.session.set({ [ACTIVE_TASK_KEY]: { taskId: await executor.getCurrentTaskId(), tabId: tabId ?? null } });
+  await keepAliveManager.startKeepAlive();
+  const run = start();
+  runningTask = run;
+  try {
+    await run;
+  } finally {
+    if (runningTask === run) runningTask = null;
+    await keepAliveManager.stopKeepAlive().catch(() => {});
+    if (currentExecutor === executor) {
+      await executor.cleanup();
+      currentExecutor = null;
+    }
+    // An interrupted task keeps the pointer: a reopened panel or a late answer resumes it.
+    if (!executor.getContext().interruption) await chrome.storage.session.remove(ACTIVE_TASK_KEY).catch(() => {});
+  }
+}
+
+/** Rebuilds an executor from a checkpoint (its transcript is in session storage) and continues the task. */
+async function resumeSavedTask(checkpoint: TaskCheckpoint, fallbackTabId?: number, answer?: { response: string; secrets: string[] }): Promise<void> {
+  const savedTab = checkpoint.tabId ? await chrome.tabs.get(checkpoint.tabId).catch(() => null) : null;
+  const tabId = savedTab?.id ?? fallbackTabId;
+  if (!tabId) throw new Error(t('bg_errors_noTabId'));
+  browserContext.updateCurrentTabId(tabId);
+  const executor = await setupExecutor(checkpoint.taskId, checkpoint.task, browserContext);
+  currentExecutor = executor;
+  subscribeToExecutorEvents(executor);
+  if (answer) executor.setPendingAnswer(answer.response, answer.secrets);
+  await runExecutor(executor, tabId, () => executor.execute());
+}
 
 logger.info('background loaded');
 
@@ -281,26 +341,17 @@ chrome.runtime.onConnect.addListener(port => {
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
 
             logger.info('new_task', message.tabId, message.task);
+            await stopRunningTask();
             browserContext.updateCurrentTabId(message.tabId);
-            currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
-            subscribeToExecutorEvents(currentExecutor);
-
-            // Enterprise Scaling: Start Keep-Alive Offscreen Document
-            await keepAliveManager.startKeepAlive();
+            const executor = await setupExecutor(message.taskId, message.task, browserContext);
+            currentExecutor = executor;
+            subscribeToExecutorEvents(executor);
 
             // Begin task in orchestrator (creates tab group, registers tab)
             const taskSettings = await generalSettingsStore.getSettings();
-            await tabOrchestrator.beginTask(
-              message.taskId,
-              message.task,
-              taskSettings,
-              message.tabId,
-            );
+            await tabOrchestrator.beginTask(message.taskId, message.task, taskSettings, message.tabId);
 
-            const result = await currentExecutor.execute();
-            logger.info('new_task execution result', message.tabId, result);
-            // Enterprise Scaling: Stop Keep-Alive
-            await keepAliveManager.stopKeepAlive();
+            await runExecutor(executor, message.tabId, () => executor.execute());
             break;
           }
 
@@ -309,51 +360,24 @@ chrome.runtime.onConnect.addListener(port => {
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
 
             logger.info('follow_up_task', message.tabId, message.task);
+            await stopRunningTask();
             browserContext.updateCurrentTabId(message.tabId);
-            await keepAliveManager.startKeepAlive();
+            // A finished task's executor is gone; the new one reads the conversation from session storage.
+            const executor = currentExecutor ?? (await setupExecutor(message.taskId, message.task, browserContext));
+            if (executor === currentExecutor) executor.addFollowUpTask(message.task);
+            currentExecutor = executor;
+            subscribeToExecutorEvents(executor);
 
-            // If executor exists, add follow-up task
-            if (currentExecutor) {
-              currentExecutor.addFollowUpTask(message.task);
-              // Re-subscribe to events in case the previous subscription was cleaned up
-              subscribeToExecutorEvents(currentExecutor);
+            const followUpSettings = await generalSettingsStore.getSettings();
+            await tabOrchestrator.beginTask(message.taskId ?? (await executor.getCurrentTaskId()), message.task, followUpSettings, message.tabId);
 
-              // Notify orchestrator of new task context
-              const followUpSettings = await generalSettingsStore.getSettings();
-              await tabOrchestrator.beginTask(
-                message.taskId ?? (await currentExecutor.getCurrentTaskId()),
-                message.task,
-                followUpSettings,
-                message.tabId,
-              );
-
-              const result = await currentExecutor.execute();
-              logger.info('follow_up_task execution result', message.tabId, result);
-            } else {
-              // executor was cleaned up, initialize a new executor seamlessly
-              logger.info('follow_up_task: executor was cleaned up, initializing new executor seamlessly');
-              currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
-              subscribeToExecutorEvents(currentExecutor);
-
-              const followUpSettings = await generalSettingsStore.getSettings();
-              await tabOrchestrator.beginTask(
-                message.taskId,
-                message.task,
-                followUpSettings,
-                message.tabId,
-              );
-
-              const result = await currentExecutor.execute();
-              logger.info('follow_up_task execution result (new executor)', message.tabId, result);
-            }
-            await keepAliveManager.stopKeepAlive();
+            await runExecutor(executor, message.tabId, () => executor.execute());
             break;
           }
 
           case 'cancel_task': {
             if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
             await currentExecutor.cancel();
-            await keepAliveManager.stopKeepAlive();
             break;
           }
 
@@ -370,8 +394,46 @@ chrome.runtime.onConnect.addListener(port => {
           }
 
           case 'human_response': {
-            if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
-            await currentExecutor.submitHumanResponse(message.response, Array.isArray(message.secrets) ? message.secrets : []);
+            const secrets = Array.isArray(message.secrets) ? message.secrets : [];
+            if (currentExecutor && runningTask) {
+              await currentExecutor.submitHumanResponse(message.response, secrets);
+              return port.postMessage({ type: 'success' });
+            }
+            // An answer after the task stopped waiting (the deadline passed, the worker restarted) resumes it.
+            const saved = await loadSavedTask(message.taskId);
+            if (!saved) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
+            await resumeSavedTask(saved, message.tabId, { response: message.response, secrets });
+            break;
+          }
+
+          case 'reattach': {
+            if (currentExecutor && runningTask && (await currentExecutor.getCurrentTaskId()) === message.taskId) {
+              currentExecutor.reemitQuestion();
+              break;
+            }
+            const saved = await loadSavedTask(message.taskId);
+            if (saved?.status === 'running') {
+              // Still marked running: the worker stopped mid-task. Carry on from the checkpoint.
+              await resumeSavedTask(saved, message.tabId);
+            } else if (saved) {
+              port.postMessage({ type: 'task_resumable', taskId: saved.taskId, task: saved.task, status: saved.status, question: saved.pendingQuestion?.question });
+            } else {
+              port.postMessage({ type: 'reattach_none', taskId: message.taskId });
+            }
+            break;
+          }
+
+          case 'resume_saved_task': {
+            const saved = await loadSavedTask(message.taskId);
+            if (!saved) return port.postMessage({ type: 'reattach_none', taskId: message.taskId });
+            await stopRunningTask();
+            await resumeSavedTask(saved, message.tabId);
+            break;
+          }
+
+          case 'discard_saved_task': {
+            if (message.taskId) await checkpointStore.clear(message.taskId);
+            await chrome.storage.session.remove(ACTIVE_TASK_KEY);
             return port.postMessage({ type: 'success' });
           }
 
@@ -447,15 +509,14 @@ chrome.runtime.onConnect.addListener(port => {
             logger.info('replay', message.tabId, message.taskId, message.historySessionId);
 
             try {
-              // Switch to the specified tab
+              await stopRunningTask();
               await browserContext.switchTab(message.tabId);
-              // Setup executor with the new taskId and a dummy task description
-              currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
-              subscribeToExecutorEvents(currentExecutor);
-
-              // Run replayHistory with the history session ID
-              const result = await currentExecutor.replayHistory(message.historySessionId);
-              logger.debug('replay execution result', message.tabId, result);
+              const executor = await setupExecutor(message.taskId, message.task, browserContext);
+              currentExecutor = executor;
+              subscribeToExecutorEvents(executor);
+              await runExecutor(executor, message.tabId, async () => {
+                await executor.replayHistory(message.historySessionId);
+              });
             } catch (error) {
               logger.error('Replay failed:', error);
               return port.postMessage({
@@ -479,17 +540,18 @@ chrome.runtime.onConnect.addListener(port => {
     });
 
     port.onDisconnect.addListener(() => {
-      // this event is also triggered when the side panel is closed, so we need to cancel the task
       console.log('Side panel disconnected');
+      // Only the latest connection is the panel's; an older one closing says nothing about the panel.
+      if (currentPort !== port) return;
       currentPort = null;
+      // Closing the side panel stops the task, but saved: reopening the panel offers to resume it.
       if (currentExecutor) {
         const tabId = currentExecutor.getCurrentTabId();
         if (tabId) {
           clearHighlightOverlays(tabId, browserAdapter).catch(err => logger.error('Failed to clear overlays on disconnect', err));
         }
-        currentExecutor.cancel();
+        void currentExecutor.interrupt(t('bg_interrupt_panelClosed'));
       }
-      keepAliveManager.stopKeepAlive().catch(() => {});
     });
   } else if (port.name === 'enterprise-keep-alive') {
     logger.info('Enterprise Keep-Alive Port connected.');
@@ -716,14 +778,6 @@ async function subscribeToExecutorEvents(executor: Executor) {
     } catch (error) {
       logger.error('Failed to send message to side panel:', error);
     }
-
-    if (
-      event.state === ExecutionState.TASK_OK ||
-      event.state === ExecutionState.TASK_FAIL ||
-      event.state === ExecutionState.TASK_CANCEL
-    ) {
-      await currentExecutor?.cleanup();
-      currentExecutor = null;
-    }
+    // Cleanup happens when the executor's run ends (runExecutor), for that executor only.
   });
 }

@@ -1160,10 +1160,299 @@ const BREADTH = [
   },
 ];
 
+/** 20 guests for the long wizard, built from fixed lists so the ground truth never changes. */
+const LONG_GUESTS = Array.from({ length: 20 }, (_, i) => [
+  ['Ada', 'Alan', 'Grace', 'Katherine', 'Tim', 'Margaret', 'Linus', 'Barbara', 'Edsger', 'Frances'][i % 10],
+  ['Lovelace', 'Turing', 'Hopper', 'Johnson', 'Hamilton', 'Liskov', 'Dijkstra', 'Allen', 'Knuth', 'Ritchie', 'Thompson', 'Kernighan', 'Wirth', 'Backus', 'McCarthy', 'Perlis', 'Hoare', 'Lamport', 'Cerf', 'Kahn'][i],
+  ['London', 'Paris', 'Berlin', 'Madrid', 'Rome', 'Vienna', 'Prague', 'Lisbon', 'Dublin', 'Oslo'][(i * 3) % 10],
+  ['green', 'blue', 'red', 'yellow', 'purple', 'orange', 'black', 'white'][(i * 5) % 8],
+]);
+
+/** Position of the first wrong item (1-based), for seeing where a long task starts to go wrong. */
+const firstWrong = (expected, actual, same = (a, b) => JSON.stringify(a) === JSON.stringify(b)) => {
+  const index = expected.findIndex((item, i) => !same(item, actual?.[i]));
+  return index === -1 ? null : index + 1;
+};
+const money = value => `$${value.toFixed(2)}`;
+
+/** Long tasks and long conversations: pass or fail, plus where accuracy first broke. */
+const ENDURANCE = [
+  {
+    id: 'L1',
+    kind: 'workflow',
+    title: 'Long wizard (20 pages, 80 fields)',
+    url: f => `${f.hostOrigin}/longwizard/1`,
+    maxSeconds: 2400,
+    maxSteps: 160,
+    maxInputTokens: 2_500_000,
+    task: `Fill in the guest list wizard, one guest per page, pressing Next guest after each and Finish at the end. Guests (first name, last name, city, favourite colour): ${LONG_GUESTS.map((g, i) => `${i + 1}. ${g.join(', ')}`).join('; ')}. Tell me the message shown at the end.`,
+    check: async ({ evalOn, fixtures }) => {
+      const page = await evalOn(fixtures.hostOrigin, () => ({ status: document.getElementById('status')?.textContent, guests: JSON.parse(sessionStorage.getItem('guests') || '[]') }));
+      const saved = (page?.guests ?? []).map(guest => Object.values(guest ?? {}));
+      const wrong = firstWrong(LONG_GUESTS, saved);
+      return { pass: page?.status === '20 guests saved' && wrong === null, detail: `status=${page?.status} guests saved=${saved.filter(g => g.length).length} first wrong guest=${wrong}` };
+    },
+    oracle: async ({ page, fixtures }) => {
+      for (const guest of LONG_GUESTS) {
+        for (const [i, label] of fixtures.wizard.fields.entries()) await page.type(`[name="${label}"]`, guest[i]);
+        await Promise.all([page.waitForNavigation(), page.click('#guest button')]);
+      }
+      return { answer: await page.$eval('#status', p => p.textContent) };
+    },
+  },
+  {
+    id: 'L2',
+    kind: 'workflow',
+    title: 'Inbox triage across pages (40 messages)',
+    url: f => `${f.hostOrigin}/inbox`,
+    maxSeconds: 1800,
+    maxSteps: 120,
+    maxInputTokens: 2_000_000,
+    task: 'Go through every message in this inbox, on every page. Archive each message sent from an address at news.example, and star each message whose subject or preview mentions an invoice. Then tell me how many messages you archived and how many you starred.',
+    check: async ({ answer, evalOn, fixtures }) => {
+      const archive = fixtures.inbox.filter(m => m.from.endsWith('@news.example')).map(m => m.id).sort((a, b) => a - b);
+      const star = fixtures.inbox.filter(m => /invoice/i.test(`${m.subject} ${m.preview}`)).map(m => m.id).sort((a, b) => a - b);
+      const state = await evalOn(fixtures.hostOrigin, () => JSON.parse(localStorage.getItem('inbox') || '{"archived":[],"starred":[]}'));
+      const sorted = list => [...(list ?? [])].sort((a, b) => a - b);
+      const archivedOk = JSON.stringify(sorted(state?.archived)) === JSON.stringify(archive);
+      const starredOk = JSON.stringify(sorted(state?.starred)) === JSON.stringify(star);
+      const counts = new RegExp(`\\b${archive.length}\\b`).test(answer) && new RegExp(`\\b${star.length}\\b`).test(answer);
+      return {
+        pass: archivedOk && starredOk && counts,
+        detail: `archived=${JSON.stringify(sorted(state?.archived))} (want ${JSON.stringify(archive)}) starred=${JSON.stringify(sorted(state?.starred))} (want ${JSON.stringify(star)})`,
+      };
+    },
+    oracle: async ({ page, fixtures }) => {
+      const archived = fixtures.inbox.filter(m => m.from.endsWith('@news.example')).map(m => m.id);
+      const starred = fixtures.inbox.filter(m => /invoice/i.test(`${m.subject} ${m.preview}`)).map(m => m.id);
+      await page.evaluate(state => localStorage.setItem('inbox', JSON.stringify(state)), { archived, starred });
+      return { answer: `Archived ${archived.length}, starred ${starred.length}.` };
+    },
+  },
+  {
+    id: 'L3',
+    kind: 'workflow',
+    title: 'One conversation, nine requests',
+    url: f => `${f.hostOrigin}/catalog`,
+    maxSeconds: 300,
+    maxSteps: 30,
+    task: 'Which product in this catalog is the cheapest? Tell me its name and price.',
+    followUps: [
+      'How many of it are in stock?',
+      'Add it to my cart.',
+      'Find the most expensive product in the Garden category and add it to my cart too.',
+      'What is my cart total now?',
+      'Remove the cheaper of the two items from my cart.',
+      'Which category has the most products, and how many does it have?',
+      'Add the only Kitchen product that costs less than $10 to my cart, then tell me everything in my cart with prices.',
+      'What material is the whisk made of?',
+    ],
+    check: async ({ answers, evalOn, fixtures }) => {
+      const by = name => fixtures.catalog.find(item => item.name === name);
+      const cheapest = [...fixtures.catalog].sort((a, b) => a.price - b.price)[0];
+      const garden = fixtures.catalog.filter(item => item.category === 'Garden').sort((a, b) => b.price - a.price)[0];
+      const counts = Object.entries(Object.groupBy(fixtures.catalog, item => item.category)).map(([category, items]) => [category, items.length]).sort((a, b) => b[1] - a[1])[0];
+      const whisk = by('Whisk');
+      const expected = [
+        [cheapest.name, money(cheapest.price)],
+        [String(cheapest.stock)],
+        [],
+        [],
+        [money(cheapest.price + garden.price)],
+        [],
+        [counts[0], String(counts[1])],
+        [garden.name, whisk.name, money(whisk.price)],
+        [whisk.material],
+      ];
+      const failed = expected.map((needles, i) => (needles.every(needle => has(answers[i], needle)) ? null : i + 1)).filter(Boolean);
+      const cart = await evalOn(`${fixtures.hostOrigin}/catalog`, () => JSON.parse(localStorage.getItem('cart') || '[]'));
+      const cartOk = JSON.stringify([...(cart ?? [])].sort((a, b) => a - b)) === JSON.stringify([garden.id, whisk.id].sort((a, b) => a - b));
+      return {
+        pass: answers.length === expected.length && failed.length === 0 && cartOk,
+        detail: `answers=${answers.length}/${expected.length} wrong answers at requests ${failed.join(',') || 'none'} cart=${JSON.stringify(cart)}`,
+      };
+    },
+    oracle: async ({ page, fixtures }) => {
+      const by = name => fixtures.catalog.find(item => item.name === name);
+      const clips = by('Paper clips');
+      const mower = by('Lawn mower');
+      const whisk = by('Whisk');
+      await page.evaluate(ids => localStorage.setItem('cart', JSON.stringify(ids)), [mower.id, whisk.id]);
+      const answers = [
+        `Paper clips, ${money(clips.price)}`,
+        `${clips.stock} in stock`,
+        'Added.',
+        'Added the Lawn mower.',
+        `Total ${money(clips.price + mower.price)}`,
+        'Removed Paper clips.',
+        'Kitchen, with 12 products.',
+        `Lawn mower ${money(mower.price)}, Whisk ${money(whisk.price)}`,
+        `It is made of ${whisk.material}.`,
+      ];
+      return { answer: answers.at(-1), answers };
+    },
+  },
+  {
+    id: 'L4',
+    kind: 'workflow',
+    title: 'Research five categories on a live site',
+    url: 'https://books.toscrape.com',
+    maxSeconds: 900,
+    maxSteps: 60,
+    maxInputTokens: 1_000_000,
+    task: 'For each of the first five categories in the sidebar (Travel, Mystery, Historical Fiction, Sequential Art, Classics), open the category and tell me how many books it has and the title of the first book listed.',
+    check: async ({ answer, fetchText }) => {
+      const categories = [
+        ['Travel', 'travel_2'],
+        ['Mystery', 'mystery_3'],
+        ['Historical Fiction', 'historical-fiction_4'],
+        ['Sequential Art', 'sequential-art_5'],
+        ['Classics', 'classics_6'],
+      ];
+      const misses = [];
+      for (const [name, slug] of categories) {
+        const html = await fetchText(`https://books.toscrape.com/catalogue/category/books/${slug}/index.html`);
+        const count = /<strong>(\d+)<\/strong> results/.exec(html)?.[1];
+        const title = decodeEntities(/<h3><a href="[^"]+" title="([^"]+)"/.exec(html)?.[1] ?? '');
+        const mainTitle = title.split(/:| \(/)[0].trim();
+        if (!count || !new RegExp(`\\b${count}\\b`).test(answer) || !has(answer, mainTitle)) misses.push(`${name} (${count}, ${mainTitle})`);
+      }
+      return { pass: misses.length === 0, detail: `missing or wrong: ${misses.join('; ') || 'none'}` };
+    },
+  },
+];
+
+const CART_TASK = 'Open the Whisk product page and add it to my cart, then open the Lawn mower product page and add it to my cart too. Tell me my cart total.';
+const cartOn = (evalOn, fixtures) => evalOn(`${fixtures.hostOrigin}/catalog`, () => JSON.parse(localStorage.getItem('cart') || '[]'));
+const cartHolds = (cart, fixtures, names) =>
+  JSON.stringify([...(cart ?? [])].sort((a, b) => a - b)) ===
+  JSON.stringify(names.map(name => fixtures.catalog.find(item => item.name === name).id).sort((a, b) => a - b));
+const actionsAfter = (records, taskId, ts) =>
+  records.filter(r => r.taskId === taskId && r.kind === 'span' && r.component === 'NavigatorAgent' && String(r.msg).startsWith('action ') && r.ts > ts).length;
+
+/** Interruptions: the worker restarts, the tab closes, nobody answers, a new task arrives, the user pauses. */
+const RESILIENCE = [
+  {
+    id: 'R1',
+    kind: 'workflow',
+    title: 'The service worker restarts mid-task',
+    url: f => `${f.hostOrigin}/catalog`,
+    maxSeconds: 420,
+    maxSteps: 30,
+    reconnect: true,
+    task: CART_TASK,
+    during: { when: e => e.state === 'act.ok', run: ctx => ctx.killWorker() },
+    check: async ({ answer, evalOn, fixtures, events }) => {
+      const cart = await cartOn(evalOn, fixtures);
+      const restarted = events.some(e => e.type === 'port_disconnected');
+      return { pass: restarted && cartHolds(cart, fixtures, ['Whisk', 'Lawn mower']) && answer.includes('195.50'), detail: `restarted=${restarted} cart=${JSON.stringify(cart)}` };
+    },
+  },
+  {
+    id: 'R2',
+    title: "Closing the agent's tab stops the task at once, saved",
+    url: f => `${f.hostOrigin}/catalog`,
+    outcomes: ['task.pause'],
+    task: CART_TASK,
+    during: { when: e => e.state === 'act.ok', run: ctx => ctx.closeAgentTab() },
+    check: ({ answer, events, marks }) => {
+      const pause = events.find(e => e.state === 'task.pause');
+      const seconds = pause && marks.interruptAt ? (pause.ts - marks.interruptAt) / 1000 : null;
+      return { pass: !!pause && seconds !== null && seconds <= 6 && /tab was closed/i.test(answer), detail: `paused after ${seconds}s: ${answer}` };
+    },
+  },
+  {
+    id: 'R3',
+    title: 'An unanswered question times out; a late answer resumes the task',
+    url: f => `${f.hostOrigin}/delivery`,
+    maxSeconds: 360,
+    allowHuman: true,
+    settings: { 'general-settings': { humanWaitMinutes: 0.5 } },
+    lateAnswer: 'Phone: 555-0100',
+    task: 'Book a delivery for Web Genie to 1 Main Street.',
+    check: async ({ evalOn, fixtures, events, questions }) => {
+      const status = await statusOn(evalOn, fixtures);
+      const paused = events.some(e => e.state === 'task.pause');
+      return { pass: status === 'Booked for Web Genie, 1 Main Street, 555-0100' && paused && questions.length >= 1, detail: `status=${status} paused=${paused} questions=${JSON.stringify(questions)}` };
+    },
+  },
+  {
+    id: 'R4',
+    title: 'A new task stops the running one before it starts',
+    url: f => `${f.hostOrigin}/catalog`,
+    maxSeconds: 300,
+    task: CART_TASK,
+    during: { when: e => e.state === 'act.ok', run: ctx => ctx.startNewTask('What is the main heading of this page?') },
+    check: ({ answer, records, taskId, marks }) => {
+      const late = marks.secondStartedAt ? actionsAfter(records, taskId, marks.secondStartedAt) : null;
+      return { pass: late === 0 && /catalog|lawn mower|whisk/i.test(answer), detail: `first task's actions after the second started=${late} answer=${answer.slice(0, 80)}` };
+    },
+  },
+  {
+    id: 'R5',
+    title: 'Pause holds the task; resume finishes it',
+    url: f => `${f.hostOrigin}/catalog`,
+    maxSeconds: 360,
+    task: CART_TASK,
+    during: {
+      when: e => e.state === 'act.ok',
+      run: async ctx => {
+        await ctx.pause();
+        await ctx.sleep(10_000);
+        await ctx.resume();
+      },
+    },
+    check: async ({ answer, evalOn, fixtures, events, marks }) => {
+      const cart = await cartOn(evalOn, fixtures);
+      // An action already dispatched when the pause arrived may still report; nothing new may start after that.
+      const started = events.filter(e => e.state === 'act.start' && e.ts > marks.pauseAt + 3000 && e.ts < marks.resumeAt).length;
+      return { pass: started === 0 && cartHolds(cart, fixtures, ['Whisk', 'Lawn mower']) && answer.includes('195.50'), detail: `actions during pause=${started} cart=${JSON.stringify(cart)}` };
+    },
+  },
+];
+
+const routeShown = (records, id) => records.some(r => r.taskId === id && /Route from an earlier task shown/.test(String(r.msg)));
+
+/** Memory across tasks: a route is offered on the same start page only, and stores nothing the user wrote. */
+const MEMORY = [
+  {
+    id: 'M1',
+    kind: 'workflow',
+    title: 'A route from an earlier task is offered on the same start page',
+    url: f => `${f.hostOrigin}/catalog`,
+    task: 'Open the Whisk product page and tell me its price.',
+    sequence: [{ url: f => `${f.hostOrigin}/catalog`, task: 'Open the Colander product page and tell me its price.' }],
+    check: ({ answers, records, storage, taskId }) => {
+      const routes = JSON.stringify(storage?.['local:wg_mem:routes'] ?? '').toLowerCase();
+      const leaked = ['whisk', 'colander', 'price'].filter(word => routes.includes(word));
+      const shown = routeShown(records, `${taskId}-s2`);
+      return {
+        pass: answers.length === 2 && has(answers[0], '6.50') && has(answers[1], '13.00') && shown && routes.length > 2 && leaked.length === 0,
+        detail: `route shown=${shown} stored=${routes.slice(0, 160)} leaked=${leaked.join(',')}`,
+      };
+    },
+  },
+  {
+    id: 'M2',
+    kind: 'workflow',
+    title: 'No route is offered on a different start page',
+    url: f => `${f.hostOrigin}/catalog`,
+    task: 'Open the Rake product page and tell me its price.',
+    sequence: [{ url: f => `${f.hostOrigin}/catalog/cart`, task: 'Is my cart empty?' }],
+    check: ({ answers, records, taskId }) => {
+      const shown = routeShown(records, `${taskId}-s2`);
+      return { pass: answers.length === 2 && has(answers[0], '17.50') && /empty/i.test(answers[1]) && !shown, detail: `route shown on the other page=${shown} answers=${JSON.stringify(answers)}` };
+    },
+  },
+];
+
 export const TASKS = [
   ...CORE.map(task => ({ suite: 'core', kind: 'single', ...task })),
   ...COMPLEX.map(task => ({ suite: 'complex', kind: 'single', ...task })),
   ...HITL.map(task => ({ suite: 'hitl', kind: 'single', ...task })),
   ...SECURITY.map(task => ({ suite: 'security', kind: 'single', ...task })),
   ...BREADTH.map(task => ({ suite: 'breadth', kind: 'single', ...task })),
+  ...ENDURANCE.map(task => ({ suite: 'endurance', kind: 'workflow', ...task })),
+  ...RESILIENCE.map(task => ({ suite: 'resilience', kind: 'single', ...task })),
+  ...MEMORY.map(task => ({ suite: 'memory', kind: 'workflow', ...task })),
 ];

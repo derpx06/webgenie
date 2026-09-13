@@ -1,275 +1,106 @@
 import { createLogger } from '../../../log';
-import type { EpisodicNote, DomainRecord } from './types';
+import type { DOMElementNode } from '../../../browser/dom/views';
+import type { RouteStep, SavedRoute } from './types';
 
-const logger = createLogger('MemoryStore');
+const logger = createLogger('RouteMemory');
 
-// ─── Scoring Utilities ────────────────────────────────────────────────────────
+const ROUTES_KEY = 'wg_mem:routes';
+/** Earlier memory stores kept task text and answers; they are removed on the next save or clear. */
+const LEGACY_KEYS = ['wg_mem:episodes', 'wg_mem:domains'];
+const MAX_ROUTES = 50;
+const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_STEPS = 12;
+const SEPARATORS = /[\s!-/:-@[-`{-~]+/;
 
-/**
- * Extracts content-bearing keywords from an intent string.
- * Strips stop words and short tokens to keep only meaningful terms.
- */
-export function extractKeywords(text: string): Set<string> {
-  const STOP = new Set([
-    'a','an','the','and','or','of','in','on','to','for','with',
-    'this','that','is','it','be','do','go','get','set','use',
-    'click','button','link','input','select','open','close','find',
-    'please','then','now','next','back','up','down',
-  ]);
-  return new Set(
-    text.toLowerCase()
-      .split(/[\W_]+/)
-      .filter(w => w.length > 2 && !STOP.has(w)),
-  );
+/** Lowercased words of three or more characters. */
+function wordsOf(text: string): Set<string> {
+  return new Set(text.toLowerCase().split(SEPARATORS).filter(word => word.length >= 3));
 }
 
 /**
- * Keyword intersection similarity score: |A ∩ B| / |A ∪ B|.
- * Returns 0–1. Returns 0 when no shared keywords (intent mismatch).
+ * The path with every segment that could name an item or repeat the user's words replaced by `:n`: segments with
+ * digits, long ids, and segments sharing a word with what the user wrote.
  */
-export function intentSimilarity(a: string, b: string): number {
-  const kwA = extractKeywords(a);
-  const kwB = extractKeywords(b);
-  if (kwA.size === 0 || kwB.size === 0) return 0;
-  let intersection = 0;
-  for (const kw of kwA) if (kwB.has(kw)) intersection++;
-  const union = new Set([...kwA, ...kwB]).size;
-  return intersection / union;
+export function pathTemplate(pathname: string, userWords: Set<string> = new Set()): string {
+  return pathname
+    .split('/')
+    .map(segment => {
+      let text = segment;
+      try {
+        text = decodeURIComponent(segment);
+      } catch {
+        // keep the raw segment
+      }
+      const lower = text.toLowerCase();
+      const identifying = /\d/.test(lower) || lower.length > 24 || lower.split(SEPARATORS).some(word => userWords.has(word));
+      return segment && identifying ? ':n' : segment;
+    })
+    .join('/');
 }
 
-/**
- * Time-decay factor: recent notes score 1.0, notes from >30 days ago score 0.5.
- * Uses an exponential decay with 15-day half-life.
- */
-export function timeDecayFactor(timestamp: number): number {
-  const daysSince = (Date.now() - timestamp) / 86400000;
-  return Math.max(0.5, Math.exp(-daysSince / 21.7)); // half-life ≈ 15 days
+/** Start pages match by origin and path template (query and fragment ignored). */
+export function routeKey(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return /^https?:$/.test(parsed.protocol) ? `${parsed.origin}${pathTemplate(parsed.pathname)}` : null;
+  } catch {
+    return null;
+  }
 }
 
-// ─── Storage Keys ─────────────────────────────────────────────────────────────
+/** One step of a route: where it happened and what kind of element it used. Never what was typed or read. */
+export function routeStep(action: string, url: string, node: DOMElementNode | undefined, userText: string): RouteStep | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (!/^https?:$/.test(parsed.protocol)) return null;
+  const target = node ? [node.attributes.role || node.tagName, node.attributes.type].filter(Boolean).join(' ') : '';
+  return { host: parsed.host, path: pathTemplate(parsed.pathname, wordsOf(userText)), action, ...(target ? { target } : {}) };
+}
 
-const KEYS = {
-  EPISODES:  'wg_mem:episodes',
-  DOMAINS:   'wg_mem:domains',
-} as const;
+async function load(): Promise<SavedRoute[]> {
+  const data = await chrome.storage.local.get(ROUTES_KEY);
+  const routes: SavedRoute[] = Array.isArray(data[ROUTES_KEY]) ? data[ROUTES_KEY] : [];
+  return routes.filter(route => Date.now() - route.savedAt < MAX_AGE_MS);
+}
 
-// ─── Capacity Limits ─────────────────────────────────────────────────────────
-
-const MAX_EPISODES  = 200;   // ~100KB at avg 500 bytes/entry
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-export class WebGenieMemoryStore {
-
-  // ── Episodic Note Store ────────────────────────────────────────────────────
-
-  /**
-   * Creates or updates an episodic note for a completed task.
-   * Returns the note's UUID for subsequent A-MEM linking.
-   *
-   * Eviction: removes lowest-successCount notes first (not FIFO),
-   * so frequently-successful knowledge is never lost.
-   */
-  static async saveEpisodicNote(
-    domain: string,
-    pagePath: string,
-    intent: string,
-    outcomeSteps: string,
-  ): Promise<string> {
+/** Routes of tasks the planner confirmed, keyed by the page each task started on. */
+export const RouteMemory = {
+  async save(startUrl: string, steps: RouteStep[]): Promise<void> {
+    const key = routeKey(startUrl);
+    if (!key || steps.length === 0) return;
     try {
-      const data = await chrome.storage.local.get(KEYS.EPISODES);
-      const episodes: EpisodicNote[] = data[KEYS.EPISODES] || [];
+      const routes = (await load()).filter(route => route.key !== key);
+      routes.push({ key, steps: steps.slice(0, MAX_STEPS), savedAt: Date.now() });
+      await chrome.storage.local.set({ [ROUTES_KEY]: routes.slice(-MAX_ROUTES) });
+      await chrome.storage.local.remove(LEGACY_KEYS);
+    } catch (error) {
+      logger.error('Saving the route failed:', error);
+    }
+  },
 
-      const cleanIntent = intent.toLowerCase().trim().slice(0, 200);
-      const idx = episodes.findIndex(
-        e => e.domain === domain && e.pagePath === pagePath && e.intent === cleanIntent,
+  /** The route saved for this start page as a note for the models; empty when there is none. */
+  async note(startUrl: string): Promise<string> {
+    const key = routeKey(startUrl);
+    if (!key) return '';
+    try {
+      const route = (await load()).find(saved => saved.key === key);
+      if (!route) return '';
+      const startHost = new URL(startUrl).host;
+      const lines = route.steps.map(
+        (step, i) => `${i + 1}. ${step.action}${step.target ? ` (${step.target})` : ''} on ${step.host === startHost ? '' : step.host}${step.path}`,
       );
-
-      let noteId: string;
-
-      if (idx > -1) {
-        episodes[idx].successCount += 1;
-        episodes[idx].outcomeSteps = outcomeSteps;
-        episodes[idx].timestamp = Date.now();
-        noteId = episodes[idx].id;
-      } else {
-        noteId = crypto.randomUUID();
-        episodes.push({
-          id: noteId,
-          domain,
-          pagePath,
-          intent: cleanIntent,
-          outcomeSteps,
-          successCount: 1,
-          linkedNoteIds: [],
-          timestamp: Date.now(),
-        });
-      }
-
-      // Smart eviction: remove lowest successCount first
-      if (episodes.length > MAX_EPISODES) {
-        episodes.sort(
-          (a, b) => a.successCount - b.successCount || a.timestamp - b.timestamp,
-        );
-        episodes.splice(0, episodes.length - MAX_EPISODES);
-      }
-
-      await chrome.storage.local.set({ [KEYS.EPISODES]: episodes });
-      logger.info(`Saved episodic note id="${noteId}" intent="${cleanIntent}" domain="${domain}" path="${pagePath}"`);
-      return noteId;
-    } catch (err) {
-      logger.error('saveEpisodicNote failed:', err);
+      return `[A route that worked before from this start page; it may be outdated, and the current page wins]\n${lines.join('\n')}\n`;
+    } catch (error) {
+      logger.error('Reading the route failed:', error);
       return '';
     }
-  }
+  },
 
-  /**
-   * Links episodic notes together bidirectionally (A-MEM Zettelkasten).
-   * Both the source note and each related note get each other's ID,
-   * building an undirected knowledge graph for multi-hop reasoning.
-   */
-  static async linkEpisodicNotes(noteId: string, relatedIds: string[]): Promise<void> {
-    if (!noteId || relatedIds.length === 0) return;
-    try {
-      const data = await chrome.storage.local.get(KEYS.EPISODES);
-      const episodes: EpisodicNote[] = data[KEYS.EPISODES] || [];
-
-      for (const episode of episodes) {
-        if (episode.id === noteId) {
-          for (const rid of relatedIds) {
-            if (!episode.linkedNoteIds.includes(rid)) {
-              episode.linkedNoteIds.push(rid);
-            }
-          }
-        }
-        if (relatedIds.includes(episode.id)) {
-          if (!episode.linkedNoteIds.includes(noteId)) {
-            episode.linkedNoteIds.push(noteId);
-          }
-        }
-      }
-
-      await chrome.storage.local.set({ [KEYS.EPISODES]: episodes });
-      logger.info(`Linked note "${noteId}" to ${relatedIds.length} related notes`);
-    } catch (err) {
-      logger.error('linkEpisodicNotes failed:', err);
-    }
-  }
-
-  /**
-   * Recalls the top-N most successful episodic notes for a domain.
-   * Prefers pagePath-scoped results; falls back to domain-wide if none found.
-   * Sorted by successCount desc so the most proven knowledge comes first.
-   */
-  static async recallEpisodicNotes(
-    domain: string,
-    topN = 2,
-    pagePath?: string,
-  ): Promise<EpisodicNote[]> {
-    try {
-      const data = await chrome.storage.local.get(KEYS.EPISODES);
-      const episodes: EpisodicNote[] = data[KEYS.EPISODES] || [];
-      return episodes
-        .filter(e => {
-          if (e.domain !== domain) return false;
-          if (pagePath) return e.pagePath === pagePath;
-          return true;
-        })
-        .sort((a, b) => b.successCount - a.successCount || b.timestamp - a.timestamp)
-        .slice(0, topN);
-    } catch (err) {
-      logger.error('recallEpisodicNotes failed:', err);
-      return [];
-    }
-  }
-
-  /**
-   * Intent-matched episodic recall with composite scoring.
-   *
-   * Score = successCount × timeDecay(timestamp) × (1 + intentSimilarity(current, note))
-   *
-   * This surfaces notes that are both frequently-proven AND semantically related
-   * to the current goal, replacing naive domain-wide recall.
-   */
-  static async recallByIntent(
-    domain: string,
-    currentIntent: string,
-    topN = 2,
-    pagePath?: string,
-  ): Promise<EpisodicNote[]> {
-    try {
-      const data = await chrome.storage.local.get(KEYS.EPISODES);
-      const episodes: EpisodicNote[] = data[KEYS.EPISODES] || [];
-
-      const candidates = episodes.filter(e => {
-        if (e.domain !== domain) return false;
-        if (pagePath) return e.pagePath === pagePath;
-        return true;
-      });
-
-      if (candidates.length === 0) return [];
-
-      const scored = candidates.map(note => {
-        const decay = timeDecayFactor(note.timestamp);
-        const sim = intentSimilarity(currentIntent, note.intent);
-        return { note, score: note.successCount * decay * (1 + sim) };
-      });
-
-      scored.sort((a, b) => b.score - a.score);
-      return scored.slice(0, topN).map(s => s.note);
-    } catch (err) {
-      logger.error('recallByIntent failed:', err);
-      return [];
-    }
-  }
-
-  // ── Domain KV Store ────────────────────────────────────────────────────────
-
-  /**
-   * Saves or updates per-domain cross-session intelligence.
-   * `totalSuccessfulTasks` is always incremented (never overwritten).
-   */
-  static async saveDomainRecord(
-    domain: string,
-    update: Partial<Omit<DomainRecord, 'domain' | 'totalSuccessfulTasks'>>,
-    incrementTasks = false,
-  ): Promise<void> {
-    try {
-      const data = await chrome.storage.local.get(KEYS.DOMAINS);
-      const domains: DomainRecord[] = data[KEYS.DOMAINS] || [];
-
-      const idx = domains.findIndex(d => d.domain === domain);
-      if (idx > -1) {
-        Object.assign(domains[idx], update, { lastVisited: Date.now() });
-        if (incrementTasks) domains[idx].totalSuccessfulTasks += 1;
-      } else {
-        domains.push({
-          domain,
-          lastVisited: Date.now(),
-          layoutFingerprint: update.layoutFingerprint || '',
-          knownPanels: update.knownPanels || [],
-          totalSuccessfulTasks: incrementTasks ? 1 : 0,
-        });
-      }
-
-      await chrome.storage.local.set({ [KEYS.DOMAINS]: domains });
-    } catch (err) {
-      logger.error('saveDomainRecord failed:', err);
-    }
-  }
-
-  /**
-   * Retrieves the domain intelligence record for a domain.
-   * Returns null if this domain has never been seen before.
-   */
-  static async recallDomainRecord(domain: string): Promise<DomainRecord | null> {
-    try {
-      const data = await chrome.storage.local.get(KEYS.DOMAINS);
-      const domains: DomainRecord[] = data[KEYS.DOMAINS] || [];
-      return domains.find(d => d.domain === domain) || null;
-    } catch (err) {
-      logger.error('recallDomainRecord failed:', err);
-      return null;
-    }
-  }
-}
+  async clear(): Promise<void> {
+    await chrome.storage.local.remove([ROUTES_KEY, ...LEGACY_KEYS]);
+  },
+};

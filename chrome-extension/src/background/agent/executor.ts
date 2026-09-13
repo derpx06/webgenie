@@ -8,13 +8,13 @@ import type { ToolMode } from './agents/base';
 import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
-import { registerSecret, setTraceContext } from '@src/background/trace';
+import { redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
 import { EventManager } from './event/manager';
 import { Actors, type EventCallback, EventType, ExecutionState } from './event/types';
-import { ContextRouter } from './memory';
+import { RouteMemory } from './memory';
 import {
   ChatModelAuthError,
   ChatModelBadRequestError,
@@ -41,9 +41,10 @@ import {
   getReplanDecision,
   isCheckpointResumable,
   shouldForceReplanAfterResume,
+  type TaskCheckpoint,
 } from './contracts';
 import { ensureBrowserObservation } from './validation/observation';
-import { echoesActionResult, isApproval } from './validation/service';
+import { echoesActionResult, hostOf, isApproval } from './validation/service';
 import type { ValidationStatus } from './validation/types';
 
 const logger = createLogger('Executor');
@@ -80,6 +81,8 @@ export class Executor {
   private readonly generalSettings: GeneralSettingsConfig | undefined;
   private tasks: string[] = [];
   private lastPlanningStep = -1;
+  private running = false;
+  private pendingAnswer: { response: string; secrets: string[] } | null = null;
   /** `actions|layoutFingerprint` per navigator step, for stall detection. */
   private stepKeys: string[] = [];
   constructor(
@@ -148,6 +151,9 @@ export class Executor {
 
   addFollowUpTask(task: string): void {
     this.tasks.push(task);
+    // A new message is a new request: earlier confirmations and refusals were about the previous one.
+    this.context.approvedCommitKey = null;
+    this.context.declinedCommitKeys.clear();
 
     // need to reset previous action results that are not included in memory
     this.context.actionResults = this.context.actionResults.filter(result => result.includeInMemory);
@@ -165,6 +171,8 @@ export class Executor {
         this.context.echoRejections++;
         const msg = 'The answer quotes an action result ("Clicked …", "Dragged element …", "Input … into index …"), which is not page text. Answer again without quoting action results: describe only what the current page shows, or, if the task asks for no text, just say what was done. If a message the task asks for is still loading, wait and read it.';
         logger.warning(`Completion rejected: ${msg}`);
+        // A rejected answer must not end the task as done if the loop stops before the planner decides again.
+        planOutput.result.done = false;
         this.context.finalAnswer = null;
         this.context.actionResults = [new ActionResult({
           executed: false,
@@ -199,19 +207,18 @@ export class Executor {
     // Reset the step counter
     const context = this.context;
     context.nSteps = 0;
+    context.interruption = null;
+    this.running = true;
     const allowedMaxSteps = this.context.options.maxSteps;
     await this.restoreCheckpointIfPresent(taskText);
+    if (this.pendingAnswer) {
+      const { response, secrets } = this.pendingAnswer;
+      this.pendingAnswer = null;
+      await this.submitHumanResponse(response, secrets);
+    }
 
-    this.context.memory.goalManager.updateGoals(taskText, taskText, 'Initialize task execution');
-
-    // Add task start event to conversation timeline
-    this.context.memory.addTimelineEvent('TASK_STARTED', `Started task: "${taskText}"`, {
-      taskId: this.context.taskId,
-      task: taskText,
-    });
-
-    // De-duplicate/supersede conflicting items
-    this.context.memory.resolveConflicts();
+    this.context.routeSteps = [];
+    this.context.routeNote = undefined;
 
     const execDivider = '═'.repeat(60);
     console.log(
@@ -269,6 +276,8 @@ export class Executor {
 
     try {
       this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_START, this.context.taskId);
+      // A task restored while waiting for an answer asks its question again.
+      if (context.waitingForHuman) this.reemitQuestion();
 
       // Track task start
       void analytics.trackTaskStart(this.context.taskId);
@@ -292,7 +301,8 @@ export class Executor {
         navigatorDone = context.actionResults.some(result => result.validated === 'passed');
       }
 
-      for (step = 0; step < allowedMaxSteps; step++) {
+      // Steps are the navigator steps that ran: a pause or a wait for the user costs none, and a resumed task keeps its count.
+      for (step = context.nSteps; step < allowedMaxSteps; step = context.nSteps) {
         context.stepInfo = {
           stepNumber: context.nSteps,
           maxSteps: context.options.maxSteps,
@@ -365,61 +375,27 @@ export class Executor {
         }
       }
 
+      // A done on the last allowed step still gets the planner's check instead of failing on the step limit.
+      if (navigatorDone && !context.stopped && this.planner && latestPlanOutput?.result?.done !== true) {
+        latestPlanOutput = await this.runPlanner(() => this.buildStepState());
+        this.checkTaskCompletion(latestPlanOutput);
+      }
+
       // Determine task completion status
       const isCompleted = latestPlanOutput?.result?.done === true;
 
-      if (this.context.stopped) {
-        context.memory.addTimelineEvent('TASK_COMPLETED', `Cancelled task: "${taskText}"`, {
-          taskId: context.taskId,
-          status: 'cancelled'
-        });
+      if (this.context.stopped && context.interruption) {
+        await this.endInterrupted(taskText);
+      } else if (this.context.stopped) {
         await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
         await this.saveCheckpoint(taskText, 'failed');
 
         // Track task cancellation
         void analytics.trackTaskCancelled(this.context.taskId);
       } else if (isCompleted) {
-        // Extract facts & decisions for structured outcome
-        const activeFacts = context.memory.getActiveItemsByType('fact').map(f => f.content);
-        const activeDecisions = context.memory.getActiveItemsByType('decision').map(d => d.content);
-        
-        context.memory.taskArchive.addRecord({
-          taskId: context.taskId,
-          goal: taskText,
-          outcome: context.finalAnswer || 'Task completed successfully',
-          decisions: activeDecisions,
-          facts: activeFacts,
-          summary: `Completed goal: "${taskText}" with outcome: "${context.finalAnswer || 'Success'}"`
-        });
-
-        context.memory.addTimelineEvent('TASK_COMPLETED', `Completed task: "${taskText}"`, {
-          taskId: context.taskId,
-          outcome: context.finalAnswer || 'Success'
-        });
-
-        // Full A-MEM consolidation after successful task completion:
-        // saves episodic note, links to related past notes (Zettelkasten),
-        // and updates the domain KV intelligence record.
-        try {
-          const browserState = await context.browserContext.getState(false);
-          const currentUrl = browserState.url;
-          if (currentUrl) {
-            const domain = new URL(currentUrl).hostname;
-            const pagePath = ContextRouter.getPagePath(currentUrl);
-            const layoutHash = context.activeObservation?.layoutFingerprint ?? '';
-            const finalAnswer = context.finalAnswer || '';
-            await ContextRouter.consolidateAfterTask(
-              domain,
-              pagePath,
-              layoutHash,
-              this.tasks[0],
-              finalAnswer,
-              step,
-            );
-          }
-        } catch (err) {
-          logger.error('Failed to consolidate task memory:', err);
-        }
+        context.taskArchive.addRecord({ taskId: context.taskId, goal: taskText, outcome: context.finalAnswer || 'Task completed successfully' });
+        // Only the route is remembered across tasks: pages and kinds of elements, nothing the user wrote or the page said.
+        if (context.taskStartUrl) await RouteMemory.save(context.taskStartUrl, context.routeSteps);
 
         // Emit final answer if available, otherwise use task ID
         const finalMessage = this.context.finalAnswer || this.context.taskId;
@@ -429,10 +405,6 @@ export class Executor {
         // Track task completion
         void analytics.trackTaskComplete(this.context.taskId);
       } else if (step >= allowedMaxSteps) {
-        context.memory.addTimelineEvent('TASK_COMPLETED', `Failed task (Max steps reached): "${taskText}"`, {
-          taskId: context.taskId,
-          status: 'failed'
-        });
         logger.error('❌ Task failed: Max steps reached');
         await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_errors_maxStepsReached'));
         await this.saveCheckpoint(taskText, 'failed');
@@ -486,12 +458,16 @@ export class Executor {
           logger.error('Failed to end parent run in catch block:', err);
         }
       }
-      if (this.context.stopped || error instanceof RequestCancelledError || isAbortedError(error)) {
+      if (this.context.stopped && this.context.interruption) {
+        await this.endInterrupted(this.tasks[this.tasks.length - 1]);
+      } else if (this.context.stopped || error instanceof RequestCancelledError || isAbortedError(error)) {
         await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
+        await this.saveCheckpoint(this.tasks[this.tasks.length - 1], 'failed');
 
         // Track task cancellation
         void analytics.trackTaskCancelled(this.context.taskId);
       } else {
+        await this.saveCheckpoint(this.tasks[this.tasks.length - 1], 'failed');
         const errorMessage = formatExecutionError(error);
         await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_task_fail', [errorMessage]));
 
@@ -500,6 +476,7 @@ export class Executor {
         void analytics.trackTaskFailed(this.context.taskId, errorCategory);
       }
     } finally {
+      this.running = false;
       try {
         await this.context.browserContext.removeHighlight();
       } catch (err) {
@@ -513,7 +490,8 @@ export class Executor {
       try {
         const historyString = JSON.stringify(this.context.history);
         logger.info(`Executor history size: ${historyString.length}`);
-        await chatHistoryStore.storeAgentStepHistory(this.context.taskId, this.tasks[0], historyString);
+        // Typed passwords are registered secrets: the saved history keeps none of them.
+        await chatHistoryStore.storeAgentStepHistory(this.context.taskId, redactSecrets(this.tasks[0]), redactSecrets(historyString));
       } catch (err) {
         logger.error('Failed to store task step history:', err);
       }
@@ -555,7 +533,7 @@ export class Executor {
       await this.context.checkpointStore.clear(this.context.taskId);
       return;
     }
-    const checkpoint = {
+    const checkpoint: TaskCheckpoint = {
       taskId: this.context.taskId,
       task,
       status,
@@ -565,6 +543,12 @@ export class Executor {
       validatedProgress: this.context.validatedProgress,
       blockedState: this.context.blockedState,
       updatedAt: Date.now(),
+      tabId: this.context.browserContext.getCurrentTabId(),
+      tasks: [...this.tasks],
+      pendingQuestion: this.context.pendingQuestion,
+      approvedCommitKey: this.context.approvedCommitKey,
+      declinedCommitKeys: [...this.context.declinedCommitKeys],
+      interruption: this.context.interruption,
     };
     await this.context.checkpointStore.save(checkpoint);
     await this.trace('checkpoint', 'checkpoint.saved', {
@@ -583,6 +567,14 @@ export class Executor {
     this.context.validatedProgress = checkpoint.validatedProgress;
     this.context.blockedState = checkpoint.blockedState;
     this.context.nSteps = checkpoint.step;
+    if (checkpoint.tasks?.length) this.tasks = [...checkpoint.tasks];
+    this.context.pendingQuestion = checkpoint.pendingQuestion ?? null;
+    this.context.approvedCommitKey = checkpoint.approvedCommitKey ?? null;
+    this.context.declinedCommitKeys = new Set(checkpoint.declinedCommitKeys ?? []);
+    if (checkpoint.status === 'waiting_human' && this.context.pendingQuestion && !this.pendingAnswer) {
+      this.context.waitingForHuman = true;
+      this.context.humanQuestion = this.context.pendingQuestion.question;
+    }
     await this.trace('checkpoint', 'checkpoint.restored', {
       contractId: checkpoint.currentContract?.id,
       observationId: checkpoint.lastObservationId,
@@ -767,9 +759,17 @@ export class Executor {
       return true;
     }
 
+    // An unanswered question does not hold the browser forever: after the deadline the task is saved and a later
+    // answer resumes it.
+    const waitStarted = Date.now();
+    const answerDeadlineMs = (this.generalSettings?.humanWaitMinutes ?? 10) * 60_000;
     while (this.context.paused || this.context.waitingForHuman) {
       await new Promise(resolve => setTimeout(resolve, 200));
       if (this.context.stopped) {
+        return true;
+      }
+      if (this.context.waitingForHuman && !this.context.paused && Date.now() - waitStarted > answerDeadlineMs) {
+        await this.interrupt(t('exec_task_waitingForAnswer'));
         return true;
       }
     }
@@ -788,21 +788,54 @@ export class Executor {
 
   async resume(): Promise<void> {
     this.context.resume();
+    await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_RESUME, t('exec_task_resumed'));
   }
 
   async pause(): Promise<void> {
     this.context.pause();
+    await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_PAUSE, t('exec_task_pause'));
+  }
+
+  /** Stops the task without finishing it, for a reason outside the agent (panel or tab closed, no answer); it stays resumable. */
+  async interrupt(reason: string): Promise<void> {
+    this.context.interruption = reason;
+    this.context.stop();
+  }
+
+  isRunning(): boolean {
+    return this.running;
+  }
+
+  /** An answer given after the task stopped waiting; applied once the saved task is restored. */
+  setPendingAnswer(response: string, secrets: string[] = []): void {
+    this.pendingAnswer = { response, secrets };
+  }
+
+  /** Shows the question the task is waiting on again (a reconnected or reopened side panel). */
+  reemitQuestion(): void {
+    const question = this.context.pendingQuestion;
+    if (this.context.waitingForHuman && question) {
+      void this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_ASK_HUMAN, question.details ?? question.question);
+    }
+  }
+
+  private async endInterrupted(task: string): Promise<void> {
+    await this.saveCheckpoint(task, this.context.waitingForHuman ? 'waiting_human' : 'paused');
+    await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_PAUSE, this.context.interruption ?? t('exec_task_pause'));
   }
 
   /** `secrets` are values the user typed into password fields; they never appear in traces. */
   async submitHumanResponse(response: string, secrets: string[] = []): Promise<void> {
     for (const secret of secrets) registerSecret(secret);
     logger.info(`Submitting human response: ${response}`);
-    if (this.context.pendingQuestion?.type === 'confirmation') {
-      this.context.commitDecision = isApproval(response) ? 'approved' : 'declined';
-    }
+    const commitKey = this.context.pendingQuestion?.commitKey;
+    if (commitKey && isApproval(response)) this.context.approvedCommitKey = commitKey;
+    else if (commitKey) this.context.declinedCommitKeys.add(commitKey);
     this.context.pendingQuestion = null;
-    this.context.messageManager.addHumanAnswer(response);
+    const host = hostOf(this.context.promptState?.url);
+    for (const [placeholder, value] of this.context.messageManager.addHumanAnswer(response, secrets)) {
+      this.context.secrets.set(placeholder, { value, host });
+    }
     this.context.blockedState = null;
     this.context.waitingForHuman = false;
     this.context.humanQuestion = null;

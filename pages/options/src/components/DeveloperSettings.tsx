@@ -105,6 +105,40 @@ export const DeveloperSettings = ({ isDarkMode = false }: DeveloperSettingsProps
           isDarkMode={isDarkMode}
           onChange={val => updateSetting('enableDeveloperOptions', val)}
         />
+        <div className="flex flex-wrap items-center gap-3 px-8 py-4">
+          {[
+            {
+              label: 'Clear site memory',
+              // Routes remembered from finished tasks, plus the stores older versions kept.
+              run: async () => {
+                await chrome.storage.local.remove(['wg_mem:routes', 'wg_mem:episodes', 'wg_mem:domains']);
+                setTraceStatus('Site memory cleared.');
+              },
+            },
+            {
+              label: 'Clear remembered confirmations',
+              run: async () => {
+                const keys = Object.keys(await chrome.storage.local.get(null)).filter(key => key.startsWith('auto_confirm'));
+                await chrome.storage.local.remove(keys);
+                setTraceStatus(`Cleared ${keys.length} remembered confirmation${keys.length === 1 ? '' : 's'}.`);
+              },
+            },
+          ].map(({ label, run }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => run().catch(error => setTraceStatus(`Storage error: ${error instanceof Error ? error.message : String(error)}`))}
+              className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7C3AED] ${isDarkMode ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-slate-100 text-slate-900 hover:bg-slate-200'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {!settings.enableDeveloperOptions && traceStatus && (
+          <p className="px-8 pb-4 text-[11px] opacity-70" aria-live="polite">
+            {traceStatus}
+          </p>
+        )}
         {settings.enableDeveloperOptions && (
           <div className="animate-in fade-in slide-in-from-top-2 flex flex-col duration-300">
             <SettingToggle

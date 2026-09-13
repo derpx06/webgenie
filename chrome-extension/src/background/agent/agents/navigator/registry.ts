@@ -6,6 +6,7 @@ import {
   NAVIGATOR_TOOL_FIELDS,
   type ToolDefinition,
 } from '../../actions/builder';
+import { COMMIT_DECIDING_TOOLS, REQUIRED_COMMITS_FIELD, type ActionSchema } from '../../actions/schemas';
 
 export class NavigatorActionRegistry {
   private actions: Record<string, Action> = {};
@@ -29,13 +30,20 @@ export class NavigatorActionRegistry {
   }
 
   getTools(): ToolDefinition[] {
-    this.tools ??= buildToolDefinitions(this.getAllActions().map(action => action.schema), NAVIGATOR_TOOL_FIELDS);
+    this.tools ??= buildToolDefinitions(this.modelSchemas(), NAVIGATOR_TOOL_FIELDS);
     return this.tools;
   }
 
   getValidators(): Record<string, z.AnyZodObject> {
-    this.validators ??= buildToolValidators(this.getAllActions().map(action => action.schema), NAVIGATOR_TOOL_FIELDS);
+    this.validators ??= buildToolValidators(this.modelSchemas(), NAVIGATOR_TOOL_FIELDS);
     return this.validators;
+  }
+
+  /** Schemas as the model sees them: clicks and key presses must state what they commit (replays may omit it). */
+  private modelSchemas(): ActionSchema[] {
+    return this.getAllActions().map(({ schema }) =>
+      COMMIT_DECIDING_TOOLS.has(schema.name) ? { ...schema, schema: schema.schema.extend(REQUIRED_COMMITS_FIELD) } : schema,
+    );
   }
 
   getAction(name: string): Action | undefined {

@@ -1,8 +1,9 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FaCheckCircle } from 'react-icons/fa';
+import { FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import { BsStars } from 'react-icons/bs';
+import { t } from '@extension/i18n';
 import type { Message } from '@extension/storage';
 
 interface AnswerRowProps {
@@ -14,8 +15,20 @@ const formatTimeOnly = (timestamp: number) => {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+const badgeClass = 'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight';
+
 export const AnswerRow: React.FC<AnswerRowProps> = ({ messages, isDarkMode }) => {
   const lastMsg = messages[messages.length - 1];
+  // The badge follows the task state the event recorded on the message (task.ok / task.fail / task.cancel), never the
+  // wording. Rows with no recorded state, such as errors the panel reports itself, get no badge.
+  const outcome = messages.some(m => m.isFailed)
+    ? 'failed'
+    : messages.some(m => m.isCancelled)
+      ? 'cancelled'
+      : messages.some(m => m.isFailed === false)
+        ? 'completed'
+        : null;
+
   return (
     <div className="group mb-4 flex gap-3">
       <div className={`flex size-8 shrink-0 items-center justify-center rounded-full shadow-lg transition-transform group-hover:scale-110 ${isDarkMode ? 'border border-white/5 bg-[#1a1c23] text-indigo-400' : 'border border-gray-100 bg-white text-indigo-600'}`}>
@@ -38,15 +51,22 @@ export const AnswerRow: React.FC<AnswerRowProps> = ({ messages, isDarkMode }) =>
         </div>
 
         <div className="mt-3 flex items-center gap-3">
-          {messages.some(m => m.isFailed || (m.isFailed === undefined && (m.content.includes('❌') || m.content.toLowerCase().includes('failed') || m.content.includes('⚠️')))) ? (
-            <div className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight ${isDarkMode ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
-              <FaCheckCircle size={10} className="rotate-45" />
-              <span>Failed</span>
+          {outcome === 'failed' && (
+            <div className={`${badgeClass} ${isDarkMode ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
+              <FaTimesCircle size={10} />
+              <span>{t('chat_answer_failed')}</span>
             </div>
-          ) : (
-            <div className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight ${isDarkMode ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
+          )}
+          {outcome === 'cancelled' && (
+            <div className={`${badgeClass} ${isDarkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-600'}`}>
+              <FaTimesCircle size={10} />
+              <span>{t('chat_answer_cancelled')}</span>
+            </div>
+          )}
+          {outcome === 'completed' && (
+            <div className={`${badgeClass} ${isDarkMode ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
               <FaCheckCircle size={10} />
-              <span>Completed</span>
+              <span>{t('chat_answer_completed')}</span>
             </div>
           )}
           <span className={`text-[10px] font-bold opacity-30 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>

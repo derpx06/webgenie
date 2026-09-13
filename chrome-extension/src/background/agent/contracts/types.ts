@@ -85,6 +85,14 @@ export interface TaskCheckpoint {
   validatedProgress: ValidatedProgressRecord[];
   blockedState: BlockedState | null;
   updatedAt: number;
+  /** What a resumed executor needs besides the transcript (kept in session storage); absent in older checkpoints. */
+  tabId?: number | null;
+  tasks?: string[];
+  pendingQuestion?: { type: string; question: string; details?: string; commitKey?: string } | null;
+  approvedCommitKey?: string | null;
+  declinedCommitKeys?: string[];
+  /** Why a paused task stopped: the side panel closed, the agent's tab closed, the debugger was detached, no answer came. */
+  interruption?: string | null;
 }
 
 export interface TraceEvent {

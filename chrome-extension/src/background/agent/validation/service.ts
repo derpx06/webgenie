@@ -1,5 +1,6 @@
 import { ActionResult } from '../types';
 import type { DOMElementNode } from '../../browser/dom/views';
+import type { FormCommitInfo } from '../../browser/page';
 import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
 import { ensureBrowserObservation } from './observation';
@@ -15,21 +16,139 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * The label of an element whose activation commits money or an account change (placing an order, paying,
- * subscribing, deleting an account), from the element's own name. These never run without the user's confirmation.
+ * Wording of a control whose activation commits money or an account change (placing an order, paying, subscribing,
+ * deleting an account). English only: other languages and icon buttons rely on the model's `commits` flag and on
+ * the payment-form check.
  */
 const COMMIT_LABEL = /^((place|submit) (my |the |your )?order|order now|buy (it )?now|purchase( now)?$|pay( now)?( \S*\d\S*)?$|complete (purchase|order|payment|checkout)|confirm (and pay|order|purchase|payment)|submit (order and )?payment|subscribe( now)?$|start (my |your |a )?(free )?(trial|subscription)|(delete|close) (my |your )?account|transfer (funds|money)|donate( now)?$)/i;
 
-export function commitActionLabel(node: DOMElementNode | undefined): string | null {
-  if (!node) return null;
-  const parts = [node.attributes['aria-label'], node.attributes.value, node.getAllTextTillNextClickableElement(2)]
+const isCommitLabel = (text: string) => text.length <= 60 && COMMIT_LABEL.test(text.trim());
+
+/** The element's names, each on its own: a long combined label must not hide a commit wording. */
+function labelParts(node: DOMElementNode | undefined): string[] {
+  if (!node) return [];
+  const parts = [node.attributes['aria-label'], node.attributes.value, node.attributes.title, node.getAllTextTillNextClickableElement(2)]
     .filter((part): part is string => typeof part === 'string' && part.trim() !== '')
-    .map(part => part.trim());
-  const label = [...new Set(parts)]
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return label.length <= 60 && COMMIT_LABEL.test(label) ? label : null;
+    .map(part => part.replace(/\s+/g, ' ').trim());
+  return [...new Set(parts)];
+}
+
+export interface CommitTarget {
+  /** Identifies the confirmation: the same action on the same page needs the same approval. */
+  key: string;
+  label: string;
+  /** Host and path, as shown to the user. */
+  place: string;
+}
+
+const PRESSES_ENTER = /enter|return/i;
+
+/** Whether an action could submit a form, so its form must be inspected before the gate decides. */
+export function mayCommitThroughForm(actionName: string, args: Record<string, unknown>): boolean {
+  return actionName === 'click_element' || (actionName === 'send_keys' && PRESSES_ENTER.test(String(args.keys ?? '')));
+}
+
+/**
+ * An action the user must confirm before it runs: a click or Enter that places an order, pays, subscribes or changes an
+ * account (by its wording, by submitting a form that takes payment details, or because the model set `commits`), or a
+ * browser tool that erases the user's data. Null for everything else.
+ */
+export function commitTarget(
+  actionName: string,
+  args: Record<string, unknown>,
+  url: string,
+  node?: DOMElementNode,
+  form?: FormCommitInfo | null,
+): CommitTarget | null {
+  const commitsForm = !!form?.inForm && (form.paymentFields || form.submitLabels.some(isCommitLabel));
+  const modelSaysCommit = typeof args.commits === 'string' && args.commits !== 'none';
+  let label: string | undefined;
+  if (actionName === 'click_element') {
+    const parts = labelParts(node);
+    label = parts.find(isCommitLabel);
+    if (!label && ((form?.isSubmitter && commitsForm) || modelSaysCommit)) label = parts[0] ?? form?.submitLabels[0] ?? 'this button';
+  } else if (actionName === 'send_keys') {
+    if (commitsForm && PRESSES_ENTER.test(String(args.keys ?? ''))) label = `Enter, which submits "${form?.submitLabels[0] ?? 'the form'}"`;
+    else if (modelSaysCommit) label = String(args.keys);
+  } else if (actionName === 'manage_privacy' && args.action === 'clearData') {
+    label = `Clear browsing data (${(args.clearTypes as string[] | undefined)?.join(', ') || 'all types'})`;
+  } else if (actionName === 'manage_extensions' && args.action === 'setEnabled') {
+    label = `${args.extensionEnabled ? 'Enable' : 'Disable'} extension ${String(args.extensionId ?? '')}`.trim();
+  }
+  if (!label) return null;
+  let place = url;
+  try {
+    const parsed = new URL(url);
+    place = `${parsed.host}${parsed.pathname}`;
+  } catch {
+    // not a web address: show it as it is
+  }
+  label = label.slice(0, 80);
+  return { key: `${place}|${label.toLowerCase()}`, label, place };
+}
+
+const AMOUNT = /[$€£¥₹]\s?\d[\d.,]*|\d[\d.,]*\s?(?:[$€£¥₹]|\b(?:EUR|USD|GBP|INR|JPY|CHF)\b)/g;
+
+/** The last amount of money the page shows before the element with this index (anywhere on the page without one). */
+export function amountBefore(pageText: string, index?: number): string | null {
+  const end = index === undefined ? -1 : pageText.indexOf(`[${index}]`);
+  return (end >= 0 ? pageText.slice(0, end) : pageText).match(AMOUNT)?.at(-1)?.trim() ?? null;
+}
+
+/** The question the system asks before a commit; no model writes it, so a page cannot word it. */
+export function commitQuestion(target: CommitTarget, amount: string | null): string {
+  return `Confirm before I continue: "${target.label}" on ${target.place}${amount ? ` (amount shown: ${amount})` : ''}. This may place an order, make a payment, or change an account or your data. Should I do it?`;
+}
+
+const EMAIL = /[^\s@<>"'(),;:]+@[^\s@<>"'(),;:]+\.[a-z]{2,}/gi;
+const PHONE_OR_CARD = /\+?\d[\d\s().-]{5,}\d/g;
+const digitsOf = (value: string) => value.replace(/\D/g, '');
+
+/**
+ * Personal values from the user's own messages that appear in an action's arguments: email addresses, and phone or card
+ * numbers (7+ digits). Passwords have placeholders of their own.
+ * ponytail: names and street addresses are not detected; a model check would be needed for those.
+ */
+export function userPersonalData(actionText: string, userText: string): string[] {
+  const userEmails = new Set((userText.match(EMAIL) ?? []).map(email => email.toLowerCase()));
+  const userNumbers = new Set((userText.match(PHONE_OR_CARD) ?? []).map(digitsOf).filter(digits => digits.length >= 7));
+  const found = [
+    ...(actionText.match(EMAIL) ?? []).filter(email => userEmails.has(email.toLowerCase())),
+    ...(actionText.match(PHONE_OR_CARD) ?? []).filter(number => userNumbers.has(digitsOf(number))),
+  ];
+  return [...new Set(found)];
+}
+
+/** Host (without www.) and path (without a trailing slash), lowercased; query and fragment ignored. Empty when not an address. */
+export function urlKey(url: string, base?: string): string {
+  try {
+    const parsed = new URL(url, base);
+    if (!/^https?:$/.test(parsed.protocol)) return '';
+    return `${parsed.host.replace(/^www\./, '')}${parsed.pathname.replace(/\/+$/, '')}`.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+export function hostOf(url: string | undefined): string {
+  try {
+    return new URL(url ?? '').host;
+  } catch {
+    return '';
+  }
+}
+
+/** Whether two hosts belong to the same site (registrable domain). */
+export function sameSite(a: string, b: string): boolean {
+  const site = (host: string) => {
+    const name = host.toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '');
+    if (/^[\d.]+$/.test(name) || name.includes(':') || !name.includes('.')) return name;
+    const labels = name.split('.');
+    // ponytail: no public-suffix list; two-part suffixes such as co.uk are guessed from their short labels.
+    const take = labels.length > 2 && labels.at(-1)!.length === 2 && labels.at(-2)!.length <= 3 ? 3 : 2;
+    return labels.slice(-take).join('.');
+  };
+  return !!a && site(a) === site(b);
 }
 
 /**

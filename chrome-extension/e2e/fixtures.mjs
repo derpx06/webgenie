@@ -321,10 +321,13 @@ options.forEach(option => option.addEventListener('click', () => options.forEach
   '/history/b': `<!doctype html><meta charset="utf-8"><title>Page B</title><h1>Page B</h1><p><a href="/history/c">Go to page C</a></p>`,
   '/history/c': `<!doctype html><meta charset="utf-8"><title>Page C</title><h1>Page C</h1><p>The end.</p>`,
 };
-for (let page = 1; page <= WIZARD_PAGES; page++) {
-  const last = page === WIZARD_PAGES;
-  BREADTH_PAGES[`/wizard/${page}`] = `<!doctype html><meta charset="utf-8"><title>Guest list — step ${page} of ${WIZARD_PAGES}</title>
-<h1>Guest ${page} of ${WIZARD_PAGES}</h1>
+/** A guest-list wizard at `${prefix}/1` … `${prefix}/${count}`, one guest per page, saved in sessionStorage. */
+function wizardPages(prefix, count) {
+  const pages = {};
+  for (let page = 1; page <= count; page++) {
+    const last = page === count;
+    pages[`${prefix}/${page}`] = `<!doctype html><meta charset="utf-8"><title>Guest list — step ${page} of ${count}</title>
+<h1>Guest ${page} of ${count}</h1>
 <form id="guest">${WIZARD_FIELDS.map(label => `<p><label>${label} <input name="${label}" required></label></p>`).join('')}
 <button>${last ? 'Finish' : 'Next guest'}</button></form>
 <script>document.getElementById('guest').addEventListener('submit', event => {
@@ -332,14 +335,155 @@ for (let page = 1; page <= WIZARD_PAGES; page++) {
   const guests = JSON.parse(sessionStorage.getItem('guests') || '[]');
   guests[${page - 1}] = Object.fromEntries(new FormData(event.target));
   sessionStorage.setItem('guests', JSON.stringify(guests));
-  location.href = ${last ? "'/wizard/done'" : `'/wizard/${page + 1}'`};
+  location.href = ${last ? `'${prefix}/done'` : `'${prefix}/${page + 1}'`};
 });</script>`;
-}
-BREADTH_PAGES['/wizard/done'] = `<!doctype html><meta charset="utf-8"><title>Guest list saved</title>
+  }
+  pages[`${prefix}/done`] = `<!doctype html><meta charset="utf-8"><title>Guest list saved</title>
 <h1>Guest list saved</h1><p id="status"></p>
 <script>const guests = JSON.parse(sessionStorage.getItem('guests') || '[]');
 document.getElementById('status').textContent = guests.filter(Boolean).length + ' guests saved';</script>`;
-Object.assign(PAGES, SECURITY_PAGES, BREADTH_PAGES);
+  return pages;
+}
+Object.assign(BREADTH_PAGES, wizardPages('/wizard', WIZARD_PAGES));
+
+// Endurance: long tasks and long conversations, to see whether the agent degrades as a task runs on.
+const LONG_WIZARD_PAGES = 20;
+
+/** 40 messages: 8 newsletters from news.example, 5 that mention an invoice, and look-alikes of both. */
+const INBOX = Array.from({ length: 40 }, (_, k) => {
+  const id = k + 1;
+  const newsletter = [3, 8, 12, 17, 21, 26, 33, 38].includes(id);
+  const invoice = [5, 14, 19, 29, 36].includes(id);
+  const people = ['alex@work.example', 'sam@family.example', 'priya@work.example', 'editor@newsroom.example', 'lee@club.example'];
+  const topics = ['Meeting notes', 'Weekend plans', 'Quarterly review', 'Press release draft', 'Match on Saturday', 'Photos from the trip', 'Budget question'];
+  return {
+    id,
+    from: newsletter ? (id % 2 ? 'digest@news.example' : 'weekly@news.example') : people[id % people.length],
+    subject: invoice && id % 2 ? `Invoice ${1000 + id} for March` : newsletter ? `Your weekly digest #${id}` : invoice ? 'Payment reminder' : topics[id % topics.length],
+    preview: invoice && !(id % 2) ? 'Your invoice is attached; please pay by Friday.' : newsletter ? 'Top stories this week, curated for you.' : 'Here is a quick update, see you soon.',
+  };
+});
+
+const CATALOG_KINDS = {
+  Kitchen: [['Chef knife', 34.5], ['Cutting board', 18], ['Salad bowl', 22], ['Tea kettle', 29.99], ['Whisk', 6.5], ['Spatula', 14.25], ['Mixing jug', 12.4], ['Pepper mill', 16.8], ['Oven mitt', 19.9], ['Colander', 13], ['Ladle', 21.75], ['Grater', 11.2]],
+  Garden: [['Lawn mower', 189], ['Hose', 24], ['Rake', 17.5], ['Trowel', 8], ['Seed tray', 5.5], ['Watering can', 15], ['Pruning shears', 21], ['Garden gloves', 9.25], ['Wheelbarrow', 79], ['Bird feeder', 14]],
+  Office: [['Stapler', 9.5], ['Paper clips', 2.99], ['Desk lamp', 27], ['Notebook', 4.5], ['Pen set', 12], ['Monitor stand', 45], ['File folder', 3.25], ['Desk mat', 19]],
+};
+const MATERIALS = ['stainless steel', 'bamboo', 'ceramic', 'recycled plastic', 'cotton', 'oak wood'];
+const CATALOG = Object.entries(CATALOG_KINDS)
+  .flatMap(([category, items]) => items.map(([name, price]) => ({ category, name, price })))
+  .map((item, i) => ({ id: i + 1, ...item, stock: ((i + 1) * 7) % 23 + 1, material: MATERIALS[i % MATERIALS.length] }));
+
+const money = 'v => "$" + v.toFixed(2)';
+const ENDURANCE_PAGES = {
+  ...wizardPages('/longwizard', LONG_WIZARD_PAGES),
+  '/inbox': `<!doctype html><meta charset="utf-8"><title>Inbox</title>
+<h1>Inbox</h1>
+<p id="status"></p>
+<ul id="list" style="list-style:none;padding:0"></ul>
+<p><button id="newer">Newer</button> <span id="pageinfo"></span> <button id="older">Older</button></p>
+<script>
+const MESSAGES = ${JSON.stringify(INBOX)};
+const state = JSON.parse(localStorage.getItem('inbox') || '{"archived":[],"starred":[]}');
+let page = Number(new URLSearchParams(location.search).get('page') || 1);
+const save = () => localStorage.setItem('inbox', JSON.stringify(state));
+function render() {
+  const visible = MESSAGES.filter(m => !state.archived.includes(m.id));
+  const pages = Math.max(1, Math.ceil(visible.length / 10));
+  page = Math.min(Math.max(1, page), pages);
+  document.getElementById('status').textContent = 'Archived: ' + state.archived.length + ' · Starred: ' + state.starred.length + ' · ' + visible.length + ' in inbox';
+  document.getElementById('pageinfo').textContent = 'Page ' + page + ' of ' + pages;
+  document.getElementById('newer').disabled = page === 1;
+  document.getElementById('older').disabled = page === pages;
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+  for (const m of visible.slice((page - 1) * 10, page * 10)) {
+    const li = document.createElement('li');
+    li.style.cssText = 'border-bottom:1px solid #ccc;padding:6px 0';
+    const starred = state.starred.includes(m.id);
+    li.innerHTML = '<strong></strong> — <span class="subject"></span><br><small class="from"></small> <small class="preview"></small><br>';
+    li.querySelector('strong').textContent = (starred ? '★ ' : '') + m.subject;
+    li.querySelector('.subject').textContent = '';
+    li.querySelector('.from').textContent = 'From ' + m.from + ':';
+    li.querySelector('.preview').textContent = m.preview;
+    const archive = document.createElement('button');
+    archive.textContent = 'Archive';
+    archive.setAttribute('aria-label', 'Archive "' + m.subject + '"');
+    archive.onclick = () => { state.archived.push(m.id); save(); render(); };
+    const star = document.createElement('button');
+    star.textContent = starred ? 'Unstar' : 'Star';
+    star.setAttribute('aria-label', (starred ? 'Unstar "' : 'Star "') + m.subject + '"');
+    star.onclick = () => { state.starred = starred ? state.starred.filter(id => id !== m.id) : [...state.starred, m.id]; save(); render(); };
+    li.append(archive, ' ', star);
+    list.append(li);
+  }
+}
+document.getElementById('newer').onclick = () => { page--; history.replaceState(null, '', '?page=' + page); render(); };
+document.getElementById('older').onclick = () => { page++; history.replaceState(null, '', '?page=' + page); render(); };
+render();
+</script>`,
+  '/catalog': `<!doctype html><meta charset="utf-8"><title>Catalog</title>
+<h1>Catalog</h1>
+<p><a href="/catalog/cart" id="cartlink">Cart</a></p>
+<table><thead><tr><th>Product</th><th>Category</th><th>Price</th><th>In stock</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+const ITEMS = ${JSON.stringify(CATALOG)};
+const toMoney = ${money};
+const cart = JSON.parse(localStorage.getItem('cart') || '[]');
+document.getElementById('cartlink').textContent = 'Cart (' + cart.length + ')';
+document.getElementById('rows').innerHTML = ITEMS.map(i => '<tr><td><a href="/catalog/item?id=' + i.id + '">' + i.name + '</a></td><td>' + i.category + '</td><td>' + toMoney(i.price) + '</td><td>' + i.stock + '</td></tr>').join('');
+</script>`,
+  '/catalog/item': `<!doctype html><meta charset="utf-8"><title>Product</title>
+<p><a href="/catalog">Back to catalog</a> · <a href="/catalog/cart" id="cartlink">Cart</a></p>
+<h1 id="name"></h1><p id="price"></p><p id="stock"></p><p id="description"></p>
+<button id="add">Add to cart</button> <span id="status"></span>
+<script>
+const ITEMS = ${JSON.stringify(CATALOG)};
+const toMoney = ${money};
+const item = ITEMS.find(i => i.id === Number(new URLSearchParams(location.search).get('id'))) || ITEMS[0];
+const cart = JSON.parse(localStorage.getItem('cart') || '[]');
+const show = () => { document.getElementById('cartlink').textContent = 'Cart (' + cart.length + ')'; };
+document.title = item.name;
+document.getElementById('name').textContent = item.name;
+document.getElementById('price').textContent = 'Price: ' + toMoney(item.price);
+document.getElementById('stock').textContent = item.stock + ' in stock';
+document.getElementById('description').textContent = 'A dependable ' + item.name.toLowerCase() + ' for everyday use, made of ' + item.material + '.';
+document.getElementById('add').onclick = () => {
+  if (!cart.includes(item.id)) cart.push(item.id);
+  localStorage.setItem('cart', JSON.stringify(cart));
+  document.getElementById('status').textContent = 'Added to cart';
+  show();
+};
+show();
+</script>`,
+  '/catalog/cart': `<!doctype html><meta charset="utf-8"><title>Cart</title>
+<p><a href="/catalog">Back to catalog</a></p>
+<h1>Your cart</h1><ul id="items"></ul><p id="total"></p>
+<script>
+const ITEMS = ${JSON.stringify(CATALOG)};
+const toMoney = ${money};
+let cart = JSON.parse(localStorage.getItem('cart') || '[]');
+function render() {
+  const list = document.getElementById('items');
+  list.innerHTML = '';
+  for (const id of cart) {
+    const item = ITEMS.find(i => i.id === id);
+    const li = document.createElement('li');
+    li.textContent = item.name + ' — ' + toMoney(item.price) + ' ';
+    const remove = document.createElement('button');
+    remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', 'Remove ' + item.name);
+    remove.onclick = () => { cart = cart.filter(x => x !== id); localStorage.setItem('cart', JSON.stringify(cart)); render(); };
+    li.append(remove);
+    list.append(li);
+  }
+  if (!cart.length) list.innerHTML = '<li>Your cart is empty</li>';
+  document.getElementById('total').textContent = 'Total: ' + toMoney(cart.reduce((t, id) => t + ITEMS.find(i => i.id === id).price, 0));
+}
+render();
+</script>`,
+};
+Object.assign(PAGES, SECURITY_PAGES, BREADTH_PAGES, ENDURANCE_PAGES);
 
 const hostHtml = editorUrl => `<!doctype html>
 <meta charset="utf-8">
@@ -391,7 +535,9 @@ export async function startFixtures() {
     resetHits: () => {
       hits = [];
     },
-    wizard: { pages: WIZARD_PAGES, fields: WIZARD_FIELDS },
+    wizard: { pages: WIZARD_PAGES, longPages: LONG_WIZARD_PAGES, fields: WIZARD_FIELDS },
+    inbox: INBOX,
+    catalog: CATALOG,
     close: () => Promise.all([editorServer, hostServer].map(server => new Promise(resolve => server.close(resolve)))),
   };
 }

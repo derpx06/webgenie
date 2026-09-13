@@ -8,6 +8,9 @@ import { useChatInput } from './chat-input/useChatInput';
 interface ChatInputProps {
   onSendMessage: (text: string, displayText?: string) => void;
   onStopTask: () => void;
+  onPauseTask: () => void;
+  onResumeTask: () => void;
+  isPaused: boolean;
   onMicClick?: () => void;
   isRecording?: boolean;
   isProcessingSpeech?: boolean;
@@ -20,6 +23,9 @@ interface ChatInputProps {
 export default function ChatInput({
   onSendMessage,
   onStopTask,
+  onPauseTask,
+  onResumeTask,
+  isPaused,
   onMicClick,
   isRecording = false,
   isProcessingSpeech = false,
@@ -141,6 +147,9 @@ export default function ChatInput({
                   <ChatActionButtons
                     showStopButton={showStopButton}
                     onStopTask={onStopTask}
+                    isPaused={isPaused}
+                    onPauseTask={onPauseTask}
+                    onResumeTask={onResumeTask}
                     isSendButtonDisabled={isSendButtonDisabled}
                     isDarkMode={isDarkMode}
                   />
