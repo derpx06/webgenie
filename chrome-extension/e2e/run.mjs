@@ -302,7 +302,8 @@ export class Harness {
     const marks = {};
     const extraTaskIds = [];
     let duringDone = false;
-    let pausedByHarness = false;
+    /** Pause events the harness itself caused; they may arrive after ctx.resume() has already run. */
+    let harnessPauses = 0;
     let lateAnswered = false;
     let reconnects = 0;
     /** After ctx.startNewTask, terminal events belong to the first task until the second one has started. */
@@ -330,14 +331,13 @@ export class Harness {
         await page?.close();
       },
       pause: async () => {
-        pausedByHarness = true;
+        harnessPauses++;
         marks.pauseAt = Date.now();
         await this.post({ type: 'pause_task' });
       },
       resume: async () => {
         marks.resumeAt = Date.now();
         await this.post({ type: 'resume_task' });
-        pausedByHarness = false;
       },
       startNewTask: async text => {
         secondTaskId = `${taskId}-b`;
@@ -404,7 +404,10 @@ export class Harness {
             await stop('asked_human');
           }
         }
-        if (e.state === 'task.pause' && pausedByHarness) continue;
+        if (e.state === 'task.pause' && harnessPauses > 0) {
+          harnessPauses--;
+          continue;
+        }
         if (e.state === 'task.pause' && lateAnswer && !lateAnswered) {
           // The task gave up waiting and saved itself: an answer now must resume it.
           lateAnswered = true;
