@@ -35,7 +35,8 @@ export class PlannerAgent extends BaseAgent<PlannerOutput> {
     super(options, { ...extraOptions, id: 'planner' });
   }
 
-  async execute(state: HumanMessage): Promise<AgentOutput<PlannerOutput>> {
+  /** `seeImage` keeps a screenshot in the state for this call even when the planner does not get images otherwise. */
+  async execute(state: HumanMessage, { seeImage = false }: { seeImage?: boolean } = {}): Promise<AgentOutput<PlannerOutput>> {
     try {
       this.context.emitEvent(Actors.PLANNER, ExecutionState.STEP_START, 'Planning...');
 
@@ -44,7 +45,7 @@ export class PlannerAgent extends BaseAgent<PlannerOutput> {
       const plannerMessages = preparePlannerMessages(
         contextPacket,
         this.context.options.useVision,
-        this.context.options.useVisionForPlanner,
+        this.context.options.useVisionForPlanner || seeImage,
       );
 
       const { calls } = await this.invokeWithTools(plannerMessages, PLAN_TOOLS, PLAN_VALIDATORS);

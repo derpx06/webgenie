@@ -100,7 +100,9 @@ export class AgentContext {
   /** Overwrites of a field this task filled that were refused once (field key and new text); a repeat goes through. */
   overwriteChecked = new Set<string>();
   /** Entries of a list in the task that every value typed since the last other action comes from, and those values. */
-  entryCandidates: { entries: Array<{ index: number; text: string }>; values: string[] } | null = null;
+  entryCandidates: { entries: Array<{ index: number; text: string }>; values: string[]; url: string } | null = null;
+  /** List entries already typed in full on a page (entry text → that page's address); each entry is usually typed once. */
+  usedEntries = new Map<string, string>();
   /** The tab's address when the current task began; relative instructions ("the next page") refer to it. */
   taskStartUrl: string | null = null;
   /** Labels of the last drag's source and target, to refuse repeating a drag that already happened. */

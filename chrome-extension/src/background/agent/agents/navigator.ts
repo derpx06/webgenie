@@ -293,6 +293,13 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
   }
 
   /** What the user wrote in this conversation: tasks and answers, or only one of the two. */
+  /** Ends the row of typed list values; a row that pinned down one entry with two or more values marks it typed on its page. */
+  private endEntryRow(): void {
+    const row = this.context.entryCandidates;
+    if (row?.entries.length === 1 && row.values.length >= 2) this.context.usedEntries.set(row.entries[0].text, row.url);
+    this.context.entryCandidates = null;
+  }
+
   private userText(only?: 'task' | 'human_answer'): string {
     return this.context.messageManager
       .getTranscript()
@@ -588,21 +595,35 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           break;
         }
 
-        // Values typed into one form usually come from one entry of a list in the task. A value found only in other entries
-        // than the values already typed is usually a row slip (L1 wrote guest 4's colour for guest 14, a namesake).
-        // Refused once; the same action again goes through.
+        // Values typed into one form usually come from one entry of a list in the task, and each entry is typed once. A value
+        // found only in other entries than the values typed just before (L1: guest 4's colour for guest 14), or values that
+        // pin down an entry already typed on another page (L1: guest 3's whole row on guest 13's page), is usually a slip
+        // between namesakes. Refused once; the same action again goes through.
         const listEntries = actionName === 'input_text' ? taskEntriesWith(this.userText('task'), typedText) : [];
+        const pageKey = urlKey(beforeState.url);
+        // A row typed on another page (its form was submitted with Enter) has ended.
+        if (this.context.entryCandidates && this.context.entryCandidates.url !== pageKey) this.endEntryRow();
         const entryState = this.context.entryCandidates;
-        const entryKey = `entry|${urlKey(beforeState.url)}|${typedText.trim().toLowerCase()}`;
-        if (
-          entryState &&
-          listEntries.length > 0 &&
-          !entryState.entries.some(entry => listEntries.some(found => found.index === entry.index)) &&
-          !this.context.overwriteChecked.has(entryKey)
-        ) {
+        const entryKey = `entry|${pageKey}|${typedText.trim().toLowerCase()}`;
+        const narrowed = entryState?.entries.filter(entry => listEntries.some(found => found.index === entry.index)) ?? [];
+        // Entries are known by their text, which stays the same when later messages are added to the conversation.
+        const typedElsewhere = (text: string) => {
+          const page = this.context.usedEntries.get(text);
+          return page !== undefined && page !== pageKey;
+        };
+        const switchesEntry = entryState !== null && listEntries.length > 0 && narrowed.length === 0;
+        const repeatsEntry = entryState !== null && narrowed.length > 0 && narrowed.every(entry => typedElsewhere(entry.text));
+        if (entryState && (switchesEntry || repeatsEntry) && !this.context.overwriteChecked.has(entryKey)) {
           this.context.overwriteChecked.add(entryKey);
-          const source = entryState.entries.length === 1 ? ` ("${entryState.entries[0].text}")` : '';
-          const msg = `Not typed: ${entryState.values.map(value => JSON.stringify(value)).join(', ')}, typed just before, come from a different entry of the task's list${source} than ${JSON.stringify(typedText)}. Check that you are copying from the right entry; if ${JSON.stringify(typedText)} is really meant here, send the same input_text again.`;
+          const typedBefore = entryState.values.map(value => JSON.stringify(value)).join(', ');
+          let msg: string;
+          if (switchesEntry) {
+            const source = entryState.entries.length === 1 ? ` ("${entryState.entries[0].text}")` : '';
+            msg = `Not typed: ${typedBefore}, typed just before, come from a different entry of the task's list${source} than ${JSON.stringify(typedText)}. Check that you are copying from the right entry; if ${JSON.stringify(typedText)} is really meant here, send the same input_text again.`;
+          } else {
+            const open = entryState.entries.filter(entry => !typedElsewhere(entry.text)).map(entry => `"${entry.text}"`);
+            msg = `Not typed: after ${typedBefore}, ${JSON.stringify(typedText)} matches the entry "${narrowed[0].text}" of the task's list, which you already typed on another page.${open.length > 0 ? ` Entries with ${typedBefore} not typed yet: ${open.join('; ')}.` : ''} Check which entry this page is for; if ${JSON.stringify(typedText)} is really meant here, send the same input_text again.`;
+          }
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
           results.push(new ActionResult({
             executed: false,
@@ -660,14 +681,14 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           result = new ActionResult({ ...result, extractedContent: scrub(result.extractedContent), error: scrub(result.error), failureReason: scrub(result.failureReason) });
         }
         if (typedField && !result?.error) this.context.typedValues.set(typedField, typedText);
-        // Track which list entries the values typed in a row come from; any other action starts a new row.
+        // Track which list entries the values typed in a row come from. Any other action ends the row; a row of two or more
+        // values that pins down one entry marks it as typed on this page.
         if (actionName !== 'input_text') {
-          this.context.entryCandidates = null;
+          this.endEntryRow();
         } else if (!result?.error && listEntries.length > 0) {
-          const kept = entryState?.entries.filter(entry => listEntries.some(found => found.index === entry.index)) ?? [];
-          this.context.entryCandidates = kept.length > 0 && entryState
-            ? { entries: kept, values: [...entryState.values, typedText] }
-            : { entries: listEntries, values: [typedText] };
+          this.context.entryCandidates = narrowed.length > 0 && entryState
+            ? { entries: narrowed, values: [...entryState.values, typedText], url: entryState.url }
+            : { entries: listEntries, values: [typedText], url: pageKey };
         }
         if (result && !result.error && actionName !== 'done' && actionName !== 'ask_human') {
           const step = routeStep(actionName, beforeState.url, indexedNode, this.userText());

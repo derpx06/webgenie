@@ -422,6 +422,44 @@ describe('Values from a list in the task', () => {
   });
 });
 
+describe('Namesakes in a list and questions about the page', () => {
+  it('refuses once values that pin down a list entry already typed on another page, naming the open one', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Add these guests: 1. Katherine, Johnson, Oslo, white; 2. Ada, Lovelace, London, green; 3. Katherine, Backus, Oslo, blue.',
+      pages: [{ url: 'https://party.test/guest/3', title: 'Guest 3', elements: [{ tag: 'input', attributes: { 'aria-label': 'First name' } }, { tag: 'input', attributes: { 'aria-label': 'Last name' } }] }],
+      planner: Array(6).fill(planner),
+      navigator: [typeText(0, 'Katherine'), typeText(1, 'Johnson'), done('Stopped')],
+    });
+    h.executor.getContext().usedEntries.set('1. Katherine, Johnson, Oslo, white', 'party.test/guest/1');
+    await settle(h.executor.execute());
+
+    expect(h.browser.actions.map(action => action.text)).toEqual(['Katherine']);
+    const note = textOf(h.llm.requestsFor('navigator')[2].messages);
+    expect(note).toContain('which you already typed on another page');
+    expect(note).toContain('3. Katherine, Backus, Oslo, blue');
+  });
+
+  it('looks at a screenshot before putting a question to the user, and acts instead when it can', async () => {
+    const h = createHarness({
+      task: 'Choose the green colour for my mug.',
+      pages: [{ url: 'https://mugs.test/', title: 'Mug', elements: [{ tag: 'button', attributes: { 'aria-label': 'Option 1' } }, { tag: 'button', attributes: { 'aria-label': 'Option 2' } }] }],
+      planner: [plan({ macro_objective: 'ASK_HUMAN', next_goal: 'Which option is green?' }), plan({ macro_objective: 'FORM_FILL', next_goal: 'Click Option 2, the green one' }), planDone('Chose green')],
+      navigator: [click(1), done('Chose green')],
+      extraArgs: { agentOptions: { useVision: true } },
+    });
+    await settle(h.executor.execute());
+
+    const [asked, looked] = h.llm.requestsFor('planner');
+    expect(JSON.stringify(asked.messages.at(-1)!.content)).not.toContain('data:image/jpeg;base64,');
+    expect(JSON.stringify(looked.messages.at(-1)!.content)).toContain('data:image/jpeg;base64,');
+    expect(h.states()).not.toContain(ExecutionState.ACT_ASK_HUMAN);
+    expect(h.browser.actions.map(action => [action.type, action.index])).toEqual([['click', 1]]);
+  });
+});
+
 describe('Screenshots', () => {
   const chart = { url: 'https://stats.test/', title: 'Stats', text: ['Bar chart of monthly sign-ups'] };
   const hasImage = (request: LLMRequest) =>

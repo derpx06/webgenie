@@ -1,6 +1,6 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { ActionResult, AgentContext, type AgentOptions, type AgentOutput } from './types';
-import type { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage } from '@langchain/core/messages';
 import { t } from '@extension/i18n';
 import { NavigatorAgent, NavigatorActionRegistry } from './agents/navigator';
 import { PlannerAgent, type PlannerOutput } from './agents/planner';
@@ -374,6 +374,23 @@ export class Executor {
             }
           }
           latestPlanOutput = await this.runPlanner(getStepState);
+          // Look before asking: with vision on, a question the planner means to put to the user is reconsidered once with a
+          // screenshot in front of it (V1 and V2 asked the user what the page showed).
+          if (latestPlanOutput?.result?.macro_objective === 'ASK_HUMAN' && context.options.useVision) {
+            const seen = await getStepState();
+            const shot = typeof seen.content === 'string' ? (await context.browserContext.getCachedState(true)).screenshot : null;
+            if (typeof seen.content === 'string' && shot) {
+              const withShot = new HumanMessage({
+                content: [
+                  { type: 'text', text: seen.content },
+                  { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${shot}` } },
+                ],
+              });
+              stepState = Promise.resolve(withShot);
+              record({ level: 'info', kind: 'span', component: 'Executor', msg: 'look before asking', data: { question: latestPlanOutput.result.next_goal } });
+              latestPlanOutput = (await this.runPlanner(getStepState, { seeImage: true })) ?? latestPlanOutput;
+            }
+          }
           if (evidence) {
             record({
               level: 'info',
@@ -673,13 +690,13 @@ export class Executor {
     return state;
   }
 
-  private async runPlanner(getState: () => Promise<HumanMessage>): Promise<AgentOutput<PlannerOutput> | null> {
+  private async runPlanner(getState: () => Promise<HumanMessage>, options: { seeImage?: boolean } = {}): Promise<AgentOutput<PlannerOutput> | null> {
     const context = this.context;
     try {
       // Execute planner
       console.log(`\n[Planner] ── invoking LLM ── ${new Date().toISOString()}`);
       // The planner gets the page on every run, including the first; without it it plans blind.
-      const planOutput = await this.planner.execute(await getState());
+      const planOutput = await this.planner.execute(await getState(), options);
       this.lastPlanningStep = this.context.nSteps;
       // If planner returned an error (e.g., LLM API crash), treat it as an execution failure
       // so it counts toward consecutiveFailures and eventually stops the loop.

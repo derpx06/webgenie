@@ -316,7 +316,11 @@ export async function invokeLLM(
   messages: BaseMessage[],
   options: InvokeLLMOptions,
 ): Promise<AIMessage> {
-  const timeouts = options.timeoutMs ? [options.timeoutMs, Math.round(options.timeoutMs * 1.5)] : LLM_CALL_TIMEOUTS_MS;
+  // A screenshot makes a call slower: V1's image call timed out four times at the text-only limits.
+  const withImage = messages.some(message => Array.isArray(message.content) && message.content.some(part => (part as { type?: string }).type === 'image_url'));
+  const scale = withImage ? 2 : 1;
+  const timeouts = (options.timeoutMs ? [options.timeoutMs, Math.round(options.timeoutMs * 1.5)] : LLM_CALL_TIMEOUTS_MS).map(ms => ms * scale);
+  if (withImage) options = { ...options, hedgeAfterMs: (options.hedgeAfterMs ?? HEDGE_AFTER_MS) * scale };
   const cooldownKey = options.model ?? 'default';
   let rateLimitRetries = 0;
   let rateLimitWaitedMs = 0;
