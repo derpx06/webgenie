@@ -469,7 +469,11 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           data: { retryability: result.retryability, failureReason: result.failureReason, evidence: result.evidence },
         });
         // New text after a page change (an error, a confirmation) stays in this result even when the next action removes it.
-        const appeared = mutating && !result.error ? appearedText(beforeState, postActionState) : [];
+        const typed = actionName === 'input_text' ? String((actionArgs as { text?: unknown }).text ?? '').trim() : '';
+        const appeared = mutating && !result.error
+          // A field's own value is not a message: drop what was just typed and masked password dots.
+          ? appearedText(beforeState, postActionState).filter(text => text !== typed && !/^•+$/.test(text))
+          : [];
         result = new ActionResult({
           ...result,
           contractId,
