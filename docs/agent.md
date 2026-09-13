@@ -72,6 +72,7 @@ Defined in `agent/actions/schemas.ts`, registered in `ActionBuilder.buildDefault
 | `wait` | `seconds?`, `text?` (until it appears), `text_gone?` |
 | `get_complete_page_content` | `find?` (jump to a phrase), `start_char?` (continue); 12,000 characters per call |
 | `save_findings` | `text` (kept on the task and shown to both models) |
+| `view_screenshot` | none; the next state carries a screenshot of the viewport with element indexes drawn on it. Registered only with vision on for a model that reads images (`LlmCapabilities.vision`); the executor also attaches one when steps stop validating or stall. Images go only in the last message, never into the transcript |
 
 `manage_bookmarks`, `manage_reading_list`, `manage_history`, `manage_downloads`, `manage_tabs`, `manage_windows`, `manage_privacy`, `manage_extensions`, `manage_system` and `manage_sessions` are registered only when **Options → Advanced → browser data tools** (`enableBrowserDataTools`, default off) is on.
 

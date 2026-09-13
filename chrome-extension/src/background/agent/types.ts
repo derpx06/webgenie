@@ -124,6 +124,8 @@ export class AgentContext {
   files = new Map<string, { type: string; data: string }>();
   /** Downloads seen during the task, by download id, as both agents see them. */
   downloads = new Map<number, string>();
+  /** The next page state carries a screenshot (the model asked for one, or the task is stuck); only with useVision. */
+  screenshotWanted = false;
 
   constructor(
     taskId: string,

@@ -61,7 +61,7 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
         <SettingInlineUnitInput title="Action Settle Timeout" desc="Maximum time to wait for dynamic page updates after an action" value={settings.actionSettleTimeoutMs} unit="ms" isDarkMode={isDarkMode} onChange={val => updateSetting('actionSettleTimeoutMs', val)} min={500} max={5000} step={100} />
         <SettingInlineUnitInput title="Action Delay" desc="Small pause between sequential browser actions" value={settings.actionDelayMs} unit="ms" isDarkMode={isDarkMode} onChange={val => updateSetting('actionDelayMs', val)} min={0} max={1000} step={25} />
         <SettingInlineUnitInput title="Page Load Buffer" desc="Network latency compensation in milliseconds" value={settings.minWaitPageLoad} unit="ms" isDarkMode={isDarkMode} onChange={val => updateSetting('minWaitPageLoad', val)} min={250} max={5000} step={50} />
-        <SettingToggle title="Visual Analysis" desc="Enable multi-modal environment analysis (Vision)" checked={settings.useVision} isDarkMode={isDarkMode} onChange={val => updateSetting('useVision', val)} />
+        <SettingToggle title="Visual Analysis" desc="Let the agent look at a screenshot when the page text is not enough (charts, colours, layout) or it is stuck; only for models that read images" checked={settings.useVision} isDarkMode={isDarkMode} onChange={val => updateSetting('useVision', val)} />
       </DashboardSection>
 
       <style dangerouslySetInnerHTML={{ __html: `

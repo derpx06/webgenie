@@ -340,6 +340,8 @@ export class Executor {
           planningInterval: context.options.planningInterval,
         });
         logger.info(`[Planner] Replan decision: ${replanDecision.shouldReplan} trigger=${replanDecision.trigger} reason=${replanDecision.reason}`);
+        // Stuck (steps that did not validate, or a stall): this step's state carries a screenshot when vision is on.
+        if (unvalidatedSteps >= 2 || stalled) context.screenshotWanted = true;
         // One page-state build per step, shared by the planner and the navigator. It is built lazily, after the
         // replan decision above has read the previous step's action results.
         let stepState: Promise<HumanMessage> | null = null;

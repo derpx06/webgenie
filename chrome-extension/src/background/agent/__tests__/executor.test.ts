@@ -364,6 +364,35 @@ describe("The user's files", () => {
   });
 });
 
+describe('Screenshots', () => {
+  const chart = { url: 'https://stats.test/', title: 'Stats', text: ['Bar chart of monthly sign-ups'] };
+  const hasImage = (request: LLMRequest) =>
+    JSON.stringify(request.messages.at(-1)!.content).includes('data:image/jpeg;base64,');
+
+  it('are sent only on the step after the model asks for one', async () => {
+    const h = createHarness({
+      task: 'Which month had the most sign-ups?',
+      pages: [chart],
+      planner: [plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the chart' }), planDone('April')],
+      navigator: [call('view_screenshot'), done('April')],
+      extraArgs: { agentOptions: { useVision: true } },
+    });
+    await settle(h.executor.execute());
+
+    const [first, second] = h.llm.requestsFor('navigator');
+    expect(first.tools.map(tool => tool.function.name)).toContain('view_screenshot');
+    expect(hasImage(first)).toBe(false);
+    expect(hasImage(second)).toBe(true);
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+  });
+
+  it('are not offered when vision is off', async () => {
+    const h = createHarness({ task: 'Which month had the most sign-ups?', pages: [chart], planner: [plan(), planDone('April')], navigator: [done('April')] });
+    await settle(h.executor.execute());
+    expect(h.llm.requestsFor('navigator')[0].tools.map(tool => tool.function.name)).not.toContain('view_screenshot');
+  });
+});
+
 describe('Interruptions and resuming', () => {
   const task = 'Book a delivery to 1 Main Street';
   const shortWait = { generalSettings: { ...DEFAULT_GENERAL_SETTINGS, humanWaitMinutes: 1 } };

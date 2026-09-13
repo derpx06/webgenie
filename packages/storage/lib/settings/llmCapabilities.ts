@@ -13,6 +13,8 @@ export interface LlmCapabilities {
   reasoning: ReasoningControl;
   /** Accepts audio input parts (speech-to-text). */
   audioInput: boolean;
+  /** Reads image parts (screenshots). */
+  vision: boolean;
   /** Limit for one model call, about 1.5 × the observed p99 (gemini-2.5-flash: p99 ≈ 16 s); a retry gets 1.5 × more. */
   callTimeoutMs: number;
 }
@@ -32,6 +34,7 @@ export function getLlmCapabilities(providerType: string | undefined, modelName: 
     forceToolChoice,
     reasoning: 'none',
     audioInput: false,
+    vision: true,
     callTimeoutMs: 30_000,
   });
   // Models that think at length before answering need far longer than fast chat models.
@@ -52,16 +55,17 @@ export function getLlmCapabilities(providerType: string | undefined, modelName: 
         callTimeoutMs: slowThinker ? 60_000 : 25_000,
       };
     case ProviderTypeEnum.DeepSeek:
-      return { ...tools(!(modelName === 'deepseek-reasoner' || modelName.includes('deepseek-r1'))), callTimeoutMs: slowThinker ? 90_000 : 30_000 };
+      return { ...tools(!(modelName === 'deepseek-reasoner' || modelName.includes('deepseek-r1'))), vision: false, callTimeoutMs: slowThinker ? 90_000 : 30_000 };
     case ProviderTypeEnum.Ollama:
-      return { ...tools(true, false), callTimeoutMs: 90_000 }; // ChatOllama throws on any tool_choice; local models run slowly
+      // ChatOllama throws on any tool_choice; local models run slowly and most read no images.
+      return { ...tools(true, false), vision: false, callTimeoutMs: 90_000 };
     case ProviderTypeEnum.Bedrock:
-      return tools(true, BEDROCK_FORCED_TOOL_MODELS.test(modelName));
+      return { ...tools(true, BEDROCK_FORCED_TOOL_MODELS.test(modelName)), vision: /claude|nova-(pro|lite)|llama3-2-(11|90)b/i.test(modelName) };
     case ProviderTypeEnum.Llama:
-      return tools(false); // ChatLlama drops tool calls when rewriting responses
+      return { ...tools(false), vision: false }; // ChatLlama drops tool calls when rewriting responses
     default:
-      // Anthropic, Grok, Groq, Cerebras and unknown OpenAI-compatible providers.
-      return tools(true);
+      // Anthropic, Grok, Groq, Cerebras and unknown OpenAI-compatible providers; only Anthropic is known to read images.
+      return { ...tools(true), vision: providerType === ProviderTypeEnum.Anthropic };
   }
 }
 

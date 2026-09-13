@@ -142,6 +142,7 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
     backoffMs,
     failedCallMs,
     hedgedCalls: llm.filter(r => r.msg === 'slow call; sending a duplicate request').length,
+    screenshots: records.filter(r => r.msg === 'screenshot attached').length,
     firstActionMs: firstAction && firstRecord ? firstAction - firstRecord : null,
     costUsd,
     plannerCalls: calls.filter(r => r.component === 'planner').length,

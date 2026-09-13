@@ -769,8 +769,9 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
       maxSteps: generalSettings.maxSteps,
       maxFailures: generalSettings.maxFailures,
       maxActionsPerStep: generalSettings.maxActionsPerStep,
-      useVision: generalSettings.useVision,
-      useVisionForPlanner: true,
+      // Screenshots go only to models that read images, and only on steps that need one (prompts/base.ts).
+      useVision: generalSettings.useVision && toolModeOf(navigatorModel).vision,
+      useVisionForPlanner: generalSettings.useVisionForPlanner && toolModeOf(plannerModel ?? navigatorModel).vision,
       planningInterval: generalSettings.planningInterval,
       enableBrowserDataTools: generalSettings.enableBrowserDataTools,
       acceptEvidencedDone: generalSettings.acceptEvidencedDone,

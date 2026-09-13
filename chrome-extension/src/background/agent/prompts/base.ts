@@ -2,6 +2,7 @@ import { HumanMessage, type SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '@src/background/agent/types';
 import { defangTags, untrustedInline, wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
+import { record } from '@src/background/trace';
 import { RouteMemory } from '../memory';
 import { ensureBrowserObservation, newElements } from '../validation/observation';
 
@@ -83,7 +84,13 @@ abstract class BasePrompt {
    */
   async buildBrowserStateUserMessage(context: AgentContext): Promise<HumanMessage> {
     // The last read if still current: an action's settle read is usually exactly the page to show.
-    const browserState = await context.browserContext.getCachedState(context.options.useVision);
+    // A screenshot only when it can help: the model asked for one (view_screenshot) or the task is stuck.
+    const withScreenshot = context.options.useVision && context.screenshotWanted;
+    context.screenshotWanted = false;
+    const browserState = await context.browserContext.getCachedState(withScreenshot);
+    if (withScreenshot) {
+      record({ level: 'info', kind: 'span', component: 'Prompt', msg: 'screenshot attached', data: { taken: Boolean(browserState.screenshot) } });
+    }
 
     const observation = ensureBrowserObservation(browserState);
     context.activeObservation = observation;
@@ -203,7 +210,7 @@ ${formattedElementsText}
 ${stepInfoDescription}
 ${actionResultsDescription ? `Results of your last actions:${actionResultsDescription}` : ''}`.trim();
 
-    if (browserState.screenshot && context.options.useVision) {
+    if (withScreenshot && browserState.screenshot) {
       return new HumanMessage({
         content: [
           { type: 'text', text: stateDescription },

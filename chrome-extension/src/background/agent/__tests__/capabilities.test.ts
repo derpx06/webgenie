@@ -34,6 +34,14 @@ describe('LLM capability table', () => {
     expect(isOpenAIReasoningModel('openai/gpt-5-chat')).toBe(false);
   });
 
+  it('sends screenshots only to models that read images', () => {
+    expect(getLlmCapabilities(ProviderTypeEnum.VertexAI, 'gemini-2.5-flash').vision).toBe(true);
+    expect(getLlmCapabilities(ProviderTypeEnum.Anthropic, 'claude-sonnet-4-5').vision).toBe(true);
+    expect(getLlmCapabilities(ProviderTypeEnum.DeepSeek, 'deepseek-chat').vision).toBe(false);
+    expect(getLlmCapabilities(ProviderTypeEnum.Groq, 'llama-3.3-70b-versatile').vision).toBe(false);
+    expect(getLlmCapabilities(ProviderTypeEnum.Bedrock, 'amazon.titan-text-express-v1').vision).toBe(false);
+  });
+
   it('gives models that think at length a longer call limit than fast chat models', () => {
     expect(getLlmCapabilities(ProviderTypeEnum.VertexAI, 'gemini-2.5-flash').callTimeoutMs).toBe(25_000);
     expect(getLlmCapabilities(ProviderTypeEnum.VertexAI, 'gemini-2.5-pro').callTimeoutMs).toBe(60_000);

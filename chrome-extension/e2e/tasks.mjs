@@ -1558,6 +1558,31 @@ const FILES = [
   },
 ];
 
+const VISION = [
+  {
+    id: 'V1',
+    title: 'Reads a chart drawn on a canvas',
+    url: f => `${f.hostOrigin}/chart`,
+    task: 'Which month had the most sign-ups in the chart on this page?',
+    check: ({ answer }) => ({ pass: /april|\bapr\b/i.test(answer), detail: `answer=${answer.slice(0, 120)}` }),
+    oracle: async () => ({ answer: 'April.' }),
+  },
+  {
+    id: 'V2',
+    title: 'Picks the option that differs only by colour',
+    url: f => `${f.hostOrigin}/mug`,
+    task: 'Choose the green colour for my mug.',
+    check: async ({ evalOn, fixtures, questions }) => {
+      const picks = (await evalOn(fixtures.hostOrigin, () => window.__picks)) ?? [];
+      return { pass: picks.length > 0 && picks.every(pick => pick === 'Option 3') && questions.length === 0, detail: `picks=${JSON.stringify(picks)} questions=${JSON.stringify(questions)}` };
+    },
+    oracle: async ({ page }) => {
+      await page.click('#swatch-3');
+      return { answer: 'Chose green.' };
+    },
+  },
+];
+
 export const TASKS = [
   ...CORE.map(task => ({ suite: 'core', kind: 'single', ...task })),
   ...COMPLEX.map(task => ({ suite: 'complex', kind: 'single', ...task })),
@@ -1568,4 +1593,5 @@ export const TASKS = [
   ...RESILIENCE.map(task => ({ suite: 'resilience', kind: 'single', ...task })),
   ...MEMORY.map(task => ({ suite: 'memory', kind: 'workflow', ...task })),
   ...FILES.map(task => ({ suite: 'files', kind: 'single', ...task })),
+  ...VISION.map(task => ({ suite: 'vision', kind: 'single', ...task })),
 ];

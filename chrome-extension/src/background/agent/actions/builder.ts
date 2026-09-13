@@ -7,6 +7,7 @@ import {
   goToUrlActionSchema,
   inputTextActionSchema,
   uploadFileActionSchema,
+  viewScreenshotActionSchema,
   openTabActionSchema,
   searchWebActionSchema,
   switchTabActionSchema,
@@ -262,6 +263,8 @@ export class ActionBuilder {
       new Action((input) => this.contentHandler.handleScroll(input), scrollActionSchema, true),
       new Action((input) => this.contentHandler.handleScrollToText(input), scrollToTextActionSchema),
       new Action((input) => this.contentHandler.handleGetCompletePageContent(input), getCompletePageContentActionSchema),
+      // Only for a model that reads images, with vision on (index.ts decides both).
+      ...(this.context.options.useVision ? [new Action(() => this.contentHandler.handleViewScreenshot(), viewScreenshotActionSchema)] : []),
     ];
   }
 

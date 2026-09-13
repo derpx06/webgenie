@@ -541,7 +541,46 @@ document.querySelector('#verify').onclick = async () => {
 </ul>`,
 };
 
-Object.assign(PAGES, SECURITY_PAGES, BREADTH_PAGES, ENDURANCE_PAGES, FILES_PAGES);
+// Content that is only visual: a chart drawn on a canvas, and swatches told apart only by colour.
+const VISION_PAGES = {
+  '/chart': `<!doctype html><title>Sign-ups</title>
+<h1>Monthly sign-ups, first half of 2026</h1>
+<canvas id="chart" width="520" height="280" role="img" aria-label="Bar chart of monthly sign-ups"></canvas>
+<script>
+const ctx = document.querySelector('#chart').getContext('2d');
+const data = [['Jan', 120], ['Feb', 180], ['Mar', 150], ['Apr', 240], ['May', 90], ['Jun', 200]];
+ctx.fillStyle = '#fff';
+ctx.fillRect(0, 0, 520, 280);
+ctx.font = '16px sans-serif';
+data.forEach(([month, value], i) => {
+  const x = 30 + i * 80;
+  ctx.fillStyle = '#3b6fd8';
+  ctx.fillRect(x, 250 - value, 50, value);
+  ctx.fillStyle = '#222';
+  ctx.fillText(month, x + 10, 272);
+});
+</script>`,
+  '/mug': `<!doctype html><title>Custom mug</title>
+<h1>Custom mug</h1>
+<p>Choose a colour:</p>
+<div role="group" aria-label="Colour">
+<button id="swatch-1" aria-label="Option 1" style="width:56px;height:56px;background:#1f4fd1;border:2px solid #333"></button>
+<button id="swatch-2" aria-label="Option 2" style="width:56px;height:56px;background:#d12f1f;border:2px solid #333"></button>
+<button id="swatch-3" aria-label="Option 3" style="width:56px;height:56px;background:#1f9d3a;border:2px solid #333"></button>
+</div>
+<p id="status" role="status"></p>
+<script>
+window.__picks = [];
+document.querySelectorAll('[id^=swatch]').forEach(button => {
+  button.onclick = () => {
+    window.__picks.push(button.getAttribute('aria-label'));
+    document.querySelector('#status').textContent = 'Selected: ' + button.getAttribute('aria-label');
+  };
+});
+</script>`,
+};
+
+Object.assign(PAGES, SECURITY_PAGES, BREADTH_PAGES, ENDURANCE_PAGES, FILES_PAGES, VISION_PAGES);
 
 const hostHtml = editorUrl => `<!doctype html>
 <meta charset="utf-8">

@@ -354,7 +354,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         if (!actionInstance) throw new Error(`Action ${actionName} not exists`);
 
         const indexArg = actionInstance.getIndexArg(actionArgs);
-        const beforeState = await browserContext.getCachedState(this.context.options.useVision);
+        const beforeState = await browserContext.getCachedState();
         const beforeObservation = ensureBrowserObservation(beforeState);
         this.context.activeObservation = beforeObservation;
         if (this.context.traceStore) {

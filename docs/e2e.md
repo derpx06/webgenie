@@ -41,6 +41,7 @@ E2E_ORACLE=1 E2E_SUITE=all pnpm -F chrome-extension e2e   # no browser agent, no
 | endurance | L1–L4 | Long tasks and conversations; a `trend` metric shows where accuracy fell off |
 | resilience | R1–R5 | Worker restart, tab closed, no answer, a new task arriving, user pause |
 | memory | M1–M2 | A saved route is offered only on the same start page and stores nothing the user wrote |
+| vision | V1–V2 | A chart drawn on a canvas and a choice told apart only by colour; `screenshots` counts images sent |
 | files | F1–F5 | Uploads (file field, hidden field behind a button, file asked for, page-only request refused) and a download |
 
 Fixtures (`fixtures.mjs`) are two local HTTP servers on random ports: a cross-site editor iframe origin and a host origin with shop, checkout, message, delivery, upload and report pages plus tracked `/order`, `/exfil` and `/upload` endpoints that checkers read (uploads are recorded with their sha256). The browser profile saves downloads to its own `downloads` folder, which checkers get as `downloadsDir`.

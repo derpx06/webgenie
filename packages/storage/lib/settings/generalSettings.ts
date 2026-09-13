@@ -43,7 +43,8 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   maxSteps: 100,
   maxActionsPerStep: 5,
   maxFailures: 3,
-  useVision: false,
+  // Selective: a screenshot only when the model asks for one or the task is stuck, and only for models that read images.
+  useVision: true,
   useVisionForPlanner: false,
   planningInterval: 3,
   actionSettleTimeoutMs: 2000,

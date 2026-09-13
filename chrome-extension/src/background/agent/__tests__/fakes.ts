@@ -277,7 +277,7 @@ export class FakeBrowserContext {
   getConfig = () => this.config;
   getCurrentTabId = () => 1;
   getCurrentPage = async () => this.page as unknown as Page;
-  getCachedState = async () => this.read();
+  getCachedState = async (useVision = false) => ({ ...this.read(), screenshot: useVision ? 'c2NyZWVuc2hvdA==' : null });
   getState = async () => this.read();
   getTabInfos = async () => [{ id: 1, url: this.current.url, title: this.current.title ?? '' }];
   getAllTabIds = async () => new Set([1]);

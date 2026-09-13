@@ -49,6 +49,13 @@ export class ContentHandler extends BaseHandler {
   /** The last whole-page read of this task, to answer an unchanged re-read without resending it. */
   private lastRead: { text: string; start: number; step: number } | null = null;
 
+  async handleViewScreenshot(): Promise<ActionResult> {
+    this.context.screenshotWanted = true;
+    const msg = 'A screenshot of the visible part of the page comes with your next browser state.';
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, 'Looking at the page');
+    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+  }
+
   async handleSaveFindings(input: z.infer<typeof saveFindingsActionSchema.schema>): Promise<ActionResult> {
     // Findings can hold page data the user did not ask to see in the progress feed; only the models get them.
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, 'Saving findings');

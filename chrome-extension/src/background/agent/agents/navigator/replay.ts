@@ -92,7 +92,7 @@ export class HistoryReplayer {
     historyItem: AgentStepRecord,
     delay: number,
   ): Promise<ActionResult[]> {
-    const state = await this.context.browserContext.getState(this.context.options.useVision);
+    const state = await this.context.browserContext.getState();
     if (!state) {
       throw new Error('Invalid browser state');
     }
@@ -111,7 +111,7 @@ export class HistoryReplayer {
       }
 
       await this.context.browserContext.waitForPageAndFramesLoad();
-      const updatedState = await this.context.browserContext.getState(this.context.options.useVision);
+      const updatedState = await this.context.browserContext.getState();
       const updatedAction = interactedElement
         ? await this.updateActionIndices(interactedElement, currentAction, updatedState)
         : currentAction;

@@ -129,6 +129,13 @@ export const inputTextActionSchema: ActionSchema = {
   }),
 };
 
+export const viewScreenshotActionSchema: ActionSchema = {
+  name: 'view_screenshot',
+  description:
+    'See a screenshot of the visible part of the page with your next browser state, when the element list cannot tell you what you need: a chart, canvas, map or picture, colours, or where things are on the page. Call it alone; element indexes are drawn on the screenshot',
+  schema: z.object({}),
+};
+
 export const uploadFileActionSchema: ActionSchema = {
   name: 'upload_file',
   description:
