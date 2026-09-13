@@ -22,6 +22,14 @@ function describe(node: DOMElementNode): string {
   return node.getAllTextTillNextClickableElement(2) || node.attributes['aria-label'] || node.tagName || 'element';
 }
 
+/**
+ * What the model reads back about its own action. The side panel keeps its wording; the model gets a note in its
+ * own voice, because "Clicked button with index 2: Remove" was reported as the page's message (C7, C13).
+ */
+function ownAction(text: string): string {
+  return `${text}; the page's response is in the browser state, not in this note.`;
+}
+
 export class InteractionHandler extends BaseHandler {
   /**
    * The current page and the element at `index` in its current read. The navigator has already mapped the
@@ -60,14 +68,15 @@ export class InteractionHandler extends BaseHandler {
     startMessage: string,
     act: (page: Page, node: DOMElementNode) => Promise<MouseOutcome>,
     okMessage: (node: DOMElementNode) => string,
+    verb: string,
   ): Promise<ActionResult> {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, startMessage);
     const { page, node } = await this.resolveIndex(index);
     const tabsBefore = await this.context.browserContext.getAllTabIds();
     const outcome = await act(page, node);
-    const msg = okMessage(node) + (await this.describeOutcome(outcome, tabsBefore));
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+    const extra = await this.describeOutcome(outcome, tabsBefore);
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, okMessage(node) + extra);
+    return new ActionResult({ extractedContent: ownAction(`You ${verb} [${index}] "${describe(node)}"`) + extra, includeInMemory: true });
   }
 
   async handleClickElement(input: z.infer<typeof clickElementActionSchema.schema>): Promise<ActionResult> {
@@ -76,6 +85,7 @@ export class InteractionHandler extends BaseHandler {
       t('act_click_start', [input.index.toString()]),
       (page, node) => page.clickNode(node, input.double ? 2 : 1),
       node => t('act_click_ok', [input.index.toString(), describe(node)]),
+      input.double ? 'double-clicked' : 'clicked',
     );
   }
 
@@ -85,6 +95,7 @@ export class InteractionHandler extends BaseHandler {
       `Hovering over element ${input.index}`,
       (page, node) => page.hoverNode(node),
       node => `Hovered over element ${input.index}: ${describe(node)}`,
+      'hovered over',
     );
   }
 
@@ -94,6 +105,7 @@ export class InteractionHandler extends BaseHandler {
       `Right clicking element ${input.index}`,
       (page, node) => page.rightClickNode(node),
       node => `Right clicked element ${input.index}: ${describe(node)}`,
+      'right-clicked',
     );
   }
 
@@ -104,7 +116,10 @@ export class InteractionHandler extends BaseHandler {
     await page.dragNode(node, target);
     const msg = `Dragged element ${input.index} (${describe(node)}) onto element ${input.target_index} (${describe(target)})`;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+    return new ActionResult({
+      extractedContent: ownAction(`You dragged [${input.index}] "${describe(node)}" onto [${input.target_index}] "${describe(target)}"`),
+      includeInMemory: true,
+    });
   }
 
   async handleInputText(input: z.infer<typeof inputTextActionSchema.schema>): Promise<ActionResult> {
@@ -117,7 +132,7 @@ export class InteractionHandler extends BaseHandler {
     const msg = t('act_inputText_ok', [shown, input.index.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     return new ActionResult({
-      extractedContent: msg,
+      extractedContent: ownAction(`You typed "${shown}" into [${input.index}]`),
       includeInMemory: true,
       evidence: [
         {

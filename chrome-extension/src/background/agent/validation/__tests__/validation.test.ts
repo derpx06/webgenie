@@ -412,6 +412,8 @@ describe('echoesActionResult', () => {
     expect(echoesActionResult('The status message is: Clicked button with index 1: Save')).toBe(true);
     expect(echoesActionResult('Input WebGenie into index 3')).toBe(true);
     expect(echoesActionResult("The page shows 'Dragged element 2 (A) onto element 1 (B)'")).toBe(true);
+    expect(echoesActionResult('The message is: You clicked [2] "Remove"; the page\'s response is in the browser state, not in this note.')).toBe(true);
+    expect(echoesActionResult('You clicked the Remove button and the page shows "It\'s gone!"')).toBe(false);
     expect(echoesActionResult('Saved: hello frames')).toBe(false);
     expect(echoesActionResult('The book index lists 3 chapters')).toBe(false);
   });
