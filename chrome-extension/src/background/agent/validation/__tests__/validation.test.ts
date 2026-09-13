@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ActionResult } from '../../types';
 import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type { BrowserState } from '../../../browser/views';
-import { createBrowserObservation } from '../observation';
+import { appearedText, createBrowserObservation } from '../observation';
 import type { ValidationEvidence } from '../types';
 import { changesUserValue, commitActionLabel, echoesActionResult, currentIndexFor, isApproval, normalizeIndexedAction, validateActionOutcome } from '../service';
 
@@ -416,5 +416,19 @@ describe('echoesActionResult', () => {
     expect(echoesActionResult('You clicked the Remove button and the page shows "It\'s gone!"')).toBe(false);
     expect(echoesActionResult('Saved: hello frames')).toBe(false);
     expect(echoesActionResult('The book index lists 3 chapters')).toBe(false);
+  });
+});
+
+describe('appearedText', () => {
+  const page = (...texts: string[]) => {
+    const root = new DOMElementNode({ tagName: 'body', xpath: '', attributes: {}, children: [], isVisible: true });
+    for (const text of texts) root.children.push(new DOMTextNode(text, true, root));
+    return state({ elementTree: root });
+  };
+
+  it('returns short text that appeared after an action and nothing that was already there', () => {
+    const before = page('Login Page', 'Username');
+    const after = page('Login Page', 'Username', '  Your password is invalid!  ', 'ok', 'x'.repeat(300), 'Login Page');
+    expect(appearedText(before, after)).toEqual(['Your password is invalid!']);
   });
 });

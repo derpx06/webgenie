@@ -13,7 +13,7 @@ import { NavigatorActionRegistry } from './navigator/registry';
 export { NavigatorActionRegistry };
 import { HistoryReplayer } from './navigator/replay';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
-import { ensureBrowserObservation } from '../validation/observation';
+import { appearedText, ensureBrowserObservation } from '../validation/observation';
 import {
   changesUserValue,
   commitActionLabel,
@@ -468,12 +468,17 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           msg: `validated ${actionName}: ${result.validated}`,
           data: { retryability: result.retryability, failureReason: result.failureReason, evidence: result.evidence },
         });
+        // New text after a page change (an error, a confirmation) stays in this result even when the next action removes it.
+        const appeared = mutating && !result.error ? appearedText(beforeState, postActionState) : [];
         result = new ActionResult({
           ...result,
           contractId,
           actionId,
           validationId,
           observationId: result.observationId ?? beforeObservation.id,
+          extractedContent: appeared.length > 0
+            ? `${result.extractedContent ?? ''} New text on the page: ${appeared.map(text => JSON.stringify(text)).join('; ')}.`.trim()
+            : result.extractedContent,
         });
         this.context.activeObservation = postActionState.observation;
         if (mutating && contractId) {

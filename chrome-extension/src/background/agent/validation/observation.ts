@@ -32,8 +32,8 @@ function nodeText(node: DOMElementNode, maxDepth = 2): string {
   return parts.join(' ');
 }
 
-/** All text in the tree, in document order. */
-function pageText(root: DOMElementNode | undefined): string {
+/** Each text node's text, in document order. */
+function textFragments(root: DOMElementNode | undefined): string[] {
   const parts: string[] = [];
   const stack: unknown[] = root ? [root] : [];
   while (stack.length > 0) {
@@ -44,7 +44,28 @@ function pageText(root: DOMElementNode | undefined): string {
       for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
     }
   }
-  return parts.join(' ');
+  return parts;
+}
+
+/** All text in the tree, in document order. */
+function pageText(root: DOMElementNode | undefined): string {
+  return textFragments(root).join(' ');
+}
+
+/**
+ * Short text that is on the page after an action but was not before (an error, a confirmation, a status), at most
+ * five pieces. Kept in the action's result, so a message that the next action removes is not lost.
+ */
+export function appearedText(before: BrowserState, after: BrowserState): string[] {
+  const clean = (text: string) => text.replace(/\s+/g, ' ').trim();
+  const seen = new Set(textFragments(before.elementTree).map(clean));
+  const appeared: string[] = [];
+  for (const text of textFragments(after.elementTree).map(clean)) {
+    if (text.length < 3 || text.length > 200 || seen.has(text) || appeared.includes(text)) continue;
+    appeared.push(text);
+    if (appeared.length === 5) break;
+  }
+  return appeared;
 }
 
 const STATE_ATTRIBUTES = ['value', 'checked', 'aria-checked', 'aria-expanded', 'aria-selected', 'aria-pressed'];
