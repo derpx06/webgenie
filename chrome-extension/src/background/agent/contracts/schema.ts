@@ -43,7 +43,7 @@ export const plannerLLMOutputSchema = z.object({
     .optional()
     .describe('When done is true: the complete answer for the user, including every requested value. Omit otherwise.'),
   macro_objective: macroObjectiveSchema.describe(
-    'Kind of work for the next phase. NAVIGATE: open URLs or top-level links. SEARCH: search or filter. FORM_FILL: type, select, check, hover or submit. EXTRACT_DATA: read page content. VERIFY_STATE: confirm a result, or finish. BROWSER_CONTROL: tabs, windows, bookmarks, history, downloads and other browser features. HANDLE_BLOCKER: dismiss popups, cookie banners or modals. EXPLORE_PAGE: scroll to find content. ASK_HUMAN: the user must confirm an important action or provide something only they have (never for what the task or page already says).',
+    'Kind of work for the next phase. NAVIGATE: open URLs or top-level links. SEARCH: search or filter. FORM_FILL: type, select, check, hover or submit. EXTRACT_DATA: read page content. VERIFY_STATE: confirm a result, or finish. BROWSER_CONTROL: tabs, windows, bookmarks, history, downloads and other browser features. HANDLE_BLOCKER: dismiss popups, cookie banners or modals. EXPLORE_PAGE: scroll, read or look at the page to find content, without clicking anything that changes it. ASK_HUMAN: the user must confirm an important action or provide something only they have (never for what the task or page already says).',
   ),
   next_goal: z.string().describe('The immediate goal for the navigator in one sentence, using exact values from the task'),
   matching_items: z

@@ -634,7 +634,8 @@ export class Harness {
     const limits = {
       taskId,
       tabId,
-      maxMs: (task.maxSeconds ?? 180) * 1000,
+      // Catches hangs; generous enough that waiting out a burst of rate limits (H6: five in a row) is not a failure.
+      maxMs: (task.maxSeconds ?? 300) * 1000,
       maxSteps: task.maxSteps ?? 25,
       maxInputTokens: task.maxInputTokens ?? TASK_TOKEN_CAP,
       allowHuman: task.allowHuman,
