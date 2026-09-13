@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-09-12T20:24:09.342Z",
+  "updatedAt": "2026-09-13T06:15:33.349Z",
   "tasks": {
     "core:T1": {
       "passes": 1,
@@ -16,134 +16,176 @@
     "core:T3": {
       "passes": 1,
       "runs": 1,
-      "seconds": 6,
+      "seconds": 7,
       "llmCalls": 2
     },
     "core:T4": {
       "passes": 1,
       "runs": 1,
-      "seconds": 16,
+      "seconds": 13,
       "llmCalls": 5
     },
     "core:T5": {
       "passes": 1,
       "runs": 1,
-      "seconds": 5,
-      "llmCalls": 1
+      "seconds": 3,
+      "llmCalls": 2
     },
     "core:T6": {
       "passes": 1,
       "runs": 1,
-      "seconds": 15,
-      "llmCalls": 6
+      "seconds": 35.1,
+      "llmCalls": 5
     },
     "core:T7": {
       "passes": 1,
       "runs": 1,
-      "seconds": 30.1,
+      "seconds": 32.1,
       "llmCalls": 5
     },
     "core:T8": {
       "passes": 1,
       "runs": 1,
-      "seconds": 41.1,
-      "llmCalls": 10
+      "seconds": 20.9,
+      "llmCalls": 6
     },
     "core:T9": {
       "passes": 1,
       "runs": 1,
-      "seconds": 27.1,
+      "seconds": 21.1,
       "llmCalls": 6
     },
     "core:T10": {
       "passes": 1,
       "runs": 1,
-      "seconds": 21,
+      "seconds": 48.6,
       "llmCalls": 5
     },
     "core:T11": {
       "passes": 1,
       "runs": 1,
-      "seconds": 6,
+      "seconds": 4,
       "llmCalls": 2
     },
     "core:T12": {
       "passes": 1,
       "runs": 1,
-      "seconds": 14,
-      "llmCalls": 6
+      "seconds": 115.3,
+      "llmCalls": 8
     },
     "core:T13": {
       "passes": 1,
       "runs": 1,
-      "seconds": 10,
+      "seconds": 9,
       "llmCalls": 5
     },
     "core:T14": {
       "passes": 1,
       "runs": 1,
-      "seconds": 105.3,
-      "llmCalls": 6
+      "seconds": 13,
+      "llmCalls": 5
     },
     "core:T15": {
       "passes": 1,
       "runs": 1,
-      "seconds": 12,
+      "seconds": 40.1,
       "llmCalls": 6
     },
     "core:T16": {
       "passes": 1,
       "runs": 1,
-      "seconds": 16,
+      "seconds": 48.1,
       "llmCalls": 6
     },
     "core:T17": {
-      "passes": 0,
+      "passes": 1,
       "runs": 1,
-      "seconds": 38.1,
-      "llmCalls": 9
+      "seconds": 49.1,
+      "llmCalls": 12
     },
     "core:T18": {
       "passes": 1,
       "runs": 1,
-      "seconds": 75.2,
+      "seconds": 60.1,
       "llmCalls": 10
     },
     "core:T19": {
-      "passes": 1,
-      "runs": 1,
-      "seconds": 47.1,
+      "passes": 2,
+      "runs": 2,
+      "seconds": 25,
       "llmCalls": 6
     },
     "core:T20": {
       "passes": 1,
       "runs": 1,
+      "seconds": 3,
+      "llmCalls": 2
+    },
+    "core:T21": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 29.1,
+      "llmCalls": 6
+    },
+    "core:T22": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 12,
+      "llmCalls": 6
+    },
+    "core:T23": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 20,
+      "llmCalls": 6
+    },
+    "core:T24": {
+      "passes": 1,
+      "runs": 1,
       "seconds": 5,
+      "llmCalls": 2
+    },
+    "core:T25": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 18,
+      "llmCalls": 2
+    },
+    "core:T26": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 25.1,
+      "llmCalls": 5
+    },
+    "core:T27": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 3,
       "llmCalls": 2
     },
     "complex:C1": {
       "passes": 1,
       "runs": 1,
-      "seconds": 15,
+      "seconds": 56.1,
       "llmCalls": 5
     },
     "complex:C2": {
       "passes": 1,
       "runs": 1,
-      "seconds": 72.2,
+      "seconds": 30.1,
       "llmCalls": 9
     },
     "complex:C3": {
       "passes": 1,
       "runs": 1,
-      "seconds": 18,
+      "seconds": 13,
       "llmCalls": 6
     },
     "complex:C4": {
-      "passes": 0,
+      "passes": 1,
       "runs": 1,
-      "seconds": 69.2,
-      "llmCalls": 12
+      "seconds": 27.1,
+      "llmCalls": 6
     },
     "complex:C5": {
       "passes": 1,
@@ -154,200 +196,307 @@
     "complex:C6": {
       "passes": 1,
       "runs": 1,
-      "seconds": 13,
+      "seconds": 60.1,
       "llmCalls": 6
     },
     "complex:C7": {
       "passes": 1,
       "runs": 1,
-      "seconds": 50.1,
+      "seconds": 40.1,
       "llmCalls": 10
     },
     "complex:C8": {
       "passes": 1,
       "runs": 1,
-      "seconds": 28.1,
+      "seconds": 11,
       "llmCalls": 5
     },
     "complex:C9": {
-      "passes": 0,
+      "passes": 1,
       "runs": 1,
-      "seconds": 16,
+      "seconds": 41.1,
       "llmCalls": 6
     },
     "complex:C10": {
-      "passes": 0,
+      "passes": 1,
       "runs": 1,
-      "seconds": 14,
-      "llmCalls": 5
+      "seconds": 23.1,
+      "llmCalls": 6
     },
     "complex:C11": {
       "passes": 1,
       "runs": 1,
-      "seconds": 6,
+      "seconds": 3,
       "llmCalls": 2
     },
     "complex:C12": {
       "passes": 1,
       "runs": 1,
-      "seconds": 5,
-      "llmCalls": 2
+      "seconds": 13,
+      "llmCalls": 4
     },
     "complex:C13": {
       "passes": 1,
       "runs": 1,
-      "seconds": 14,
+      "seconds": 44.1,
       "llmCalls": 6
     },
     "complex:C14": {
       "passes": 1,
       "runs": 1,
-      "seconds": 71.2,
-      "llmCalls": 13
+      "seconds": 30.1,
+      "llmCalls": 8
     },
     "complex:C15": {
       "passes": 1,
       "runs": 1,
-      "seconds": 37.1,
+      "seconds": 31.1,
       "llmCalls": 5
     },
     "complex:C16": {
       "passes": 1,
       "runs": 1,
-      "seconds": 13,
+      "seconds": 15,
       "llmCalls": 6
     },
     "complex:C18": {
-      "passes": 0,
+      "passes": 1,
       "runs": 1,
-      "seconds": 90.2,
+      "seconds": 68.2,
       "llmCalls": 14
     },
     "complex:C19": {
       "passes": 1,
       "runs": 1,
-      "seconds": 64.2,
+      "seconds": 50.1,
       "llmCalls": 10
     },
     "complex:C20": {
       "passes": 1,
       "runs": 1,
-      "seconds": 29.1,
+      "seconds": 16,
       "llmCalls": 5
     },
     "complex:C21": {
       "passes": 1,
       "runs": 1,
-      "seconds": 21,
+      "seconds": 28.1,
       "llmCalls": 6
     },
     "complex:C22": {
       "passes": 1,
       "runs": 1,
-      "seconds": 17,
-      "llmCalls": 6
+      "seconds": 58.1,
+      "llmCalls": 9
     },
     "complex:C23": {
       "passes": 1,
       "runs": 1,
-      "seconds": 30.1,
-      "llmCalls": 6
+      "seconds": 38.1,
+      "llmCalls": 5
     },
     "complex:C24": {
       "passes": 1,
       "runs": 1,
-      "seconds": 5,
+      "seconds": 4,
       "llmCalls": 2
     },
     "complex:C17": {
       "passes": 1,
       "runs": 1,
-      "seconds": 61.1,
-      "llmCalls": 18
+      "seconds": 107.3,
+      "llmCalls": 17
     },
     "complex:C25": {
       "passes": 1,
       "runs": 1,
-      "seconds": 94.2,
-      "llmCalls": 13
+      "seconds": 47.1,
+      "llmCalls": 10
     },
     "complex:C26": {
       "passes": 1,
       "runs": 1,
-      "seconds": 77.2,
-      "llmCalls": 10
+      "seconds": 31.1,
+      "llmCalls": 5
     },
     "complex:C27": {
       "passes": 1,
       "runs": 1,
-      "seconds": 22,
+      "seconds": 30.1,
       "llmCalls": 9
     },
     "complex:C28": {
       "passes": 1,
       "runs": 1,
-      "seconds": 53.1,
-      "llmCalls": 9
+      "seconds": 47.1,
+      "llmCalls": 6
     },
     "complex:C29": {
-      "passes": 0,
+      "passes": 1,
       "runs": 1,
-      "seconds": 22.6,
-      "llmCalls": 6
+      "seconds": 59.3,
+      "llmCalls": 13
     },
     "complex:C30": {
       "passes": 1,
       "runs": 1,
+      "seconds": 34.1,
+      "llmCalls": 6
+    },
+    "complex:C31": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 21,
+      "llmCalls": 7
+    },
+    "complex:C32": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 31.1,
+      "llmCalls": 6
+    },
+    "complex:C33": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 17,
+      "llmCalls": 6
+    },
+    "complex:C34": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 39.1,
+      "llmCalls": 9
+    },
+    "complex:C35": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 40.1,
+      "llmCalls": 5
+    },
+    "complex:C36": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 40.1,
+      "llmCalls": 9
+    },
+    "hitl:H1": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 21.1,
+      "llmCalls": 7
+    },
+    "hitl:H2": {
+      "passes": 1,
+      "runs": 1,
       "seconds": 16,
+      "llmCalls": 7
+    },
+    "hitl:H3": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 42.1,
+      "llmCalls": 6
+    },
+    "hitl:H4": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 42.1,
+      "llmCalls": 8
+    },
+    "hitl:H5": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 16,
+      "llmCalls": 5
+    },
+    "hitl:H6": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 65.2,
+      "llmCalls": 7
+    },
+    "hitl:H7": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 50.1,
+      "llmCalls": 12
+    },
+    "hitl:H8": {
+      "passes": 1,
+      "runs": 1,
+      "seconds": 23.1,
       "llmCalls": 5
     }
   },
   "health": {
     "core": {
-      "attempts": 20,
-      "passed": 19,
+      "attempts": 27,
+      "passed": 26,
       "schemaRejections": 0,
       "notAllowedReasks": 0,
       "notAttached": 0,
       "sessionNotFound": 0,
       "orphaned": 0,
-      "emptyDom": 4,
+      "emptyDom": 0,
       "snapshotExtractor": 0,
       "authBlockerWaits": 0,
       "secretLeaks": 0,
       "unackedDispatches": 0,
       "hung": 0,
       "harnessErrors": 0,
-      "getStateMedianMs": 130,
-      "getStateP90Ms": 822,
-      "clickMedianMs": 19,
-      "inputMedianMs": 21,
-      "plannerCalls": 38,
-      "navigatorCalls": 44,
-      "inputTokens": 490482
+      "getStateMedianMs": 129,
+      "getStateP90Ms": 557,
+      "clickMedianMs": 18,
+      "inputMedianMs": 62,
+      "plannerCalls": 49,
+      "navigatorCalls": 55,
+      "inputTokens": 678176
     },
     "complex": {
-      "attempts": 30,
-      "passed": 25,
+      "attempts": 36,
+      "passed": 36,
       "schemaRejections": 0,
       "notAllowedReasks": 0,
       "notAttached": 0,
       "sessionNotFound": 0,
       "orphaned": 0,
-      "emptyDom": 12,
+      "emptyDom": 0,
       "snapshotExtractor": 0,
       "authBlockerWaits": 0,
       "secretLeaks": 0,
       "unackedDispatches": 0,
       "hung": 0,
       "harnessErrors": 0,
-      "getStateMedianMs": 143,
-      "getStateP90Ms": 874,
+      "getStateMedianMs": 140,
+      "getStateP90Ms": 555,
       "clickMedianMs": 21,
-      "inputMedianMs": 18,
-      "plannerCalls": 73,
-      "navigatorCalls": 119,
-      "inputTokens": 1067553
+      "inputMedianMs": 44,
+      "plannerCalls": 87,
+      "navigatorCalls": 132,
+      "inputTokens": 1460762
+    },
+    "hitl": {
+      "attempts": 8,
+      "passed": 8,
+      "schemaRejections": 0,
+      "notAllowedReasks": 0,
+      "notAttached": 0,
+      "sessionNotFound": 0,
+      "orphaned": 0,
+      "emptyDom": 0,
+      "snapshotExtractor": 0,
+      "authBlockerWaits": 0,
+      "secretLeaks": 0,
+      "unackedDispatches": 0,
+      "hung": 0,
+      "harnessErrors": 0,
+      "getStateMedianMs": 120,
+      "getStateP90Ms": 124,
+      "clickMedianMs": 17,
+      "inputMedianMs": 43,
+      "plannerCalls": 22,
+      "navigatorCalls": 27,
+      "inputTokens": 245960
     }
   }
 }
