@@ -398,7 +398,9 @@ export class DOMElementNode extends DOMBaseNode {
         }
 
         if (node.parent && node.parent.isVisible && node.parent.isTopElement) {
-          formattedText.push(`${depthStr}${node.text}`);
+          // Headings keep their level ("# All products"), so a page heading is not mistaken for other large text.
+          const level = /^h([1-6])$/.exec((node.parent.tagName ?? '').toLowerCase())?.[1];
+          formattedText.push(`${depthStr}${level ? `${'#'.repeat(Number(level))} ` : ''}${node.text}`);
         }
       }
     };

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DOMElementNode } from '../views';
+import { DOMElementNode, DOMTextNode } from '../views';
 
 describe('DOM Views Serialization Refinements', () => {
   it('should serialize off-screen elements with offscreen="true"', () => {
@@ -110,5 +110,20 @@ describe('DOM Views Serialization Refinements', () => {
       backendNodeId: 42,
     });
     expect(node.backendNodeId).toBe(42);
+  });
+});
+
+describe('heading text', () => {
+  it('marks heading text with its level and leaves other text plain', () => {
+    const root = new DOMElementNode({ tagName: 'div', xpath: '', attributes: {}, children: [], isVisible: true, isTopElement: true });
+    const heading = new DOMElementNode({ tagName: 'h1', xpath: '', attributes: {}, children: [], isVisible: true, isTopElement: true, parent: root });
+    heading.children.push(new DOMTextNode('All products', true, heading));
+    const paragraph = new DOMElementNode({ tagName: 'p', xpath: '', attributes: {}, children: [], isVisible: true, isTopElement: true, parent: root });
+    paragraph.children.push(new DOMTextNode('Books to Scrape', true, paragraph));
+    root.children.push(heading, paragraph);
+
+    const lines = root.clickableElementsToString().split('\n').map(line => line.trim());
+    expect(lines).toContain('# All products');
+    expect(lines).toContain('Books to Scrape');
   });
 });
