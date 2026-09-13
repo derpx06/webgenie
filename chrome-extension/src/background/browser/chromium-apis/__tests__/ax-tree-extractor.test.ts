@@ -100,7 +100,7 @@ describe('buildDomState', () => {
 });
 
 describe('pointer targets', () => {
-  it('indexes elements the page made clickable or draggable and standalone images, not wrappers of controls', () => {
+  it('indexes elements the page made clickable or draggable, not plain images or wrappers of controls', () => {
     const box = (x: number, extra: Partial<{ clickable: boolean; attributes: Record<string, string>; width: number; height: number }> = {}) => ({
       tagName: 'div', attributes: {}, x, y: 10, width: 100, height: 40, ...extra,
     });
@@ -133,7 +133,7 @@ describe('pointer targets', () => {
     const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout }], { width: 1000, height: 800 }));
     const indexed = [...state.selectorMap.values()].map(node => node.attributes['aria-label'] ?? node.getAllTextTillNextClickableElement());
 
-    expect(indexed).toEqual(['Box A', 'Open details', 'User avatar', 'Buy', 'Home']);
+    expect(indexed).toEqual(['Box A', 'Open details', 'Buy', 'Home']);
     expect(state.selectorMap.get(0)?.attributes.draggable).toBe('true');
   });
 

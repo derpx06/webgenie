@@ -47,6 +47,8 @@ export interface PlannerLLMOutput {
   macro_objective: MacroObjective;
   next_goal: string;
   matching_items?: string[];
+  /** The planner expects this phase to finish the task. */
+  final_phase?: boolean;
   success_condition?: string;
 }
 

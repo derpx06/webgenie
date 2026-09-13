@@ -13,6 +13,24 @@ const percentile = (values, p) => {
   return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
 };
 const recordText = r => `${r.component} ${r.msg} ${r.data === undefined ? '' : JSON.stringify(r.data)}`;
+
+/** Wilson 95% interval for k successes in n trials: how far a pass rate could move from noise alone. */
+export function wilson(k, n) {
+  if (!n) return null;
+  const z = 1.96;
+  const p = k / n;
+  const denominator = 1 + (z * z) / n;
+  const centre = (p + (z * z) / (2 * n)) / denominator;
+  const margin = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / denominator;
+  return [Math.max(0, centre - margin), Math.min(1, centre + margin)].map(x => +x.toFixed(3));
+}
+
+/** US dollars per million tokens; estimates, override with E2E_PRICE_INPUT / _CACHED / _OUTPUT (gemini-2.5-flash list price). */
+const PRICE = {
+  input: Number(process.env.E2E_PRICE_INPUT ?? 0.3),
+  cached: Number(process.env.E2E_PRICE_CACHED ?? 0.075),
+  output: Number(process.env.E2E_PRICE_OUTPUT ?? 2.5),
+};
 const countOf = (records, pattern) => records.filter(r => pattern.test(recordText(r))).length;
 
 /** Counters where any increase over the baseline is a regression (compared per task attempt). */
@@ -103,9 +121,28 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
         }
       : null;
 
+  // Done checks the evidence alone would have settled, and those where the planner then disagreed (a skip would be wrong).
+  const skippable = records.filter(r => r.msg === 'verify.skippable' && r.data?.skippable);
+  // Where time goes besides useful work: waiting out rate limits, and calls that failed.
+  const backoffMs = llm
+    .map(r => /rate limited; retrying in ([\d.]+)s/.exec(String(r.msg)))
+    .filter(Boolean)
+    .reduce((n, match) => n + Number(match[1]) * 1000, 0);
+  const failedCallMs = llm.filter(r => r.level === 'error').reduce((n, r) => n + (r.durationMs ?? 0), 0);
+  const firstAction = records.filter(r => r.kind === 'span' && String(r.msg).startsWith('action ')).map(r => r.ts).sort((a, b) => a - b)[0];
+  const firstRecord = records.map(r => r.ts).sort((a, b) => a - b)[0];
+  const tokens = { input: sum('inputTokens'), output: sum('outputTokens'), cached: sum('cacheReadTokens'), reasoning: sum('reasoningTokens') };
+  const costUsd = +(((tokens.input - tokens.cached) * PRICE.input + tokens.cached * PRICE.cached + (tokens.output + tokens.reasoning) * PRICE.output) / 1e6).toFixed(4);
+
   return {
     llmCalls: calls.length,
     trend,
+    verifySkippable: skippable.length,
+    verifySkippableWrong: skippable.filter(r => !r.data?.plannerDone).length,
+    backoffMs,
+    failedCallMs,
+    firstActionMs: firstAction && firstRecord ? firstAction - firstRecord : null,
+    costUsd,
     plannerCalls: calls.filter(r => r.component === 'planner').length,
     navigatorCalls: calls.filter(r => r.component === 'navigator').length,
     cachedShare,
@@ -115,7 +152,7 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
     notAllowedReasks: reasks.filter(r => /not allowed by the current plan/.test(issues(r))).length,
     schemaRejections:
       reasks.filter(r => /invalid arguments|unknown tool|not valid JSON/.test(issues(r))).length + providerRejections.length,
-    tokens: { input: sum('inputTokens'), output: sum('outputTokens'), cached: sum('cacheReadTokens'), reasoning: sum('reasoningTokens') },
+    tokens,
     getStateCount: getState.length,
     getStateMs: getState,
     actionMs: actionDurations,
@@ -179,9 +216,23 @@ export function suiteHealth(results) {
     const counters = Object.fromEntries(HEALTH_COUNTERS.map(key => [key, rows.reduce((n, r) => n + (r.metrics?.[key] ?? 0), 0)]));
     counters.hung = rows.filter(r => /limit/.test(r.outcome)).length;
     counters.harnessErrors = rows.filter(r => r.outcome === 'harness_error').length;
+    const passed = rows.filter(r => r.pass).length;
+    const byTask = Object.values(Object.groupBy(rows, r => r.id));
+    const totalSeconds = rows.reduce((n, r) => n + (r.seconds ?? 0), 0);
     health[suite] = {
       attempts: rows.length,
-      passed: rows.filter(r => r.pass).length,
+      passed,
+      passRateCI: wilson(passed, rows.length),
+      /** Share of tasks that passed on every attempt (pass^k): what a user relying on the agent experiences. */
+      passedEveryAttempt: +(byTask.filter(attempts => attempts.every(r => r.pass)).length / Math.max(1, byTask.length)).toFixed(3),
+      /** Finished as done but the checker disagreed: the agent claimed a result it did not achieve. */
+      wrongDone: rows.filter(r => r.outcome === 'task.ok' && !r.pass).length,
+      needlessQuestions: rows.reduce((n, r) => n + Math.max(0, (r.questions?.length ?? 0) - (r.questionsExpected ?? 0)), 0),
+      missedQuestions: rows.reduce((n, r) => n + Math.max(0, (r.questionsExpected ?? 0) - (r.questions?.length ?? 0)), 0),
+      medianSeconds: median(rows.map(r => r.seconds ?? 0)),
+      firstActionMedianMs: median(rows.map(r => r.metrics?.firstActionMs).filter(v => typeof v === 'number')),
+      backoffShare: +(rows.reduce((n, r) => n + (r.metrics?.backoffMs ?? 0) + (r.metrics?.failedCallMs ?? 0), 0) / 1000 / Math.max(1, totalSeconds)).toFixed(3),
+      costUsd: +rows.reduce((n, r) => n + (r.metrics?.costUsd ?? 0), 0).toFixed(3),
       ...counters,
       getStateMedianMs: median(all('getStateMs')),
       getStateP90Ms: percentile(all('getStateMs'), 90),

@@ -13,6 +13,8 @@ export interface LlmCapabilities {
   reasoning: ReasoningControl;
   /** Accepts audio input parts (speech-to-text). */
   audioInput: boolean;
+  /** Limit for one model call, about 1.5 × the observed p99 (gemini-2.5-flash: p99 ≈ 16 s); a retry gets 1.5 × more. */
+  callTimeoutMs: number;
 }
 
 // ChatBedrockConverse rejects tool_choice "any" for other models.
@@ -30,21 +32,29 @@ export function getLlmCapabilities(providerType: string | undefined, modelName: 
     forceToolChoice,
     reasoning: 'none',
     audioInput: false,
+    callTimeoutMs: 30_000,
   });
+  // Models that think at length before answering need far longer than fast chat models.
+  const slowThinker = /\bpro\b|-pro|reasoner|deepseek-r1|opus/i.test(modelName) || isOpenAIReasoningModel(modelName);
 
   switch (providerType) {
     case ProviderTypeEnum.OpenAI:
     case ProviderTypeEnum.AzureOpenAI:
     case ProviderTypeEnum.OpenRouter:
     case ProviderTypeEnum.CustomOpenAI:
-      return { ...tools(true), reasoning: isOpenAIReasoningModel(modelName) ? 'openai_effort' : 'none' };
+      return { ...tools(true), reasoning: isOpenAIReasoningModel(modelName) ? 'openai_effort' : 'none', callTimeoutMs: slowThinker ? 90_000 : 30_000 };
     case ProviderTypeEnum.Gemini:
     case ProviderTypeEnum.VertexAI:
-      return { ...tools(true), reasoning: /gemini-(2\.5|[3-9])/.test(modelName) ? 'gemini_budget' : 'none', audioInput: true };
+      return {
+        ...tools(true),
+        reasoning: /gemini-(2\.5|[3-9])/.test(modelName) ? 'gemini_budget' : 'none',
+        audioInput: true,
+        callTimeoutMs: slowThinker ? 60_000 : 25_000,
+      };
     case ProviderTypeEnum.DeepSeek:
-      return tools(!(modelName === 'deepseek-reasoner' || modelName.includes('deepseek-r1')));
+      return { ...tools(!(modelName === 'deepseek-reasoner' || modelName.includes('deepseek-r1'))), callTimeoutMs: slowThinker ? 90_000 : 30_000 };
     case ProviderTypeEnum.Ollama:
-      return tools(true, false); // ChatOllama throws on any tool_choice
+      return { ...tools(true, false), callTimeoutMs: 90_000 }; // ChatOllama throws on any tool_choice; local models run slowly
     case ProviderTypeEnum.Bedrock:
       return tools(true, BEDROCK_FORCED_TOOL_MODELS.test(modelName));
     case ProviderTypeEnum.Llama:

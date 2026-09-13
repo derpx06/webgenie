@@ -37,15 +37,6 @@ export const doneActionSchema: ActionSchema = {
 };
 
 // Basic Navigation Actions
-export const searchGoogleActionSchema: ActionSchema = {
-  name: 'search_google',
-  description:
-    'Compatibility alias for Google search in the current tab. Prefer search_web for fast provider-agnostic web search.',
-  schema: z.object({
-    query: z.string().describe('search query in natural language'),
-  }),
-};
-
 export const searchWebActionSchema: ActionSchema = {
   name: 'search_web',
   description:
@@ -67,6 +58,12 @@ export const goToUrlActionSchema: ActionSchema = {
 export const goBackActionSchema: ActionSchema = {
   name: 'go_back',
   description: 'Go back to the previous page',
+  schema: z.object({}),
+};
+
+export const goForwardActionSchema: ActionSchema = {
+  name: 'go_forward',
+  description: "Go forward to the next page in this tab's history (after go_back)",
   schema: z.object({}),
 };
 
@@ -117,12 +114,18 @@ export const rightClickElementActionSchema: ActionSchema = {
 
 export const inputTextActionSchema: ActionSchema = {
   name: 'input_text',
-  description: 'Input text into an interactive input element',
+  description:
+    "Replace the field's content with text (inputs, textareas, editable elements, date and range inputs). Set submit to press Enter afterwards.",
   schema: z.object({
     index: elementIndex,
     text: z
       .string()
       .describe('text to input: only values from the task, the user\'s answers or the page. Never make up personal details (names, phone numbers, emails, addresses, payment details); ask_human for missing ones'),
+    submit: z.boolean().optional().describe('true to press Enter in the field after typing (submits a search, chat message or form); defaults to false'),
+    commits: z
+      .enum(COMMIT_KINDS)
+      .optional()
+      .describe("with submit: what submitting commits, as for click_element's commits; omit otherwise"),
   }),
 };
 
@@ -137,12 +140,9 @@ export const switchTabActionSchema: ActionSchema = {
 
 export const openTabActionSchema: ActionSchema = {
   name: 'open_tab',
-  description:
-    'Open URL in a new tab. Do NOT use chrome:// URLs (like chrome://newtab/). Use search_web or a specific website URL instead.',
+  description: 'Open a web address in a new tab, which becomes the current tab. Not for chrome:// pages; to search, use search_web.',
   schema: z.object({
-    url: z
-      .string()
-      .describe('url to open. If you need to search, use search_web action instead of opening a search engine manually.'),
+    url: z.string().describe('absolute URL to open, including https://'),
   }),
 };
 
@@ -154,62 +154,29 @@ export const closeTabActionSchema: ActionSchema = {
   }),
 };
 
-// Cache Actions
-export const cacheContentActionSchema: ActionSchema = {
-  name: 'cache_content',
-  description: 'Cache what you have found so far from the current page for future use',
-  schema: z.object({
-    content: z.string().describe('the findings to keep for later steps'),
-  }),
-};
-
-export const scrollToPercentActionSchema: ActionSchema = {
-  name: 'scroll_to_percent',
+export const saveFindingsActionSchema: ActionSchema = {
+  name: 'save_findings',
   description:
-    'Scrolls to a particular vertical percentage of the document or an element. If no index of element is specified, scroll the whole document.',
+    'Save findings for later steps (values, lists, partial results with where they came from). Saved findings are shown in every later step of this task; the newest are kept within about 1,500 characters.',
   schema: z.object({
-    yPercent: z.number().int().describe('percentage to scroll to - min 0, max 100; 0 is top, 100 is bottom'),
-    index: optionalElementIndex,
+    text: z.string().describe('the findings to keep, with exact values'),
   }),
 };
 
-export const scrollToTopActionSchema: ActionSchema = {
-  name: 'scroll_to_top',
-  description: 'Scroll the document in the window or an element to the top',
-  schema: z.object({
-    index: optionalElementIndex,
-  }),
-};
-
-export const scrollToBottomActionSchema: ActionSchema = {
-  name: 'scroll_to_bottom',
-  description: 'Scroll the document in the window or an element to the bottom',
-  schema: z.object({
-    index: optionalElementIndex,
-  }),
-};
-
-export const previousPageActionSchema: ActionSchema = {
-  name: 'previous_page',
+export const scrollActionSchema: ActionSchema = {
+  name: 'scroll',
   description:
-    'Scroll the document in the window or an element to the previous page. If no index is specified, scroll the whole document.',
+    'Scroll the page, or the scrollable element at index: down or up by a number of screens, or to the top or bottom. It moves the view only; a next page of results behind a link or button needs a click.',
   schema: z.object({
-    index: optionalElementIndex,
-  }),
-};
-
-export const nextPageActionSchema: ActionSchema = {
-  name: 'next_page',
-  description:
-    'Scroll the document in the window or an element to the next page. If no index is specified, scroll the whole document.',
-  schema: z.object({
+    direction: z.enum(['down', 'up', 'top', 'bottom']).describe('down or up by pages, or to the top or bottom'),
+    pages: z.number().optional().describe('screens to scroll down or up, 0.1-10 (for example 0.5 or 3); defaults to 1'),
     index: optionalElementIndex,
   }),
 };
 
 export const scrollToTextActionSchema: ActionSchema = {
   name: 'scroll_to_text',
-  description: 'If you dont find something which you want to interact with in current viewport, try to scroll to it',
+  description: 'Scroll the nth visible match of a text (case-insensitive, all frames) into view; reports whether it was found.',
   schema: z.object({
     text: z.string().describe('text to scroll to'),
     nth: z
@@ -224,24 +191,19 @@ export const scrollToTextActionSchema: ActionSchema = {
 export const sendKeysActionSchema: ActionSchema = {
   name: 'send_keys',
   description:
-    'Send strings of special keys like Backspace, Insert, PageDown, Delete, Enter. Shortcuts such as `Control+o`, `Control+Shift+T` are supported as well. This gets used in keyboard press. Be aware of different operating systems and their shortcuts',
+    'Press keys in the focused element, or in element index after focusing it: Enter, Escape, Tab, arrows, PageDown, Control+A... Not for typing text (input_text) or answering dialogs (handle_dialog).',
   schema: z.object({
-    keys: z.string().describe('keys to send'),
+    keys: z.string().describe('one key or shortcut, for example Enter, ArrowDown or Control+A'),
+    index: z.number().int().optional().describe('index of the element to focus before pressing; omit to press in the focused element'),
+    repeat: z.number().int().optional().describe('how many times to press, 1-50; defaults to 1'),
     commits: commitsField,
-  }),
-};
-
-export const getDropdownOptionsActionSchema: ActionSchema = {
-  name: 'get_dropdown_options',
-  description: 'Get all options of a dropdown: a native select, or an ARIA combobox or listbox (it is opened to read them)',
-  schema: z.object({
-    index: elementIndex,
   }),
 };
 
 export const selectDropdownOptionActionSchema: ActionSchema = {
   name: 'select_dropdown_option',
-  description: 'Select an option of a native select, or an ARIA combobox or listbox, by the exact visible text of the option',
+  description:
+    'Select an option of a native select, or an ARIA combobox or listbox, by its exact visible text; when no option matches, the result lists the available ones',
   schema: z.object({
     index: elementIndex,
     text: z.string().describe('exact visible text of the option to select'),
@@ -251,50 +213,53 @@ export const selectDropdownOptionActionSchema: ActionSchema = {
 export const waitActionSchema: ActionSchema = {
   name: 'wait',
   description:
-    'Wait for the page to finish loading or changing, then observe again. Use only when content is still loading.',
+    'Wait for the page: until a text appears (text) or disappears (text_gone), returning as soon as it does, or for a number of seconds.',
   schema: z.object({
-    seconds: z.number().int().optional().describe('seconds to wait, 1-10; defaults to 3'),
+    seconds: z.number().int().optional().describe('longest wait in seconds, 1-10; defaults to 10 with text or text_gone, otherwise 3'),
+    text: z.string().optional().describe('return once this text is on the page (case-insensitive)'),
+    text_gone: z.string().optional().describe('return once this text is no longer on the page'),
   }),
 };
 
 export const askHumanActionSchema: ActionSchema = {
   name: 'ask_human',
-  description: 'Ask the user to decide or provide something: confirm an important action the system does not confirm itself (sending, deleting or sharing something the task did not ask for), give information the task and page do not (never invent it), or choose between items that differ when the task does not say which. Orders, payments, subscriptions and account changes are confirmed by the system when you act; do not ask for those.',
+  description:
+    'Ask the user for a decision or information that is theirs: confirm sending, deleting or sharing something the task did not ask for, get information the task and page do not give (never invent it), or choose between items the task leaves open. Orders, payments, subscriptions and account changes are confirmed by the system when you act; do not ask for those.',
   schema: z.object({
-    question: z.string().describe('The question or confirmation message to show the human'),
-    options: z.array(z.string()).optional().describe('Optional list of choices (buttons) for the human to pick from'),
+    question: z.string().describe('the question or confirmation to show the user'),
+    options: z.array(z.string()).optional().describe('choices shown as buttons'),
     fields: z
       .array(
         z.object({
-          id: z.string().describe('Unique ID for the field'),
-          label: z.string().describe('Label to show for the field'),
+          id: z.string().describe('unique field id'),
+          label: z.string().describe('field label'),
           type: z
             .enum(['text', 'password', 'number', 'date', 'select'])
             .optional()
-            .describe('The type of input field; defaults to text. Use password for secrets.'),
-          required: z.boolean().optional().describe('Whether the field is required; defaults to true'),
-          options: z.array(z.string()).optional().describe('Options for select type field'),
-          placeholder: z.string().optional().describe('Placeholder text'),
+            .describe('input type; defaults to text; password for secrets'),
+          required: z.boolean().optional().describe('defaults to true'),
+          options: z.array(z.string()).optional().describe('choices of a select field'),
+          placeholder: z.string().optional().describe('placeholder text'),
         }),
       )
       .optional()
-      .describe('List of structured input fields for the user to fill'),
-    type: z
-      .enum(['question', 'confirmation'])
-      .optional()
-      .describe('The type of intervention requested; defaults to question'),
+      .describe('input fields for the user to fill'),
+    type: z.enum(['question', 'confirmation']).optional().describe('defaults to question'),
     actionType: z
       .string()
       .optional()
-      .describe('The class of action being confirmed (e.g., "send_message", "delete_item") for "don\'t ask again" tracking'),
+      .describe('kind of action a confirmation is for (for example send_message), so the user can choose not to be asked again'),
   }),
 };
 
 export const getCompletePageContentActionSchema: ActionSchema = {
   name: 'get_complete_page_content',
   description:
-    'Extract the complete text content of the current webpage at once. Use this to read long articles, posts, or page data without having to scroll or navigate.',
-  schema: z.object({}),
+    'Read the text of the whole page, frames included, up to 12,000 characters per call; find returns only the passages containing a text, start_char continues a longer read. Use it for articles, tables and long pages instead of scrolling.',
+  schema: z.object({
+    find: z.string().optional().describe('return only the passages containing this text (case-insensitive), with the text around them'),
+    start_char: z.number().int().optional().describe('character offset to continue a truncated read from; defaults to 0'),
+  }),
 };
 
 export const manageBookmarksActionSchema: ActionSchema = {

@@ -45,7 +45,7 @@ const logger = createLogger('NavigatorAgent');
 const SECRET_PLACEHOLDER = /\{\{secret_\d+\}\}/g;
 
 /** Actions that can carry the user's data to a site: typed text, addresses, queries. */
-const DATA_CARRYING_ACTIONS = new Set(['input_text', 'go_to_url', 'open_tab', 'search_web', 'search_google']);
+const DATA_CARRYING_ACTIONS = new Set(['input_text', 'go_to_url', 'open_tab', 'search_web']);
 
 /** Actions that open an address the model wrote. */
 const NAVIGATING_ACTIONS = new Set(['go_to_url', 'open_tab']);
@@ -273,7 +273,10 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     return false;
   }
 
-  /** The live form around a clicked element or the focused one; null when it cannot be read (the gate then uses labels only). */
+  /**
+   * The live form around the action's element (clicked, typed into, or focused for keys), or around the focused element
+   * when the action names none; null when it cannot be read (the gate then uses labels only).
+   */
   private async formCommitInfo(node?: DOMElementNode): Promise<FormCommitInfo | null> {
     try {
       const page = await this.context.browserContext.getCurrentPage();
@@ -478,7 +481,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // Orders, payments, account changes and erasing the user's data wait for the user's yes, asked by the system itself
         // (a page cannot word the question); each yes allows one action, and a no stands for the rest of the task.
         const form = mayCommitThroughForm(actionName, actionArgs as Record<string, unknown>)
-          ? await this.formCommitInfo(actionName === 'click_element' ? indexedNode : undefined)
+          ? await this.formCommitInfo(indexedNode)
           : null;
         const commit = commitTarget(actionName, actionArgs as Record<string, unknown>, beforeState.url, indexedNode, form);
         if (commit && this.context.approvedCommitKey !== commit.key) {

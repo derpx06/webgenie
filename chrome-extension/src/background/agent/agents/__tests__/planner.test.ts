@@ -116,7 +116,7 @@ describe('PlannerAgent response shape', () => {
 
     expect(tool.function.name).toBe('plan');
     expect(Object.keys(parameters.properties).sort()).toEqual([
-      'done', 'final_answer', 'macro_objective', 'matching_items', 'next_goal', 'success_condition',
+      'done', 'final_answer', 'final_phase', 'macro_objective', 'matching_items', 'next_goal', 'success_condition',
     ]);
     expect([...parameters.required].sort()).toEqual(['done', 'macro_objective', 'next_goal']);
     expect(plannerSystemPromptTemplate).toContain('plan tool');

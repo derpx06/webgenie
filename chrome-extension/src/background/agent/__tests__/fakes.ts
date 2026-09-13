@@ -8,6 +8,7 @@ import { AIMessage, type BaseMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type BrowserContext from '../../browser/context';
 import type Page from '../../browser/page';
+import type { FormCommitInfo } from '../../browser/page';
 import { DEFAULT_BROWSER_CONTEXT_CONFIG, type BrowserContextConfig, type BrowserState, type PageDialog } from '../../browser/views';
 import { DOMElementNode, DOMTextNode } from '../../browser/dom/views';
 import type { ToolDefinition } from '../actions/builder';
@@ -222,6 +223,8 @@ export class FakeBrowserContext {
   private readonly pages: PageSpec[];
   private index = 0;
   private readonly doms = new Map<PageSpec, Pick<BrowserState, 'elementTree' | 'selectorMap'>>();
+  /** The form the commit gate reads around an element (or, without one, the focused element); none by default. */
+  formFor: (node?: DOMElementNode) => FormCommitInfo | null = () => null;
 
   private readonly page = {
     tabId: 1,
@@ -239,7 +242,9 @@ export class FakeBrowserContext {
       this.act({ type: 'input', index: node.highlightIndex ?? undefined, text });
       return { matched: true, secret: false, actualLength: text.length, actual: text };
     },
-    sendKeys: async (keys: string) => this.act({ type: 'send_keys', text: keys }),
+    sendKeys: async (keys: string, node?: DOMElementNode) =>
+      this.act({ type: 'send_keys', text: keys, index: node?.highlightIndex ?? undefined }),
+    formCommitInfo: async (node?: DOMElementNode) => this.formFor(node),
     navigateTo: async (url: string) => this.act({ type: 'navigate', url }),
     goBack: async () => this.act({ type: 'go_back' }),
     removeHighlight: async () => {},

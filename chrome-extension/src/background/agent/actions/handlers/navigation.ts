@@ -1,9 +1,11 @@
 import { ActionResult } from '@src/background/agent/types';
-import type { searchGoogleActionSchema, searchWebActionSchema, goToUrlActionSchema, waitActionSchema } from '../schemas';
+import type { searchWebActionSchema, goToUrlActionSchema, waitActionSchema } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
+
+const WAIT_POLL_MS = 500;
 
 export class NavigationHandler extends BaseHandler {
   async handleSearchWeb(input: z.infer<typeof searchWebActionSchema.schema>): Promise<ActionResult> {
@@ -24,13 +26,6 @@ export class NavigationHandler extends BaseHandler {
     return new ActionResult({
       extractedContent: msg,
       includeInMemory: true,
-    });
-  }
-
-  async handleSearchGoogle(input: z.infer<typeof searchGoogleActionSchema.schema>): Promise<ActionResult> {
-    return this.handleSearchWeb({
-      query: input.query,
-      engine: 'google',
     });
   }
 
@@ -61,24 +56,55 @@ export class NavigationHandler extends BaseHandler {
     });
   }
 
-  async handleWait(input: z.infer<typeof waitActionSchema.schema>): Promise<ActionResult> {
-    const seconds = input.seconds || 3;
-    const intent = t('act_wait_start', [seconds.toString()]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+  async handleGoForward(): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_goForward_start'));
+    const page = await this.context.browserContext.getCurrentPage();
+    await page.goForward();
+    const msg = t('act_goForward_ok');
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+  }
 
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, seconds * 1000);
-      this.context.controller.signal.addEventListener(
-        'abort',
-        () => {
+  /** A fixed wait, or a wait for a text to appear or disappear that returns as soon as it does; cancelling ends it. */
+  async handleWait(input: z.infer<typeof waitActionSchema.schema>): Promise<ActionResult> {
+    const condition = input.text ? { text: input.text, gone: false } : input.text_gone ? { text: input.text_gone, gone: true } : null;
+    const seconds = Math.min(Math.max(input.seconds ?? (condition ? 10 : 3), 1), 10);
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_wait_start', [seconds.toString()]));
+
+    const signal = this.context.controller.signal;
+    const sleep = (ms: number) =>
+      new Promise<void>(resolve => {
+        const timeout = setTimeout(resolve, ms);
+        signal.addEventListener('abort', () => {
           clearTimeout(timeout);
           resolve();
-        },
-        { once: true },
-      );
-    });
+        }, { once: true });
+      });
 
-    const msg = t('act_wait_ok', [seconds.toString()]);
+    let msg: string;
+    if (!condition) {
+      await sleep(seconds * 1000);
+      msg = t('act_wait_ok', [seconds.toString()]);
+    } else {
+      const flat = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
+      const wanted = flat(condition.text);
+      const page = await this.context.browserContext.getCurrentPage();
+      const startedAt = Date.now();
+      for (;;) {
+        const present = flat(await page.getCompletePageContent().catch(() => '')).includes(wanted);
+        const elapsed = (Date.now() - startedAt) / 1000;
+        if (present !== condition.gone) {
+          msg = `"${condition.text}" ${condition.gone ? 'is gone from the page' : 'appeared on the page'} after ${elapsed.toFixed(1)} s.`;
+          break;
+        }
+        if (elapsed >= seconds || signal.aborted) {
+          msg = `"${condition.text}" ${condition.gone ? 'is still on the page' : 'did not appear on the page'} after ${seconds} s.`;
+          break;
+        }
+        await sleep(WAIT_POLL_MS);
+      }
+    }
+
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }

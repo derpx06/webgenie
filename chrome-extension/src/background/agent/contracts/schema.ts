@@ -56,4 +56,8 @@ export const plannerLLMOutputSchema = z.object({
     .string()
     .optional()
     .describe('Optional: observable evidence on the page that the next phase succeeded'),
+  final_phase: z
+    .boolean()
+    .optional()
+    .describe('true when finishing next_goal finishes the whole task (nothing is left after it)'),
 });

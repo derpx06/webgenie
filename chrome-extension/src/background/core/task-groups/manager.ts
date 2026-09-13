@@ -64,11 +64,18 @@ function pickColorForTask(taskDescription: string): GroupColor {
 }
 
 /** Generate a concise group title from a task description. */
-function titleFromTask(taskDescription: string): string {
-  // Truncate to ~40 chars, capitalize first word
-  const truncated = taskDescription.trim().replace(/\s+/g, ' ');
-  if (truncated.length <= 40) return truncated;
-  return truncated.substring(0, 38).trimEnd() + '…';
+/**
+ * A short title from the task's words. Words with digits, @ or quotes are left out: they are how passwords, emails,
+ * phone numbers and codes look, and the title is stored with the tab group state.
+ */
+export function titleFromTask(taskDescription: string): string {
+  const words = taskDescription
+    .replace(/https?:\/\/\S+/g, '')
+    .split(/\s+/)
+    .filter(word => word && !/[\d@"'“”‘’`]/.test(word));
+  const title = words.slice(0, 6).join(' ').replace(/[:,;]+$/, '');
+  if (!title) return 'Task';
+  return title.length <= 40 ? title : `${title.substring(0, 38).trimEnd()}…`;
 }
 
 // ---------------------------------------------------------------------------

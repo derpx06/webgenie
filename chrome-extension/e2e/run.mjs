@@ -16,10 +16,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { TASKS } from './tasks.mjs';
 import { startFixtures } from './fixtures.mjs';
-import { baselineFrom, compareWithBaseline, mergeBaseline, suiteHealth, taskMetrics, timeline } from './metrics.mjs';
+import { baselineFrom, compareWithBaseline, mergeBaseline, suiteHealth, taskMetrics, timeline, wilson } from './metrics.mjs';
 
 const HERE = import.meta.dirname;
 const DIST = path.resolve(HERE, '../../dist');
@@ -85,7 +86,7 @@ async function siteDown(url) {
   return reason;
 }
 
-class Harness {
+export class Harness {
   constructor(browser, extensionId, fixtures) {
     this.browser = browser;
     this.extensionId = extensionId;
@@ -353,7 +354,7 @@ class Harness {
     };
 
     while (!outcome) {
-      await sleep(1000);
+      await sleep(300);
       const batch = await this.ctl.evaluate(() => window.__ev.splice(0));
       for (const e of batch) {
         events.push({ t: Date.now() - started, ts: Date.now(), ...e });
@@ -550,7 +551,7 @@ class Harness {
       taskIds.push(seqId);
       answers.push(out.answer);
     }
-    await sleep(2000); // let the trace sink flush its last batch
+    await sleep(900); // the trace sink flushes every 500 ms
 
     const records = [];
     for (const id of taskIds) records.push(...(await this.readTraces(id).catch(() => [])));
@@ -583,6 +584,8 @@ class Harness {
       steps: run.maxStep,
       seconds: run.seconds,
       questions: run.questions,
+      /** Questions the task wants asked (scripted answers); more is needless, fewer is missed. */
+      questionsExpected: (task.human ?? []).filter(script => !script.optional).length + (task.lateAnswer ? 1 : 0),
       metrics,
     };
   }
@@ -715,6 +718,12 @@ async function main() {
     })),
   );
   for (const [name, h] of Object.entries(health)) console.log(`${name}: ${JSON.stringify(h)}`);
+  const counted = results.filter(r => r.outcome !== 'site_down' && r.outcome !== 'oracle');
+  if (counted.length) {
+    const passedAll = counted.filter(r => r.pass).length;
+    const cost = counted.reduce((n, r) => n + (r.metrics?.costUsd ?? 0), 0);
+    console.log(`overall: ${passedAll}/${counted.length} passed, 95% CI ${JSON.stringify(wilson(passedAll, counted.length))}, estimated cost $${cost.toFixed(2)}`);
+  }
   for (const r of results.filter(row => row.metrics?.trend)) {
     const t = r.metrics.trend;
     console.log(`trend ${r.attempt}: ${t.calls} navigator calls; input tokens ${t.inputTokensFirst} → ${t.inputTokensLast}; latency ${t.latencyFirstMs} → ${t.latencyLastMs} ms; page read ${t.getStateFirstMs} → ${t.getStateLastMs} ms`);

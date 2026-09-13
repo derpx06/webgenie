@@ -8,6 +8,7 @@ const RECENT_TURNS = 5;
 const EARLIER_STEPS_CHARS = 1500;
 const PLANNER_STEPS_CHARS = 4000;
 const STEP_TEXT_CHARS = 200;
+const FINDINGS_CHARS = 1500;
 
 interface ToolTurn {
   kind: 'turn';
@@ -120,6 +121,21 @@ export class ContextBuilder {
       : '';
     if (validatedBlock) sections.push(validatedBlock);
 
+    // Saved findings, newest kept within the budget, shown oldest first.
+    const findings: string[] = [];
+    let used = 0;
+    const saved = context.findings ?? [];
+    for (let i = saved.length - 1; i >= 0; i--) {
+      const line = `- ${saved[i].trim()}`.slice(0, FINDINGS_CHARS);
+      if (used + line.length + 1 > FINDINGS_CHARS) {
+        findings.unshift(`- ...${i + 1} earlier findings omitted`);
+        break;
+      }
+      findings.unshift(line);
+      used += line.length + 1;
+    }
+    if (findings.length > 0) sections.push(`[FINDINGS]\n${findings.join('\n')}`);
+
     if (context.blockedState) sections.push(`[BLOCKED]\n${JSON.stringify(context.blockedState).slice(0, 700)}`);
     return sections;
   }
@@ -155,7 +171,7 @@ export class ContextBuilder {
           : `[Earlier steps]\n${renderTurnsAsText(olderTurns, EARLIER_STEPS_CHARS)}`,
       );
     }
-    // Plans, progress and step summaries are model-written and may quote page text.
+    // Plans, progress, findings and step summaries are model-written and may quote page text.
     const header = defangTags(sections.join('\n\n'));
 
     return [systemMessage, ...transcript, withHeader(currentStateMessage, header)];

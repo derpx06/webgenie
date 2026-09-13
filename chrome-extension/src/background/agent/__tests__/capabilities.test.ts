@@ -34,6 +34,14 @@ describe('LLM capability table', () => {
     expect(isOpenAIReasoningModel('openai/gpt-5-chat')).toBe(false);
   });
 
+  it('gives models that think at length a longer call limit than fast chat models', () => {
+    expect(getLlmCapabilities(ProviderTypeEnum.VertexAI, 'gemini-2.5-flash').callTimeoutMs).toBe(25_000);
+    expect(getLlmCapabilities(ProviderTypeEnum.VertexAI, 'gemini-2.5-pro').callTimeoutMs).toBe(60_000);
+    expect(getLlmCapabilities(ProviderTypeEnum.OpenAI, 'gpt-5').callTimeoutMs).toBe(90_000);
+    expect(getLlmCapabilities(ProviderTypeEnum.OpenAI, 'gpt-4o').callTimeoutMs).toBe(30_000);
+    expect(getLlmCapabilities(ProviderTypeEnum.Ollama, 'qwen3:8b').callTimeoutMs).toBe(90_000);
+  });
+
   it('maps Gemini thinking budgets, never turning pro thinking fully off', () => {
     expect(geminiThinkingBudget(undefined, 'gemini-2.5-flash')).toBe(1024);
     expect(geminiThinkingBudget('minimal', 'gemini-2.5-flash')).toBe(0);

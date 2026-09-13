@@ -4,6 +4,7 @@ import {
   generalSettingsStore, 
   DEFAULT_GENERAL_SETTINGS 
 } from '@extension/storage';
+import { t } from '@extension/i18n';
 import { FiLayers } from 'react-icons/fi';
 import { DashboardSection } from './shared/DashboardSection';
 import { SettingToggle } from './GeneralSettingsComponents';
@@ -69,6 +70,13 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
           checked={generalSettings.autoCloseEphemeralTabs}
           isDarkMode={isDarkMode}
           onChange={val => updateGeneralSetting('autoCloseEphemeralTabs', val)}
+        />
+        <SettingToggle
+          title={t('options_advanced_browserDataTools')}
+          desc={t('options_advanced_browserDataTools_desc')}
+          checked={generalSettings.enableBrowserDataTools}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('enableBrowserDataTools', val)}
         />
         <SettingToggle
           title="Show Ambient Border"

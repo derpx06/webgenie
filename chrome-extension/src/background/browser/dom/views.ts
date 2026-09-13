@@ -342,11 +342,13 @@ export class DOMElementNode extends DOMBaseNode {
              if (Object.keys(attributesToInclude).length > 0) {
                attributesHtmlStr = Object.entries(attributesToInclude)
                  .map(([key, value]) => {
-                   let capLimit = 15;
+                   // A field's value and an element's label are what the model checks its work against: cut short,
+                   // a typed address or a long option name cannot be verified.
+                   let capLimit = 30;
                    if (key === 'href') {
                      capLimit = 150;
                    } else if (['aria-label', 'aria-description', 'placeholder', 'title', 'value'].includes(key)) {
-                     capLimit = 40;
+                     capLimit = 120;
                    }
                    const capped = capTextLength(value, capLimit);
                    const escaped = capped.replace(/"/g, '&quot;');

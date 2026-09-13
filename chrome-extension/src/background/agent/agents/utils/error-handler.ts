@@ -13,6 +13,7 @@ import {
   isForbiddenError,
   isRateLimitError,
   isPaymentRequiredError,
+  isQuotaExhaustedError,
   LLM_FORBIDDEN_ERROR_MESSAGE,
   RequestCancelledError,
 } from '../errors';
@@ -32,7 +33,7 @@ export function handleAgentError(error: unknown, fallbackPrefix: string): never 
     throw new ChatModelBadRequestError(errorMessage, error);
   }
 
-  if (isPaymentRequiredError(error)) {
+  if (isPaymentRequiredError(error) || isQuotaExhaustedError(error)) {
     throw new ChatModelPaymentRequiredError(errorMessage, error);
   }
 

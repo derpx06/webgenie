@@ -643,6 +643,12 @@
   "act_goBack_ok": {
     "message": "Navigated back"
   },
+  "act_goForward_start": {
+    "message": "Navigating forward"
+  },
+  "act_goForward_ok": {
+    "message": "Navigated forward"
+  },
   "act_wait_start": {
     "message": "Waiting for $SECONDS$ seconds",
     "placeholders": {
@@ -789,89 +795,23 @@
       }
     }
   },
-  "act_cache_start": {
-    "message": "Caching findings: $CONTENT$",
+  "act_scroll_start": {
+    "message": "Scrolling $WHAT$",
     "placeholders": {
-      "content": {
+      "what": {
         "content": "$1",
-        "example": "User preferences saved"
+        "example": "down 1 page"
       }
     }
   },
-  "act_cache_ok": {
-    "message": "Cached findings: $CONTENT$",
+  "act_scroll_ok": {
+    "message": "Scrolled $WHAT$",
     "placeholders": {
-      "content": {
+      "what": {
         "content": "$1",
-        "example": "User preferences saved"
+        "example": "down 1 page"
       }
     }
-  },
-  "act_scrollToPercent_start": {
-    "message": "Scroll to percent: $PERCENT$",
-    "placeholders": {
-      "percent": {
-        "content": "$1",
-        "example": "50"
-      }
-    }
-  },
-  "act_scrollToPercent_ok": {
-    "message": "Scrolled to percent: $PERCENT$",
-    "placeholders": {
-      "percent": {
-        "content": "$1",
-        "example": "50"
-      }
-    }
-  },
-  "act_scrollToTop_start": {
-    "message": "Scroll to top"
-  },
-  "act_scrollToTop_ok": {
-    "message": "Scrolled to top"
-  },
-  "act_scrollToBottom_start": {
-    "message": "Scroll to bottom"
-  },
-  "act_scrollToBottom_ok": {
-    "message": "Scrolled to bottom"
-  },
-  "act_previousPage_start": {
-    "message": "Scroll to previous page"
-  },
-  "act_previousPage_ok": {
-    "message": "Scrolled to previous page"
-  },
-  "act_nextPage_start": {
-    "message": "Scroll to next page"
-  },
-  "act_nextPage_ok": {
-    "message": "Scrolled to next page"
-  },
-  "act_errors_alreadyAtTop": {
-    "message": "Element with index $INDEX$ is already at top, cannot scroll to previous page",
-    "placeholders": {
-      "index": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_errors_pageAlreadyAtTop": {
-    "message": "Already at top of page, cannot scroll to previous page"
-  },
-  "act_errors_alreadyAtBottom": {
-    "message": "Element with index $INDEX$ is already at bottom, cannot scroll to next page",
-    "placeholders": {
-      "index": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_errors_pageAlreadyAtBottom": {
-    "message": "Already at bottom of page, cannot scroll to next page"
   },
   "act_scrollToText_start": {
     "message": "Scroll to text: $TEXT$, occurrence $OCCURRENCE$",
@@ -939,39 +879,6 @@
       }
     }
   },
-  "act_getDropdownOptions_start": {
-    "message": "Getting options from dropdown with index $INDEX$",
-    "placeholders": {
-      "index": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_getDropdownOptions_useExactText": {
-    "message": "Use the exact text string in select_dropdown_option"
-  },
-  "act_getDropdownOptions_ok": {
-    "message": "Got $COUNT$ options from dropdown",
-    "placeholders": {
-      "count": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_getDropdownOptions_noOptions": {
-    "message": "No options found in dropdown"
-  },
-  "act_getDropdownOptions_failed": {
-    "message": "Failed to get dropdown options: $ERROR$",
-    "placeholders": {
-      "error": {
-        "content": "$1",
-        "example": "Element not found"
-      }
-    }
-  },
   "act_selectDropdownOption_start": {
     "message": "Select option \"$TEXT$\" from dropdown with index $INDEX$",
     "placeholders": {
@@ -1034,5 +941,14 @@
   },
   "bg_interrupt_debuggerDetached": {
     "message": "Browser control was cancelled from the debugging banner. The task is saved: resume it from the side panel."
+  },
+  "exec_task_rateLimitedPaused": {
+    "message": "The model provider kept rate-limiting requests. The task is saved: resume it from the side panel in a moment."
+  },
+  "options_advanced_browserDataTools": {
+    "message": "Browser Data Tools"
+  },
+  "options_advanced_browserDataTools_desc": {
+    "message": "Let the agent read and change your bookmarks, history, downloads, reading list, tab groups, sessions and extensions, and clear browsing data. Off by default: a web page could try to talk the agent into using them."
   }
 }

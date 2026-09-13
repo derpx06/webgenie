@@ -8,7 +8,8 @@ import type { ToolMode } from './agents/base';
 import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
-import { redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
+import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
+import { doneEvidence } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -83,6 +84,8 @@ export class Executor {
   private lastPlanningStep = -1;
   private running = false;
   private pendingAnswer: { response: string; secrets: string[] } | null = null;
+  /** The latest plan expected its phase to finish the task. */
+  private lastPlanFinalPhase = false;
   /** `actions|layoutFingerprint` per navigator step, for stall detection. */
   private stepKeys: string[] = [];
   constructor(
@@ -219,6 +222,8 @@ export class Executor {
 
     this.context.routeSteps = [];
     this.context.routeNote = undefined;
+    // Findings belong to one task; a follow-up refers to earlier answers through the task archive.
+    this.context.findings = [];
 
     const execDivider = '═'.repeat(60);
     console.log(
@@ -344,7 +349,22 @@ export class Executor {
         });
         if (this.planner && replanDecision.shouldReplan) {
           navigatorDone = false;
+          // Would the evidence alone have been enough to accept the navigator's done? Logged next to the planner's
+          // verdict, so skipping the check can be enabled only once the two agree in live runs.
+          const doneResult = replanDecision.trigger === 'contract_complete' ? context.actionResults.find(result => result.isDone) : undefined;
+          const evidence = doneResult
+            ? doneEvidence(context, doneResult.extractedContent ?? '', doneResult.success === true, this.lastPlanFinalPhase)
+            : null;
           latestPlanOutput = await this.runPlanner(getStepState);
+          if (evidence) {
+            record({
+              level: 'info',
+              kind: 'span',
+              component: 'Executor',
+              msg: 'verify.skippable',
+              data: { ...evidence, plannerDone: latestPlanOutput?.result?.done === true },
+            });
+          }
           if (latestPlanOutput) {
             planned = true;
             unvalidatedSteps = 0;
@@ -458,7 +478,11 @@ export class Executor {
           logger.error('Failed to end parent run in catch block:', err);
         }
       }
-      if (this.context.stopped && this.context.interruption) {
+      if (error instanceof ChatModelRateLimitError && !this.context.stopped) {
+        // Still rate limited after every retry: the task is kept, saved, so resuming it later continues where it was.
+        this.context.interruption = t('exec_task_rateLimitedPaused');
+      }
+      if (this.context.interruption) {
         await this.endInterrupted(this.tasks[this.tasks.length - 1]);
       } else if (this.context.stopped || error instanceof RequestCancelledError || isAbortedError(error)) {
         await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
@@ -603,7 +627,10 @@ export class Executor {
     }
   }
 
-  /** Records this step's actions and resulting layout; three identical entries in a row are a stall. */
+  /**
+   * Records this step's actions and resulting layout. The same actions on the same layout three times within the last
+   * six steps are a stall, whether in a row or alternating with something else (A, B, A, B, A).
+   */
   private recordStepAndCheckStall(): boolean {
     const record = this.context.history.history[this.context.history.history.length - 1];
     let actions = 'null';
@@ -613,9 +640,9 @@ export class Executor {
       // Unparseable output is not a repeat.
     }
     if (actions === 'null') return false;
-    this.stepKeys.push(`${actions}|${this.context.activeObservation?.layoutFingerprint ?? ''}`);
-    const lastThree = this.stepKeys.slice(-3);
-    return lastThree.length === 3 && lastThree.every(key => key === lastThree[0]);
+    const key = `${actions}|${this.context.activeObservation?.layoutFingerprint ?? ''}`;
+    this.stepKeys.push(key);
+    return this.stepKeys.slice(-6).filter(recent => recent === key).length >= 3;
   }
 
   /**
@@ -645,6 +672,7 @@ export class Executor {
       if (planOutput.result) {
         const p = planOutput.result;
         context.lastGoal = p.next_goal || p.macro_objective || '';
+        this.lastPlanFinalPhase = p.final_phase === true;
         const planDivider = '─'.repeat(60);
         console.log(
           `\n[Planner] ${planDivider}\n` +

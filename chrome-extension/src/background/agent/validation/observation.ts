@@ -52,6 +52,11 @@ function pageText(root: DOMElementNode | undefined): string {
   return textFragments(root).join(' ');
 }
 
+/** All text of a page read, in document order. */
+export function visibleText(state: BrowserState): string {
+  return pageText(state.elementTree);
+}
+
 /**
  * Short text that is on the page after an action but was not before (an error, a confirmation, a status), at most
  * five pieces. Kept in the action's result, so a message that the next action removes is not lost.
@@ -126,13 +131,21 @@ export function createBrowserObservation(state: BrowserState, capturedAt = Date.
     count: targets.length,
     structure: compactTargets.map(target => [target.i, target.b, target.x, target.t]),
   });
+  const text = stableHash(pageText(state.elementTree));
   const layoutFingerprint = stableHash({
     scrollY: state.scrollY,
     scrollHeight: state.scrollHeight,
     visualViewportHeight: state.visualViewportHeight,
     targets: compactTargets,
     // Text-only updates (a counter, a status message) are page changes too.
-    text: stableHash(pageText(state.elementTree)),
+    text,
+  });
+  // The same page content scrolled elsewhere: element positions (q) and scroll values are left out.
+  const contentFingerprint = stableHash({
+    url: state.url,
+    title: state.title,
+    targets: compactTargets.map(({ i, b, x, r, n, t, h, s }) => ({ i, b, x, r, n, t, h, s })),
+    text,
   });
 
   return {
@@ -143,6 +156,7 @@ export function createBrowserObservation(state: BrowserState, capturedAt = Date.
     capturedAt,
     documentFingerprint,
     layoutFingerprint,
+    contentFingerprint,
     targets,
   };
 }

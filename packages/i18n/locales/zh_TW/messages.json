@@ -643,6 +643,12 @@
   "act_goBack_ok": {
     "message": "已回到上一頁"
   },
+  "act_goForward_start": {
+    "message": "正在前往下一頁"
+  },
+  "act_goForward_ok": {
+    "message": "已前往下一頁"
+  },
   "act_wait_start": {
     "message": "等待 $SECONDS$ 秒",
     "placeholders": {
@@ -789,89 +795,23 @@
       }
     }
   },
-  "act_cache_start": {
-    "message": "正在快取結果：$CONTENT$",
+  "act_scroll_start": {
+    "message": "正在捲動 $WHAT$",
     "placeholders": {
-      "content": {
+      "what": {
         "content": "$1",
-        "example": "User preferences saved"
+        "example": "down 1 page"
       }
     }
   },
-  "act_cache_ok": {
-    "message": "已快取結果：$CONTENT$",
+  "act_scroll_ok": {
+    "message": "已捲動 $WHAT$",
     "placeholders": {
-      "content": {
+      "what": {
         "content": "$1",
-        "example": "User preferences saved"
+        "example": "down 1 page"
       }
     }
-  },
-  "act_scrollToPercent_start": {
-    "message": "正在捲動至 $PERCENT$ 百分比位置",
-    "placeholders": {
-      "percent": {
-        "content": "$1",
-        "example": "50"
-      }
-    }
-  },
-  "act_scrollToPercent_ok": {
-    "message": "已捲動至 $PERCENT$ 百分比位置",
-    "placeholders": {
-      "percent": {
-        "content": "$1",
-        "example": "50"
-      }
-    }
-  },
-  "act_scrollToTop_start": {
-    "message": "捲動至頂端"
-  },
-  "act_scrollToTop_ok": {
-    "message": "已捲動至頂端"
-  },
-  "act_scrollToBottom_start": {
-    "message": "捲動至底部"
-  },
-  "act_scrollToBottom_ok": {
-    "message": "已捲動至底部"
-  },
-  "act_previousPage_start": {
-    "message": "捲動至上一頁"
-  },
-  "act_previousPage_ok": {
-    "message": "已捲動至上一頁"
-  },
-  "act_nextPage_start": {
-    "message": "捲動至下一頁"
-  },
-  "act_nextPage_ok": {
-    "message": "已捲動至下一頁"
-  },
-  "act_errors_alreadyAtTop": {
-    "message": "索引為 $INDEX$ 的元素已在頂端，無法捲動至上一頁",
-    "placeholders": {
-      "index": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_errors_pageAlreadyAtTop": {
-    "message": "頁面已在頂端，無法捲動至上一頁"
-  },
-  "act_errors_alreadyAtBottom": {
-    "message": "索引為 $INDEX$ 的元素已在底部，無法捲動至下一頁",
-    "placeholders": {
-      "index": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_errors_pageAlreadyAtBottom": {
-    "message": "頁面已在底部，無法捲動至下一頁"
   },
   "act_scrollToText_start": {
     "message": "正在捲動至文字： \"$TEXT$\" ，第 $OCCURRENCE$ 次出現的位置",
@@ -939,39 +879,6 @@
       }
     }
   },
-  "act_getDropdownOptions_start": {
-    "message": "正在從索引為 $INDEX$ 的下拉式選單中取得選項",
-    "placeholders": {
-      "index": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_getDropdownOptions_useExactText": {
-    "message": "請在 select_dropdown_option 中使用完全相符的文字字串"
-  },
-  "act_getDropdownOptions_ok": {
-    "message": "已從下拉式選單取得 $COUNT$ 個選項",
-    "placeholders": {
-      "count": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_getDropdownOptions_noOptions": {
-    "message": "在下拉式選單中找不到任何選項"
-  },
-  "act_getDropdownOptions_failed": {
-    "message": "無法取得下拉式選單選項：$ERROR$",
-    "placeholders": {
-      "error": {
-        "content": "$1",
-        "example": "Element not found"
-      }
-    }
-  },
   "act_selectDropdownOption_start": {
     "message": "正在從索引為 $INDEX$ 的下拉式選單中選取 \"$TEXT$\" 選項",
     "placeholders": {
@@ -1034,5 +941,14 @@
   },
   "bg_interrupt_debuggerDetached": {
     "message": "已從偵錯橫幅取消瀏覽器控制。任務已儲存：可從側邊面板繼續。"
+  },
+  "exec_task_rateLimitedPaused": {
+    "message": "模型供應商持續限制請求頻率。任務已儲存：稍後可從側邊面板繼續。"
+  },
+  "options_advanced_browserDataTools": {
+    "message": "瀏覽器資料工具"
+  },
+  "options_advanced_browserDataTools_desc": {
+    "message": "允許代理程式讀取及變更您的書籤、瀏覽紀錄、下載項目、閱讀清單、分頁群組、工作階段與擴充功能，並清除瀏覽資料。預設為關閉：網頁可能會試圖誘使代理程式使用這些工具。"
   }
 }

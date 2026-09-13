@@ -336,13 +336,14 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         INTERACTIVE_ROLES.has(role) ||
         (Boolean(props.editable) && props.focusable === true) ||
         (role === 'gridcell' && props.focusable === true);
-      // Elements the page itself made pointer targets — a script click listener, draggable="true", an image —
-      // get an index too, unless a control already surrounds them or they are page-sized wrappers.
+      // Elements the page itself made pointer targets — a script click listener, a native click action, draggable="true" —
+      // get an index too, unless a control already surrounds them or they are page-sized wrappers. A plain image is not a
+      // target: its name is shown as text, and indexing every picture only lengthens the element list.
       const pointerCandidate =
         !interactive &&
         !insideControl &&
         Boolean(layout && rect) &&
-        (pageTarget || role === 'image' || role === 'img') &&
+        pageTarget &&
         rect!.width >= 8 &&
         rect!.height >= 8 &&
         (!viewport || rect!.width * rect!.height <= 0.5 * viewport.width * viewport.height);

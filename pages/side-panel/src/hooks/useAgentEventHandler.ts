@@ -109,7 +109,7 @@ export const useAgentEventHandler = ({
                     appendMessage({ actor: Actors.HITL, content: content || '', timestamp });
                     return;
                 }
-                else if (state === ExecutionState.ACT_START && content !== 'cache_content') skip = false;
+                else if (state === ExecutionState.ACT_START) skip = false;
                 else if (state === ExecutionState.ACT_OK) skip = !isReplayingRef.current;
                 else if (state === ExecutionState.ACT_FAIL) skip = false;
                 break;

@@ -43,9 +43,14 @@ export interface CommitTarget {
 
 const PRESSES_ENTER = /enter|return/i;
 
+/** Whether an action presses Enter: a key press of Enter or Return, or typing with submit. */
+function pressesEnter(actionName: string, args: Record<string, unknown>): boolean {
+  return (actionName === 'send_keys' && PRESSES_ENTER.test(String(args.keys ?? ''))) || (actionName === 'input_text' && args.submit === true);
+}
+
 /** Whether an action could submit a form, so its form must be inspected before the gate decides. */
 export function mayCommitThroughForm(actionName: string, args: Record<string, unknown>): boolean {
-  return actionName === 'click_element' || (actionName === 'send_keys' && PRESSES_ENTER.test(String(args.keys ?? '')));
+  return actionName === 'click_element' || pressesEnter(actionName, args);
 }
 
 /**
@@ -67,9 +72,11 @@ export function commitTarget(
     const parts = labelParts(node);
     label = parts.find(isCommitLabel);
     if (!label && ((form?.isSubmitter && commitsForm) || modelSaysCommit)) label = parts[0] ?? form?.submitLabels[0] ?? 'this button';
-  } else if (actionName === 'send_keys') {
-    if (commitsForm && PRESSES_ENTER.test(String(args.keys ?? ''))) label = `Enter, which submits "${form?.submitLabels[0] ?? 'the form'}"`;
-    else if (modelSaysCommit) label = String(args.keys);
+  } else if (actionName === 'send_keys' || actionName === 'input_text') {
+    // Typing with submit presses Enter, so it is gated exactly like the key press.
+    if (commitsForm && pressesEnter(actionName, args)) label = `Enter, which submits "${form?.submitLabels[0] ?? 'the form'}"`;
+    else if (modelSaysCommit && actionName === 'send_keys') label = String(args.keys);
+    else if (modelSaysCommit && args.submit === true) label = 'Enter after typing, which submits the form';
   } else if (actionName === 'manage_privacy' && args.action === 'clearData') {
     label = `Clear browsing data (${(args.clearTypes as string[] | undefined)?.join(', ') || 'all types'})`;
   } else if (actionName === 'manage_extensions' && args.action === 'setEnabled') {
@@ -331,8 +338,8 @@ function isStaleElementError(message: string): boolean {
   return /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)/i.test(message);
 }
 
-const NAVIGATION_ACTIONS = ['go_to_url', 'search_web', 'search_google', 'go_back'];
-const SCROLL_ACTIONS = ['scroll_to_percent', 'scroll_to_top', 'scroll_to_bottom', 'next_page', 'previous_page'];
+const NAVIGATION_ACTIONS = ['go_to_url', 'search_web', 'go_back', 'go_forward'];
+const SCROLL_ACTIONS = ['scroll'];
 const POINTER_ACTIONS = ['click_element', 'hover_element', 'right_click_element', 'send_keys', 'drag_element'];
 const MUTATING_ACTIONS = new Set([
   ...NAVIGATION_ACTIONS,
@@ -388,6 +395,8 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
   const changedUrl = urlChanged(before, after);
   const docChanged = readable && beforeObservation.documentFingerprint !== afterObservation.documentFingerprint;
   const layoutChanged = readable && beforeObservation.layoutFingerprint !== afterObservation.layoutFingerprint;
+  // Clicking scrolls the target into view first, so layout alone always moves: a click passes on content changes only.
+  const contentChanged = readable && beforeObservation.contentFingerprint !== afterObservation.contentFingerprint;
   const openedNewTab = hasNewTab(before, after);
 
   if (after.dialog && !before.dialog) {
@@ -505,21 +514,17 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
     }
     const delta = after.scrollY - before.scrollY;
     const maxScroll = Math.max(0, after.scrollHeight - after.visualViewportHeight);
-    const towardsTop = actionName === 'scroll_to_top' || actionName === 'previous_page';
-    const towardsBottom = actionName === 'scroll_to_bottom' || actionName === 'next_page';
+    const towardsTop = args.direction === 'up' || args.direction === 'top';
+    const towardsBottom = args.direction === 'down' || args.direction === 'bottom';
     const boundary = (towardsTop && after.scrollY <= 2) || (towardsBottom && after.scrollY >= maxScroll - 2);
-    const atTarget =
-      actionName === 'scroll_to_percent' &&
-      typeof args.yPercent === 'number' &&
-      Math.abs(after.scrollY - (maxScroll * args.yPercent) / 100) <= 2;
-    const passed = delta !== 0 || boundary || atTarget;
+    const passed = delta !== 0 || boundary;
     return cloneWithValidation(
       result,
       passed ? 'passed' : 'failed',
       passed ? 'none' : 'retry_reobserve',
       [
         evidence('scroll_delta', delta !== 0, delta !== 0 ? 'Scroll position changed.' : 'Scroll position did not change.', before.scrollY, after.scrollY),
-        evidence('scroll_boundary', boundary || atTarget, boundary || atTarget ? 'The page is at the requested scroll position.' : 'The requested scroll position was not reached.'),
+        evidence('scroll_boundary', boundary, boundary ? 'The page is at the requested scroll position.' : 'The requested scroll position was not reached.'),
       ],
       passed ? null : 'Scroll produced no movement and the page is not at the requested position.',
     );
@@ -539,14 +544,14 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
         );
       }
     }
-    if (changedUrl || docChanged || layoutChanged || openedNewTab) {
+    if (changedUrl || docChanged || contentChanged || openedNewTab) {
       return cloneWithValidation(
         result,
         'passed',
         'none',
         [
           evidence('url_change', changedUrl, changedUrl ? 'Action changed URL.' : 'URL did not change.', before.url, after.url),
-          evidence('document_change', docChanged || layoutChanged, docChanged || layoutChanged ? 'Action changed the page content.' : 'Page content did not change.'),
+          evidence('document_change', docChanged || contentChanged, docChanged || contentChanged ? 'Action changed the page content.' : 'Page content did not change.'),
           evidence('new_tab', openedNewTab, openedNewTab ? 'Action opened a new tab.' : 'No new tab opened.'),
         ],
       );

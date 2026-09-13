@@ -12,6 +12,7 @@ import {
   echoesActionResult,
   currentIndexFor,
   isApproval,
+  mayCommitThroughForm,
   normalizeIndexedAction,
   sameSite,
   urlKey,
@@ -228,26 +229,26 @@ describe('action outcome validation', () => {
     expect(result.validated).toBe('passed');
   });
 
-  it('passes scroll_to_percent when the page is already within 2px of the target', () => {
+  it('passes a scroll that moved or is at the end it went towards, and fails one that did neither', () => {
     const at = (scrollY: number) => state({ scrollY, scrollHeight: 1500, visualViewportHeight: 500 });
+    const scroll = (direction: string, before: number, after: number, index?: number) =>
+      validateActionOutcome({
+        actionName: 'scroll',
+        actionArgs: { direction, ...(index !== undefined ? { index } : {}) },
+        before: at(before),
+        after: at(after),
+        result: new ActionResult({ executed: true, executionStatus: 'executed' }),
+      }).validated;
 
-    const result = validateActionOutcome({
-      actionName: 'scroll_to_percent',
-      actionArgs: { yPercent: 50 },
-      before: at(501),
-      after: at(501),
-      result: new ActionResult({ executed: true, executionStatus: 'executed' }),
-    });
-    const missed = validateActionOutcome({
-      actionName: 'scroll_to_percent',
-      actionArgs: { yPercent: 50 },
-      before: at(100),
-      after: at(100),
-      result: new ActionResult({ executed: true, executionStatus: 'executed' }),
-    });
-
-    expect(result.validated).toBe('passed');
-    expect(missed.validated).toBe('failed');
+    expect(scroll('down', 0, 500)).toBe('passed');
+    expect(scroll('up', 0, 0)).toBe('passed');
+    expect(scroll('top', 1, 1)).toBe('passed');
+    expect(scroll('bottom', 1000, 1000)).toBe('passed');
+    expect(scroll('down', 1000, 1000)).toBe('passed');
+    expect(scroll('down', 400, 400)).toBe('failed');
+    expect(scroll('up', 400, 400)).toBe('failed');
+    // Inside an element the window does not move; only a content change shows the scroll.
+    expect(scroll('down', 0, 0, 1)).toBe('unknown');
   });
 
   it('passes click validation when the selected target state changes', () => {
@@ -432,6 +433,23 @@ describe('committing actions', () => {
     expect(commitTarget('send_keys', { keys: 'Tab' }, 'https://shop.test/promo', undefined, orderForm)).toBeNull();
     expect(commitTarget('manage_privacy', { action: 'clearData', clearTypes: ['cookies'] }, 'https://a.test/')?.label).toBe('Clear browsing data (cookies)');
     expect(commitTarget('manage_extensions', { action: 'getAll' }, 'https://a.test/')).toBeNull();
+  });
+
+  it('gates typing with submit exactly like Enter: in a payment or order form, or when the model marks it', () => {
+    const field = element(1, { tagName: 'input', attributes: { 'aria-label': 'Promo code' } });
+    const paymentForm: FormCommitInfo = { inForm: true, isSubmitter: false, paymentFields: true, submitLabels: ['Continue'] };
+    const orderForm: FormCommitInfo = { ...paymentForm, paymentFields: false, submitLabels: ['Place order'] };
+    const type = (args: Record<string, unknown>, form: FormCommitInfo | null) =>
+      commitTarget('input_text', { index: 1, text: 'SAVE10', ...args }, 'https://shop.test/checkout', field, form);
+
+    expect(mayCommitThroughForm('input_text', { index: 1, text: 'SAVE10', submit: true })).toBe(true);
+    expect(mayCommitThroughForm('input_text', { index: 1, text: 'SAVE10' })).toBe(false);
+    expect(type({ submit: true }, paymentForm)?.label).toBe('Enter, which submits "Continue"');
+    expect(type({ submit: true }, orderForm)?.label).toBe('Enter, which submits "Place order"');
+    expect(type({ submit: true }, { ...orderForm, submitLabels: ['Search'] })).toBeNull();
+    expect(type({}, orderForm)).toBeNull();
+    expect(type({ submit: true, commits: 'order' }, noForm)?.label).toBe('Enter after typing, which submits the form');
+    expect(type({ commits: 'order' }, noForm)).toBeNull();
   });
 
   it('asks with the amount shown before the button, in words no page can write', () => {

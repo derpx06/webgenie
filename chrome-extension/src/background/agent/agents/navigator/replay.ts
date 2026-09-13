@@ -15,6 +15,34 @@ export interface ParsedModelOutput {
   action?: (Record<string, unknown> | null)[] | null;
 }
 
+type LegacyUpgrade = (args: Record<string, unknown>) => Record<string, unknown> | null;
+
+/** Scroll arguments for an old scroll tool, keeping its optional element index. */
+const scrollCall = (args: Record<string, unknown>, direction: string, pages?: number) => ({
+  scroll: { direction, ...(pages ? { pages } : {}), ...(args.index != null ? { index: args.index } : {}) },
+});
+
+/** Tools removed or renamed since histories were saved, as the call that does the same now; null drops a read-only call. */
+const LEGACY_ACTIONS: Record<string, LegacyUpgrade> = {
+  scroll_to_top: args => scrollCall(args, 'top'),
+  scroll_to_bottom: args => scrollCall(args, 'bottom'),
+  next_page: args => scrollCall(args, 'down', 1),
+  previous_page: args => scrollCall(args, 'up', 1),
+  // ponytail: no percent position any more; the nearer end is the closest match.
+  scroll_to_percent: args => scrollCall(args, Number(args.yPercent) >= 50 ? 'bottom' : 'top'),
+  cache_content: args => ({ save_findings: { text: String(args.content ?? '') } }),
+  search_google: args => ({ search_web: { query: String(args.query ?? ''), engine: 'google' } }),
+  get_dropdown_options: () => null,
+};
+
+/** A saved action in today's tool names and arguments; anything not renamed is returned unchanged. */
+export function upgradeLegacyAction(action: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!action) return action;
+  const [name] = Object.keys(action);
+  const upgrade = LEGACY_ACTIONS[name];
+  return upgrade ? upgrade((action[name] ?? {}) as Record<string, unknown>) : action;
+}
+
 export class HistoryReplayer {
   constructor(
     private context: AgentContext,
@@ -75,7 +103,7 @@ export class HistoryReplayer {
       if (!result) break;
 
       const interactedElement = result.interactedElement;
-      const currentAction = parsedOutput.action![i];
+      const currentAction = upgradeLegacyAction(parsedOutput.action![i]);
 
       if (currentAction === null) {
         updatedActions.push(null);

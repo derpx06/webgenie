@@ -1046,76 +1046,61 @@ export default class Page {
     }
   }
 
-  async scrollToPreviousPage(elementNode?: DOMElementNode): Promise<void> {
+  /** Scrolls the page, or the element's nearest scrollable ancestor, by `pages` of its visible height (negative is up). */
+  async scrollByPages(pages: number, elementNode?: DOMElementNode): Promise<void> {
     await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
 
     if (!elementNode) {
-      // Scroll the whole page up by viewport height
-      await this._puppeteerPage.evaluate('window.scrollBy(0, -(window.visualViewport?.height || window.innerHeight));');
-    } else {
-      // Scroll the specific element up by its client height
-      const element = await this.locateElement(elementNode);
-      if (!element) {
-        throw new Error(`Element: ${elementNode} not found`);
-      }
-
-      // Find the nearest scrollable ancestor
-      const scrollableElement = await this._findNearestScrollableElement(element);
-      if (!scrollableElement) {
-        throw new Error(`No scrollable ancestor found for element: ${elementNode}`);
-      }
-
-      await scrollableElement.evaluate(el => {
-        el.scrollBy(0, -el.clientHeight);
-      });
+      await this._puppeteerPage.evaluate(pages => {
+        window.scrollBy({ top: pages * (window.visualViewport?.height || window.innerHeight), behavior: 'instant' });
+      }, pages);
+      return;
     }
+    const element = await this.locateElement(elementNode);
+    if (!element) {
+      throw new Error(`Element: ${elementNode} not found`);
+    }
+    const scrollableElement = await this._findNearestScrollableElement(element);
+    if (!scrollableElement) {
+      throw new Error(`No scrollable ancestor found for element: ${elementNode}`);
+    }
+    await scrollableElement.evaluate((el, pages) => {
+      el.scrollBy({ top: pages * el.clientHeight, behavior: 'instant' });
+    }, pages);
   }
 
-  async scrollToNextPage(elementNode?: DOMElementNode): Promise<void> {
-    await this.ensurePuppeteerConnected();
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not connected');
-    }
-
-    if (!elementNode) {
-      // Scroll the whole page down by viewport height
-      await this._puppeteerPage.evaluate('window.scrollBy(0, (window.visualViewport?.height || window.innerHeight));');
-    } else {
-      // Scroll the specific element down by its client height
-      const element = await this.locateElement(elementNode);
-      if (!element) {
-        throw new Error(`Element: ${elementNode} not found`);
-      }
-
-      // Find the nearest scrollable ancestor
-      const scrollableElement = await this._findNearestScrollableElement(element);
-      if (!scrollableElement) {
-        throw new Error(`No scrollable ancestor found for element: ${elementNode}`);
-      }
-
-      await scrollableElement.evaluate(el => {
-        el.scrollBy(0, el.clientHeight);
-      });
-    }
-  }
-
-  async sendKeys(keys: string): Promise<void> {
+  /** Presses a key or shortcut `repeat` times in the focused element, or in `node` after focusing it. */
+  async sendKeys(keys: string, node?: DOMElementNode, repeat = 1): Promise<void> {
     const { modifiers, key } = normalizeKeyCombo(keys);
     await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer page is not connected');
     }
+    if (node) {
+      const handle = await this._requireHandle(node);
+      const inChildFrame = !!node.frame && node.frame !== this._puppeteerPage.mainFrame();
+      const focused = !inChildFrame && (await handle.evaluate(el => {
+        (el as HTMLElement).focus();
+        return (el.getRootNode() as Document | ShadowRoot).activeElement === el;
+      }));
+      // ponytail: programmatic focus cannot enter a cross-site frame and misses unfocusable elements, so those get a
+      // real click, which on a slider track also moves the value; a CDP DOM.focus would avoid that if it matters.
+      if (!focused) await this._dispatchMouse(handle, 'click', { checkCover: false });
+    }
     const keyboard = this._puppeteerPage.keyboard;
-    try {
-      for (const modifier of modifiers) await keyboard.down(modifier);
-      // A key that opens a dialog is not acknowledged until the dialog closes.
-      await Promise.race([keyboard.press(key), sleep(1500)]);
-    } finally {
-      for (const modifier of [...modifiers].reverse()) {
-        await keyboard.up(modifier).catch(() => undefined);
+    // A key press that opened a dialog ends the repeats: nothing reaches the page until the dialog is answered.
+    for (let pressed = 0; pressed < repeat && !this._pendingDialog; pressed++) {
+      try {
+        for (const modifier of modifiers) await keyboard.down(modifier);
+        // A key that opens a dialog is not acknowledged until the dialog closes.
+        await Promise.race([keyboard.press(key), sleep(1500)]);
+      } finally {
+        for (const modifier of [...modifiers].reverse()) {
+          await keyboard.up(modifier).catch(() => undefined);
+        }
       }
     }
   }
@@ -1215,9 +1200,9 @@ export default class Page {
     const target = (sized.asElement() as ElementHandle | null) ?? handle;
     await target.scrollIntoView();
     const blocker = await target.evaluate(
-      (el, isHover, checkCovered) => {
+      (el, isHover, checkCovered): { message: string; buttons?: string[] } | null => {
         if (!isHover && ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true')) {
-          return 'The element is disabled';
+          return { message: 'The element is disabled' };
         }
         if (!checkCovered) return null;
         const rect = el.getBoundingClientRect();
@@ -1225,14 +1210,27 @@ export default class Page {
         const hit = root.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
         if (!hit || hit === el || el.contains(hit) || hit.contains(el)) return null;
         if (hit.closest('label')?.control === el) return null;
-        const text = (hit.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
-        return `The element is covered by <${hit.tagName.toLowerCase()}>${text ? ` "${text}"` : ''}; close or move past it first`;
+        // The covering layer: the nearest dialog or fixed/sticky box around what is on top (a banner, a modal).
+        let layer: Element = hit;
+        for (let node: Element | null = hit; node; node = node.parentElement) {
+          const position = getComputedStyle(node).position;
+          if (position === 'fixed' || position === 'sticky' || node.matches('dialog, [role="dialog"], [role="alertdialog"], [aria-modal="true"]')) {
+            layer = node;
+            break;
+          }
+        }
+        const text = (layer.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
+        const buttons = Array.from(layer.querySelectorAll('button, a[href], [role="button"], input[type="submit"], input[type="button"]'))
+          .map(button => ((button as HTMLElement).innerText || (button as HTMLInputElement).value || button.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim())
+          .filter(label => label && label.length <= 40)
+          .slice(0, 6);
+        return { message: `The element is covered by <${layer.tagName.toLowerCase()}>${text ? ` "${text}"` : ''}`, buttons };
       },
       kind === 'hover',
       checkCover,
     );
     if (blocker) {
-      throw new Error(blocker);
+      throw new Error(blocker.buttons ? `${blocker.message}${this._indexedButtons(blocker.buttons)}; close or move past it first` : blocker.message);
     }
     const { x, y } = await target.clickablePoint().catch(() => {
       throw new Error('The element has no visible area to point at (hidden, collapsed or off the page); choose another element.');
@@ -1277,6 +1275,23 @@ export default class Page {
       throw settled;
     }
     return { dialog, fileChooser: this._fileChooserOpened };
+  }
+
+  /**
+   * The covering layer's buttons as indexes of the last read, so the model can close it in its next call.
+   * ponytail: matched by label; a label that also appears outside the layer may name that element's index instead.
+   */
+  private _indexedButtons(labels: string[]): string {
+    const selectorMap = this._cachedState?.selectorMap;
+    if (!selectorMap) return '';
+    const named = labels.flatMap(label => {
+      for (const [index, node] of selectorMap) {
+        const nodeLabel = (node.attributes['aria-label'] || node.getAllTextTillNextClickableElement(2)).replace(/\s+/g, ' ').trim();
+        if (nodeLabel === label) return [`[${index}] "${label}"`];
+      }
+      return [];
+    });
+    return named.length > 0 ? `; its buttons: ${[...new Set(named)].join(', ')}` : '';
   }
 
   async clickNode(node: DOMElementNode, clickCount = 1): Promise<MouseOutcome> {
@@ -1374,25 +1389,6 @@ export default class Page {
       actual = await readBack();
     }
     return { matched: same(actual), secret: field.secret, actualLength: actual.length, actual: field.secret ? null : actual };
-  }
-
-  /** Visible option texts of a native select, or of an ARIA combobox/listbox (opened to render them). */
-  async dropdownOptions(node: DOMElementNode): Promise<string[]> {
-    const handle = await this._requireHandle(node);
-    const native = await handle.evaluate(el => (el instanceof HTMLSelectElement ? Array.from(el.options).map(option => option.text.trim()) : null));
-    if (native) {
-      return native;
-    }
-    let options = await this._ariaOptionTexts(handle);
-    if (options.length === 0) {
-      await this._dispatchMouse(handle, 'click', { checkCover: false });
-      const deadline = Date.now() + 1000;
-      while (options.length === 0 && Date.now() < deadline) {
-        await sleep(100);
-        options = await this._ariaOptionTexts(handle);
-      }
-    }
-    return options;
   }
 
   /** Selects by visible text: sets a native select, or opens an ARIA widget and clicks the matching option. */

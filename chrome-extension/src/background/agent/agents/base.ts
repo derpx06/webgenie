@@ -17,7 +17,7 @@ import { isBadRequestError, isRateLimitError, ResponseParseError } from './error
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CallOptions = Record<string, any>;
 
-export type ToolMode = Pick<LlmCapabilities, 'nativeTools' | 'forceToolChoice'>;
+export type ToolMode = Pick<LlmCapabilities, 'nativeTools' | 'forceToolChoice'> & Partial<Pick<LlmCapabilities, 'callTimeoutMs'>>;
 
 export interface BaseAgentOptions {
   chatLLM: BaseChatModel;
@@ -73,6 +73,7 @@ export abstract class BaseAgent<M = unknown> {
         validators,
         native: this.toolMode.nativeTools && typeof this.chatLLM.bindTools === 'function',
         forceToolChoice: this.toolMode.forceToolChoice,
+        timeoutMs: this.toolMode.callTimeoutMs,
         component: this.id,
         model: this.modelName,
         signal: this.context.controller.signal,
@@ -103,10 +104,29 @@ export abstract class BaseAgent<M = unknown> {
 // Everything below consumes LangChain's normalized AIMessage (tool_calls, usage_metadata,
 // response_metadata), so it behaves the same for every chat model adapter.
 
-/** Limit for each attempt: a response this slow is usually a one-off on the provider's side, so the second attempt starts fresh. */
-export const LLM_CALL_TIMEOUTS_MS = [20_000, 30_000];
-/** Extra waits after a rate-limited call: adapters retry 429s for only a few seconds, and shared quotas need longer. */
-export const RATE_LIMIT_DELAYS_MS = [5_000, 15_000, 30_000];
+/** Limit for each attempt without a per-model limit: a response this slow is usually a one-off, so the retry starts fresh. */
+export const LLM_CALL_TIMEOUTS_MS = [25_000, 37_500];
+/** Longest total wait for one call across rate-limit retries; after that the error goes up and the task pauses, saved. */
+export const RATE_LIMIT_BUDGET_MS = 60_000;
+/** When a model may be called again after a rate limit, shared by every caller in this worker (planner, navigator, checks). */
+const cooldownUntil = new Map<string, number>();
+
+/** A wait the provider asked for: Google's retryDelay ("30s") or a Retry-After value in seconds. */
+export function retryDelayHint(error: unknown): number | null {
+  const text = error instanceof Error ? `${error.message} ${JSON.stringify((error as { cause?: unknown }).cause ?? '')}` : String(error);
+  const google = /retryDelay\\?"?\s*:\s*\\?"(\d+(?:\.\d+)?)s/.exec(text);
+  if (google) return Math.round(Number(google[1]) * 1000);
+  const header = /retry-after\\?"?\s*[:=]\s*\\?"?(\d+)/i.exec(text);
+  return header ? Number(header[1]) * 1000 : null;
+}
+
+/** The wait before rate-limit retry `attempt` (0-based): the provider's hint, else exponential backoff with jitter. */
+export function rateLimitDelayMs(error: unknown, attempt: number, random: () => number = Math.random): number {
+  const hint = retryDelayHint(error);
+  if (hint !== null) return Math.min(hint, 30_000);
+  const ceiling = Math.min(30_000, 2_000 * 3 ** attempt);
+  return Math.round(ceiling / 2 + random() * (ceiling / 2));
+}
 const DEFAULT_MAX_REASKS = 2;
 
 export interface ToolCallRequest {
@@ -130,7 +150,7 @@ export interface InvokeLLMOptions {
   callOptions?: CallOptions;
   timeoutMs?: number;
   onUsage?: (usage: LLMUsage) => void;
-  /** Waits before each retry of a rate-limited call; defaults to RATE_LIMIT_DELAYS_MS. */
+  /** Fixed waits before each retry of a rate-limited call (tests); by default the provider's hint or jittered backoff. */
   rateLimitDelaysMs?: number[];
 }
 
@@ -283,24 +303,32 @@ export async function invokeLLM(
   messages: BaseMessage[],
   options: InvokeLLMOptions,
 ): Promise<AIMessage> {
-  const delays = options.rateLimitDelaysMs ?? RATE_LIMIT_DELAYS_MS;
-  const timeouts = options.timeoutMs ? [options.timeoutMs, options.timeoutMs] : LLM_CALL_TIMEOUTS_MS;
+  const timeouts = options.timeoutMs ? [options.timeoutMs, Math.round(options.timeoutMs * 1.5)] : LLM_CALL_TIMEOUTS_MS;
+  const cooldownKey = options.model ?? 'default';
   let rateLimitRetries = 0;
+  let rateLimitWaitedMs = 0;
   let transientRetries = 0;
   for (;;) {
+    // Another call to this model was just rate limited: wait it out instead of spending a request on another 429.
+    const cooling = (cooldownUntil.get(cooldownKey) ?? 0) - Date.now();
+    if (cooling > 0) await waitUnlessAborted(cooling, options.signal);
     try {
       return await invokeOnce(model, messages, { ...options, timeoutMs: timeouts[transientRetries] });
     } catch (error) {
       if (options.signal?.aborted) throw error;
       if (isRateLimitError(error)) {
-        if (rateLimitRetries >= delays.length) throw error;
-        const delay = delays[rateLimitRetries++];
+        const fixed = options.rateLimitDelaysMs;
+        const delay = fixed ? fixed[rateLimitRetries] : rateLimitDelayMs(error, rateLimitRetries);
+        if (delay === undefined || (!fixed && rateLimitWaitedMs + delay > RATE_LIMIT_BUDGET_MS)) throw error;
+        rateLimitRetries++;
+        rateLimitWaitedMs += delay;
+        cooldownUntil.set(cooldownKey, Math.max(cooldownUntil.get(cooldownKey) ?? 0, Date.now() + delay));
         record({
           level: 'warning',
           kind: 'llm',
           component: options.component,
-          msg: `rate limited; retrying in ${delay / 1000}s`,
-          data: { model: options.model, attempt: rateLimitRetries },
+          msg: `rate limited; retrying in ${(delay / 1000).toFixed(1)}s`,
+          data: { model: options.model, attempt: rateLimitRetries, hinted: retryDelayHint(error) !== null },
         });
         await waitUnlessAborted(delay, options.signal);
         continue;

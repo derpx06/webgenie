@@ -3,25 +3,20 @@ import {
   clickElementActionSchema,
   doneActionSchema,
   goBackActionSchema,
+  goForwardActionSchema,
   goToUrlActionSchema,
   inputTextActionSchema,
   openTabActionSchema,
   searchWebActionSchema,
-  searchGoogleActionSchema,
   switchTabActionSchema,
   type ActionSchema,
   sendKeysActionSchema,
   scrollToTextActionSchema,
-  cacheContentActionSchema,
+  saveFindingsActionSchema,
   selectDropdownOptionActionSchema,
-  getDropdownOptionsActionSchema,
   closeTabActionSchema,
   waitActionSchema,
-  previousPageActionSchema,
-  scrollToPercentActionSchema,
-  nextPageActionSchema,
-  scrollToTopActionSchema,
-  scrollToBottomActionSchema,
+  scrollActionSchema,
   hoverElementActionSchema,
   rightClickElementActionSchema,
   askHumanActionSchema,
@@ -106,18 +101,15 @@ export class Action {
   }
 
   /**
-   * Get the index argument from the input if this action has an index
-   * @param input The input to extract the index from
-   * @returns The index value if found, null otherwise
+   * The index argument of an action that has one; null when the action has none or this call omits it
+   * (send_keys and scroll take an optional index).
    */
   getIndexArg(input: unknown): number | null {
-    if (!this.hasIndex) {
+    if (!this.hasIndex || !input || typeof input !== 'object') {
       return null;
     }
-    if (input && typeof input === 'object' && 'index' in input) {
-      return (input as { index: number }).index;
-    }
-    return null;
+    const index = (input as { index?: unknown }).index;
+    return typeof index === 'number' ? index : null;
   }
 
   /**
@@ -146,11 +138,7 @@ export interface ToolDefinition {
 
 /** Extra field every navigator tool carries so the model's working memory rides along with each action. */
 export const NAVIGATOR_TOOL_FIELDS = {
-  memory: z
-    .string()
-    .describe(
-      'Working memory for the next step, 1-3 sentences: whether your last action worked, what is done and what remains (with counts), and any values you must remember.',
-    ),
+  memory: z.string().describe('Working memory for the next step, as described in the instructions.'),
 };
 
 /** Model-facing tool definitions, one per action. Deterministic, so the output is byte-stable for prompt caching. */
@@ -191,7 +179,7 @@ export class ActionBuilder {
   private readonly manageSystemHandler: ManageSystemHandler;
   private readonly manageSessionsHandler: ManageSessionsHandler;
 
-  constructor(context: AgentContext) {
+  constructor(private readonly context: AgentContext) {
     this.systemHandler = new SystemHandler(context);
     this.navigationHandler = new NavigationHandler(context);
     this.interactionHandler = new InteractionHandler(context);
@@ -218,7 +206,8 @@ export class ActionBuilder {
       ...this.buildTabActions(),
       ...this.buildContentActions(),
       ...this.buildKeyboardActions(),
-      ...this.buildChromeControlActions(),
+      // They read or change the user's own browser data, which a page could try to talk the agent into: opt-in only.
+      ...(this.context.options.enableBrowserDataTools ? this.buildChromeControlActions() : []),
     ];
   }
 
@@ -234,9 +223,9 @@ export class ActionBuilder {
   private buildNavigationActions(): Action[] {
     return [
       new Action((input) => this.navigationHandler.handleSearchWeb(input), searchWebActionSchema),
-      new Action((input) => this.navigationHandler.handleSearchGoogle(input), searchGoogleActionSchema),
       new Action((input) => this.navigationHandler.handleGoToUrl(input), goToUrlActionSchema),
       new Action(() => this.navigationHandler.handleGoBack(), goBackActionSchema),
+      new Action(() => this.navigationHandler.handleGoForward(), goForwardActionSchema),
       new Action((input) => this.navigationHandler.handleWait(input), waitActionSchema),
     ];
   }
@@ -249,11 +238,6 @@ export class ActionBuilder {
       new Action((input) => this.interactionHandler.handleInputText(input), inputTextActionSchema, true),
       new Action((input) => this.interactionHandler.handleDragElement(input), dragElementActionSchema, true),
       new Action((input) => this.interactionHandler.handleHandleDialog(input), handleDialogActionSchema),
-      new Action(
-        (input) => this.interactionHandler.handleGetDropdownOptions(input),
-        getDropdownOptionsActionSchema,
-        true,
-      ),
       new Action(
         (input) => this.interactionHandler.handleSelectDropdownOption(input),
         selectDropdownOptionActionSchema,
@@ -272,19 +256,15 @@ export class ActionBuilder {
 
   private buildContentActions(): Action[] {
     return [
-      new Action((input) => this.contentHandler.handleCacheContent(input), cacheContentActionSchema),
-      new Action((input) => this.contentHandler.handleScrollToPercent(input), scrollToPercentActionSchema),
-      new Action((input) => this.contentHandler.handleScrollToTop(input), scrollToTopActionSchema),
-      new Action((input) => this.contentHandler.handleScrollToBottom(input), scrollToBottomActionSchema),
-      new Action((input) => this.contentHandler.handlePreviousPage(input), previousPageActionSchema),
-      new Action((input) => this.contentHandler.handleNextPage(input), nextPageActionSchema),
+      new Action((input) => this.contentHandler.handleSaveFindings(input), saveFindingsActionSchema),
+      new Action((input) => this.contentHandler.handleScroll(input), scrollActionSchema, true),
       new Action((input) => this.contentHandler.handleScrollToText(input), scrollToTextActionSchema),
-      new Action(() => this.contentHandler.handleGetCompletePageContent(), getCompletePageContentActionSchema),
+      new Action((input) => this.contentHandler.handleGetCompletePageContent(input), getCompletePageContentActionSchema),
     ];
   }
 
   private buildKeyboardActions(): Action[] {
-    return [new Action((input) => this.keyboardHandler.handleSendKeys(input), sendKeysActionSchema)];
+    return [new Action((input) => this.keyboardHandler.handleSendKeys(input), sendKeysActionSchema, true)];
   }
 
   private buildChromeControlActions(): Action[] {

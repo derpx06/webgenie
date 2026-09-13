@@ -39,6 +39,8 @@ export interface AgentOptions {
   includeAttributes: string[];
   planningInterval: number;
   logDOMSnapshot: boolean; // log full DOM sent to LLM each step (dev option)
+  /** Registers the manage_* tools (bookmarks, history, downloads, browsing data, extensions...); off unless the user turns them on. */
+  enableBrowserDataTools: boolean;
 }
 
 export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
@@ -53,6 +55,7 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   includeAttributes: DEFAULT_INCLUDE_ATTRIBUTES,
   planningInterval: 3,
   logDOMSnapshot: false,
+  enableBrowserDataTools: false,
 };
 
 export class AgentContext {
@@ -112,6 +115,8 @@ export class AgentContext {
   routeSteps: RouteStep[] = [];
   /** The saved route for this task's start page; undefined until read. */
   routeNote?: string;
+  /** What the navigator kept with save_findings, oldest first; both agents see the newest every step. */
+  findings: string[] = [];
 
   constructor(
     taskId: string,

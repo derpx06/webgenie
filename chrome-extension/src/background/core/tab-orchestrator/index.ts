@@ -23,22 +23,11 @@ import { TabEventBridge } from '../event-bridge/bridge';
 import type { TabUpdatedEvent, TabRemovedEvent } from '../event-bridge/bridge';
 import { TabRegistry } from '../tab-registry/registry';
 import { ActivityEngine } from '../activity-engine/engine';
-import { TaskGroupManager } from '../task-groups/manager';
+import { TaskGroupManager, titleFromTask } from '../task-groups/manager';
 import { TabReuseEngine } from '../tab-reuse/engine';
 import type { AgentEvent } from '../../agent/event/types';
-import {
-  TabState,
-  WorkflowStage,
-  tabOrchestrationStore,
-  agentModelStore,
-  AgentNameEnum,
-  llmProviderStore,
-  generalSettingsStore,
-} from '@extension/storage';
+import { TabState, WorkflowStage, tabOrchestrationStore } from '@extension/storage';
 import type { GeneralSettingsConfig } from '@extension/storage';
-import { createChatModel } from '../../agent/helper';
-import { invokeLLM } from '../../agent/agents/base';
-import { HumanMessage } from '@langchain/core/messages';
 
 const logger = createLogger('TabOrchestrator');
 
@@ -140,7 +129,7 @@ export class TabOrchestrator {
           tabTitle = tab.title ?? '';
         } catch { /* tab may not be accessible */ }
 
-        this._registry.register(activeTabId, taskId, description.substring(0, 60));
+        this._registry.register(activeTabId, taskId, titleFromTask(description));
         this._registry.update(activeTabId, {
           state: TabState.PRIMARY_ACTIVE,
           workflowStage: WorkflowStage.PLANNING,
@@ -171,87 +160,13 @@ export class TabOrchestrator {
 
           // Collapse other active groups
           await this._groupManager.collapseInactiveGroups(group.groupId);
-
-          // Asynchronously generate group title to avoid blocking task start on LLM latency/network issues
-          this._generateGroupTitle(description).then(async (llmGroupTitle) => {
-            if (llmGroupTitle && group.chromeGroupId !== null) {
-              try {
-                // Update native chrome group title
-                await chrome.tabGroups.update(group.chromeGroupId, {
-                  title: llmGroupTitle
-                });
-                // Update in-memory / storage group metadata
-                const state = await tabOrchestrationStore.getState();
-                const currentGroup = state.groups[group.groupId];
-                if (currentGroup) {
-                  await tabOrchestrationStore.upsertGroup({
-                    ...currentGroup,
-                    title: llmGroupTitle
-                  });
-                }
-                logger.info(`TabOrchestrator: updated tab group title to "${llmGroupTitle}"`);
-              } catch (err) {
-                logger.warning('TabOrchestrator: failed to update group title natively or in store:', err);
-              }
-            }
-          }).catch(err => {
-            logger.warning('TabOrchestrator: failed to generate LLM group title asynchronously:', err);
-          });
+          // The group keeps the title made from the task text: a model call for it would compete with the task for quota.
         } catch (err) {
           logger.warning('TabOrchestrator: failed to create tab group:', err);
         }
       }
 
       await tabOrchestrationStore.setActive(activeTabId, this._currentGroupId);
-    }
-  }
-
-  private async _generateGroupTitle(taskDescription: string): Promise<string | undefined> {
-    try {
-      const providers = await llmProviderStore.getAllProviders();
-      if (Object.keys(providers).length === 0) return undefined;
-
-      const agentModels = await agentModelStore.getAllAgentModels();
-      const plannerModel = agentModels[AgentNameEnum.Planner] ?? agentModels[AgentNameEnum.Navigator];
-      if (!plannerModel) return undefined;
-
-      const providerConfig = providers[plannerModel.provider];
-      if (!providerConfig) return undefined;
-
-      const generalSettings = await generalSettingsStore.getSettings();
-      // A title needs no reasoning; minimal effort keeps the call fast on models that think.
-      const chatModel = createChatModel(providerConfig, { ...plannerModel, reasoningEffort: 'minimal' }, generalSettings);
-      const prompt = [
-        new HumanMessage(
-          `Create a very short browser tab group title for this task.
-Rules:
-- 2 to 5 words
-- no punctuation except hyphen if needed
-- title case
-- concise and specific
-- output title only
-
-Task:
-${taskDescription}`,
-        ),
-      ];
-
-      // A cosmetic title never waits out a rate limit: its retries would compete with the planner for quota at task start.
-      const response = await invokeLLM(chatModel, prompt, { component: 'TabOrchestrator', model: plannerModel.modelName, rateLimitDelaysMs: [] });
-      const raw = response.text;
-
-      const sanitized = raw
-        .replace(/[`"']/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .split('\n')[0]
-        .slice(0, 40)
-        .trim();
-
-      return sanitized || undefined;
-    } catch (error) {
-      logger.warning('TabOrchestrator: failed to generate LLM group title, falling back to task text:', error);
-      return undefined;
     }
   }
 

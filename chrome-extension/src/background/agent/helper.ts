@@ -148,7 +148,7 @@ function createOpenAIChatModel(
   } = {
     model: modelConfig.modelName,
     apiKey: providerConfig.apiKey,
-    maxRetries: 3,
+    maxRetries: 0,
   };
 
   const configuration: Record<string, unknown> = {};
@@ -257,7 +257,7 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
     azureOpenAIApiVersion: providerConfig.azureApiVersion,
     // For Azure, the model name should be the deployment name itself
     model: deploymentName, // Set model = deployment name to fix Azure requests
-    maxRetries: 3,
+    maxRetries: 0,
     // For O series models, use modelKwargs instead of temperature/topP
     ...(isOSeriesModel
       ? {
@@ -337,7 +337,7 @@ export function createChatModel(
         apiKey: providerConfig.apiKey,
         maxTokens,
         temperature,
-        maxRetries: 3,
+        maxRetries: 0,
         clientOptions: {},
         callbacks,
       };
@@ -349,7 +349,7 @@ export function createChatModel(
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
-        maxRetries: 3,
+        maxRetries: 0,
         callbacks,
       };
       return new ChatDeepSeek(args) as BaseChatModel;
@@ -360,7 +360,7 @@ export function createChatModel(
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
-        maxRetries: 3,
+        maxRetries: 0,
         callbacks,
         ...googleLimits(modelConfig),
         // ponytail: only the host of a custom base URL is used; Vertex endpoints belong to the Vertex AI provider.
@@ -373,7 +373,7 @@ export function createChatModel(
         apiKey: providerConfig.apiKey,
         temperature,
         topP,
-        maxRetries: 3,
+        maxRetries: 0,
         callbacks,
         ...googleLimits(modelConfig),
       };
@@ -400,7 +400,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
-        maxRetries: 3,
+        maxRetries: 0,
         configuration: {},
         callbacks,
       };
@@ -413,7 +413,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
-        maxRetries: 3,
+        maxRetries: 0,
         callbacks,
       };
       return new ChatGroq(args);
@@ -425,7 +425,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
-        maxRetries: 3,
+        maxRetries: 0,
         callbacks,
       };
       return new ChatCerebras(args);
@@ -447,7 +447,7 @@ export function createChatModel(
         // required but ignored by ollama
         apiKey: providerConfig.apiKey === '' ? 'ollama' : providerConfig.apiKey,
         baseUrl: providerConfig.baseUrl ?? 'http://localhost:11434',
-        maxRetries: 3,
+        maxRetries: 0,
         topP,
         temperature,
         numPredict: maxTokens,
@@ -489,7 +489,7 @@ export function createChatModel(
       } = {
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,
-        maxRetries: 3,
+        maxRetries: 0,
         topP: (modelConfig.parameters?.topP ?? 0.1) as number,
         temperature: (modelConfig.parameters?.temperature ?? 0.1) as number,
         maxTokens,
@@ -516,7 +516,7 @@ export function createChatModel(
         temperature,
         topP,
         maxTokens,
-        maxRetries: 3,
+        maxRetries: 0,
         callbacks,
       };
       return new ChatBedrockConverse(args) as unknown as BaseChatModel;

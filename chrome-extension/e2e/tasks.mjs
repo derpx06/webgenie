@@ -1158,6 +1158,21 @@ const BREADTH = [
       };
     },
   },
+  // Heavy real pages: the element list is long and the answer sits deep in the page, not in a small fixture.
+  {
+    id: 'B7',
+    title: 'Read an infobox on a very large article',
+    url: 'https://en.wikipedia.org/wiki/Python_(programming_language)',
+    task: 'According to the infobox on this page, who designed Python?',
+    check: ({ answer }) => has(answer, 'Guido van Rossum'),
+  },
+  {
+    id: 'B8',
+    title: 'Read a parameter list in long reference documentation',
+    url: 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map',
+    task: 'According to this page, which arguments is the callback function called with?',
+    check: ({ answer }) => ['element', 'index', 'array'].every(word => new RegExp(`\\b${word}\\b`, 'i').test(answer)),
+  },
 ];
 
 /** 20 guests for the long wizard, built from fixed lists so the ground truth never changes. */

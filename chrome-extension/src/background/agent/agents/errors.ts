@@ -201,9 +201,15 @@ export class ChatModelRateLimitError extends Error {
  * Checks if an error is a rate limit error (HTTP 429)
  */
 export function isRateLimitError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
+  if (!(error instanceof Error) || isQuotaExhaustedError(error)) return false;
   const msg = error.message.toLowerCase();
-  return msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit') || msg.includes('quota');
+  return /\b429\b|too many requests|rate.?limit|resource.?exhausted|quota/.test(msg);
+}
+
+/** A spent billing or daily quota: waiting will not help, so the task ends with the provider's message. */
+export function isQuotaExhaustedError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /exceeded your current quota|insufficient_quota|billing|per.?day|daily (limit|quota)|quota exceeded for .*per day/i.test(error.message);
 }
 
 /**

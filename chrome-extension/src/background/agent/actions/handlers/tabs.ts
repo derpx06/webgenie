@@ -17,17 +17,19 @@ export class TabHandler extends BaseHandler {
   }
 
   async handleOpenTab(input: z.infer<typeof openTabActionSchema.schema>): Promise<ActionResult> {
-    let url = input.url;
-    if (!url || url.startsWith('chrome://')) {
-      url = 'https://www.google.com';
-    }
+    const url = input.url.trim();
     const intent = t('act_openTab_start', [url]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+    if (!url || url.toLowerCase().startsWith('chrome://')) {
+      const error = `open_tab opens web addresses only; "${url}" cannot be opened. Open an https:// address, or use search_web to search.`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, error);
+      return new ActionResult({ error, includeInMemory: true });
+    }
 
-    await this.context.browserContext.openTab(url);
+    const page = await this.context.browserContext.openTab(url);
     const msg = t('act_openTab_ok', [url]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+    return new ActionResult({ extractedContent: `${msg} in new tab ${page.tabId}, now the current tab.`, includeInMemory: true });
   }
 
   async handleCloseTab(input: z.infer<typeof closeTabActionSchema.schema>): Promise<ActionResult> {

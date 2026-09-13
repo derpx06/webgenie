@@ -136,6 +136,24 @@ describe('Commit confirmations', () => {
     expect(h.executor.getContext().approvedCommitKey).toBeNull();
   });
 
+  it.each([
+    ['typing with submit', call('input_text', { index: 0, text: 'SAVE10', submit: true })],
+    ['Enter in an element', call('send_keys', { keys: 'Enter', index: 0, commits: 'none' })],
+  ])('asks before %s submits an order form, reading the form around that element', async (_, action) => {
+    const promo = { url: 'https://shop.test/checkout', title: 'Checkout', elements: [{ tag: 'input', attributes: { 'aria-label': 'Promo code' } }, { text: 'Place order' }] };
+    const h = createHarness({ task: 'Apply the promo code SAVE10', pages: [promo], planner: Array(6).fill(plannerUntil('never')), navigator: [action] });
+    // Only the promo field's own form orders: the gate must read the form of the element the action names.
+    h.browser.formFor = node => (node?.highlightIndex === 0 ? { inForm: true, isSubmitter: false, paymentFields: false, submitLabels: ['Place order'] } : null);
+
+    const run = h.executor.execute();
+    await until(() => h.has(ExecutionState.ACT_ASK_HUMAN));
+    expect(JSON.parse(asks(h)[0].data.details).question).toContain('"Enter, which submits "Place order"" on shop.test/checkout');
+    expect(h.browser.actions).toEqual([]);
+
+    await h.executor.cancel();
+    await settle(run);
+  });
+
   it('refuses the declined action without asking again', async () => {
     const h = createHarness({
       task: 'Place the order for my cart',

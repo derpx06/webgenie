@@ -46,5 +46,7 @@ export interface BrowserObservation {
   capturedAt: number;
   documentFingerprint: string;
   layoutFingerprint: string;
+  /** What the page says and offers (address, title, elements and their state, text) without where it sits: scrolling alone never changes it. */
+  contentFingerprint?: string;
   targets: TargetFingerprint[];
 }

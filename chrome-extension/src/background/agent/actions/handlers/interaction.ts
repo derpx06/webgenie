@@ -2,7 +2,6 @@ import { ActionResult } from '@src/background/agent/types';
 import type {
   clickElementActionSchema,
   dragElementActionSchema,
-  getDropdownOptionsActionSchema,
   handleDialogActionSchema,
   hoverElementActionSchema,
   inputTextActionSchema,
@@ -127,12 +126,16 @@ export class InteractionHandler extends BaseHandler {
     const { page, node } = await this.resolveIndex(input.index);
     const outcome = await page.inputTextNode(node, input.text);
     if (outcome.secret) registerSecret(input.text);
+    // The value is read back before Enter: a submitted field is often cleared.
+    if (input.submit) await page.sendKeys('Enter', node);
     // A password never leaves the page again: messages show its length only.
     const shown = outcome.secret ? '•'.repeat(input.text.length) : input.text;
     const msg = t('act_inputText_ok', [shown, input.index.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    const suggests = node.attributes.role === 'combobox' || /^(list|both)$/.test(node.attributes.autocomplete ?? node.attributes['aria-autocomplete'] ?? '');
+    const hint = suggests ? ' This field offers suggestions: to use one, click it in the browser state instead of pressing Enter.' : '';
     return new ActionResult({
-      extractedContent: ownAction(`You typed "${shown}" into [${input.index}]`),
+      extractedContent: ownAction(`You typed "${shown}" into [${input.index}]${input.submit ? ' and pressed Enter' : ''}`) + hint,
       includeInMemory: true,
       evidence: [
         {
@@ -146,20 +149,6 @@ export class InteractionHandler extends BaseHandler {
         },
       ],
     });
-  }
-
-  async handleGetDropdownOptions(input: z.infer<typeof getDropdownOptionsActionSchema.schema>): Promise<ActionResult> {
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_getDropdownOptions_start', [input.index.toString()]));
-    const { page, node } = await this.resolveIndex(input.index);
-    const options = await page.dropdownOptions(node);
-    if (options.length === 0) {
-      const msg = t('act_getDropdownOptions_noOptions');
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-      return new ActionResult({ extractedContent: msg, includeInMemory: true });
-    }
-    const msg = `${options.map((text, i) => `${i}: text=${JSON.stringify(text)}`).join('\n')}\n${t('act_getDropdownOptions_useExactText')}`;
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, t('act_getDropdownOptions_ok', [options.length.toString()]));
-    return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }
 
   async handleSelectDropdownOption(input: z.infer<typeof selectDropdownOptionActionSchema.schema>): Promise<ActionResult> {

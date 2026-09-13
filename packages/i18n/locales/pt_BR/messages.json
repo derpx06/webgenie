@@ -643,6 +643,12 @@
   "act_goBack_ok": {
     "message": "Navegado para trás"
   },
+  "act_goForward_start": {
+    "message": "Navegando para frente"
+  },
+  "act_goForward_ok": {
+    "message": "Navegado para frente"
+  },
   "act_wait_start": {
     "message": "Aguardando $SECONDS$ segundos",
     "placeholders": {
@@ -789,89 +795,23 @@
       }
     }
   },
-  "act_cache_start": {
-    "message": "Armazenando em cache os resultados: $CONTENT$",
+  "act_scroll_start": {
+    "message": "Rolando $WHAT$",
     "placeholders": {
-      "content": {
+      "what": {
         "content": "$1",
-        "example": "Preferências do usuário salvas"
+        "example": "down 1 page"
       }
     }
   },
-  "act_cache_ok": {
-    "message": "Resultados armazenados em cache: $CONTENT$",
+  "act_scroll_ok": {
+    "message": "Rolado $WHAT$",
     "placeholders": {
-      "content": {
+      "what": {
         "content": "$1",
-        "example": "Preferências do usuário salvas"
+        "example": "down 1 page"
       }
     }
-  },
-  "act_scrollToPercent_start": {
-    "message": "Rolar para a porcentagem: $PERCENT$",
-    "placeholders": {
-      "percent": {
-        "content": "$1",
-        "example": "50"
-      }
-    }
-  },
-  "act_scrollToPercent_ok": {
-    "message": "Rolado para a porcentagem: $PERCENT$",
-    "placeholders": {
-      "percent": {
-        "content": "$1",
-        "example": "50"
-      }
-    }
-  },
-  "act_scrollToTop_start": {
-    "message": "Rolar para o topo"
-  },
-  "act_scrollToTop_ok": {
-    "message": "Rolado para o topo"
-  },
-  "act_scrollToBottom_start": {
-    "message": "Rolar para o final"
-  },
-  "act_scrollToBottom_ok": {
-    "message": "Rolado para o final"
-  },
-  "act_previousPage_start": {
-    "message": "Rolar para a página anterior"
-  },
-  "act_previousPage_ok": {
-    "message": "Rolado para a página anterior"
-  },
-  "act_nextPage_start": {
-    "message": "Rolar para a próxima página"
-  },
-  "act_nextPage_ok": {
-    "message": "Rolado para a próxima página"
-  },
-  "act_errors_alreadyAtTop": {
-    "message": "O elemento com índice $INDEX$ já está no topo, não é possível rolar para a página anterior",
-    "placeholders": {
-      "index": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_errors_pageAlreadyAtTop": {
-    "message": "Já está no topo da página, não é possível rolar para a página anterior"
-  },
-  "act_errors_alreadyAtBottom": {
-    "message": "O elemento com índice $INDEX$ já está no final, não é possível rolar para a próxima página",
-    "placeholders": {
-      "index": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_errors_pageAlreadyAtBottom": {
-    "message": "Já está no final da página, não é possível rolar para a próxima página"
   },
   "act_scrollToText_start": {
     "message": "Rolar para o texto: $TEXT$, ocorrência $OCCURRENCE$",
@@ -939,39 +879,6 @@
       }
     }
   },
-  "act_getDropdownOptions_start": {
-    "message": "Obtendo opções do menu suspenso com índice $INDEX$",
-    "placeholders": {
-      "index": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_getDropdownOptions_useExactText": {
-    "message": "Use a string de texto exata em select_dropdown_option"
-  },
-  "act_getDropdownOptions_ok": {
-    "message": "Obtidas $COUNT$ opções do menu suspenso",
-    "placeholders": {
-      "count": {
-        "content": "$1",
-        "example": "5"
-      }
-    }
-  },
-  "act_getDropdownOptions_noOptions": {
-    "message": "Nenhuma opção encontrada no menu suspenso"
-  },
-  "act_getDropdownOptions_failed": {
-    "message": "Falha ao obter opções do menu suspenso: $ERROR$",
-    "placeholders": {
-      "error": {
-        "content": "$1",
-        "example": "Elemento não encontrado"
-      }
-    }
-  },
   "act_selectDropdownOption_start": {
     "message": "Selecionar opção \"$TEXT$\" do menu suspenso com índice $INDEX$",
     "placeholders": {
@@ -1034,5 +941,14 @@
   },
   "bg_interrupt_debuggerDetached": {
     "message": "O controle do navegador foi cancelado pelo aviso de depuração. A tarefa foi salva: retome-a pelo painel lateral."
+  },
+  "exec_task_rateLimitedPaused": {
+    "message": "O provedor do modelo continuou limitando as solicitações. A tarefa foi salva: retome-a pelo painel lateral em instantes."
+  },
+  "options_advanced_browserDataTools": {
+    "message": "Ferramentas de dados do navegador"
+  },
+  "options_advanced_browserDataTools_desc": {
+    "message": "Permite que o agente leia e altere seus favoritos, histórico, downloads, lista de leitura, grupos de guias, sessões e extensões, e limpe dados de navegação. Desativado por padrão: uma página da web poderia tentar convencer o agente a usá-las."
   }
 }

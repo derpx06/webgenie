@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { invokeLLM, invokeTools, isToolsUnsupportedError, readFinish } from '../base';
-import { isAbortedError, ResponseParseError } from '../errors';
+import { invokeLLM, invokeTools, isToolsUnsupportedError, rateLimitDelayMs, readFinish, retryDelayHint } from '../base';
+import { isAbortedError, isQuotaExhaustedError, isRateLimitError, ResponseParseError } from '../errors';
 import type { ToolDefinition } from '../../actions/builder';
 
 type Reply = AIMessage | ((signal?: AbortSignal) => Promise<AIMessage>);
@@ -142,6 +142,47 @@ describe('invokeTools', () => {
     expect(onUsage).toHaveBeenCalledWith({ inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, reasoningTokens: 0 });
   });
 
+});
+
+describe('rate limits and quotas', () => {
+  it("waits as long as the provider asks, capped at 30 s, and otherwise backs off with jitter", () => {
+    expect(retryDelayHint(new Error('429 {"error":{"details":[{"retryDelay":"12s"}]}}'))).toBe(12_000);
+    expect(retryDelayHint(new Error('429 Too Many Requests; Retry-After: 7'))).toBe(7_000);
+    expect(retryDelayHint(new Error('429 Resource exhausted'))).toBeNull();
+    expect(rateLimitDelayMs(new Error('429 {"retryDelay":"90s"}'), 0)).toBe(30_000);
+    expect(rateLimitDelayMs(new Error('429'), 0, () => 0)).toBe(1_000);
+    expect(rateLimitDelayMs(new Error('429'), 0, () => 1)).toBe(2_000);
+    expect(rateLimitDelayMs(new Error('429'), 3, () => 0)).toBe(15_000);
+    expect(rateLimitDelayMs(new Error('429'), 5, () => 1)).toBe(30_000);
+  });
+
+  it('treats a spent billing or daily quota as final, and a per-minute limit as a rate limit', async () => {
+    const spent = new Error('429 You exceeded your current quota, please check your plan and billing details.');
+    expect(isQuotaExhaustedError(spent)).toBe(true);
+    expect(isRateLimitError(spent)).toBe(false);
+    expect(isRateLimitError(new Error('Google request failed with status code 429: RESOURCE_EXHAUSTED'))).toBe(true);
+
+    const { chatModel, stub } = stubModel([() => Promise.reject(spent), new AIMessage({ content: 'never' })]);
+    await expect(invokeLLM(chatModel, packet, { component: 'test', rateLimitDelaysMs: [1, 1] })).rejects.toThrow('quota');
+    expect(stub.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds other calls to the same model until a rate limit has cooled down', async () => {
+    const first = stubModel([() => Promise.reject(new Error('429 Resource exhausted')), new AIMessage({ content: 'first' })]);
+    const second = stubModel([new AIMessage({ content: 'second' })]);
+    const options = { component: 'test', model: 'shared-model', rateLimitDelaysMs: [80] };
+
+    const firstCall = invokeLLM(first.chatModel, packet, options);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const startedAt = Date.now();
+    const secondCall = invokeLLM(second.chatModel, packet, options);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(second.stub.invoke).not.toHaveBeenCalled();
+
+    expect((await secondCall).text).toBe('second');
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(50);
+    expect((await firstCall).text).toBe('first');
+  });
 });
 
 describe('invokeLLM', () => {

@@ -26,6 +26,8 @@ export interface GeneralSettingsConfig {
   autoCloseEphemeralTabs: boolean;
   /** Minutes the agent waits for an answer before it saves the task and stops; replying later resumes it. */
   humanWaitMinutes: number;
+  /** Whether the agent gets the tools that read or change bookmarks, history, downloads, browsing data and extensions. */
+  enableBrowserDataTools: boolean;
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
@@ -55,6 +57,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   enableTabGrouping: true,
   autoCloseEphemeralTabs: false,
   humanWaitMinutes: 10,
+  enableBrowserDataTools: false,
 };
 
 
