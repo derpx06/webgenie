@@ -164,7 +164,7 @@ export interface PageSpec {
 }
 
 export interface BrowserAction {
-  type: 'click' | 'double_click' | 'hover' | 'right_click' | 'input' | 'send_keys' | 'navigate' | 'go_back';
+  type: 'click' | 'double_click' | 'hover' | 'right_click' | 'input' | 'send_keys' | 'navigate' | 'go_back' | 'upload';
   index?: number;
   /** The element's text, as the model saw it. */
   label?: string;
@@ -244,6 +244,10 @@ export class FakeBrowserContext {
     },
     sendKeys: async (keys: string, node?: DOMElementNode) =>
       this.act({ type: 'send_keys', text: keys, index: node?.highlightIndex ?? undefined }),
+    uploadFile: async (node: DOMElementNode, file: { name: string }) => {
+      this.act({ type: 'upload', index: node.highlightIndex ?? undefined, text: file.name });
+      return `; the file field now holds: ${file.name}`;
+    },
     formCommitInfo: async (node?: DOMElementNode) => this.formFor(node),
     navigateTo: async (url: string) => this.act({ type: 'navigate', url }),
     goBack: async () => this.act({ type: 'go_back' }),

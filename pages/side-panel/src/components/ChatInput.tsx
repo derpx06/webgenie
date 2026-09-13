@@ -3,10 +3,10 @@ import { AiOutlineLoading3Quarters } from 'react-icons/ai';
 import { AttachmentBar, RecordingOverlay } from './chat-input/Visuals';
 import { ChatActionButtons, ShortcutHint } from './chat-input/Controls';
 import { TabMentionsDropdown } from './chat-input/TabMentionsDropdown';
-import { useChatInput } from './chat-input/useChatInput';
+import { useChatInput, type UploadFile } from './chat-input/useChatInput';
 
 interface ChatInputProps {
-  onSendMessage: (text: string, displayText?: string) => void;
+  onSendMessage: (text: string, displayText?: string, secrets?: string[], files?: UploadFile[]) => void;
   onStopTask: () => void;
   onPauseTask: () => void;
   onResumeTask: () => void;

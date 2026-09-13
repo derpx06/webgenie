@@ -35,7 +35,7 @@ describe('model-facing tool definitions', () => {
 
   it('covers every action with unique, provider-valid names', () => {
     const names = tools.map(tool => tool.function.name);
-    expect(names).toHaveLength(32);
+    expect(names).toHaveLength(33);
     expect(names).toEqual(expect.arrayContaining(['handle_dialog', 'drag_element']));
     expect(new Set(names).size).toBe(names.length);
     for (const name of names) expect(name).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/);

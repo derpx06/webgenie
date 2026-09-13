@@ -180,7 +180,10 @@ export default class MessageManager {
       text = text.split(secret).join(placeholder);
       placeholders.set(placeholder, secret);
     }
-    const content = wrapUserRequest(`Answer from the user: ${filterExternalContent(text, false)}`, false);
+    // Files attached to an answer arrive like a task's: listed apart from the user's words, as data.
+    const { userText, attachmentsInner } = splitUserTextAndAttachments(text);
+    let content = wrapUserRequest(`Answer from the user: ${filterExternalContent(userText, false)}`, false);
+    if (attachmentsInner) content += `\n\n${wrapAttachments(attachmentsInner)}`;
     this.addMessage(new HumanMessage(content), 'human_answer');
     void this.saveToSession();
     return placeholders;

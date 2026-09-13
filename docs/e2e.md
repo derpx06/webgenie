@@ -41,8 +41,9 @@ E2E_ORACLE=1 E2E_SUITE=all pnpm -F chrome-extension e2e   # no browser agent, no
 | endurance | L1–L4 | Long tasks and conversations; a `trend` metric shows where accuracy fell off |
 | resilience | R1–R5 | Worker restart, tab closed, no answer, a new task arriving, user pause |
 | memory | M1–M2 | A saved route is offered only on the same start page and stores nothing the user wrote |
+| files | F1–F5 | Uploads (file field, hidden field behind a button, file asked for, page-only request refused) and a download |
 
-Fixtures (`fixtures.mjs`) are two local HTTP servers on random ports: a cross-site editor iframe origin and a host origin with shop, checkout, message and delivery pages plus tracked `/order` and `/exfil` endpoints that checkers read.
+Fixtures (`fixtures.mjs`) are two local HTTP servers on random ports: a cross-site editor iframe origin and a host origin with shop, checkout, message, delivery, upload and report pages plus tracked `/order`, `/exfil` and `/upload` endpoints that checkers read (uploads are recorded with their sha256). The browser profile saves downloads to its own `downloads` folder, which checkers get as `downloadsDir`.
 
 Human-in-the-loop is scripted: on `act.ask_human` the harness sends the task's next `human[i]` answer (with `secrets` for password fields) as `human_response` if its `expect` pattern matches the question; otherwise the task is cancelled with outcome `asked_human`. `lateAnswer` answers after the task has paused itself, and `during` hooks kill the worker, close the tab, pause/resume or start a second task. Scripted answers feed the `needlessQuestions` / `missedQuestions` counts.
 

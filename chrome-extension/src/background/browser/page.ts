@@ -260,6 +260,8 @@ export default class Page {
   /** True while navigateTo/goBack/goForward/refreshPage run, so their own beforeunload prompt is accepted. */
   private _agentNavigating = false;
   private _fileChooserOpened = false;
+  /** The file input of the last chooser the page opened (intercepted), for uploadFile. */
+  private _fileChooserNode: number | null = null;
   private _browserAdapter: IBrowserAdapter;
   private _storageProvider: IStorageProvider;
 
@@ -395,8 +397,9 @@ export default class Page {
       await client.send('Emulation.setFocusEmulationEnabled', { enabled: true });
       // A native file picker would block the tab; the agent is told about the chooser instead.
       await client.send('Page.setInterceptFileChooserDialog', { enabled: true });
-      client.on('Page.fileChooserOpened', () => {
+      client.on('Page.fileChooserOpened', event => {
         this._fileChooserOpened = true;
+        this._fileChooserNode = event.backendNodeId ?? null;
       });
     } catch (error) {
       logger.warning('Could not configure the page session:', error);
@@ -1304,6 +1307,53 @@ export default class Page {
 
   async rightClickNode(node: DOMElementNode): Promise<MouseOutcome> {
     return this._dispatchMouse(await this._requireHandle(node), 'right');
+  }
+
+  /**
+   * Puts a file into a file input: the element itself, else the input whose chooser a click on it opens, else a drop on
+   * it. The File is built in the page from its bytes, since DOM.setFileInputFiles needs a path on disk.
+   * ponytail: the chooser is caught on the main frame's session only; an upload button inside a cross-site iframe falls back to the drop.
+   */
+  async uploadFile(node: DOMElementNode, file: { name: string; type: string; data: string }): Promise<string> {
+    const put = (target: ElementHandle, drop: boolean) =>
+      target.evaluate(
+        (element: Element, name: string, type: string, data: string, asDrop: boolean) => {
+          const binary = atob(data);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          const transfer = new DataTransfer();
+          transfer.items.add(new File([bytes], name, { type }));
+          if (asDrop) {
+            for (const kind of ['dragenter', 'dragover', 'drop']) {
+              element.dispatchEvent(new DragEvent(kind, { bubbles: true, cancelable: true, dataTransfer: transfer }));
+            }
+            return '';
+          }
+          const input = element as HTMLInputElement;
+          input.files = transfer.files;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          return Array.from(input.files ?? [], picked => picked.name).join(', ');
+        },
+        file.name,
+        file.type,
+        file.data,
+        drop,
+      );
+    const handle = await this._requireHandle(node);
+    if (await handle.evaluate((element: Element) => element instanceof HTMLInputElement && element.type === 'file')) {
+      return `; the file field now holds: ${await put(handle, false)}`;
+    }
+    this._fileChooserNode = null;
+    await this._dispatchMouse(handle, 'click');
+    for (let waited = 0; this._fileChooserNode === null && waited < 1000; waited += 100) await sleep(100);
+    if (this._fileChooserNode !== null && this._puppeteerPage) {
+      const frame = node.frame ?? this._puppeteerPage.mainFrame();
+      const input = (await frame.mainRealm().adoptBackendNode(this._fileChooserNode)) as unknown as ElementHandle;
+      return `through the file chooser it opened; the file field now holds: ${await put(input, false)}`;
+    }
+    await put(handle, true);
+    return 'by dropping it on the element (it opened no file chooser)';
   }
 
   /** The form around the element (without one, around the focused element): its payment fields and submit buttons. */

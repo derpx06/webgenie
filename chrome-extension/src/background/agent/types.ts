@@ -120,6 +120,10 @@ export class AgentContext {
   routeNote?: string;
   /** What the navigator kept with save_findings, oldest first; both agents see the newest every step. */
   findings: string[] = [];
+  /** Files the user attached in this conversation, by name, as base64; only upload_file reads them (never a prompt or storage). */
+  files = new Map<string, { type: string; data: string }>();
+  /** Downloads seen during the task, by download id, as both agents see them. */
+  downloads = new Map<number, string>();
 
   constructor(
     taskId: string,

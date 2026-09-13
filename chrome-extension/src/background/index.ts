@@ -105,6 +105,18 @@ chrome.tabs.onRemoved.addListener(tabId => {
   browserContext.removeAttachedPage(tabId);
 });
 
+// Downloads during a task show in the agents' state (the name and whether Chrome saved or held it).
+// ponytail: every download while a task runs counts, including one the user starts in another tab.
+chrome.downloads.onCreated.addListener(item => {
+  if (currentExecutor && runningTask) currentExecutor.noteDownload(item);
+});
+chrome.downloads.onChanged.addListener(delta => {
+  if (!currentExecutor || !runningTask) return;
+  void chrome.downloads.search({ id: delta.id }).then(([item]) => {
+    if (item) currentExecutor?.noteDownload(item);
+  });
+});
+
 /** The last task started in this browser session, so a restarted worker or a late answer can find its checkpoint. */
 const ACTIVE_TASK_KEY = 'webgenie_active_task';
 const checkpointStore = new TaskCheckpointStore();
@@ -117,6 +129,17 @@ async function loadSavedTask(taskId?: string): Promise<TaskCheckpoint | null> {
   if (!id) return null;
   const checkpoint = await checkpointStore.load(id);
   return isCheckpointResumable(checkpoint) ? checkpoint : null;
+}
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+/** Files attached in the side panel go to the executor's memory for upload_file; nothing else keeps them. */
+function attachFiles(executor: Executor, files: unknown): void {
+  if (!Array.isArray(files)) return;
+  for (const file of files as Array<{ name?: unknown; type?: unknown; data?: unknown } | null>) {
+    if (typeof file?.name !== 'string' || typeof file.data !== 'string' || (file.data.length * 3) / 4 > MAX_UPLOAD_BYTES) continue;
+    executor.getContext().files.set(file.name, { type: typeof file.type === 'string' ? file.type : '', data: file.data });
+  }
 }
 
 /** Cancels the running task, if any, and waits until it has ended: one task drives the browser at a time. */
@@ -148,7 +171,11 @@ async function runExecutor(executor: Executor, tabId: number | null | undefined,
 }
 
 /** Rebuilds an executor from a checkpoint (its transcript is in session storage) and continues the task. */
-async function resumeSavedTask(checkpoint: TaskCheckpoint, fallbackTabId?: number, answer?: { response: string; secrets: string[] }): Promise<void> {
+async function resumeSavedTask(
+  checkpoint: TaskCheckpoint,
+  fallbackTabId?: number,
+  answer?: { response: string; secrets: string[]; files?: unknown },
+): Promise<void> {
   const savedTab = checkpoint.tabId ? await chrome.tabs.get(checkpoint.tabId).catch(() => null) : null;
   const tabId = savedTab?.id ?? fallbackTabId;
   if (!tabId) throw new Error(t('bg_errors_noTabId'));
@@ -156,7 +183,10 @@ async function resumeSavedTask(checkpoint: TaskCheckpoint, fallbackTabId?: numbe
   const executor = await setupExecutor(checkpoint.taskId, checkpoint.task, browserContext);
   currentExecutor = executor;
   subscribeToExecutorEvents(executor);
-  if (answer) executor.setPendingAnswer(answer.response, answer.secrets);
+  if (answer) {
+    attachFiles(executor, answer.files);
+    executor.setPendingAnswer(answer.response, answer.secrets);
+  }
   await runExecutor(executor, tabId, () => executor.execute());
 }
 
@@ -344,6 +374,7 @@ chrome.runtime.onConnect.addListener(port => {
             await stopRunningTask();
             browserContext.updateCurrentTabId(message.tabId);
             const executor = await setupExecutor(message.taskId, message.task, browserContext);
+            attachFiles(executor, message.files);
             currentExecutor = executor;
             subscribeToExecutorEvents(executor);
 
@@ -365,6 +396,7 @@ chrome.runtime.onConnect.addListener(port => {
             // A finished task's executor is gone; the new one reads the conversation from session storage.
             const executor = currentExecutor ?? (await setupExecutor(message.taskId, message.task, browserContext));
             if (executor === currentExecutor) executor.addFollowUpTask(message.task);
+            attachFiles(executor, message.files);
             currentExecutor = executor;
             subscribeToExecutorEvents(executor);
 
@@ -396,6 +428,7 @@ chrome.runtime.onConnect.addListener(port => {
           case 'human_response': {
             const secrets = Array.isArray(message.secrets) ? message.secrets : [];
             if (currentExecutor && runningTask && !currentExecutor.getContext().stopped) {
+              attachFiles(currentExecutor, message.files);
               await currentExecutor.submitHumanResponse(message.response, secrets);
               return port.postMessage({ type: 'success' });
             }
@@ -404,7 +437,7 @@ chrome.runtime.onConnect.addListener(port => {
             await runningTask?.catch(() => {});
             const saved = await loadSavedTask(message.taskId);
             if (!saved) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
-            await resumeSavedTask(saved, message.tabId, { response: message.response, secrets });
+            await resumeSavedTask(saved, message.tabId, { response: message.response, secrets, files: message.files });
             break;
           }
 

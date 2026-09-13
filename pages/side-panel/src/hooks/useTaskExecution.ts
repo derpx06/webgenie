@@ -129,7 +129,7 @@ export const useTaskExecution = ({
      * @param displayText Optional text to display in the UI (if different from execution text).
      */
     const handleSendMessage = useCallback(
-        async (text: string, displayText?: string, secrets?: string[]) => {
+        async (text: string, displayText?: string, secrets?: string[], files?: { name: string; type: string; data: string }[]) => {
             // ... implementation
             const trimmedText = text.trim();
             if (!trimmedText) return;
@@ -166,6 +166,7 @@ export const useTaskExecution = ({
                         type: 'human_response',
                         response: text,
                         secrets: secrets ?? [],
+                        files,
                     });
                     setIsWaitingForHuman(false);
                     return;
@@ -192,6 +193,7 @@ export const useTaskExecution = ({
                     task: text,
                     taskId: sessionIdRef.current ?? undefined,
                     tabId,
+                    files,
                 });
             } catch (err) {
                 const errorMessage = err instanceof Error ? err.message : String(err);

@@ -157,6 +157,7 @@ export class Executor {
     // A new message is a new request: earlier confirmations and refusals were about the previous one.
     this.context.approvedCommitKey = null;
     this.context.declinedCommitKeys.clear();
+    this.forgetRefusedIntents();
 
     // need to reset previous action results that are not included in memory
     this.context.actionResults = this.context.actionResults.filter(result => result.includeInMemory);
@@ -848,6 +849,27 @@ export class Executor {
   }
 
   /** An answer given after the task stopped waiting; applied once the saved task is restored. */
+  /** A message from the user can grant what an intent check refused (the agent asks, the user says yes); ask again. */
+  private forgetRefusedIntents(): void {
+    for (const [key, asked] of this.context.intentDecisions) if (!asked) this.context.intentDecisions.delete(key);
+  }
+
+  /** Shows a download of this task in both agents' state: the file name, never its local path. */
+  noteDownload(item: Pick<chrome.downloads.DownloadItem, 'id' | 'filename' | 'url' | 'finalUrl' | 'totalBytes' | 'state' | 'danger' | 'error'>): void {
+    const source = item.finalUrl || item.url;
+    const name = (item.filename || source.split(/[?#]/)[0]).split(/[\\/]/).pop() || 'file';
+    const size = item.totalBytes > 0 ? `, ${Math.max(1, Math.round(item.totalBytes / 1024))} KB` : '';
+    const status =
+      item.danger && !['safe', 'accepted'].includes(item.danger)
+        ? 'held by Chrome as possibly dangerous; only the user can keep it'
+        : item.state === 'complete'
+          ? 'saved'
+          : item.state === 'interrupted'
+            ? `failed (${item.error ?? 'interrupted'})`
+            : 'downloading';
+    this.context.downloads.set(item.id, `${name} from ${hostOf(source) || source.slice(0, 60)}${size}: ${status}`);
+  }
+
   setPendingAnswer(response: string, secrets: string[] = []): void {
     this.pendingAnswer = { response, secrets };
   }
@@ -873,6 +895,7 @@ export class Executor {
     if (commitKey && isApproval(response)) this.context.approvedCommitKey = commitKey;
     else if (commitKey) this.context.declinedCommitKeys.add(commitKey);
     this.context.pendingQuestion = null;
+    this.forgetRefusedIntents();
     const host = hostOf(this.context.promptState?.url);
     for (const [placeholder, value] of this.context.messageManager.addHumanAnswer(response, secrets)) {
       this.context.secrets.set(placeholder, { value, host });

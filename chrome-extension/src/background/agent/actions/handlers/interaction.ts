@@ -7,6 +7,7 @@ import type {
   inputTextActionSchema,
   rightClickElementActionSchema,
   selectDropdownOptionActionSchema,
+  uploadFileActionSchema,
 } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
@@ -50,7 +51,7 @@ export class InteractionHandler extends BaseHandler {
       notes.push(`It opened a JavaScript ${outcome.dialog.type} dialog: "${outcome.dialog.message}". Call handle_dialog to answer it.`);
     }
     if (outcome.fileChooser) {
-      notes.push('A file chooser opened; uploading files is not supported, so ask the user to upload the file.');
+      notes.push('A file chooser opened: call upload_file on this element with a file the user attached (ask_human for the file when none is).');
     }
     if (!outcome.dialog) {
       const newTabId = [...(await this.context.browserContext.getAllTabIds())].find(id => !tabsBefore.has(id));
@@ -86,6 +87,27 @@ export class InteractionHandler extends BaseHandler {
       node => t('act_click_ok', [input.index.toString(), describe(node)]),
       input.double ? 'double-clicked' : 'clicked',
     );
+  }
+
+  async handleUploadFile(input: z.infer<typeof uploadFileActionSchema.schema>): Promise<ActionResult> {
+    const file = this.context.files.get(input.file);
+    if (!file) {
+      const names = [...this.context.files.keys()];
+      throw new Error(
+        names.length > 0
+          ? `No attached file is named "${input.file}"; the user attached: ${names.join(', ')}.`
+          : 'The user has not attached a file. Ask the user (ask_human) to attach it in the side panel.',
+      );
+    }
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Uploading ${input.file}`);
+    const { page, node } = await this.resolveIndex(input.index);
+    const how = await page.uploadFile(node, { name: input.file, ...file });
+    const kb = Math.max(1, Math.round((file.data.length * 3) / 4 / 1024));
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Uploaded ${input.file}`);
+    return new ActionResult({
+      extractedContent: ownAction(`You uploaded ${input.file} (${kb} KB) to [${input.index}] "${describe(node)}" ${how}`),
+      includeInMemory: true,
+    });
   }
 
   async handleHoverElement(input: z.infer<typeof hoverElementActionSchema.schema>): Promise<ActionResult> {

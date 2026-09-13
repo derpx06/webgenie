@@ -141,6 +141,7 @@ export class ContextBuilder {
       used += line.length + 1;
     }
     if (findings.length > 0) sections.push(`[FINDINGS]\n${findings.join('\n')}`);
+    if (context.downloads?.size) sections.push(`[DOWNLOADS]\n${[...context.downloads.values()].map(line => `- ${line}`).join('\n')}`);
 
     if (context.blockedState) sections.push(`[BLOCKED]\n${JSON.stringify(context.blockedState).slice(0, 700)}`);
     return sections;

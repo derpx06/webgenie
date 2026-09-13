@@ -6,6 +6,7 @@ import {
   goForwardActionSchema,
   goToUrlActionSchema,
   inputTextActionSchema,
+  uploadFileActionSchema,
   openTabActionSchema,
   searchWebActionSchema,
   switchTabActionSchema,
@@ -236,6 +237,7 @@ export class ActionBuilder {
       new Action((input) => this.interactionHandler.handleHoverElement(input), hoverElementActionSchema, true),
       new Action((input) => this.interactionHandler.handleRightClickElement(input), rightClickElementActionSchema, true),
       new Action((input) => this.interactionHandler.handleInputText(input), inputTextActionSchema, true),
+      new Action((input) => this.interactionHandler.handleUploadFile(input), uploadFileActionSchema, true),
       new Action((input) => this.interactionHandler.handleDragElement(input), dragElementActionSchema, true),
       new Action((input) => this.interactionHandler.handleHandleDialog(input), handleDialogActionSchema),
       new Action(

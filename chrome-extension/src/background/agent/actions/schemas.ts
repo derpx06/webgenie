@@ -129,6 +129,16 @@ export const inputTextActionSchema: ActionSchema = {
   }),
 };
 
+export const uploadFileActionSchema: ActionSchema = {
+  name: 'upload_file',
+  description:
+    'Upload a file the user attached: into a file field, an upload button or a drop zone by index. Only files the user attached; when none is, ask_human for it',
+  schema: z.object({
+    index: elementIndex,
+    file: z.string().describe("the attached file's name, exactly as in the user's message"),
+  }),
+};
+
 // Tab Management Actions
 export const switchTabActionSchema: ActionSchema = {
   name: 'switch_tab',
@@ -300,17 +310,9 @@ export const manageHistoryActionSchema: ActionSchema = {
 
 export const manageDownloadsActionSchema: ActionSchema = {
   name: 'manage_downloads',
-  description: 'Manage Chrome downloads: initiate a new download or search existing downloads.',
+  description: "Search Chrome's downloads (downloads during this task are already listed in the state).",
   schema: z.object({
-    action: z.enum(['download', 'searchDownloads']).describe('The action to perform on downloads'),
-    query: z.string().optional().describe('Text query/search term for searching downloads'),
-    url: z.string().optional().describe('URL for downloading'),
-    filename: z.string().optional().describe('Filename or relative path to save the downloaded file to'),
-    conflictAction: z
-      .enum(['uniquify', 'overwrite', 'prompt'])
-      .optional()
-      .describe('Action to resolve download conflicts'),
-    saveAs: z.boolean().optional().describe('Whether to prompt the user with a Save As dialog box for downloads'),
+    query: z.string().optional().describe('Text to search for in file names and addresses'),
   }),
 };
 
