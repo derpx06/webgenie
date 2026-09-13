@@ -108,6 +108,8 @@ export class DOMElementNode extends DOMBaseNode {
   /** The frame the node was read from; its backendNodeId is only meaningful there. */
   frame?: Frame;
   frameKey?: string;
+  /** Not on the page the model saw at its last step; serialized as *[index]. */
+  isNew = false;
 
 
   constructor(params: {
@@ -358,7 +360,7 @@ export class DOMElementNode extends DOMBaseNode {
              }
            }
  
-           const highlightIndicator = `[${node.highlightIndex}]`;
+           const highlightIndicator = `${node.isNew ? '*' : ''}[${node.highlightIndex}]`;
            let line = `${depthStr}${highlightIndicator}<${node.tagName ?? 'DIV'}`;
            if (attributesHtmlStr) {
              line += ` ${attributesHtmlStr}`;

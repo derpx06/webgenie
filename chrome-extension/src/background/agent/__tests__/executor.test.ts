@@ -376,6 +376,31 @@ describe('Interruptions and resuming', () => {
   });
 });
 
+describe('Batches of actions', () => {
+  it('stops a batch when an action reveals new elements, and marks them *[index] at the next step', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    const url = 'https://shop.test/';
+    h = createHarness({
+      task: 'Open the menu and pick Settings',
+      pages: [
+        { url, title: 'Shop', elements: [{ text: 'Menu' }, { text: 'Help' }] },
+        { url, title: 'Shop', elements: [{ text: 'Menu' }, { text: 'Help' }, { text: 'Settings' }] },
+      ],
+      planner: Array(6).fill(planner),
+      navigator: [[click(0), click(1)], done('The menu is open')],
+    });
+
+    await settle(h.executor.execute());
+
+    expect(h.browser.actions.map(action => action.index)).toEqual([0]);
+    const nextState = textOf(h.llm.requestsFor('navigator')[1].messages.at(-1)!);
+    expect(nextState).toContain('*[2]<button >Settings');
+    expect(nextState).not.toContain('*[0]');
+  });
+});
+
 describe('Passwords from the user', () => {
   const login = {
     url: 'https://site.test/login',

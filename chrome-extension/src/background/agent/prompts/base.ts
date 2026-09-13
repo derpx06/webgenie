@@ -3,7 +3,7 @@ import type { AgentContext } from '@src/background/agent/types';
 import { defangTags, untrustedInline, wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
 import { RouteMemory } from '../memory';
-import { ensureBrowserObservation } from '../validation/observation';
+import { ensureBrowserObservation, newElements } from '../validation/observation';
 
 const logger = createLogger('BasePrompt');
 
@@ -34,7 +34,7 @@ export function capPromptSection(text: string, maxChars: number, label: string):
 export function windowAroundViewport(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   const lines = text.split('\n');
-  const firstOnScreen = lines.findIndex(line => /^\t*\[\d+\]/.test(line) && !line.includes('offscreen="true"'));
+  const firstOnScreen = lines.findIndex(line => /^\t*\*?\[\d+\]/.test(line) && !line.includes('offscreen="true"'));
   let start = Math.max(0, firstOnScreen);
   let end = start;
   let size = Math.min(lines[start].length, maxChars) + 1;
@@ -87,6 +87,9 @@ abstract class BasePrompt {
 
     const observation = ensureBrowserObservation(browserState);
     context.activeObservation = observation;
+    // Elements that were not on the page the models saw last step are marked *[index]: what an action just revealed.
+    const fresh = new Set(newElements(context.promptState, browserState));
+    for (const node of browserState.selectorMap.values()) node.isNew = fresh.has(node);
     context.promptState = browserState;
 
     // A route saved from this task's start page, read once per task.

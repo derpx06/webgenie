@@ -52,6 +52,24 @@ function pageText(root: DOMElementNode | undefined): string {
   return textFragments(root).join(' ');
 }
 
+/** A node's identity across reads of the same page: its frame and backend node id. */
+export function elementKey(node: DOMElementNode): string | null {
+  return node.backendNodeId === undefined ? null : `${node.frameKey ?? ''}:${node.backendNodeId}`;
+}
+
+/**
+ * Interactive elements in `after` that `before` did not have: a menu that opened, suggestions, a dialog's buttons. Empty
+ * without an earlier read or when `after` is another page (a new address or tab makes everything new).
+ */
+export function newElements(before: BrowserState | undefined, after: BrowserState): DOMElementNode[] {
+  if (!before || before === after || before.url !== after.url || before.tabId !== after.tabId) return [];
+  const known = new Set([...before.selectorMap.values()].map(elementKey));
+  return [...after.selectorMap.values()].filter(node => {
+    const key = elementKey(node);
+    return key !== null && !known.has(key);
+  });
+}
+
 /** All text of a page read, in document order. */
 export function visibleText(state: BrowserState): string {
   return pageText(state.elementTree);

@@ -16,7 +16,7 @@ import { NavigatorActionRegistry } from './navigator/registry';
 export { NavigatorActionRegistry };
 import { HistoryReplayer } from './navigator/replay';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
-import { appearedText, ensureBrowserObservation } from '../validation/observation';
+import { appearedText, ensureBrowserObservation, newElements } from '../validation/observation';
 import {
   amountBefore,
   changesUserValue,
@@ -723,6 +723,14 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           if (result.failureReason) {
             this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, result.failureReason);
           }
+          break;
+        }
+
+        // New controls (suggestions, a menu, a dialog) change what the rest of the batch should do: look at them first.
+        const revealed = mutating && i < actions.length - 1 ? newElements(beforeState, postActionState) : [];
+        if (revealed.length > 0) {
+          logger.info(`Action ${i + 1} (${actionName}) revealed ${revealed.length} new elements; the remaining actions wait for the next step.`);
+          result.extractedContent = `${result.extractedContent ?? ''} New elements appeared, so the rest of this response was not run.`.trim();
           break;
         }
 
