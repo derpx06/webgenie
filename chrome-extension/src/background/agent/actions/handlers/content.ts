@@ -28,10 +28,24 @@ export class ContentHandler extends BaseHandler {
     return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }
 
+  /**
+   * After scrolling the page near its bottom, whether it grew within a second. The element list is windowed around the
+   * viewport, so without this an infinite-scroll page gives no sign that more content loaded (C14 scrolled six times).
+   */
+  private async pageGrowth(page: { getScrollInfo(): Promise<[number, number, number]> }, heightBefore: number): Promise<string> {
+    for (let waited = 0; waited < 1000; waited += 100) {
+      const [, , height] = await page.getScrollInfo();
+      if (height > heightBefore) return ` The page grew from ${heightBefore} to ${height} px: new content loaded.`;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return ' The page height did not change: no more content loaded.';
+  }
+
   async handleScrollToPercent(input: z.infer<typeof scrollToPercentActionSchema.schema>): Promise<ActionResult> {
     const intent = t('act_scrollToPercent_start');
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
+    let growth = '';
 
     if (input.index != null) {
       const state = await page.getCachedState();
@@ -42,12 +56,14 @@ export class ContentHandler extends BaseHandler {
       logger.info(`Scrolling to percent: ${input.yPercent} with elementNode: ${elementNode.xpath}`);
       await page.scrollToPercent(input.yPercent, elementNode);
     } else {
+      const [, , heightBefore] = await page.getScrollInfo();
       await page.scrollToPercent(input.yPercent);
+      if (input.yPercent >= 90) growth = await this.pageGrowth(page, heightBefore);
     }
 
     const msg = t('act_scrollToPercent_ok', [input.yPercent.toString()]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg + growth);
+    return new ActionResult({ extractedContent: msg + growth, includeInMemory: true });
   }
 
   async handleScrollToTop(input: z.infer<typeof scrollToTopActionSchema.schema>): Promise<ActionResult> {
@@ -75,6 +91,7 @@ export class ContentHandler extends BaseHandler {
     const intent = t('act_scrollToBottom_start');
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
     const page = await this.context.browserContext.getCurrentPage();
+    let growth = '';
 
     if (input.index != null) {
       const state = await page.getCachedState();
@@ -84,12 +101,14 @@ export class ContentHandler extends BaseHandler {
       }
       await page.scrollToPercent(100, elementNode);
     } else {
+      const [, , heightBefore] = await page.getScrollInfo();
       await page.scrollToPercent(100);
+      growth = await this.pageGrowth(page, heightBefore);
     }
 
     const msg = t('act_scrollToBottom_ok');
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg + growth);
+    return new ActionResult({ extractedContent: msg + growth, includeInMemory: true });
   }
 
   async handlePreviousPage(input: z.infer<typeof previousPageActionSchema.schema>): Promise<ActionResult> {
