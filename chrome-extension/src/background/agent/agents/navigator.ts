@@ -224,6 +224,10 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         timeoutMs,
         pollIntervalMs,
         signal: this.context.controller.signal,
+        // Typing has its own wait for debounced suggestions; other page-changing actions wait until the content holds still.
+        isSame: actionName === 'input_text'
+          ? undefined
+          : (previous, next) => ensureBrowserObservation(previous).contentFingerprint === ensureBrowserObservation(next).contentFingerprint,
       },
     );
 

@@ -75,22 +75,48 @@ describe('ContextBuilder packets', () => {
     expect(text(results[1])).toContain('Not executed');
   });
 
-  it('sends the last five turns as messages and summarizes older ones above the state', () => {
-    const { context, messageManager } = makeContext();
-    for (let i = 1; i <= 7; i++) {
+  const addTurns = (messageManager: MessageManager, from: number, to: number) => {
+    for (let i = from; i <= to; i++) {
       messageManager.addToolTurn([call(`c${i}`, 'scroll_to_text', { text: `t${i}` })], [new ActionResult({ extractedContent: `result ${i}` })]);
     }
+  };
+
+  it('sends recent turns as messages from a block boundary and summarizes the older ones above the state', () => {
+    const { context, messageManager } = makeContext();
+    addTurns(messageManager, 1, 12);
 
     const packet = ContextBuilder.buildContextPacket(context, system, state(1));
     const finalMessage = text(packet[packet.length - 1]);
 
-    expect(toolCallIds(packet)).toEqual(['c3', 'c4', 'c5', 'c6', 'c7']);
-    expect(packet.filter(m => m instanceof ToolMessage)).toHaveLength(5);
+    expect(toolCallIds(packet)).toEqual(['c9', 'c10', 'c11', 'c12']);
     expect(finalMessage).toContain('[Earlier steps]');
     expect(finalMessage).toContain('scroll_to_text {"text":"t1"} → result 1');
-    expect(finalMessage).toContain('(memory: memory c2)');
-    expect(finalMessage).not.toContain('result 3');
+    expect(finalMessage).toContain('(memory: memory c8)');
+    expect(finalMessage).not.toContain('result 9');
     expect(finalMessage.endsWith('browser state 1')).toBe(true);
+  });
+
+  it('only appends messages from one step to the next until the block boundary moves, so the prefix stays cacheable', () => {
+    const { context, messageManager } = makeContext();
+    messageManager.addTask('collect the prices');
+    addTurns(messageManager, 1, 9);
+    const ninth = ContextBuilder.buildContextPacket(context, system, state(9));
+    addTurns(messageManager, 10, 10);
+    const tenth = ContextBuilder.buildContextPacket(context, system, state(10));
+
+    const withoutState = (packet: BaseMessage[]) => packet.slice(0, -1).map(message => JSON.stringify(message.toDict()));
+    expect(withoutState(tenth).slice(0, withoutState(ninth).length)).toEqual(withoutState(ninth));
+    expect(toolCallIds(tenth)).toHaveLength(10);
+
+    addTurns(messageManager, 11, 11);
+    expect(toolCallIds(ContextBuilder.buildContextPacket(context, system, state(11)))).toEqual(['c9', 'c10', 'c11']);
+  });
+
+  it('keeps the validation summary for the planner only; the navigator has the results as tool messages', () => {
+    const { context } = makeContext();
+    context.validatedProgress = [{ status: 'completed', summary: 'click_element completed' } as AgentContext['validatedProgress'][number]];
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner').at(-1)!)).toContain('[VALIDATED PROGRESS]');
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'navigator').at(-1)!)).not.toContain('[VALIDATED PROGRESS]');
   });
 
   it('keeps the system prompt and transcript prefix identical from one step to the next', () => {

@@ -3,8 +3,13 @@ import type { AgentContext } from '../../types';
 import type { TranscriptEntry } from '../../messages/service';
 import { defangTags } from '../../messages/utils';
 
-/** Navigator tool turns sent as real messages; older turns are summarized as text. */
-const RECENT_TURNS = 5;
+/**
+ * Navigator tool turns sent as real messages: at least MIN_RECENT_TURNS, from a boundary that moves only every TURN_BLOCK
+ * turns. Between moves each call's messages extend the previous call's, so providers can reuse the cached prefix (a
+ * sliding window changed the prompt right after the task on every step). Older turns are summarized as text.
+ */
+const MIN_RECENT_TURNS = 3;
+const TURN_BLOCK = 8;
 const EARLIER_STEPS_CHARS = 1500;
 const PLANNER_STEPS_CHARS = 4000;
 const STEP_TEXT_CHARS = 200;
@@ -95,7 +100,7 @@ export class ContextBuilder {
   }
 
   /** Non-empty blocks shown above the browser state. */
-  private static stateSections(context: AgentContext): string[] {
+  private static stateSections(context: AgentContext, actor: 'planner' | 'navigator'): string[] {
     const sections: string[] = [];
     if (context.taskStartUrl) sections.push(`[TASK STARTED ON]\n${context.taskStartUrl}`);
     const addList = (title: string, lines: string[], maxChars: number) => {
@@ -115,7 +120,8 @@ export class ContextBuilder {
       : '';
     if (contractBlock) sections.push(contractBlock);
 
-    const progressLines = (context.validatedProgress ?? []).slice(-12).map(record => `- ${record.status}: ${record.summary}`);
+    // The navigator has each action's result as a tool message; the validation summary would repeat it.
+    const progressLines = actor === 'planner' ? (context.validatedProgress ?? []).slice(-12).map(record => `- ${record.status}: ${record.summary}`) : [];
     const validatedBlock = progressLines.length > 0
       ? `[VALIDATED PROGRESS]\n${this.formatLinesWithBudget(progressLines, 1000)}`
       : '';
@@ -154,7 +160,8 @@ export class ContextBuilder {
   ): BaseMessage[] {
     const items = readTranscript(context.messageManager.getTranscript());
     const turns = items.filter((item): item is ToolTurn => item.kind === 'turn');
-    const recentTurns = new Set<TranscriptItem>(actor === 'navigator' ? turns.slice(-RECENT_TURNS) : []);
+    const firstRecent = Math.max(0, Math.floor((turns.length - MIN_RECENT_TURNS) / TURN_BLOCK) * TURN_BLOCK);
+    const recentTurns = new Set<TranscriptItem>(actor === 'navigator' ? turns.slice(firstRecent) : []);
 
     const transcript: BaseMessage[] = [];
     for (const item of items) {
@@ -162,7 +169,7 @@ export class ContextBuilder {
       else if (recentTurns.has(item)) transcript.push(item.ai, ...item.results);
     }
 
-    const sections = this.stateSections(context);
+    const sections = this.stateSections(context, actor);
     const olderTurns = turns.filter(turn => !recentTurns.has(turn));
     if (olderTurns.length > 0) {
       sections.push(

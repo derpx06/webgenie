@@ -26,27 +26,44 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 export async function waitForActionSettled<T>(
   readState: () => Promise<T>,
   isSettled: (state: T) => boolean,
-  options: ActionSettlingOptions = {},
+  options: ActionSettlingOptions & {
+    /** Once settled, keep reading until two reads in a row are the same page (it stopped changing), within the timeout. */
+    isSame?: (previous: T, next: T) => boolean;
+  } = {},
 ): Promise<ActionSettlingResult<T>> {
   const timeoutMs = Math.max(0, options.timeoutMs ?? 2000);
   const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? 100);
   const startedAt = Date.now();
   let state = await readState();
   let polls = 0;
+  const remaining = () => timeoutMs - (Date.now() - startedAt);
+
+  // A page that responded may still be loading the rest (results, a dialog's content): the next read should see it whole.
+  const settledWhenQuiet = async (): Promise<ActionSettlingResult<T>> => {
+    while (options.isSame && !options.signal?.aborted && remaining() > 0) {
+      await sleep(Math.min(pollIntervalMs, remaining()), options.signal);
+      if (options.signal?.aborted) break;
+      const next = await readState();
+      polls++;
+      const quiet = options.isSame(state, next);
+      state = next;
+      if (quiet) break;
+    }
+    return { state, settled: true, polls, elapsedMs: Date.now() - startedAt };
+  };
 
   if (isSettled(state)) {
-    return { state, settled: true, polls, elapsedMs: Date.now() - startedAt };
+    return settledWhenQuiet();
   }
 
-  while (!options.signal?.aborted && Date.now() - startedAt < timeoutMs) {
-    const remainingMs = timeoutMs - (Date.now() - startedAt);
-    await sleep(Math.min(pollIntervalMs, remainingMs), options.signal);
+  while (!options.signal?.aborted && remaining() > 0) {
+    await sleep(Math.min(pollIntervalMs, remaining()), options.signal);
     if (options.signal?.aborted) break;
 
     state = await readState();
     polls++;
     if (isSettled(state)) {
-      return { state, settled: true, polls, elapsedMs: Date.now() - startedAt };
+      return settledWhenQuiet();
     }
   }
 

@@ -268,6 +268,7 @@ describe('P1 context budget and routing', () => {
       ctx,
       new SystemMessage('system'),
       new HumanMessage('browser state'),
+      'planner',
     );
     const finalMessage = String(packet[packet.length - 1].content);
 
