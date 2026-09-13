@@ -636,6 +636,8 @@ async function main() {
   if (tasks.length === 0) throw new Error('no tasks selected');
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
+  // The code under test is what was checked out when the run began; commits made during a long run must not relabel it.
+  const gitAtStart = { sha: git('rev-parse', '--short', 'HEAD'), dirty: git('status', '--porcelain') !== '' };
   const outDir = path.join(HERE, 'results', runId);
   fs.mkdirSync(outDir, { recursive: true });
 
@@ -697,8 +699,8 @@ async function main() {
     runId,
     model: MODEL,
     plannerModel: PLANNER_MODEL,
-    gitSha: git('rev-parse', '--short', 'HEAD'),
-    gitDirty: git('status', '--porcelain') !== '',
+    gitSha: gitAtStart.sha,
+    gitDirty: gitAtStart.dirty,
     distBuiltAt: fs.statSync(path.join(DIST, 'manifest.json')).mtime.toISOString(),
     suite: only ? `only:${only.join(',')}` : suite,
     repeats,
