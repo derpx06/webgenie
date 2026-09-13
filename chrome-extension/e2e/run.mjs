@@ -2,14 +2,16 @@
 // local fixtures, with Vertex AI credentials from your gcloud login. Nothing here runs in `pnpm test`.
 //
 //   pnpm -F chrome-extension e2e
-//   E2E_SUITE=core|complex|all (default core)   E2E_ONLY=T1,C13   E2E_REPEAT=2   E2E_HEADLESS=1
-//   E2E_MODEL=gemini-2.5-flash  E2E_LOCATION=us-central1  E2E_PROJECT=<id>  CHROMIUM_PATH=/usr/bin/chromium
+//   E2E_SUITE=core|complex|hitl|security|breadth|all (default core)   E2E_ONLY=T1,C13   E2E_REPEAT=2   E2E_HEADLESS=1
+//   E2E_MODEL=gemini-2.5-flash  E2E_PLANNER_MODEL=<model>  E2E_LOCATION=us-central1  E2E_PROJECT=<id>  CHROMIUM_PATH=/usr/bin/chromium
 //   E2E_MAX_INPUT_TOKENS=4000000 (whole run)   E2E_TASK_MAX_INPUT_TOKENS=400000
-//   E2E_UPDATE_BASELINE=1 (rewrite e2e/baseline.json after a full run with no regression)
+//   E2E_UPDATE_BASELINE=1 (full run with no regression: rewrite e2e/baseline.json; subset run: merge its entries)
+//   E2E_ORACLE=1 (no model calls: each fixture task's checker must pass with its scripted oracle and fail with no action)
 //
 // Results land in e2e/results/<run>/: summary.json, and per task events, trace, timeline (failures) and a
 // screenshot. A full-suite run exits 1 on any regression against e2e/baseline.json; a subset run exits 1
-// unless every task passes.
+// unless every task passes. A start page that is down (network error or 5xx) records site_down, which
+// counts neither as a pass nor as a failure.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,13 +19,15 @@ import { execFileSync } from 'node:child_process';
 import puppeteer from 'puppeteer-core';
 import { TASKS } from './tasks.mjs';
 import { startFixtures } from './fixtures.mjs';
-import { baselineFrom, compareWithBaseline, suiteHealth, taskMetrics, timeline } from './metrics.mjs';
+import { baselineFrom, compareWithBaseline, mergeBaseline, suiteHealth, taskMetrics, timeline } from './metrics.mjs';
 
 const HERE = import.meta.dirname;
 const DIST = path.resolve(HERE, '../../dist');
 const BASELINE = path.join(HERE, 'baseline.json');
 const CHROMIUM = process.env.CHROMIUM_PATH ?? '/usr/bin/chromium';
 const MODEL = process.env.E2E_MODEL ?? 'gemini-2.5-flash';
+const PLANNER_MODEL = process.env.E2E_PLANNER_MODEL ?? MODEL;
+const ORACLE = !!process.env.E2E_ORACLE;
 const LOCATION = process.env.E2E_LOCATION ?? 'us-central1';
 const RUN_TOKEN_CAP = Number(process.env.E2E_MAX_INPUT_TOKENS ?? 4_000_000);
 const TASK_TOKEN_CAP = Number(process.env.E2E_TASK_MAX_INPUT_TOKENS ?? 400_000);
@@ -52,15 +56,33 @@ function vertexProvider() {
     name: 'Google Vertex AI',
     apiKey: token,
     baseUrl: `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${project}/locations/${LOCATION}`,
-    modelNames: [MODEL],
+    modelNames: [...new Set([MODEL, PLANNER_MODEL])],
     createdAt: Date.now(),
   };
 }
 
+const UA = { 'user-agent': 'Mozilla/5.0 WebGenie-e2e-checker' };
+
 async function fetchText(url) {
-  const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 WebGenie-e2e-checker' } });
+  const response = await fetch(url, { headers: UA });
   if (!response.ok) throw new Error(`fetch ${url} returned ${response.status}`);
   return response.text();
+}
+
+/** Why a public start page is unusable (network error or 5xx on two tries), or null when it is up. */
+async function siteDown(url) {
+  let reason = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(url, { headers: UA, signal: AbortSignal.timeout(20_000) });
+      if (response.status < 500) return null;
+      reason = `HTTP ${response.status}`;
+    } catch (error) {
+      reason = error.cause?.code ?? error.message;
+    }
+    await sleep(5000);
+  }
+  return reason;
 }
 
 class Harness {
@@ -97,9 +119,9 @@ class Harness {
   }
 
   /** Provider, models, trace capture, and a chat session like the side panel creates. */
-  async configure(taskId, title) {
+  async configure(taskId, title, settings = {}) {
     await this.ctl.evaluate(
-      async ({ provider, model, taskId, title }) => {
+      async ({ provider, model, plannerModel, taskId, title, settings }) => {
         const now = Date.now();
         const sessions = (await chrome.storage.local.get('chat_sessions_meta')).chat_sessions_meta ?? [];
         sessions.push({ id: taskId, title, createdAt: now, updatedAt: now, messageCount: 0 });
@@ -108,15 +130,46 @@ class Harness {
           'agent-models': {
             agents: {
               navigator: { provider: 'vertex_ai', modelName: model, parameters: { temperature: 0.3, topP: 0.85 } },
-              planner: { provider: 'vertex_ai', modelName: model, parameters: { temperature: 0.7, topP: 0.9 } },
+              planner: { provider: 'vertex_ai', modelName: plannerModel, parameters: { temperature: 0.7, topP: 0.9 } },
             },
           },
           'advanced-settings': { enableDeveloperOptions: true, captureTraces: true, logDOMSnapshot: false },
+          'firewall-settings': { enabled: true, allowList: [], denyList: [] },
           chat_sessions_meta: sessions,
+          ...settings,
         });
       },
-      { provider: vertexProvider(), model: MODEL, taskId, title },
+      { provider: vertexProvider(), model: MODEL, plannerModel: PLANNER_MODEL, taskId, title, settings },
     );
+  }
+
+  /** Everything the extension persisted outside the trace store, keyed `local:`, `session:` or `idb:<db>:<store>`. */
+  async dumpStorage() {
+    return this.ctl.evaluate(async () => {
+      const out = {};
+      const areas = [
+        ['local', await chrome.storage.local.get(null)],
+        ['session', await chrome.storage.session.get(null).catch(() => ({}))],
+      ];
+      for (const [area, items] of areas) for (const [key, value] of Object.entries(items)) out[`${area}:${key}`] = value;
+      for (const { name } of await indexedDB.databases()) {
+        if (!name || name === 'WebGenieTraces') continue;
+        const db = await new Promise((resolve, reject) => {
+          const open = indexedDB.open(name);
+          open.onsuccess = () => resolve(open.result);
+          open.onerror = () => reject(open.error);
+        });
+        for (const store of db.objectStoreNames) {
+          out[`idb:${name}:${store}`] = await new Promise(resolve => {
+            const request = db.transaction(store).objectStore(store).getAll();
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => resolve(null);
+          });
+        }
+        db.close();
+      }
+      return out;
+    });
   }
 
   async clearOrigins(origins) {
@@ -206,7 +259,7 @@ class Harness {
   }
 
   /** Runs the task over the port until a terminal state, a human request, or a limit. */
-  async drive({ taskId, tabId, task, maxMs, maxSteps, allowHuman, human = [], type = 'new_task' }) {
+  async drive({ taskId, tabId, task, maxMs, maxSteps, maxInputTokens = TASK_TOKEN_CAP, allowHuman, human = [], type = 'new_task' }) {
     await this.ctl.evaluate(
       ({ type, task, taskId, tabId }) => {
         window.__ev = [];
@@ -225,6 +278,7 @@ class Harness {
     let stopAt = 0;
     // Every question the agent asks; scripted answers are given in order, anything else stops the task.
     const questions = [];
+    const questionTimes = [];
     let answered = 0;
     const stop = async reason => {
       stopReason = reason;
@@ -253,6 +307,7 @@ class Harness {
             // plain-text question
           }
           questions.push(question);
+          questionTimes.push(Date.now());
           const script = human[answered];
           if (script && (!script.expect || script.expect.test(question))) {
             answered++;
@@ -274,46 +329,14 @@ class Harness {
       if (!outcome && !stopReason) {
         if (Date.now() - started > maxMs) await stop('limit_time');
         else if (maxStep >= maxSteps) await stop('limit_steps');
-        else if (inputTokens > TASK_TOKEN_CAP) await stop('limit_tokens');
+        else if (inputTokens > maxInputTokens) await stop('limit_tokens');
       }
       if (!outcome && stopReason && Date.now() - stopAt > 15_000) outcome = stopReason;
     }
-    return { outcome, answer, maxStep, events, questions, seconds: +((Date.now() - started) / 1000).toFixed(1) };
+    return { outcome, answer, maxStep, events, questions, questionTimes, seconds: +((Date.now() - started) / 1000).toFixed(1) };
   }
 
-  async runTask(task, runId, repeat, outDir) {
-    const attempt = repeat > 0 ? `${task.id}-r${repeat + 1}` : task.id;
-    const taskId = `${runId}-${attempt}`;
-    const url = typeof task.url === 'function' ? task.url(this.fixtures) : task.url;
-
-    await this.ensureControl();
-    await this.clearOrigins([new URL(url).origin, ...(task.origins ?? [])]);
-    await this.configure(taskId, task.title);
-
-    const web = await this.browser.newPage();
-    await web.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
-    await web.bringToFront();
-    const tabId = await this.ctl.evaluate(async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id, web.url());
-    if (!tabId) throw new Error(`no tab found for ${web.url()}`);
-
-    process.stdout.write(`${attempt} ${task.title} ... `);
-    const limits = { taskId, tabId, maxMs: (task.maxSeconds ?? 180) * 1000, maxSteps: task.maxSteps ?? 25, allowHuman: task.allowHuman };
-    let run = await this.drive({ ...limits, task: typeof task.task === 'function' ? task.task(this.fixtures) : task.task, human: task.human });
-    // Follow-up messages in the same conversation, each sent after the previous one finished.
-    const answers = [run.answer];
-    for (const followUp of task.followUps ?? []) {
-      if (run.outcome !== 'task.ok') break;
-      const next = await this.drive({ ...limits, task: followUp, type: 'follow_up_task' });
-      run = { ...next, events: [...run.events, ...next.events], questions: [...run.questions, ...next.questions], seconds: +(run.seconds + next.seconds).toFixed(1) };
-      answers.push(next.answer);
-    }
-    await sleep(2000); // let the trace sink flush its last batch
-
-    const records = await this.readTraces(taskId).catch(() => []);
-    const pages = await this.webPages();
-    await withTimeout(pages.at(-1)?.screenshot({ path: path.join(outDir, `${attempt}.png`) }) ?? Promise.resolve(), 10_000, 'screenshot').catch(() => {});
-
-    let check;
+  async check(task, run, answers) {
     try {
       const verdict = await task.check({
         answer: run.answer,
@@ -326,14 +349,98 @@ class Harness {
         fetchText,
         fixtures: this.fixtures,
         questions: run.questions,
+        questionTimes: run.questionTimes,
       });
-      check = typeof verdict === 'boolean' ? { pass: verdict, detail: '' } : verdict;
+      return typeof verdict === 'boolean' ? { pass: verdict, detail: '' } : verdict;
     } catch (error) {
-      check = { pass: false, detail: `checker error: ${error.message}` };
+      return { pass: false, detail: `checker error: ${error.message}` };
+    }
+  }
+
+  /** Proves a checker without the model: it must fail when nothing is done and pass with the scripted solution. */
+  async runOracle(task, url) {
+    await this.ensureControl();
+    const verdicts = {};
+    for (const mode of ['nothing', 'oracle']) {
+      await this.clearOrigins([new URL(url).origin]);
+      this.fixtures.resetHits();
+      const page = await this.browser.newPage();
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      await page.bringToFront();
+      const run = { outcome: 'task.ok', answer: '', questions: [], questionTimes: [] };
+      if (mode === 'oracle') {
+        const ask = question => {
+          run.questions.push(question);
+          run.questionTimes.push(Date.now());
+        };
+        run.answer = (await task.oracle({ page, fixtures: this.fixtures, ask })).answer;
+      }
+      verdicts[mode] = await this.check(task, run, [run.answer]);
+      for (const open of await this.webPages()) await open.close().catch(() => {});
+    }
+    const pass = !verdicts.nothing.pass && verdicts.oracle.pass;
+    console.log(`${task.id} oracle ${pass ? 'PASS' : 'FAIL'} (nothing: ${verdicts.nothing.pass}, oracle: ${verdicts.oracle.pass} ${verdicts.oracle.detail ?? ''})`);
+    return { id: task.id, attempt: task.id, suite: task.suite, kind: task.kind, title: task.title, pass, outcome: 'oracle', detail: JSON.stringify(verdicts), seconds: 0 };
+  }
+
+  async runTask(task, runId, repeat, outDir) {
+    const attempt = repeat > 0 ? `${task.id}-r${repeat + 1}` : task.id;
+    const taskId = `${runId}-${attempt}`;
+    const url = typeof task.url === 'function' ? task.url(this.fixtures) : task.url;
+    if (ORACLE) return this.runOracle(task, url);
+
+    const isFixture = [this.fixtures.hostOrigin, this.fixtures.editorOrigin].some(origin => url.startsWith(origin));
+    const down = isFixture ? null : await siteDown(url);
+    if (down) {
+      console.log(`${attempt} ${task.title} ... SITE DOWN (${down})`);
+      return { id: task.id, attempt, suite: task.suite, kind: task.kind, title: task.title, pass: false, outcome: 'site_down', detail: down, seconds: 0 };
     }
 
-    const metrics = taskMetrics(records, run.events, { secret: task.secret, taskText: typeof task.task === 'function' ? task.task(this.fixtures) : task.task });
-    const pass = run.outcome === 'task.ok' && check.pass && metrics.secretLeaks === 0;
+    await this.ensureControl();
+    await this.clearOrigins([new URL(url).origin, ...(task.origins ?? [])]);
+    await this.configure(taskId, task.title, task.settings);
+    this.fixtures.resetHits();
+
+    const web = await this.browser.newPage();
+    await web.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
+    await web.bringToFront();
+    const tabId = await this.ctl.evaluate(async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id, web.url());
+    if (!tabId) throw new Error(`no tab found for ${web.url()}`);
+
+    process.stdout.write(`${attempt} ${task.title} ... `);
+    const limits = {
+      taskId,
+      tabId,
+      maxMs: (task.maxSeconds ?? 180) * 1000,
+      maxSteps: task.maxSteps ?? 25,
+      maxInputTokens: task.maxInputTokens ?? TASK_TOKEN_CAP,
+      allowHuman: task.allowHuman,
+    };
+    let run = await this.drive({ ...limits, task: typeof task.task === 'function' ? task.task(this.fixtures) : task.task, human: task.human });
+    // Follow-up messages in the same conversation, each sent after the previous one finished.
+    const answers = [run.answer];
+    for (const followUp of task.followUps ?? []) {
+      if (run.outcome !== 'task.ok') break;
+      const next = await this.drive({ ...limits, task: followUp, type: 'follow_up_task' });
+      run = {
+        ...next,
+        events: [...run.events, ...next.events],
+        questions: [...run.questions, ...next.questions],
+        questionTimes: [...run.questionTimes, ...next.questionTimes],
+        seconds: +(run.seconds + next.seconds).toFixed(1),
+      };
+      answers.push(next.answer);
+    }
+    await sleep(2000); // let the trace sink flush its last batch
+
+    const records = await this.readTraces(taskId).catch(() => []);
+    const storage = await this.dumpStorage().catch(() => null);
+    const pages = await this.webPages();
+    await withTimeout(pages.at(-1)?.screenshot({ path: path.join(outDir, `${attempt}.png`) }) ?? Promise.resolve(), 10_000, 'screenshot').catch(() => {});
+
+    const check = await this.check(task, run, answers);
+    const metrics = taskMetrics(records, run.events, { secret: task.secret, taskText: typeof task.task === 'function' ? task.task(this.fixtures) : task.task, storage });
+    const pass = (task.outcomes ?? ['task.ok']).includes(run.outcome) && check.pass && metrics.secretLeaks === 0 && metrics.storageLeaks === 0;
     fs.writeFileSync(path.join(outDir, `${attempt}.events.jsonl`), run.events.map(e => JSON.stringify(e)).join('\n'));
     fs.writeFileSync(path.join(outDir, `${attempt}.trace.jsonl`), records.map(r => JSON.stringify(r)).join('\n'));
     if (!pass) fs.writeFileSync(path.join(outDir, `${attempt}.timeline.txt`), timeline(records, run.events));
@@ -394,7 +501,7 @@ async function main() {
   const suite = process.env.E2E_SUITE ?? 'core';
   const only = process.env.E2E_ONLY?.split(',').map(id => id.trim()).filter(Boolean);
   const repeats = Math.max(1, Number(process.env.E2E_REPEAT ?? 1));
-  const tasks = TASKS.filter(task => (only ? only.includes(task.id) : suite === 'all' || task.suite === suite));
+  const tasks = TASKS.filter(task => (only ? only.includes(task.id) : suite === 'all' || task.suite === suite)).filter(task => !ORACLE || task.oracle);
   if (tasks.length === 0) throw new Error('no tasks selected');
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
@@ -424,7 +531,7 @@ async function main() {
         for (let tries = 1; ; tries++) {
           try {
             const result = await session.harness.runTask(task, runId, repeat, outDir);
-            spentInputTokens += result.metrics.tokens.input;
+            spentInputTokens += result.metrics?.tokens.input ?? 0;
             results.push(result);
             break;
           } catch (error) {
@@ -447,17 +554,18 @@ async function main() {
   }
 
   const health = suiteHealth(results);
-  const fullRun = !only;
+  const fullRun = !only && !ORACLE;
   let baseline = null;
   try {
     baseline = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
   } catch {
     // no baseline yet
   }
-  const comparison = fullRun ? compareWithBaseline(results, health, baseline) : { regressions: [], improvements: [] };
+  const comparison = fullRun ? compareWithBaseline(results, health, baseline, repeats) : { regressions: [], warnings: [], improvements: [] };
   const summary = {
     runId,
     model: MODEL,
+    plannerModel: PLANNER_MODEL,
     gitSha: git('rev-parse', '--short', 'HEAD'),
     gitDirty: git('status', '--porcelain') !== '',
     distBuiltAt: fs.statSync(path.join(DIST, 'manifest.json')).mtime.toISOString(),
@@ -485,13 +593,19 @@ async function main() {
   );
   for (const [name, h] of Object.entries(health)) console.log(`${name}: ${JSON.stringify(h)}`);
   if (comparison.improvements.length) console.log(`Improvements:\n  ${comparison.improvements.join('\n  ')}`);
+  if (comparison.warnings.length) console.log(`Warnings (latency, single-attempt runs):\n  ${comparison.warnings.join('\n  ')}`);
   if (comparison.regressions.length) console.log(`REGRESSIONS:\n  ${comparison.regressions.join('\n  ')}`);
   console.log(`Results: ${outDir}`);
 
-  const allPassed = results.every(r => r.pass);
-  if (fullRun && process.env.E2E_UPDATE_BASELINE && (comparison.regressions.length === 0 || !baseline)) {
-    fs.writeFileSync(BASELINE, `${JSON.stringify(baselineFrom(results, health), null, 2)}\n`);
-    console.log(`Baseline updated: ${BASELINE}`);
+  const allPassed = results.every(r => r.pass || r.outcome === 'site_down');
+  if (process.env.E2E_UPDATE_BASELINE && !ORACLE) {
+    if (fullRun && (comparison.regressions.length === 0 || !baseline)) {
+      fs.writeFileSync(BASELINE, `${JSON.stringify(baselineFrom(results, health, repeats), null, 2)}\n`);
+      console.log(`Baseline updated: ${BASELINE}`);
+    } else if (!fullRun && baseline) {
+      fs.writeFileSync(BASELINE, `${JSON.stringify(mergeBaseline(baseline, results, repeats), null, 2)}\n`);
+      console.log(`Baseline entries merged for ${[...new Set(results.map(r => r.id))].join(', ')}: ${BASELINE}`);
+    }
   }
   process.exitCode = fullRun ? (comparison.regressions.length ? 1 : 0) : allPassed ? 0 : 1;
 }

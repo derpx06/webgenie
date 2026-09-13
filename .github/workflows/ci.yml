@@ -46,5 +46,8 @@ jobs:
       - name: Type check
         run: pnpm type-check
 
+      - name: Unit tests
+        run: pnpm -F chrome-extension test
+
       - name: Build
         run: pnpm build

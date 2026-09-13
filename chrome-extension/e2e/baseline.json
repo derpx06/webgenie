@@ -430,8 +430,8 @@
   },
   "health": {
     "core": {
-      "attempts": 27,
-      "passed": 26,
+      "attempts": 28,
+      "passed": 28,
       "schemaRejections": 0,
       "notAllowedReasks": 0,
       "notAttached": 0,

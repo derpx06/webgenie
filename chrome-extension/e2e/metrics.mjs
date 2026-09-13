@@ -26,12 +26,21 @@ export const HEALTH_COUNTERS = [
   'snapshotExtractor',
   'authBlockerWaits',
   'secretLeaks',
+  'storageLeaks',
   'unackedDispatches',
   'hung',
   'harnessErrors',
 ];
 
-export function taskMetrics(records, events, { secret, taskText = '' } = {}) {
+/** Extension storage entries that contain a needle; the user's own chat messages are theirs to keep. */
+export function storageLeaks(dump, needle) {
+  if (!needle || !dump) return [];
+  return Object.entries(dump)
+    .filter(([key, value]) => !/^local:chat_messages_/.test(key) && JSON.stringify(value).includes(needle))
+    .map(([key]) => key);
+}
+
+export function taskMetrics(records, events, { secret, taskText = '', storage } = {}) {
   const llm = records.filter(r => r.kind === 'llm');
   const calls = llm.filter(r => r.level === 'info' && String(r.msg).startsWith('llm call'));
   const reasks = llm.filter(r => r.msg === 'tool call validation failed');
@@ -66,10 +75,20 @@ export function taskMetrics(records, events, { secret, taskText = '' } = {}) {
     secretLeaks = [...events, ...records].filter(leaks).length;
   }
 
+  const cachedShare = {};
+  for (const agent of [...new Set(calls.map(r => r.component))]) {
+    const own = calls.filter(r => r.component === agent);
+    const input = own.reduce((n, r) => n + (r.data?.usage?.inputTokens ?? 0), 0);
+    cachedShare[agent] = input ? +(own.reduce((n, r) => n + (r.data?.usage?.cacheReadTokens ?? 0), 0) / input).toFixed(2) : 0;
+  }
+
   return {
     llmCalls: calls.length,
     plannerCalls: calls.filter(r => r.component === 'planner').length,
     navigatorCalls: calls.filter(r => r.component === 'navigator').length,
+    cachedShare,
+    rateLimited: countOf(llm.filter(r => r.level !== 'info'), /\b429\b|RESOURCE_EXHAUSTED|rate limit/i),
+    llmTimeouts: countOf(llm.filter(r => r.level !== 'info'), /timed out|timeout/i),
     reasks: reasks.length,
     notAllowedReasks: reasks.filter(r => /not allowed by the current plan/.test(issues(r))).length,
     schemaRejections:
@@ -90,6 +109,7 @@ export function taskMetrics(records, events, { secret, taskText = '' } = {}) {
     snapshotExtractor: countOf(records, /DOMSnapshotExtractor|native DOM snapshot/i),
     authBlockerWaits: countOf(records, /authentication or permission blocker/i),
     secretLeaks,
+    storageLeaks: storageLeaks(storage, secret).length,
   };
 }
 
@@ -129,7 +149,8 @@ export function timeline(records, events) {
 export function suiteHealth(results) {
   const health = {};
   for (const suite of [...new Set(results.map(r => r.suite))]) {
-    const rows = results.filter(r => r.suite === suite);
+    // A site that was down says nothing about the agent.
+    const rows = results.filter(r => r.suite === suite && r.outcome !== 'site_down');
     const all = key => rows.flatMap(r => r.metrics?.[key] ?? []);
     const actions = name => rows.flatMap(r => r.metrics?.actionMs?.[name] ?? []);
     const counters = Object.fromEntries(HEALTH_COUNTERS.map(key => [key, rows.reduce((n, r) => n + (r.metrics?.[key] ?? 0), 0)]));
@@ -151,9 +172,9 @@ export function suiteHealth(results) {
   return health;
 }
 
-export function baselineFrom(results, health) {
+export function baselineFrom(results, health, repeats = 1) {
   const tasks = {};
-  for (const r of results) {
+  for (const r of results.filter(row => row.outcome !== 'site_down')) {
     const key = `${r.suite}:${r.id}`;
     const entry = (tasks[key] ??= { passes: 0, runs: 0, seconds: [], llmCalls: [] });
     entry.runs += 1;
@@ -165,34 +186,58 @@ export function baselineFrom(results, health) {
     entry.seconds = median(entry.seconds);
     entry.llmCalls = median(entry.llmCalls);
   }
-  return { updatedAt: new Date().toISOString(), tasks, health };
+  return { updatedAt: new Date().toISOString(), repeats, tasks, health: withTaskPassRates(health, tasks) };
 }
 
-/** Regressions against the committed baseline. Any entry here fails a full run. */
-export function compareWithBaseline(results, health, baseline) {
-  if (!baseline) return { regressions: [], improvements: ['no baseline yet'] };
+/** Suite pass counts always come from the task entries, so a merged or re-run entry cannot contradict them. */
+function withTaskPassRates(health, tasks) {
+  const out = structuredClone(health ?? {});
+  for (const suite of Object.keys(out)) {
+    const entries = Object.entries(tasks).filter(([key]) => key.startsWith(`${suite}:`)).map(([, entry]) => entry);
+    out[suite].passed = entries.reduce((n, entry) => n + entry.passes, 0);
+    out[suite].attempts = entries.reduce((n, entry) => n + entry.runs, 0);
+  }
+  return out;
+}
+
+/** A subset run re-measures some tasks: replace their entries, keep the rest, recompute suite pass rates. */
+export function mergeBaseline(baseline, results, repeats = 1) {
+  const fresh = baselineFrom(results, {}, repeats);
+  const tasks = { ...baseline.tasks, ...fresh.tasks };
+  return { ...baseline, updatedAt: fresh.updatedAt, tasks, health: withTaskPassRates(baseline.health, tasks) };
+}
+
+/**
+ * Regressions against the committed baseline; any entry fails a full run. Latency changes are only
+ * regressions when both runs repeated every task: single-attempt medians move with the network.
+ */
+export function compareWithBaseline(results, health, baseline, repeats = 1) {
+  if (!baseline) return { regressions: [], warnings: [], improvements: ['no baseline yet'] };
   const regressions = [];
+  const warnings = [];
   const improvements = [];
-  const current = baselineFrom(results, health).tasks;
-  for (const [key, now] of Object.entries(current)) {
+  const current = baselineFrom(results, health, repeats);
+  for (const [key, now] of Object.entries(current.tasks)) {
     const before = baseline.tasks[key];
     if (!before) continue;
     if (before.passes === before.runs && now.passes < now.runs) regressions.push(`${key} passed every run before, now ${now.passes}/${now.runs}`);
     if (before.passes < before.runs && now.passes === now.runs) improvements.push(`${key} now passes every run`);
   }
-  for (const [suite, now] of Object.entries(health)) {
-    const before = baseline.health?.[suite];
+  const beforeHealth = withTaskPassRates(baseline.health, baseline.tasks);
+  const latency = repeats >= 2 && (baseline.repeats ?? 1) >= 2 ? regressions : warnings;
+  for (const [suite, now] of Object.entries(current.health)) {
+    const before = beforeHealth[suite];
     if (!before) continue;
     const rate = (h, key) => (h[key] ?? 0) / Math.max(1, h.attempts);
     if (rate(now, 'passed') < rate(before, 'passed')) regressions.push(`${suite} pass rate ${now.passed}/${now.attempts} < ${before.passed}/${before.attempts}`);
     for (const key of HEALTH_COUNTERS) {
-      if (rate(now, key) > rate(before, key)) regressions.push(`${suite} ${key} ${now[key]} (was ${before[key]} over ${before.attempts} attempts)`);
+      if (rate(now, key) > rate(before, key)) regressions.push(`${suite} ${key} ${now[key]} (was ${before[key] ?? 0} over ${before.attempts} attempts)`);
       else if (rate(now, key) < rate(before, key)) improvements.push(`${suite} ${key} ${before[key]} → ${now[key]}`);
     }
     for (const key of ['clickMedianMs', 'inputMedianMs', 'getStateMedianMs']) {
-      if (before[key] && now[key] && now[key] > before[key] * 1.25) regressions.push(`${suite} ${key} ${now[key]} > 1.25 × ${before[key]}`);
+      if (before[key] && now[key] && now[key] > before[key] * 1.25) latency.push(`${suite} ${key} ${now[key]} > 1.25 × ${before[key]}`);
       else if (before[key] && now[key] && now[key] < before[key]) improvements.push(`${suite} ${key} ${before[key]} → ${now[key]}`);
     }
   }
-  return { regressions, improvements };
+  return { regressions, warnings, improvements };
 }
