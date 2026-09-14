@@ -43,7 +43,8 @@ const DRY = opts['dry-run'];
 const CONCURRENCY = Math.max(1, Number(opts.concurrency));
 const THRESHOLD = Number(opts.threshold);
 const MAX_IMAGE = 50;
-const EXCLUDED_OUTCOMES = new Set(['site_down', 'harness_error']);
+// provider_down: the model provider was unreachable or the access token expired mid-task, which says nothing about the agent.
+const EXCLUDED_OUTCOMES = new Set(['site_down', 'harness_error', 'provider_down']);
 
 const KEY_POINTS_SYSTEM = `You are an expert tasked with analyzing a given task to identify the key points explicitly stated in the task description.
 

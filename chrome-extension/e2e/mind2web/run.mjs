@@ -1,16 +1,21 @@
-// Runs the Online-Mind2Web slice (slice.json) on the live e2e harness (../run.mjs) and writes each task in WebJudge's
-// input format. Scoring is a separate step: node e2e/mind2web/judge.mjs <runDir>.
+// Runs Online-Mind2Web tasks on the live e2e harness (../run.mjs) and writes each task in WebJudge's input format.
+// Scoring is a separate step: node e2e/mind2web/judge.mjs <runDir>.
 //
-//   pnpm build && node e2e/mind2web/run.mjs [--limit N] [--only <task_id>,<task_id>] [--level easy|medium|hard]
+//   pnpm build && node e2e/mind2web/run.mjs [--all] [--limit N] [--only <task_id>,<task_id>] [--level easy|medium|hard]
+//   node e2e/mind2web/run.mjs --all --resume e2e/results/mind2web-<timestamp>   (continue an interrupted run)
 //   Environment as for ../run.mjs: E2E_MODEL, E2E_PLANNER_MODEL, E2E_PROJECT, E2E_LOCATION, E2E_HEADLESS, CHROMIUM_PATH
 //
+// Tasks: the 60-task slice (slice.json) by default; --all runs every task in Online_Mind2Web.json. --resume reuses a run
+// folder and skips tasks that already have a result, except harness errors and provider outages, which run again.
 // Rules: the firewall denies common search engines, so the agent works from the task's website (the benchmark's rule);
 // an order/payment confirmation is answered "No, stop here"; any other question is answered "Proceed with any
 // reasonable choice." and counted; each task is capped at 25 steps, 600 s and 150k input tokens. After navigator actions
 // (act.ok/act.fail) the newest web tab is screenshotted into <task_id>/trajectory/NN.png, at most 40 per task.
+// A task that ended because the model provider was unreachable or the access token expired is recorded as provider_down.
 // Results: e2e/results/mind2web-<timestamp>/<task_id>/{result.json,trajectory/,events.jsonl,trace.jsonl,timeline.txt}.
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { closeSession, launchSession } from '../run.mjs';
 import { taskMetrics, timeline } from '../metrics.mjs';
@@ -23,6 +28,8 @@ const MAX_SHOTS = 40;
 const TASKS_PER_BROWSER = 10;
 const DECLINE = 'No, stop here';
 const PROCEED = 'Proceed with any reasonable choice.';
+/** Outcomes that say nothing about the agent; a resumed run tries these tasks again. */
+const RETRY_ON_RESUME = new Set(['harness_error', 'provider_down']);
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 /** true once the promise settles successfully within ms, false on timeout or error. */
@@ -75,6 +82,15 @@ function writeResult(runDir, task, fields) {
   };
   fs.writeFileSync(path.join(dir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
   return result;
+}
+
+/** A task's saved result, or null when it has none. */
+function savedResult(runDir, task) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(runDir, task.task_id, 'result.json'), 'utf8'));
+  } catch {
+    return null;
+  }
 }
 
 async function runTask(harness, task, runId, runDir) {
@@ -146,12 +162,17 @@ async function runTask(harness, task, runId, runDir) {
   fs.writeFileSync(path.join(dir, 'timeline.txt'), timeline(records, run.events));
   for (const page of await harness.webPages()) await page.close().catch(() => {});
 
+  // The model provider could not be reached, or the access token expired mid-task: not a verdict on the agent.
+  const lastCall = records.filter(r => r.kind === 'llm').at(-1);
+  const providerDown =
+    run.outcome !== 'task.ok' && lastCall && /Failed to fetch|provider unreachable|invalid authentication credentials/i.test(`${lastCall.msg} ${JSON.stringify(lastCall.data?.error ?? '')}`);
+
   const declined = run.questions.filter(isOrderConfirmation).length;
   return writeResult(runDir, task, {
     final_result_response: run.answer,
     action_history: actionHistory(run.events),
     screenshots,
-    outcome: run.outcome,
+    outcome: providerDown ? 'provider_down' : run.outcome,
     steps: run.maxStep,
     seconds: run.seconds,
     questions: run.questions,
@@ -188,37 +209,49 @@ function selfCheck() {
 }
 
 async function main() {
-  const { values: opts } = parseArgs({ options: { limit: { type: 'string' }, only: { type: 'string' }, level: { type: 'string' }, 'self-check': { type: 'boolean' } } });
+  const { values: opts } = parseArgs({
+    options: { all: { type: 'boolean' }, resume: { type: 'string' }, limit: { type: 'string' }, only: { type: 'string' }, level: { type: 'string' }, 'self-check': { type: 'boolean' } },
+  });
   if (opts['self-check']) return selfCheck();
   if (!fs.existsSync(path.join(DIST, 'manifest.json'))) throw new Error(`No build at ${DIST}; run pnpm build first`);
-  const slicePath = path.join(HERE, 'slice.json');
-  if (!fs.existsSync(slicePath)) throw new Error(`No ${slicePath}; build it with make-slice.mjs (see README.md)`);
-  const slice = JSON.parse(fs.readFileSync(slicePath, 'utf8'));
+  const sourcePath = path.join(HERE, opts.all ? 'Online_Mind2Web.json' : 'slice.json');
+  if (!fs.existsSync(sourcePath)) throw new Error(`No ${sourcePath}; see README.md for getting the data`);
+  const raw = fs.readFileSync(sourcePath);
+  const parsed = JSON.parse(raw.toString('utf8'));
+  const pool = opts.all ? parsed : parsed.tasks;
+  const source = opts.all
+    ? { file: 'Online_Mind2Web.json', sha256: createHash('sha256').update(raw).digest('hex'), tasks: pool.length }
+    : { seed: parsed.seed, sourceSha256: parsed.sourceSha256 };
   const only = opts.only?.split(',').map(id => id.trim()).filter(Boolean);
-  const tasks = slice.tasks
+  const tasks = pool
     .filter(t => (!only || only.includes(t.task_id)) && (!opts.level || t.level === opts.level))
     .slice(0, opts.limit ? Number(opts.limit) : undefined);
   if (tasks.length === 0) throw new Error('no tasks selected');
 
-  const runId = `mind2web-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-  const runDir = path.join(HERE, '..', 'results', runId);
+  const runDir = opts.resume ? path.resolve(opts.resume) : path.join(HERE, '..', 'results', `mind2web-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  const runId = path.basename(runDir);
   fs.mkdirSync(runDir, { recursive: true });
+  const todo = tasks.filter(task => {
+    const saved = savedResult(runDir, task);
+    return !saved || RETRY_ON_RESUME.has(saved.outcome);
+  });
+  console.log(`${tasks.length} tasks selected, ${tasks.length - todo.length} already done, ${todo.length} to run -> ${runDir}`);
 
-  const results = [];
   let session = await launchSession(null);
   let inSession = 0;
   try {
-    for (const task of tasks) {
+    for (const [n, task] of todo.entries()) {
       if (inSession >= TASKS_PER_BROWSER) {
         await closeSession(session);
         session = await launchSession(null);
         inSession = 0;
       }
-      process.stdout.write(`${task.task_id} [${task.level}] ${task.confirmed_task.slice(0, 70)} ... `);
+      process.stdout.write(`[${n + 1}/${todo.length}] ${task.task_id} [${task.level}] ${task.confirmed_task.slice(0, 70)} ... `);
       // A harness error usually means a wedged browser: start a new one and give the task one more try.
+      let result;
       for (let tries = 1; ; tries++) {
         try {
-          results.push(await runTask(session.harness, task, runId, runDir));
+          result = await runTask(session.harness, task, runId, runDir);
           break;
         } catch (error) {
           console.log(`HARNESS ERROR (try ${tries}): ${error.message}`);
@@ -226,19 +259,20 @@ async function main() {
           session = await launchSession(null);
           inSession = 0;
           if (tries === 2) {
-            results.push(writeResult(runDir, task, { outcome: 'harness_error', detail: error.message }));
+            result = writeResult(runDir, task, { outcome: 'harness_error', detail: error.message });
             break;
           }
         }
       }
       inSession++;
-      const r = results.at(-1);
-      console.log(`${r.outcome} (${r.seconds ?? 0}s, ${r.steps ?? 0} steps, ${r.metrics?.tokens.input ?? 0} input tokens, ${r.screenshots.length} shots)`);
+      console.log(`${result.outcome} (${result.seconds ?? 0}s, ${result.steps ?? 0} steps, ${result.metrics?.tokens.input ?? 0} input tokens, ${result.screenshots.length} shots)`);
     }
   } finally {
     await closeSession(session);
   }
 
+  // The summary covers every selected task with a result in the folder, including those from earlier, resumed sessions.
+  const results = tasks.map(task => savedResult(runDir, task)).filter(Boolean);
   const model = process.env.E2E_MODEL ?? 'gemini-2.5-flash';
   const rows = results.map(r => ({
     task_id: r.task_id,
@@ -256,12 +290,13 @@ async function main() {
   }));
   fs.writeFileSync(
     path.join(runDir, 'summary.json'),
-    `${JSON.stringify({ runId, model, plannerModel: process.env.E2E_PLANNER_MODEL ?? model, slice: { seed: slice.seed, sourceSha256: slice.sourceSha256 }, limits: LIMITS, results: rows }, null, 2)}\n`,
+    `${JSON.stringify({ runId, model, plannerModel: process.env.E2E_PLANNER_MODEL ?? model, source, limits: LIMITS, results: rows }, null, 2)}\n`,
   );
-  console.table(rows.map(({ task_id, answer, costUsd, ...row }) => ({ task: task_id.slice(0, 10), ...row, answer: answer.slice(0, 40) })));
+  const outcomes = {};
+  for (const row of rows) outcomes[row.outcome] = (outcomes[row.outcome] ?? 0) + 1;
   const cost = rows.reduce((n, r) => n + (r.costUsd ?? 0), 0);
   const tokens = rows.reduce((n, r) => n + (r.inputTokens ?? 0), 0);
-  console.log(`${rows.length} tasks, ${tokens} input tokens, estimated cost $${cost.toFixed(2)}. Not scored yet.`);
+  console.log(`${rows.length} of ${tasks.length} tasks have results ${JSON.stringify(outcomes)}, ${tokens} input tokens, estimated cost $${cost.toFixed(2)}. Not scored yet.`);
   console.log(`Results: ${runDir}\nJudge:   node e2e/mind2web/judge.mjs ${runDir}`);
 }
 
