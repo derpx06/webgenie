@@ -1206,6 +1206,13 @@ export default class Page {
     });
     const target = (sized.asElement() as ElementHandle | null) ?? handle;
     await target.scrollIntoView();
+    // The agent's own status capsule floats above the page and takes pointer events (hover, drag). On a real site it
+    // covered the very element being clicked (Online-Mind2Web, Trader Joe's): both the cover check below and the real
+    // click hit the capsule. Pointer actions pass through it from the first one on this page.
+    // ponytail: never restored on this page, so the capsule stops expanding on hover; restore after the action if that matters.
+    await this._puppeteerPage
+      ?.evaluate(() => document.getElementById('webgenie-agent-status-capsule')?.style.setProperty('pointer-events', 'none', 'important'))
+      .catch(() => undefined);
     const blocker = await target.evaluate(
       (el, isHover, checkCovered): { message: string; buttons?: string[] } | null => {
         if (!isHover && ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true')) {

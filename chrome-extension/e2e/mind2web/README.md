@@ -75,7 +75,7 @@ The same environment as `../run.mjs` applies (`E2E_MODEL`, `E2E_PLANNER_MODEL`, 
 Rules per task: the start page is the task's `website`; the firewall denies google.com, bing.com, duckduckgo.com and
 search.yahoo.com (the benchmark requires starting from the website, not a search engine); an order or payment
 confirmation is answered "No, stop here"; any other question is answered "Proceed with any reasonable choice." and
-counted; caps are 25 steps, 600 s and 150k input tokens. A start page that fails with a network error or 5xx is
+counted; caps are 25 steps, 600 s and 400k input tokens (a model call on a real site reads 7–12k tokens). A start page that fails with a network error or 5xx is
 recorded as `site_down` and left out of the score; so is a task that ended because the model provider was
 unreachable or the access token expired mid-task, recorded as `provider_down`.
 
