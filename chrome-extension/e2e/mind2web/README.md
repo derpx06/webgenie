@@ -59,10 +59,15 @@ first, so hard tasks get first pick of websites.
 ```bash
 pnpm build                                                   # the harness loads ./dist
 node chrome-extension/e2e/mind2web/run.mjs --limit 3         # a smoke run
-node chrome-extension/e2e/mind2web/run.mjs                   # all 60
+node chrome-extension/e2e/mind2web/run.mjs                   # all 60 of the slice
+node chrome-extension/e2e/mind2web/run.mjs --all             # all 300 tasks in Online_Mind2Web.json
+node chrome-extension/e2e/mind2web/run.mjs --all --resume chrome-extension/e2e/results/mind2web-<timestamp>
 node chrome-extension/e2e/mind2web/run.mjs --level hard --only <task_id>,<task_id>
 node chrome-extension/e2e/mind2web/run.mjs --self-check      # the question rules and action history, no browser
 ```
+
+`--resume` reuses a run folder: tasks that already have a result are skipped, except `harness_error` and
+`provider_down`, which run again. The summary always covers every selected task with a result in the folder.
 
 The same environment as `../run.mjs` applies (`E2E_MODEL`, `E2E_PLANNER_MODEL`, `E2E_PROJECT`, `E2E_LOCATION`,
 `E2E_HEADLESS`, `CHROMIUM_PATH`); the agent's models are called through Vertex AI with your gcloud login.
@@ -71,7 +76,8 @@ Rules per task: the start page is the task's `website`; the firewall denies goog
 search.yahoo.com (the benchmark requires starting from the website, not a search engine); an order or payment
 confirmation is answered "No, stop here"; any other question is answered "Proceed with any reasonable choice." and
 counted; caps are 25 steps, 600 s and 150k input tokens. A start page that fails with a network error or 5xx is
-recorded as `site_down` and left out of the score.
+recorded as `site_down` and left out of the score; so is a task that ended because the model provider was
+unreachable or the access token expired mid-task, recorded as `provider_down`.
 
 Output, under `chrome-extension/e2e/results/mind2web-<timestamp>/` (gitignored):
 
