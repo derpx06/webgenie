@@ -67,7 +67,8 @@ judge_loop() {
   done
 }
 
-log "run folder $RUN_DIR (headless=$E2E_HEADLESS)"
+if [ -n "${E2E_HEADLESS:-}" ]; then browser=headless; else browser="headed on a virtual display"; fi
+log "run folder $RUN_DIR (browser: $browser)"
 judge_loop &
 JUDGE_PID=$!
 

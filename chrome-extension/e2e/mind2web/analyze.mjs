@@ -134,7 +134,7 @@ for (const id of tasks) {
       return '';
     }
   };
-  const visited = [...new Set(navigatorCalls.map(rec => /Current tab:[^\n]*?(https?:\/\/[^\s"'<>\\]+)/.exec(String(rec.data?.state ?? ''))?.[1]).filter(Boolean))];
+  const visited = [...new Set(navigatorCalls.map(rec => /Current tab:[^\n]*?(https?:\/\/[^\s"'<>\\,)]+)/.exec(String(rec.data?.state ?? ''))?.[1]).filter(Boolean))];
   const offSite = [...new Set(visited.map(site).filter(host => host && host !== site(r.website)))];
   if (offSite.length > 0) causes.push("agent: left the task's website");
   const firstDone = navigatorCalls.findIndex(rec => (rec.data?.calls ?? []).some(call => call.name === 'done'));
@@ -146,7 +146,7 @@ for (const id of tasks) {
     const lines = [`# ${r.task}`, '', `${r.website} · ${r.level} · outcome ${r.outcome}${judged && !judged.excluded ? ` · judged ${judged.success ? 'success' : 'failure'}` : ''}`, ''];
     for (const rec of sessions) {
       const calls = rec.data?.calls ?? [];
-      const url = /Current tab:[^\n]*?(https?:\/\/[^\s"'<>\\]+)/.exec(String(rec.data?.state ?? ''))?.[1] ?? '';
+      const url = /Current tab:[^\n]*?(https?:\/\/[^\s"'<>\\,)]+)/.exec(String(rec.data?.state ?? ''))?.[1] ?? '';
       lines.push(`## step ${rec.step ?? '?'} · ${rec.component}${url ? ` · ${url}` : ''}${rec.data?.images ? ` · ${rec.data.images} screenshot` : ''}`);
       for (const call of calls) {
         const { memory, ...args } = call.args ?? {};
