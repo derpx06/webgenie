@@ -15,12 +15,16 @@ cd "$(dirname "$0")/../.." || exit 1 # chrome-extension
 RUN_DIR="${1:-e2e/results/mind2web-$(date -u +%Y-%m-%dT%H-%M-%SZ)}"
 WORKERS="${WORKERS:-5}"
 PASSES="${PASSES:-12}"
+# One Vertex location per worker, in turn. The global endpoint answered 429 to 6 of 6 small test calls while five
+# workers used it (620 of 1015 calls rate-limited); regional endpoints answered 3-4 of 4.
+LOCATIONS="${LOCATIONS:-europe-west1 europe-north1 us-east1 us-west1 us-south1}"
+read -r -a LOCATION_LIST <<<"$LOCATIONS"
 mkdir -p "$RUN_DIR"
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"
 
 # Hold off sleep and idle suspend for the whole run.
 if [ -z "${WEBGENIE_INHIBITED:-}" ] && command -v systemd-inhibit >/dev/null; then
-  WEBGENIE_INHIBITED=1 WORKERS="$WORKERS" PASSES="$PASSES" exec systemd-inhibit --what=sleep:idle --who=webgenie --why="Online-Mind2Web run" "$0" "$RUN_DIR"
+  WEBGENIE_INHIBITED=1 WORKERS="$WORKERS" PASSES="$PASSES" LOCATIONS="$LOCATIONS" exec systemd-inhibit --what=sleep:idle --who=webgenie --why="Online-Mind2Web run" "$0" "$RUN_DIR"
 fi
 
 # No windows on the screen: a normal, headed Chromium on a virtual display (Xvfb) when available. Real headless
@@ -86,14 +90,15 @@ status_loop() {
 
 worker() {
   local i="$1" left
+  local location="${LOCATION_LIST[$((i % ${#LOCATION_LIST[@]}))]}"
   for pass in $(seq 1 "$PASSES"); do
     left="$(remaining "$i" "$WORKERS")"
-    log "worker $i pass $pass: $left tasks without a final result"
+    log "worker $i ($location) pass $pass: $left tasks without a final result"
     [ "$left" = "0" ] && return 0
     # Tasks the provider held back: give its quota a few minutes before trying them again.
     [ "$pass" -gt 1 ] && sleep 180
     wait_for_vertex || log "worker $i: Vertex unreachable for 30 minutes; trying the pass anyway"
-    "${RUNNER[@]}" node e2e/mind2web/run.mjs --all --resume "$RUN_DIR" --shard "$i/$WORKERS" >>"$RUN_DIR/run-$i.log" 2>&1
+    E2E_LOCATION="$location" "${RUNNER[@]}" node e2e/mind2web/run.mjs --all --resume "$RUN_DIR" --shard "$i/$WORKERS" >>"$RUN_DIR/run-$i.log" 2>&1
     log "worker $i pass $pass ended with exit $?"
   done
   log "worker $i: $(remaining "$i" "$WORKERS") tasks still without a final result after $PASSES passes"

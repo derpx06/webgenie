@@ -320,7 +320,7 @@ async function main() {
     return !saved || RETRY_ON_RESUME.has(saved.outcome);
   });
   const shardLabel = shardCount > 1 ? ` (shard ${shardIndex}/${shardCount}: ${mine.length} tasks)` : '';
-  console.log(`${tasks.length} tasks selected${shardLabel}, ${mine.length - todo.length} already done, ${todo.length} to run -> ${runDir}`);
+  console.log(`${tasks.length} tasks selected${shardLabel}, ${mine.length - todo.length} already done, ${todo.length} to run on Vertex ${process.env.E2E_LOCATION ?? 'global'} -> ${runDir}`);
 
   let session = await launchSession(null);
   let inSession = 0;
@@ -357,7 +357,7 @@ async function main() {
       // One line per attempt, across processes (small appends are atomic): a retry replaces the task folder, not this log.
       fs.appendFileSync(
         path.join(runDir, 'attempts.jsonl'),
-        `${JSON.stringify({ at: new Date().toISOString(), shard: opts.shard ?? null, task_id: task.task_id, outcome: result.outcome, agentOutcome: result.agentOutcome, detail: result.detail, seconds: result.seconds, steps: result.steps, inputTokens: result.metrics?.tokens.input, provider: p })}\n`,
+        `${JSON.stringify({ at: new Date().toISOString(), shard: opts.shard ?? null, location: process.env.E2E_LOCATION ?? 'global', task_id: task.task_id, outcome: result.outcome, agentOutcome: result.agentOutcome, detail: result.detail, seconds: result.seconds, steps: result.steps, inputTokens: result.metrics?.tokens.input, provider: p })}\n`,
       );
       // The provider is struggling: back off before the next task instead of spending it too.
       if (result.outcome === 'provider_down') {
