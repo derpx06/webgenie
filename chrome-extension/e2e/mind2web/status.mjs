@@ -22,7 +22,9 @@ for (const task of tasks) {
   const dir = path.join(runDir, task.task_id);
   const result = read(path.join(dir, 'result.json'));
   if (!result) {
-    if (fs.existsSync(dir)) running.push(`${task.task_id.slice(0, 8)} ${Math.round((Date.now() - fs.statSync(dir).mtimeMs) / 1000)}s since last write`);
+    // A folder untouched for longer than a task may run was left by a stopped worker; it runs again later.
+    const idle = fs.existsSync(dir) ? Math.round((Date.now() - fs.statSync(path.join(dir, 'trajectory')).mtimeMs) / 1000) : Infinity;
+    if (idle < 1500) running.push(`${task.task_id.slice(0, 8)} ${idle}s since last screenshot`);
     continue;
   }
   outcomes[result.outcome] = (outcomes[result.outcome] ?? 0) + 1;

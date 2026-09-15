@@ -9,11 +9,12 @@
 // folder and skips tasks that already have a result, except harness errors and provider outages, which run again.
 // Rules: the firewall denies common search engines, so the agent works from the task's website (the benchmark's rule);
 // an order/payment confirmation is answered "No, stop here"; any other question is answered "Proceed with any
-// reasonable choice." and counted; each task is capped at 25 steps, 600 s and 500k input tokens. After navigator actions
+// reasonable choice." and counted; each task is capped at 25 steps, 1200 s and 500k input tokens. After navigator actions
 // (act.ok/act.fail) the newest web tab is screenshotted into <task_id>/trajectory/NN.png, at most 40 per task.
 // Every task records what the model provider returned (calls, 429s, server and network errors, rate-limit waits). A task
-// that did not succeed and was held back by the provider (its last call failed on the provider's side, or it waited a
-// minute or more on rate limits) is recorded as provider_down and runs again on resume.
+// the provider ended (its last call failed on the provider's side, the agent paused for rate limits, or it ran out of
+// time after two minutes or more of rate-limit waits) is recorded as provider_down and runs again on resume, at most
+// three provider-ended attempts per task; step and token limits are always the agent's own outcome.
 // --shard i/n runs every n-th selected task (from i), so n processes, each with its own browser, share one run folder.
 // Results: e2e/results/mind2web-<timestamp>/<task_id>/{result.json,trajectory/,events.jsonl,trace.jsonl,timeline.txt};
 // attempts.jsonl in the run folder keeps one line per attempt, including those a retry replaced.
@@ -28,7 +29,11 @@ const HERE = import.meta.dirname;
 const DIST = path.resolve(HERE, '../../../dist');
 const SEARCH_ENGINES = ['google.com', 'bing.com', 'duckduckgo.com', 'search.yahoo.com'];
 // 500k input tokens: on real sites a model call reads 7-15k tokens, so 150k stopped tasks near step 13 of 25.
-const LIMITS = { maxSteps: 25, maxMs: 600_000, maxInputTokens: 500_000 };
+// 1200 s: under project-wide Vertex rate limits (about half of all calls answered 429 with five workers) tasks spent most
+// of 600 s waiting; steps and tokens bound the agent's effort, the clock only has to stop a hung task.
+const LIMITS = { maxSteps: 25, maxMs: 1_200_000, maxInputTokens: 500_000 };
+/** Provider-ended attempts after which a task keeps the agent's own outcome (flagged providerAffected) instead of running again. */
+const MAX_PROVIDER_ATTEMPTS = 3;
 const MAX_SHOTS = 40;
 const TASKS_PER_BROWSER = 10;
 const DECLINE = 'No, stop here';
@@ -110,14 +115,49 @@ function providerStats(records) {
   return stats;
 }
 
-/** A task that did not succeed and that the provider held back (including the agent pausing itself for rate limits or an
- *  unreachable provider): not a verdict on the agent. */
+/**
+ * The provider ended the task: its last call failed on the provider's side, the agent paused itself for rate limits or an
+ * unreachable provider, or it ran out of time after two minutes or more of rate-limit waits. Not a verdict on the agent.
+ * Step and token limits and the agent's own failure are verdicts however long it waited: waiting spends neither.
+ */
 const heldBackByProvider = (outcome, provider, events) =>
   outcome !== 'task.ok' &&
+  outcome !== 'limit_steps' &&
+  outcome !== 'limit_tokens' &&
   (provider.lastCallFailedOnProvider ||
-    provider.rateLimitWaitMs >= 60_000 ||
-    provider.failed - provider.other >= 10 ||
-    events.some(e => e.state === 'task.pause' && /model provider/i.test(String(e.data?.details ?? ''))));
+    events.some(e => e.state === 'task.pause' && /model provider/i.test(String(e.data?.details ?? ''))) ||
+    (outcome === 'limit_time' && provider.rateLimitWaitMs >= 120_000));
+
+/** Attempts of a task the provider ended so far, from attempts.jsonl. */
+function providerAttempts(runDir, taskId) {
+  try {
+    return fs
+      .readFileSync(path.join(runDir, 'attempts.jsonl'), 'utf8')
+      .split('\n')
+      .filter(line => line.includes(`"task_id":"${taskId}"`) && line.includes('"outcome":"provider_down"')).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * A saved provider_down result the current rule does not blame on the provider, or that already had its
+ * MAX_PROVIDER_ATTEMPTS, keeps the agent's own outcome. (An earlier rule also re-ran failures that had merely waited a
+ * minute on rate limits, including tasks that reached the step limit.)
+ */
+function reclassified(runDir, task, saved) {
+  if (saved?.outcome !== 'provider_down' || !saved.agentOutcome || !saved.provider) return saved;
+  let events = [];
+  try {
+    events = fs.readFileSync(path.join(runDir, task.task_id, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
+  } catch {
+    // no events: judged on the provider numbers alone
+  }
+  const blamed = heldBackByProvider(saved.agentOutcome, saved.provider, events);
+  if (blamed && providerAttempts(runDir, task.task_id) < MAX_PROVIDER_ATTEMPTS) return saved;
+  const { agentOutcome, detail: _detail, ...rest } = saved;
+  return writeResult(runDir, task, { ...rest, outcome: agentOutcome, reclassifiedFrom: 'provider_down', ...(blamed ? { providerAffected: true } : {}) });
+}
 
 function writeResult(runDir, task, fields) {
   const dir = path.join(runDir, task.task_id);
@@ -216,7 +256,9 @@ async function runTask(harness, task, runId, runDir) {
   for (const page of await harness.webPages()) await page.close().catch(() => {});
 
   const provider = providerStats(records);
-  const providerDown = heldBackByProvider(run.outcome, provider, run.events);
+  const blamed = heldBackByProvider(run.outcome, provider, run.events);
+  // The last allowed attempt keeps the agent's outcome, flagged, rather than running again.
+  const providerDown = blamed && providerAttempts(runDir, task.task_id) + 1 < MAX_PROVIDER_ATTEMPTS;
 
   const declined = run.questions.filter(isOrderConfirmation).length;
   return writeResult(runDir, task, {
@@ -225,6 +267,7 @@ async function runTask(harness, task, runId, runDir) {
     screenshots,
     outcome: providerDown ? 'provider_down' : run.outcome,
     ...(providerDown ? { detail: `ended as ${run.outcome}; held back by the model provider`, agentOutcome: run.outcome } : {}),
+    ...(blamed && !providerDown ? { providerAffected: true } : {}),
     provider,
     steps: run.maxStep,
     seconds: run.seconds,
@@ -275,9 +318,13 @@ function selfCheck() {
   assert(limited.calls === 3 && limited.rateLimited === 1 && limited.serverError === 1 && limited.rateLimitWaitMs === 16_900, `stats ${JSON.stringify(limited)}`);
   assert(heldBackByProvider('limit_time', limited, []), 'last call failed on the provider');
   assert(!heldBackByProvider('task.ok', limited, []), 'a success stays a success');
+  assert(!heldBackByProvider('limit_steps', limited, []), 'the step limit is the agent’s');
   const agentSide = providerStats([llm('llm call x failed', 'status code 400: invalid tool schema'), llm('llm call x')]);
   assert(!heldBackByProvider('task.fail', agentSide, []), 'an agent-side failure is not the provider');
   assert(heldBackByProvider('limit_time', agentSide, [{ state: 'task.pause', data: { details: 'The model provider kept rate-limiting requests.' } }]), 'rate-limit pause');
+  const waited = { ...agentSide, rateLimitWaitMs: 300_000 };
+  assert(!heldBackByProvider('task.fail', waited, []), 'waiting does not make the agent’s own failure the provider’s');
+  assert(heldBackByProvider('limit_time', waited, []) && !heldBackByProvider('limit_time', { ...waited, rateLimitWaitMs: 60_000 }, []), 'out of time after long waits');
   console.log('self-check ok');
 }
 
@@ -316,7 +363,7 @@ async function main() {
   fs.mkdirSync(runDir, { recursive: true });
   const mine = tasks.filter((_, n) => n % shardCount === shardIndex);
   const todo = mine.filter(task => {
-    const saved = savedResult(runDir, task);
+    const saved = reclassified(runDir, task, savedResult(runDir, task));
     return !saved || RETRY_ON_RESUME.has(saved.outcome);
   });
   const shardLabel = shardCount > 1 ? ` (shard ${shardIndex}/${shardCount}: ${mine.length} tasks)` : '';

@@ -86,15 +86,22 @@ The same environment as `../run.mjs` applies (`E2E_MODEL`, `E2E_PLANNER_MODEL`, 
 Rules per task: the start page is the task's `website`; the firewall denies google.com, bing.com, duckduckgo.com and
 search.yahoo.com (the benchmark requires starting from the website, not a search engine); an order or payment
 confirmation is answered "No, stop here"; any other question is answered "Proceed with any reasonable choice." and
-counted; caps are 25 steps, 600 s and 500k input tokens (a model call on a real site reads 7–15k tokens). A start page
-that fails with a network error or 5xx is recorded as `site_down` and left out of the score. Each result carries
-`provider`: the model calls, failures by kind (429, 5xx, network, auth) and seconds spent waiting on rate limits. A task
-that did not succeed and that the provider held back is recorded as `provider_down` (with the agent's own outcome in
-`agentOutcome`), left out of the score and run again. "Held back" means one of:
+counted; caps are 25 steps, 1200 s and 500k input tokens (a model call on a real site reads 7–15k tokens; under
+project-wide Vertex rate limits most of a task's time can be waiting). A start page that fails with a network error or
+5xx is recorded as `site_down` and left out of the score. Each result carries `provider`: the model calls, failures by
+kind (429, 5xx, network, auth) and seconds spent waiting on rate limits.
+
+A task the provider ended is recorded as `provider_down`, with the agent's own outcome in `agentOutcome`. It is left out
+of the score and runs again. "Ended by the provider" means one of:
 - its last call failed on the provider's side
-- it waited 60 s or more on rate limits
-- it had 10 or more provider errors
 - the agent paused it for rate limits or an unreachable provider
+- it ran out of time after 2 minutes or more of rate-limit waits
+
+Two limits on that:
+- Step and token limits are always the agent's own outcome, however long the task waited.
+- After 3 provider-ended attempts the task keeps the agent's outcome, flagged `providerAffected`.
+
+A resumed run applies the same rule to results saved under an earlier one (`reclassifiedFrom`).
 
 Output, under `chrome-extension/e2e/results/mind2web-<timestamp>/` (gitignored):
 
