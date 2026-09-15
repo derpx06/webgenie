@@ -98,6 +98,8 @@ export class AgentContext {
   visitedUrls = new Set<string>();
   /** Passwords from the user's answers by placeholder, with the host they were given on; never sent to a model. */
   secrets = new Map<string, { value: string; host: string }>();
+  /** Scroll actions in a row; a long run gets a note pointing back to the element list. */
+  scrollRun = 0;
   /** Text typed into each field this task (frame key and backend node id), to catch replacing a value the user gave. */
   typedValues = new Map<string, string>();
   /** Overwrites of a field this task filled that were refused once (field key and new text); a repeat goes through. */

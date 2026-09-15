@@ -372,7 +372,7 @@ function actionTargetFingerprint(actionArgs: unknown): TargetFingerprint | null 
  * clicked), or the site's connection failed. Online-Mind2Web: 3 of 39 tasks ended on three of these within seconds.
  */
 export function isPageSideError(message: string): boolean {
-  return /is covered by <|no visible area to point at|net::ERR_(HTTP2_PROTOCOL_ERROR|CONNECTION_(RESET|CLOSED|REFUSED)|TIMED_OUT|EMPTY_RESPONSE|NETWORK_CHANGED)/i.test(message);
+  return /is covered by <|no visible area|net::ERR_(HTTP2_PROTOCOL_ERROR|CONNECTION_(RESET|CLOSED|REFUSED)|TIMED_OUT|EMPTY_RESPONSE|NETWORK_CHANGED)/i.test(message);
 }
 
 export function isStaleElementError(message: string): boolean {

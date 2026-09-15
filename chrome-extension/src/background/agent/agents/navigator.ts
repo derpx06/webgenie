@@ -802,6 +802,15 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
             ? `${result.extractedContent ?? ''} New text on the page: ${appeared.map(text => JSON.stringify(text)).join('; ')}.`.trim()
             : result.extractedContent,
         });
+        // Scrolling on and on for something already listed (Online-Mind2Web: 7 of 35 tasks scrolled 4+ times in a row, one
+        // 21 times, for a filter it could use by index) gets a note from the fourth scroll on.
+        this.context.scrollRun = actionName === 'scroll' ? this.context.scrollRun + 1 : 0;
+        if (this.context.scrollRun >= 4) {
+          result = new ActionResult({
+            ...result,
+            extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row. Elements marked offscreen are on the page already: use them by index (the action scrolls to them). To find a text, use get_complete_page_content with find, or scroll_to_text. Scroll again only for content that is not in the element list.`.trim(),
+          });
+        }
         this.context.activeObservation = postActionState.observation;
         if (mutating && contractId) {
           const progress = ProgressLedger.recordFromActionResult({

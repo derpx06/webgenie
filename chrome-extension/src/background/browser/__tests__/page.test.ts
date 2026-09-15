@@ -13,7 +13,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   };
 });
 
-import Page, { build_initial_state, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, typingMethod } from '../page';
+import Page, { build_initial_state, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, typingMethod } from '../page';
 import { DOMElementNode } from '../dom/views';
 import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
@@ -173,6 +173,28 @@ describe('Page read retries', () => {
 
     expect(state.url).toBe('https://example.com/done');
     expect(updateState).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('pointerTarget', () => {
+  const element = (width: number, height: number, extra: Record<string, unknown> = {}) =>
+    ({ getBoundingClientRect: () => ({ width, height }), querySelectorAll: () => [], labels: null, ...extra }) as unknown as Element;
+
+  it('aims at an element that has a box', () => {
+    const el = element(20, 20);
+    expect(pointerTarget(el)).toBe(el);
+  });
+
+  it('aims at the visible label of a hidden checkbox', () => {
+    const label = element(80, 20);
+    const input = element(0, 0, { labels: [element(0, 0), label] });
+    expect(pointerTarget(input)).toBe(label);
+  });
+
+  it('aims at the first visible descendant of an inline wrapper', () => {
+    const image = element(50, 50);
+    const link = element(0, 0, { querySelectorAll: () => [element(0, 0), image] });
+    expect(pointerTarget(link)).toBe(image);
   });
 });
 

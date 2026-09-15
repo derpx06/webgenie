@@ -198,6 +198,23 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+/**
+ * Where a pointer action on an element aims; runs in the page. An element with a box is its own target. An inline element
+ * around positioned content (a link wrapping an absolutely placed image) aims at its first visible descendant. A
+ * custom-styled checkbox or radio hides the real input and draws its label instead: the visible label is what a person
+ * clicks, and clicking it toggles the input (Online-Mind2Web: 5 of 35 tasks had such a click refused, then scrolled
+ * looking for the input until the step limit).
+ */
+export function pointerTarget(el: Element): Element {
+  const hasBox = (candidate: Element) => {
+    const rect = candidate.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+  if (hasBox(el)) return el;
+  const label = Array.from((el as HTMLInputElement).labels ?? []).find(hasBox);
+  return label ?? Array.from(el.querySelectorAll('*')).find(hasBox) ?? el;
+}
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -1195,15 +1212,7 @@ export default class Page {
     kind: 'click' | 'right' | 'hover',
     { clickCount = 1, checkCover = true } = {},
   ): Promise<MouseOutcome> {
-    // An inline element around positioned content (a link wrapping an absolutely placed image) has no box of its
-    // own: aim at its first visible descendant.
-    const sized = await handle.evaluateHandle(el => {
-      const hasBox = (candidate: Element) => {
-        const rect = candidate.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      };
-      return hasBox(el) ? el : (Array.from(el.querySelectorAll('*')).find(hasBox) ?? el);
-    });
+    const sized = await handle.evaluateHandle(pointerTarget);
     const target = (sized.asElement() as ElementHandle | null) ?? handle;
     await target.scrollIntoView();
     // The agent's own status capsule floats above the page and takes pointer events (hover, drag). On a real site it
@@ -1247,7 +1256,10 @@ export default class Page {
       throw new Error(blocker.buttons ? `${blocker.message}${this._indexedButtons(blocker.buttons)}; close or move past it first` : blocker.message);
     }
     const { x, y } = await target.clickablePoint().catch(() => {
-      throw new Error('The element has no visible area to point at (hidden, collapsed or off the page); choose another element.');
+      // "Off the page" in the old wording sent the model scrolling for it; the action has already scrolled to it.
+      throw new Error(
+        'The element has no visible area: it is hidden, or inside a collapsed section, menu or panel. Scrolling will not reveal it (actions already scroll to their element); open what contains it, click its visible label, or choose another element.',
+      );
     });
 
     const client = this._pageClient();

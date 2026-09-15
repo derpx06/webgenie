@@ -565,7 +565,7 @@ describe('A target the page covers or hides', () => {
     const realClick = page.clickNode;
     let left = refused.length;
     page.clickNode = async (...args: unknown[]) => {
-      if (left-- > 0) throw new Error('The element has no visible area to point at (hidden, collapsed or off the page); choose another element.');
+      if (left-- > 0) throw new Error('The element has no visible area: it is hidden, or inside a collapsed section, menu or panel. Scrolling will not reveal it (actions already scroll to their element); open what contains it, click its visible label, or choose another element.');
       return realClick(...args);
     };
     return h;
@@ -581,6 +581,27 @@ describe('A target the page covers or hides', () => {
     const h = run([2, 3, 0, 2, 3, 0, 2, 3]);
     await settle(h.executor.execute());
     expect(h.last()).toMatchObject({ state: ExecutionState.TASK_FAIL });
+  });
+});
+
+describe('A long run of scrolls', () => {
+  it('gets a note from the fourth scroll on that listed elements are used by index', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('Found it') : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Find the Editors Choice filter',
+      pages: [{ url: 'https://reviews.test/', title: 'Reviews', elements: [{ text: 'Home' }, { text: 'Editors Choice' }] }],
+      planner: Array(10).fill(planner),
+      navigator: [1, 2, 1, 2, 1].map(pages => call('scroll', { direction: 'down', pages })).concat([done('Found it')]),
+    });
+    const page = (h.browser as unknown as { page: Record<string, unknown> }).page;
+    Object.assign(page, { getScrollInfo: async () => [0, 800, 5000], scrollByPages: async () => {} });
+    await settle(h.executor.execute());
+
+    const requests = h.llm.requestsFor('navigator');
+    expect(textOf(requests[3].messages)).not.toContain('scrolls in a row');
+    expect(textOf(requests[4].messages)).toContain('4 scrolls in a row');
   });
 });
 
