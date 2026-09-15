@@ -23,8 +23,8 @@ import { taskMetrics, timeline } from '../metrics.mjs';
 const HERE = import.meta.dirname;
 const DIST = path.resolve(HERE, '../../../dist');
 const SEARCH_ENGINES = ['google.com', 'bing.com', 'duckduckgo.com', 'search.yahoo.com'];
-// 400k input tokens: on real sites a model call reads 7-12k tokens, so 150k stopped tasks near step 13 of 25.
-const LIMITS = { maxSteps: 25, maxMs: 600_000, maxInputTokens: 400_000 };
+// 500k input tokens: on real sites a model call reads 7-15k tokens, so 150k stopped tasks near step 13 of 25.
+const LIMITS = { maxSteps: 25, maxMs: 600_000, maxInputTokens: 500_000 };
 const MAX_SHOTS = 40;
 const TASKS_PER_BROWSER = 10;
 const DECLINE = 'No, stop here';

@@ -21,6 +21,7 @@ import {
   amountBefore,
   changesUserValue,
   taskEntriesWith,
+  isStaleElementError,
   commitQuestion,
   commitTarget,
   currentIndexFor,
@@ -888,6 +889,11 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         console.warn(`\n${failMsg}`);
         logger.error(failMsg);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+        // A thrown action may have changed the page, or found it changed (a re-rendered element): the next read must be
+        // fresh. Without this the model saw the same stale read and picked the same removed element again (three times in
+        // a row on a live site, ending the task).
+        await browserContext.invalidateCache().catch(() => undefined);
+        const stale = isStaleElementError(msg);
 
         results.push(new ActionResult({
           error: msg,
@@ -898,11 +904,9 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           validationId,
           executionStatus: 'threw',
           validated: 'failed',
-          retryability: /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)/i.test(msg)
-            ? 'replan'
-            : 'retry_reobserve',
-          failureReason: /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)/i.test(msg)
-            ? `${msg}. The DOM changed after this index was selected; re-observe and choose a current target instead of retrying the same index.`
+          retryability: stale ? 'replan' : 'retry_reobserve',
+          failureReason: stale
+            ? `${msg}. The page changed after this index was read; look at the current page and choose a current target instead of retrying the same index.`
             : msg,
           observationId: this.context.activeObservation?.id ?? null,
           targetFingerprint: targetFingerprintFromArgs(actionArgs),

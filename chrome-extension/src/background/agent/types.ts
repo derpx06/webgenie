@@ -39,6 +39,8 @@ export interface AgentOptions {
   includeAttributes: string[];
   planningInterval: number;
   logDOMSnapshot: boolean; // log full DOM sent to LLM each step (dev option)
+  /** Record every model call's last message (the page state as sent) and its tool calls in full, as `session` traces. */
+  captureSessions: boolean;
   /** Registers the manage_* tools (bookmarks, history, downloads, browsing data, extensions...); off unless the user turns them on. */
   enableBrowserDataTools: boolean;
   /** Accept the navigator's done without the planner's check when the evidence is complete (validation/done-evidence.ts). */
@@ -57,6 +59,7 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   includeAttributes: DEFAULT_INCLUDE_ATTRIBUTES,
   planningInterval: 3,
   logDOMSnapshot: false,
+  captureSessions: false,
   enableBrowserDataTools: false,
   acceptEvidencedDone: false,
 };

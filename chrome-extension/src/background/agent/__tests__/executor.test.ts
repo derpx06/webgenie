@@ -522,6 +522,32 @@ describe('Follow-ups and saved memory', () => {
   });
 });
 
+describe('An element the page replaced', () => {
+  it('does not spend the failure budget when clicks hit a detached node, and tells the model to look again', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('Opened Stores') : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Open the Stores page',
+      pages: [{ url: 'https://shop.test/', title: 'Shop', elements: [{ text: 'Home' }, { text: 'Stores' }] }],
+      planner: Array(8).fill(planner),
+      navigator: [click(1), click(1), click(1), click(1), done('Opened Stores')],
+    });
+    const page = (h.browser as unknown as { page: { clickNode: (...args: unknown[]) => Promise<unknown> } }).page;
+    const realClick = page.clickNode;
+    let throws = 3;
+    page.clickNode = async (...args: unknown[]) => {
+      if (throws-- > 0) throw new Error('Node is detached from document');
+      return realClick(...args);
+    };
+    await settle(h.executor.execute());
+
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+    expect(h.states()).not.toContain(ExecutionState.TASK_FAIL);
+    expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain('look at the current page');
+  });
+});
+
 describe('Screenshots', () => {
   const chart = { url: 'https://stats.test/', title: 'Stats', text: ['Bar chart of monthly sign-ups'] };
   const hasImage = (request: LLMRequest) =>

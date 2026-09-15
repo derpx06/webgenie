@@ -363,8 +363,12 @@ function actionTargetFingerprint(actionArgs: unknown): TargetFingerprint | null 
   return target && typeof target === 'object' ? target as TargetFingerprint : null;
 }
 
-function isStaleElementError(message: string): boolean {
-  return /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)/i.test(message);
+/**
+ * The element an action targeted was removed or replaced by the page after it was read: re-read the page, do not count it
+ * as the agent's failure. Puppeteer reports a node a single-page app re-rendered as "Node is detached from document".
+ */
+export function isStaleElementError(message: string): boolean {
+  return /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)|node is detached|detached from (the )?document/i.test(message);
 }
 
 const NAVIGATION_ACTIONS = ['go_to_url', 'search_web', 'go_back', 'go_forward'];

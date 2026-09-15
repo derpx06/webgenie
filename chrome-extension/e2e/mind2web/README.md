@@ -66,6 +66,12 @@ node chrome-extension/e2e/mind2web/run.mjs --level hard --only <task_id>,<task_i
 node chrome-extension/e2e/mind2web/run.mjs --self-check      # the question rules and action history, no browser
 ```
 
+For an unattended run of all 300 tasks, `overnight.sh [runDir]` keeps the machine awake (systemd-inhibit), runs headless
+by default, repeats `run.mjs --all --resume` until every task has a final result, judges finished tasks every 30 minutes
+(`--concurrency 6`), then writes `analysis.md`. Logs: `<runDir>/run.log`, `judge.log`, `analyze.log`, `overnight.log`.
+Every model call is recorded in full (`kind: session` traces: the page state sent and the tool calls with memory and
+typed text; registered passwords redacted), because the harness turns on `captureSessions`.
+
 `--resume` reuses a run folder: tasks that already have a result are skipped, except `harness_error` and
 `provider_down`, which run again. The summary always covers every selected task with a result in the folder.
 

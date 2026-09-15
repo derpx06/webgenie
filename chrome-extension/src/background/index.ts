@@ -776,6 +776,7 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
       enableBrowserDataTools: generalSettings.enableBrowserDataTools,
       acceptEvidencedDone: generalSettings.acceptEvidencedDone,
       logDOMSnapshot: advancedSettings.enableDeveloperOptions && advancedSettings.logDOMSnapshot,
+      captureSessions: advancedSettings.enableDeveloperOptions && advancedSettings.captureTraces && advancedSettings.captureSessions,
     },
     generalSettings: generalSettings,
   });

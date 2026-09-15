@@ -82,7 +82,7 @@ export abstract class BaseAgent<M = unknown> {
         onUsage: usage => this.context.messageManager.recordTokenUsage(usage.inputTokens, usage.outputTokens),
       });
     try {
-      return await run();
+      return this.recordSession(messages, await run());
     } catch (error) {
       if (!this.toolMode.nativeTools || !isToolsUnsupportedError(error)) throw error;
       record({
@@ -93,8 +93,33 @@ export abstract class BaseAgent<M = unknown> {
         data: { model: this.modelName, error },
       });
       this.toolMode = { nativeTools: false, forceToolChoice: false };
-      return run();
+      return this.recordSession(messages, await run());
     }
+  }
+
+  /**
+   * With captureSessions on, one `session` trace per model call: the last message as sent (header and page state; image
+   * parts counted, not stored) and the validated tool calls with their full arguments (memory, typed text). The trace
+   * sink redacts registered secrets and keys named like credentials.
+   */
+  private recordSession<T extends { calls: ToolCallRequest[] }>(messages: BaseMessage[], result: T): T {
+    if (!this.context.options?.captureSessions) return result;
+    const content = messages.at(-1)?.content;
+    const parts = Array.isArray(content) ? (content as Array<{ type?: string; text?: string }>) : [];
+    record({
+      level: 'info',
+      kind: 'session',
+      component: this.id,
+      msg: `model call: ${result.calls.map(call => call.name).join(', ')}`,
+      data: {
+        model: this.modelName,
+        messages: messages.length,
+        state: typeof content === 'string' ? content : parts.filter(part => part.type === 'text').map(part => part.text ?? '').join('\n'),
+        images: parts.filter(part => part.type === 'image_url').length,
+        calls: result.calls.map(call => ({ name: call.name, args: call.args })),
+      },
+    });
+    return result;
   }
 
   abstract execute(state: HumanMessage): Promise<AgentOutput<M>>;

@@ -46,7 +46,7 @@ import {
   type TaskCheckpoint,
 } from './contracts';
 import { ensureBrowserObservation } from './validation/observation';
-import { echoesActionResult, hostOf, inventedPersonalData, isApproval } from './validation/service';
+import { echoesActionResult, hostOf, inventedPersonalData, isApproval, isStaleElementError } from './validation/service';
 import type { ValidationStatus } from './validation/types';
 
 const logger = createLogger('Executor');
@@ -811,6 +811,9 @@ export class Executor {
       const outcome = latest?.validated ?? null;
       if (done || outcome === 'passed') {
         context.consecutiveFailures = 0;
+      } else if (outcome === 'failed' && latest?.executionStatus === 'threw' && isStaleElementError(latest.error ?? '')) {
+        // The page replaced the element after it was read: not the agent's failure, so it costs nothing from the failure budget.
+        logger.info(`Target changed under the action; re-reading the page: ${latest.error}`);
       } else if (outcome === 'failed') {
         const failureDetail = latest?.failureReason ?? latest?.error ?? 'failed';
         context.consecutiveFailures++;

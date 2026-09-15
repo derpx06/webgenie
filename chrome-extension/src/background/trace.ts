@@ -6,7 +6,7 @@ import Dexie from 'dexie';
 import { advancedSettingsStore } from '@extension/storage';
 
 type TraceLevel = 'debug' | 'info' | 'warning' | 'error';
-type TraceKind = 'log' | 'event' | 'llm' | 'span' | 'trace';
+type TraceKind = 'log' | 'event' | 'llm' | 'span' | 'trace' | 'session';
 
 export interface TraceRecord {
   seq?: number;
@@ -34,6 +34,9 @@ const MAX_RECORDS = 50_000;
 const FLUSH_MS = 500;
 const FLUSH_BATCH = 200;
 const MAX_STRING = 8_000;
+/** Session records hold a model call's whole page state (25k+ characters on real sites). */
+const SESSION_MAX_STRING = 200_000;
+const stringCap = (kind: TraceKind | undefined) => (kind === 'session' ? SESSION_MAX_STRING : MAX_STRING);
 const SECRET_KEY = /^(api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|id[-_]?token|token|authorization|secret|client[-_]?secret|password|credentials?|bedrock[-_]?secret[-_]?key)$/i;
 const SECRET_VALUE = /\bya29\.[\w-]+|\bsk-[\w-]{16,}|\bAIza[\w-]{30,}|Bearer\s+[\w.-]+/g;
 
@@ -55,7 +58,8 @@ export function registerSecret(value: string): void {
 }
 
 function scrubbed(entry: TraceRecord): TraceRecord {
-  return { ...entry, msg: redactString(entry.msg), data: entry.data === undefined ? undefined : sanitize(entry.data) };
+  const max = stringCap(entry.kind);
+  return { ...entry, msg: redactString(entry.msg, max), data: entry.data === undefined ? undefined : sanitize(entry.data, 0, max) };
 }
 
 /** Writes already under way finish first: IndexedDB runs write transactions on a store in creation order. */
@@ -78,33 +82,33 @@ export function redactSecrets(value: string): string {
   return redacted;
 }
 
-function redactString(value: string): string {
+function redactString(value: string, max = MAX_STRING): string {
   let redacted = value.replace(SECRET_VALUE, '[redacted]');
   for (const secret of secrets) redacted = redacted.split(secret).join('[redacted]');
-  return redacted.length > MAX_STRING ? `${redacted.slice(0, MAX_STRING)}…[+${redacted.length - MAX_STRING} chars]` : redacted;
+  return redacted.length > max ? `${redacted.slice(0, max)}…[+${redacted.length - max} chars]` : redacted;
 }
 
 /** Make any value safe to persist: redact secrets, flatten errors, bound depth/breadth/string length. */
-export function sanitize(value: unknown, depth = 0): unknown {
+export function sanitize(value: unknown, depth = 0, max = MAX_STRING): unknown {
   if (value === null || value === undefined || typeof value === 'number' || typeof value === 'boolean') return value;
-  if (typeof value === 'string') return redactString(value);
+  if (typeof value === 'string') return redactString(value, max);
   if (typeof value === 'bigint') return value.toString();
   if (typeof value === 'function') return `[function ${value.name || 'anonymous'}]`;
   if (value instanceof Error) {
     return {
       name: value.name,
-      message: redactString(value.message),
-      stack: value.stack ? redactString(value.stack) : undefined,
-      cause: value.cause !== undefined && depth < 3 ? sanitize(value.cause, depth + 1) : undefined,
+      message: redactString(value.message, max),
+      stack: value.stack ? redactString(value.stack, max) : undefined,
+      cause: value.cause !== undefined && depth < 3 ? sanitize(value.cause, depth + 1, max) : undefined,
     };
   }
   if (depth >= 4) return '[depth limit]';
-  if (Array.isArray(value)) return value.slice(0, 50).map(item => sanitize(item, depth + 1));
-  if (value instanceof Map) return sanitize(Object.fromEntries(Array.from(value.entries()).slice(0, 50)), depth + 1);
+  if (Array.isArray(value)) return value.slice(0, 50).map(item => sanitize(item, depth + 1, max));
+  if (value instanceof Map) return sanitize(Object.fromEntries(Array.from(value.entries()).slice(0, 50)), depth + 1, max);
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 50)) {
-      out[key] = SECRET_KEY.test(key) ? '[redacted]' : sanitize(item, depth + 1);
+      out[key] = SECRET_KEY.test(key) ? '[redacted]' : sanitize(item, depth + 1, max);
     }
     return out;
   }
@@ -138,12 +142,13 @@ async function flush(): Promise<void> {
 export function record(entry: Omit<TraceRecord, 'ts'> & { ts?: number }): void {
   if (!enabled) return;
   try {
+    const max = stringCap(entry.kind);
     buffer.push({
       ts: Date.now(),
       ...context,
       ...entry,
-      msg: redactString(entry.msg),
-      data: entry.data === undefined ? undefined : sanitize(entry.data),
+      msg: redactString(entry.msg, max),
+      data: entry.data === undefined ? undefined : sanitize(entry.data, 0, max),
     });
     if (buffer.length >= FLUSH_BATCH) void flush();
     else if (!flushTimer) flushTimer = setTimeout(() => void flush(), FLUSH_MS);

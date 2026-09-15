@@ -26,6 +26,12 @@ describe('trace sanitize', () => {
     expect(out.blob).toMatch(/…\[\+1000 chars\]$/);
   });
 
+  it('keeps a whole page state under a larger cap for session records', () => {
+    const state = `[Current browser state] ${'x'.repeat(30_000)}`;
+    expect(sanitize({ state }, 0, 200_000)).toEqual({ state });
+    expect((sanitize({ state }) as { state: string }).state.length).toBeLessThan(8_100);
+  });
+
   it('bounds depth and breadth so cyclic or huge objects cannot blow up a record', () => {
     const deep: Record<string, unknown> = {};
     let cursor = deep;

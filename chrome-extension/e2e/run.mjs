@@ -168,7 +168,8 @@ export class Harness {
               planner: { provider: 'vertex_ai', modelName: plannerModel, parameters: { temperature: 0.7, topP: 0.9 } },
             },
           },
-          'advanced-settings': { enableDeveloperOptions: true, captureTraces: true, logDOMSnapshot: false },
+          // captureSessions: every model call's last message and tool calls in full, for diagnosing failures from the logs.
+          'advanced-settings': { enableDeveloperOptions: true, captureTraces: true, captureSessions: true, logDOMSnapshot: false },
           'firewall-settings': { enabled: true, allowList: [], denyList: [] },
           'general-settings': {},
           chat_sessions_meta: sessions,
