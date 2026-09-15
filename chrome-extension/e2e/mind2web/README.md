@@ -88,9 +88,11 @@ search.yahoo.com (the benchmark requires starting from the website, not a search
 confirmation is answered "No, stop here"; any other question is answered "Proceed with any reasonable choice." and
 counted; caps are 25 steps, 1200 s and 500k input tokens (a model call on a real site reads 7–15k tokens; under
 project-wide Vertex rate limits most of a task's time can be waiting). A start page that fails with a network error or
-5xx is recorded as `site_down` and left out of the score. One that answers 401, 403 or 451 twice, 8 s apart (the site
-refuses this network: "Access Denied", a country block, a bot check that does not clear by itself) is `site_blocked`:
-not run and left out of the score. Every result records the start page's HTTP status as `startStatus`. Each result carries `provider`: the model calls, failures by
+5xx is recorded as `site_down` and left out of the score. A site that refuses this network is `site_blocked` and left
+out of the score. That means either:
+- its start page answers 401, 403 or 451, or shows a standard refusal page ("Access Denied", a bot check that has not
+  cleared, a country block), and still does 8 s later;
+- or the task ends on such a refusal page of the task's own site. The agent's outcome is kept in `agentOutcome`. Every result records the start page's HTTP status as `startStatus`. Each result carries `provider`: the model calls, failures by
 kind (429, 5xx, network, auth) and seconds spent waiting on rate limits.
 
 A task the provider ended is recorded as `provider_down`, with the agent's own outcome in `agentOutcome`. It is left out

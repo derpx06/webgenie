@@ -15,7 +15,8 @@
 // the provider ended (its last call failed on the provider's side, the agent paused for rate limits, or it ran out of
 // time after two minutes or more of rate-limit waits) is recorded as provider_down and runs again on resume, at most
 // three provider-ended attempts per task; step and token limits are always the agent's own outcome.
-// A start page answered 401/403/451 twice, 8 s apart (the site refuses this network), is site_blocked: not run, not scored.
+// A site that refuses this network is site_blocked and not scored: its start page answers 401/403/451 or shows a
+// standard refusal page and still does 8 s later, or the task ends on a refusal page of its own site.
 // --shard i/n runs every n-th selected task (from i), so n processes, each with its own browser, share one run folder.
 // Results: e2e/results/mind2web-<timestamp>/<task_id>/{result.json,trajectory/,events.jsonl,trace.jsonl,timeline.txt};
 // attempts.jsonl in the run folder keeps one line per attempt, including those a retry replaced.
@@ -129,6 +130,34 @@ const heldBackByProvider = (outcome, provider, events) =>
     events.some(e => e.state === 'task.pause' && /model provider/i.test(String(e.data?.details ?? ''))) ||
     (outcome === 'limit_time' && provider.rateLimitWaitMs >= 120_000));
 
+/** Standard refusal pages: a CDN's "Access Denied", a bot check that has not cleared, a country block. */
+const REFUSAL_TEXT =
+  /access denied|you don't have permission to access|performing security verification|verif(?:y|ies) (?:that )?you are (?:not a bot|(?:a )?human)|just a moment\.\.\.|not available in your (?:area|country|region)|coming from a country|the request could not be satisfied/i;
+
+/** The refusal a short page shows, or null; a normal page that mentions such words is longer. */
+function refusalText(title, text) {
+  if (text.length >= 3000) return null;
+  return REFUSAL_TEXT.exec(`${title}\n${text}`)?.[0] ?? null;
+}
+
+/** Two hosts of one site (www.ign.com and in.ign.com). ponytail: last two labels, too broad for co.uk-style domains. */
+const sameSite = (a, b) => a.split('.').slice(-2).join('.') === b.split('.').slice(-2).join('.');
+
+/** A refusal page of the task's own site in this tab, as `host "text" (title)`, or null. */
+async function refusalPage(page, siteHost) {
+  const read = page.evaluate(() => ({ href: location.href, title: document.title, text: (document.body?.innerText ?? '').slice(0, 4000) }));
+  const info = await Promise.race([read, sleep(5000).then(() => null)]).catch(() => null);
+  if (!info) return null;
+  let pageHost;
+  try {
+    pageHost = new URL(info.href).hostname;
+  } catch {
+    return null;
+  }
+  const refusal = sameSite(pageHost, siteHost) ? refusalText(info.title, info.text) : null;
+  return refusal ? `${pageHost} "${refusal}"${info.title ? ` (${info.title.slice(0, 60)})` : ''}` : null;
+}
+
 /** Statuses a site answers when it refuses this network rather than being down. */
 const isRefusal = status => status === 401 || status === 403 || status === 451;
 
@@ -240,6 +269,15 @@ async function runTask(harness, task, runId, runDir) {
       return writeResult(runDir, task, { outcome: 'site_blocked', detail: `HTTP ${again} on the start page twice${title ? ` ("${title.slice(0, 80)}")` : ''}`, startStatus });
     }
   }
+  // The same refusal served with status 200 (Akamai "Access Denied" on a store's start page) is read from the page.
+  if (await refusalPage(web, host)) {
+    await sleep(8000);
+    const still = await refusalPage(web, host);
+    if (still) {
+      await web.close().catch(() => {});
+      return writeResult(runDir, task, { outcome: 'site_blocked', detail: `refusal page at the start, still there 8 s later: ${still}`, startStatus });
+    }
+  }
   await web.bringToFront();
   const tabId = await harness.ctl.evaluate(async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id, web.url());
   if (!tabId) throw new Error(`no tab found for ${web.url()}`);
@@ -276,6 +314,10 @@ async function runTask(harness, task, runId, runDir) {
   fs.writeFileSync(path.join(dir, 'events.jsonl'), run.events.map(e => JSON.stringify(e)).join('\n'));
   fs.writeFileSync(path.join(dir, 'trace.jsonl'), records.map(r => JSON.stringify(r)).join('\n'));
   fs.writeFileSync(path.join(dir, 'timeline.txt'), timeline(records, run.events));
+  // A task that ends on a refusal page of its own site was refused on the way (a car site served "Access Denied" after its
+  // start page had loaded): not measurable from this network either.
+  const lastPage = (await harness.webPages()).at(-1);
+  const refusedAtEnd = lastPage ? await refusalPage(lastPage, host) : null;
   for (const page of await harness.webPages()) await page.close().catch(() => {});
 
   const provider = providerStats(records);
@@ -288,8 +330,12 @@ async function runTask(harness, task, runId, runDir) {
     final_result_response: run.answer,
     action_history: actionHistory(run.events),
     screenshots,
-    outcome: providerDown ? 'provider_down' : run.outcome,
-    ...(providerDown ? { detail: `ended as ${run.outcome}; held back by the model provider`, agentOutcome: run.outcome } : {}),
+    outcome: refusedAtEnd ? 'site_blocked' : providerDown ? 'provider_down' : run.outcome,
+    ...(refusedAtEnd
+      ? { detail: `the site refused access during the task: ${refusedAtEnd}`, agentOutcome: run.outcome }
+      : providerDown
+        ? { detail: `ended as ${run.outcome}; held back by the model provider`, agentOutcome: run.outcome }
+        : {}),
     ...(blamed && !providerDown ? { providerAffected: true } : {}),
     provider,
     startStatus,
@@ -350,6 +396,13 @@ function selfCheck() {
   assert(!heldBackByProvider('task.fail', waited, []), 'waiting does not make the agent’s own failure the provider’s');
   assert(heldBackByProvider('limit_time', waited, []) && !heldBackByProvider('limit_time', { ...waited, rateLimitWaitMs: 60_000 }, []), 'out of time after long waits');
   assert(isRefusal(403) && isRefusal(451) && isRefusal(401) && !isRefusal(200) && !isRefusal(404) && !isRefusal(null), 'refusal statuses');
+  // Texts from live refusal pages: Akamai with status 200, a Cloudflare check, a country block.
+  assert(refusalText('marriott.com/default.mi', `# Access Denied\nYou don't have permission to access "http://www.marriott.com/default.mi" on this server.`), 'Akamai page');
+  assert(refusalText('Just a moment...', 'Performing security verification\nThis page is displayed while the website verifies you are not a bot.'), 'bot check');
+  assert(refusalText('Sorry…', 'Sorry, this request is coming from a country which we currently do not support.'), 'country block');
+  assert(!refusalText('Help center', `If you see access denied, sign in again. ${'Help text. '.repeat(300)}`), 'a long page that mentions it');
+  assert(!refusalText('Used cars', 'Browse used cars by make and model.'), 'a normal page');
+  assert(sameSite('in.ign.com', 'www.ign.com') && !sameSite('www.google.com', 'www.ign.com'), 'same site');
   console.log('self-check ok');
 }
 
