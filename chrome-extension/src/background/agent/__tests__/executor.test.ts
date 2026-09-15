@@ -548,6 +548,28 @@ describe('An element the page replaced', () => {
   });
 });
 
+describe('An address the firewall blocks', () => {
+  it('is refused as an action the model can recover from, not the end of the task', async () => {
+    const { URLNotAllowedError } = await import('../../browser/views');
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('The address is blocked') : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Open https://blocked.test/news and tell me the headline.',
+      pages: [{ url: 'https://example.test/', title: 'Example' }],
+      planner: Array(6).fill(planner),
+      navigator: [call('go_to_url', { url: 'https://blocked.test/news' }), done('The address is blocked')],
+    });
+    (h.browser as unknown as { navigateTo: (url: string) => Promise<unknown> }).navigateTo = async url => {
+      throw new URLNotAllowedError(`URL: ${url} is not allowed`);
+    };
+    await settle(h.executor.execute());
+
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+    expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain("blocked by the browser's firewall settings");
+  });
+});
+
 describe('Screenshots', () => {
   const chart = { url: 'https://stats.test/', title: 'Stats', text: ['Bar chart of monthly sign-ups'] };
   const hasImage = (request: LLMRequest) =>

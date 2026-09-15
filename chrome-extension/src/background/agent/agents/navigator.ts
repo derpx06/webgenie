@@ -883,7 +883,27 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           break;
         }
       } catch (error) {
-        if (error instanceof URLNotAllowedError) throw error;
+        if (error instanceof URLNotAllowedError) {
+          // The browser's firewall settings block that address: a refusal the model can recover from, not the end of the
+          // task (Online-Mind2Web smoke run: search_web opened a blocked search engine and the task failed at step 1).
+          const blocked = /URL: (\S+) is not allowed/.exec(error.message)?.[1] ?? 'that address';
+          const refusal = `Not opened: ${blocked} is blocked by the browser's firewall settings. Do not try that address again; reach the goal another way, for example with the current site's own search, menus or links.`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, refusal);
+          await browserContext.invalidateCache().catch(() => undefined);
+          results.push(new ActionResult({
+            executed: false,
+            executionStatus: 'not_attempted',
+            validated: 'unknown',
+            retryability: 'replan',
+            failureReason: refusal,
+            extractedContent: refusal,
+            includeInMemory: true,
+            contractId,
+            actionId,
+            validationId,
+          }));
+          break;
+        }
         const msg = error instanceof Error ? error.message : String(error);
         const failMsg = `[Action] [${i + 1}/${actions.length}] ${actionName} FAILED\n  args : ${JSON.stringify(redactArgs(actionName, actionArgs))}\n  error: ${msg}`;
         console.warn(`\n${failMsg}`);

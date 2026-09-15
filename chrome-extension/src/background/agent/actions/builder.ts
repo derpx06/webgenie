@@ -38,6 +38,7 @@ import {
 } from './schemas';
 import { z } from 'zod';
 import { zodToToolParameters } from '@src/background/utils';
+import { isUrlAllowed } from '@src/background/browser/util';
 import { SystemHandler } from './handlers/system';
 import { NavigationHandler } from './handlers/navigation';
 import { InteractionHandler } from './handlers/interaction';
@@ -213,6 +214,15 @@ export class ActionBuilder {
     ];
   }
 
+  /** Whether the browser's firewall settings let search_web open at least one of the engines it uses. */
+  private searchEngineAllowed(): boolean {
+    const config = this.context.browserContext?.getConfig?.();
+    if (!config) return true;
+    return ['https://duckduckgo.com/?q=search', 'https://www.google.com/search?q=search'].some(url =>
+      isUrlAllowed(url, config.allowedUrls ?? [], config.deniedUrls ?? []),
+    );
+  }
+
   // --- Category Builders ---
 
   private buildSystemActions(): Action[] {
@@ -224,7 +234,8 @@ export class ActionBuilder {
 
   private buildNavigationActions(): Action[] {
     return [
-      new Action((input) => this.navigationHandler.handleSearchWeb(input), searchWebActionSchema),
+      // No web search when the firewall blocks both engines it can open: the tool could only fail.
+      ...(this.searchEngineAllowed() ? [new Action((input) => this.navigationHandler.handleSearchWeb(input), searchWebActionSchema)] : []),
       new Action((input) => this.navigationHandler.handleGoToUrl(input), goToUrlActionSchema),
       new Action(() => this.navigationHandler.handleGoBack(), goBackActionSchema),
       new Action(() => this.navigationHandler.handleGoForward(), goForwardActionSchema),

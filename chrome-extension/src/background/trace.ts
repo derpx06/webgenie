@@ -102,7 +102,8 @@ export function sanitize(value: unknown, depth = 0, max = MAX_STRING): unknown {
       cause: value.cause !== undefined && depth < 3 ? sanitize(value.cause, depth + 1, max) : undefined,
     };
   }
-  if (depth >= 4) return '[depth limit]';
+  // Session records (the larger cap) keep tool arguments whole, lists inside them included.
+  if (depth >= (max > MAX_STRING ? 8 : 4)) return '[depth limit]';
   if (Array.isArray(value)) return value.slice(0, 50).map(item => sanitize(item, depth + 1, max));
   if (value instanceof Map) return sanitize(Object.fromEntries(Array.from(value.entries()).slice(0, 50)), depth + 1, max);
   if (typeof value === 'object') {
