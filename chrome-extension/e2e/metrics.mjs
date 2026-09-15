@@ -66,7 +66,7 @@ export function storageLeaks(dump, needle) {
  * Outcomes that say nothing about the agent, left out of pass rates: its start page or the model provider was unreachable
  * (credentials that expired mid-run included), or the run's token cap was reached before the attempt.
  */
-export const UNMEASURED = new Set(['site_down', 'provider_down', 'skipped_budget']);
+export const UNMEASURED = new Set(['site_down', 'site_blocked', 'provider_down', 'skipped_budget']);
 
 export function taskMetrics(records, events, { secret, taskText = '', storage } = {}) {
   const llm = records.filter(r => r.kind === 'llm');

@@ -15,6 +15,7 @@
 // the provider ended (its last call failed on the provider's side, the agent paused for rate limits, or it ran out of
 // time after two minutes or more of rate-limit waits) is recorded as provider_down and runs again on resume, at most
 // three provider-ended attempts per task; step and token limits are always the agent's own outcome.
+// A start page answered 401/403/451 twice, 8 s apart (the site refuses this network), is site_blocked: not run, not scored.
 // --shard i/n runs every n-th selected task (from i), so n processes, each with its own browser, share one run folder.
 // Results: e2e/results/mind2web-<timestamp>/<task_id>/{result.json,trajectory/,events.jsonl,trace.jsonl,timeline.txt};
 // attempts.jsonl in the run folder keeps one line per attempt, including those a retry replaced.
@@ -128,6 +129,9 @@ const heldBackByProvider = (outcome, provider, events) =>
     events.some(e => e.state === 'task.pause' && /model provider/i.test(String(e.data?.details ?? ''))) ||
     (outcome === 'limit_time' && provider.rateLimitWaitMs >= 120_000));
 
+/** Statuses a site answers when it refuses this network rather than being down. */
+const isRefusal = status => status === 401 || status === 403 || status === 451;
+
 /** Attempts of a task the provider ended so far, from attempts.jsonl. */
 function providerAttempts(runDir, taskId) {
   try {
@@ -189,7 +193,12 @@ function savedResult(runDir, task) {
 async function runTask(harness, task, runId, runDir) {
   const taskId = `${runId}-${task.task_id}`;
   const dir = path.join(runDir, task.task_id);
-  fs.rmSync(dir, { recursive: true, force: true }); // a retry starts clean
+  // A retry starts clean; the earlier attempt's logs move to .attempts/<task_id>/<time> instead of being deleted.
+  if (fs.existsSync(dir)) {
+    const archive = path.join(runDir, '.attempts', task.task_id);
+    fs.mkdirSync(archive, { recursive: true });
+    fs.renameSync(dir, path.join(archive, new Date().toISOString().replace(/[:.]/g, '-')));
+  }
   fs.mkdirSync(path.join(dir, 'trajectory'), { recursive: true });
 
   await harness.ensureControl();
@@ -210,12 +219,26 @@ async function runTask(harness, task, runId, runDir) {
   });
 
   const web = await harness.browser.newPage();
-  const nav = await web.goto(task.website, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(error => error);
+  let nav = await web.goto(task.website, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(error => error);
   // ponytail: one navigation decides site_down (network error or 5xx); a bot wall that answers 5xx is counted as down too.
   const down = nav instanceof Error ? (/net::ERR_/.test(nav.message) ? nav.message : null) : nav && nav.status() >= 500 ? `HTTP ${nav.status()}` : null;
   if (down) {
     await web.close().catch(() => {});
     return writeResult(runDir, task, { outcome: 'site_down', detail: down });
+  }
+  // A site that refuses this network on its own start page ("Access Denied", a country block, a bot check) cannot be
+  // measured from here: 7 of 23 judged "successes" were honest reports of such a block, scored as failures. A check that
+  // clears by itself in a real browser gets a few seconds and a reload first.
+  const startStatus = nav instanceof Error ? null : (nav?.status() ?? null);
+  if (isRefusal(startStatus)) {
+    await sleep(8000);
+    nav = await web.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(error => error);
+    const again = nav instanceof Error ? null : (nav?.status() ?? null);
+    if (isRefusal(again)) {
+      const title = await web.title().catch(() => '');
+      await web.close().catch(() => {});
+      return writeResult(runDir, task, { outcome: 'site_blocked', detail: `HTTP ${again} on the start page twice${title ? ` ("${title.slice(0, 80)}")` : ''}`, startStatus });
+    }
   }
   await web.bringToFront();
   const tabId = await harness.ctl.evaluate(async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id, web.url());
@@ -269,6 +292,7 @@ async function runTask(harness, task, runId, runDir) {
     ...(providerDown ? { detail: `ended as ${run.outcome}; held back by the model provider`, agentOutcome: run.outcome } : {}),
     ...(blamed && !providerDown ? { providerAffected: true } : {}),
     provider,
+    startStatus,
     steps: run.maxStep,
     seconds: run.seconds,
     questions: run.questions,
@@ -325,6 +349,7 @@ function selfCheck() {
   const waited = { ...agentSide, rateLimitWaitMs: 300_000 };
   assert(!heldBackByProvider('task.fail', waited, []), 'waiting does not make the agent’s own failure the provider’s');
   assert(heldBackByProvider('limit_time', waited, []) && !heldBackByProvider('limit_time', { ...waited, rateLimitWaitMs: 60_000 }, []), 'out of time after long waits');
+  assert(isRefusal(403) && isRefusal(451) && isRefusal(401) && !isRefusal(200) && !isRefusal(404) && !isRefusal(null), 'refusal statuses');
   console.log('self-check ok');
 }
 

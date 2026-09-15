@@ -44,7 +44,7 @@ const CONCURRENCY = Math.max(1, Number(opts.concurrency));
 const THRESHOLD = Number(opts.threshold);
 const MAX_IMAGE = 50;
 // provider_down: the model provider was unreachable or the access token expired mid-task, which says nothing about the agent.
-const EXCLUDED_OUTCOMES = new Set(['site_down', 'harness_error', 'provider_down']);
+const EXCLUDED_OUTCOMES = new Set(['site_down', 'site_blocked', 'harness_error', 'provider_down']);
 
 const KEY_POINTS_SYSTEM = `You are an expert tasked with analyzing a given task to identify the key points explicitly stated in the task description.
 
@@ -303,7 +303,16 @@ async function main() {
     .filter(entry => entry.isDirectory() && fs.existsSync(path.join(runDir, entry.name, 'result.json')))
     .map(entry => entry.name)
     .sort();
-  const todo = ids.filter(id => !tasks[id] || tasks[id].error).slice(0, opts.limit ? Number(opts.limit) : undefined);
+  // A task whose outcome changed since it was judged (run again, or reclassified) is judged again.
+  const changed = id => {
+    try {
+      const outcome = JSON.parse(fs.readFileSync(path.join(runDir, id, 'result.json'), 'utf8')).outcome;
+      return (tasks[id].excluded ?? tasks[id].agentOutcome) !== outcome;
+    } catch {
+      return false; // being written right now: the next pass sees it
+    }
+  };
+  const todo = ids.filter(id => !tasks[id] || tasks[id].error || changed(id)).slice(0, opts.limit ? Number(opts.limit) : undefined);
   console.log(`judging ${todo.length} of ${ids.length} tasks with ${model} (concurrency ${CONCURRENCY}, threshold ${THRESHOLD})${DRY ? ' [dry-run]' : ''}`);
 
   const save = () =>

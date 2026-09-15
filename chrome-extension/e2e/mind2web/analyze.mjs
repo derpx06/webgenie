@@ -93,7 +93,7 @@ for (const id of tasks) {
   const seenText = sessions.map(rec => String(rec.data?.state ?? '')).join('\n');
 
   const causes = [];
-  if (['site_down', 'provider_down', 'harness_error'].includes(r.outcome)) causes.push(`infrastructure: ${r.outcome}`);
+  if (['site_down', 'site_blocked', 'provider_down', 'harness_error'].includes(r.outcome)) causes.push(`infrastructure: ${r.outcome}`);
   if (['limit_steps', 'limit_time', 'limit_tokens'].includes(r.outcome)) causes.push(`limit: ${r.outcome.replace('limit_', '')}`);
   if (r.outcome === 'task.fail') causes.push(`task failed: ${normalize(r.final_result_response).slice(0, 80)}`);
   if (r.outcome === 'task.pause') causes.push('paused (rate limits or connection)');
