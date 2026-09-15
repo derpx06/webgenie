@@ -54,16 +54,25 @@ function responder() {
   return script;
 }
 
-/** Page actions only, as WebJudge asks: the done action's text is the agent's answer, not an action. */
+/**
+ * Page actions in order, then the agent's answer the way Online-Mind2Web v1 agents record it ("TASK_COMPLETE -> ANSWER:"
+ * as the last action), which is where WebJudge reads it. Without it a correct answer to an information task was judged a
+ * failure for "not displaying" what the agent had reported.
+ */
 function actionHistory(events) {
   const history = [];
   let started = '';
+  let answer = '';
   for (const e of events) {
     if (e.state === 'act.start') started = String(e.data?.details ?? '');
-    if (started === 'done') continue;
+    if (started === 'done') {
+      if (e.state === 'act.ok') answer = String(e.data?.details ?? '');
+      continue;
+    }
     if (e.state === 'act.ok') history.push(String(e.data?.details || started));
     if (e.state === 'act.fail') history.push(`${started} -> FAILED: ${e.data?.details ?? ''}`);
   }
+  if (answer) history.push(`TASK_COMPLETE -> ANSWER: ${answer}`);
   return history;
 }
 
@@ -205,7 +214,13 @@ function selfCheck() {
     { state: 'act.ok', data: { details: 'The cheapest is $19.' } },
   ];
   const history = actionHistory(events);
-  assert(history.length === 2 && history[0] === 'Clicked button with index 6: Search' && history[1].startsWith('Input text into index 3 -> FAILED'), `history ${JSON.stringify(history)}`);
+  assert(
+    history.length === 3 &&
+      history[0] === 'Clicked button with index 6: Search' &&
+      history[1].startsWith('Input text into index 3 -> FAILED') &&
+      history[2] === 'TASK_COMPLETE -> ANSWER: The cheapest is $19.',
+    `history ${JSON.stringify(history)}`,
+  );
   console.log('self-check ok');
 }
 

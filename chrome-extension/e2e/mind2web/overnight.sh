@@ -17,7 +17,14 @@ if [ -z "${WEBGENIE_INHIBITED:-}" ] && command -v systemd-inhibit >/dev/null; th
   WEBGENIE_INHIBITED=1 exec systemd-inhibit --what=sleep:idle --who=webgenie --why="Online-Mind2Web run" "$0" "$RUN_DIR"
 fi
 
-export E2E_HEADLESS="${E2E_HEADLESS:-1}"
+# No windows on the screen: a normal, headed Chromium on a virtual display (Xvfb) when available. Real headless
+# Chromium is refused by many sites' bot checks (smoke run: "access denied" on a store site, a Cloudflare check on another).
+if [ -z "${E2E_HEADLESS:-}" ] && command -v xvfb-run >/dev/null; then
+  RUNNER=(env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1920x1080x24")
+else
+  export E2E_HEADLESS="${E2E_HEADLESS:-1}"
+  RUNNER=()
+fi
 FLAG="$RUN_DIR/.run-finished"
 rm -f "$FLAG"
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" | tee -a "$RUN_DIR/overnight.log"; }
@@ -71,7 +78,7 @@ for pass in 1 2 3 4 5 6; do
   wait_for_vertex || { log "Vertex unreachable for 30 minutes; trying the pass anyway"; }
   # Force-stopped browsers leave profiles in /tmp (a small tmpfs); clear them when no benchmark browser is running.
   if [ "$(ps -eo pid=,args= | awk '$2 ~ /chromium$/ && /webgenie-e2e-/' | wc -l)" = "0" ]; then rm -rf /tmp/webgenie-e2e-*; fi
-  node e2e/mind2web/run.mjs --all --resume "$RUN_DIR" >>"$RUN_DIR/run.log" 2>&1
+  "${RUNNER[@]}" node e2e/mind2web/run.mjs --all --resume "$RUN_DIR" >>"$RUN_DIR/run.log" 2>&1
   log "pass $pass ended with exit $?"
 done
 

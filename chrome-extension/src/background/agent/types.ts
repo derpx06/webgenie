@@ -102,6 +102,8 @@ export class AgentContext {
   typedValues = new Map<string, string>();
   /** Overwrites of a field this task filled that were refused once (field key and new text); a repeat goes through. */
   overwriteChecked = new Set<string>();
+  /** Refusals by action (name and arguments, memory aside): a model that repeats a refused action gets told plainly. */
+  refusedActions = new Map<string, number>();
   /** Entries of a list in the task that every value typed since the last other action comes from, and those values. */
   entryCandidates: { entries: Array<{ index: number; text: string }>; values: string[]; url: string } | null = null;
   /** List entries already typed in full on a page (entry text → that page's address); each entry is usually typed once. */

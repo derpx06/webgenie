@@ -428,7 +428,15 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
         }
 
-        const refuse = (msg: string) => {
+        const refuse = (reason: string) => {
+          // A refused action tried again (six times in a live run) will be refused again: say so, and offer the way out.
+          const { memory: _memory, ...refusedArgs } = actionArgs as Record<string, unknown>;
+          const refusalKey = `${actionName} ${JSON.stringify(refusedArgs)}`;
+          const times = (this.context.refusedActions.get(refusalKey) ?? 0) + 1;
+          this.context.refusedActions.set(refusalKey, times);
+          const msg = times > 1
+            ? `${reason} You have tried this exact action ${times} times and it is refused every time. Do something different; if the task cannot go on without it, finish with done (success: false) and explain what blocks it.`
+            : reason;
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
           results.push(new ActionResult({
             executed: false,
