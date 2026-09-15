@@ -37,7 +37,8 @@ const LIMITS = { maxSteps: 25, maxMs: 1_200_000, maxInputTokens: 500_000 };
 /** Provider-ended attempts after which a task keeps the agent's own outcome (flagged providerAffected) instead of running again. */
 const MAX_PROVIDER_ATTEMPTS = 3;
 const MAX_SHOTS = 40;
-const TASKS_PER_BROWSER = 10;
+// 5: a browser that has served several heavy sites holds on to renderer memory; a fresh one gives it back.
+const TASKS_PER_BROWSER = 5;
 const DECLINE = 'No, stop here';
 const PROCEED = 'Proceed with any reasonable choice.';
 /** Outcomes that say nothing about the agent; a resumed run tries these tasks again. */
@@ -46,6 +47,34 @@ const RETRY_ON_RESUME = new Set(['harness_error', 'provider_down']);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 /** true once the promise settles successfully within ms, false on timeout or error. */
 const within = (promise, ms) => Promise.race([promise.then(() => true), sleep(ms).then(() => false)]).catch(() => false);
+
+/** RAM available and swap free in MB, from /proc/meminfo; null where it does not exist. */
+function freeMemoryMb() {
+  try {
+    const info = fs.readFileSync('/proc/meminfo', 'utf8');
+    const mb = key => Math.round(Number(new RegExp(`^${key}:\\s+(\\d+)`, 'm').exec(info)?.[1] ?? 0) / 1024);
+    return { available: mb('MemAvailable'), swapFree: mb('SwapFree') };
+  } catch {
+    return null;
+  }
+}
+
+/** Too little memory to start a browser task: little RAM left, or swap nearly full while RAM is not plentiful. */
+const memoryShort = free => free.available < 1500 || (free.swapFree < 800 && free.available < 4000);
+
+/**
+ * Waits before a task while the machine is short of memory. Other programs grow during a long run (an Android emulator
+ * and a Flutter build took about 6 GB): starting another heavy page then drove swap to 73 MB, and the kernel would have
+ * killed the largest process, the user's emulator.
+ */
+async function waitForMemory() {
+  for (let waited = 0; ; waited += 60) {
+    const free = freeMemoryMb();
+    if (!free || !memoryShort(free)) return;
+    if (waited % 600 === 0) console.log(`(waiting for memory before the next task: ${free.available} MB available, ${free.swapFree} MB swap free)`);
+    await sleep(60_000);
+  }
+}
 
 /** The system's own commit confirmation, or a question that asks to confirm an order or a payment. */
 const isOrderConfirmation = question =>
@@ -403,6 +432,10 @@ function selfCheck() {
   assert(!refusalText('Help center', `If you see access denied, sign in again. ${'Help text. '.repeat(300)}`), 'a long page that mentions it');
   assert(!refusalText('Used cars', 'Browse used cars by make and model.'), 'a normal page');
   assert(sameSite('in.ign.com', 'www.ign.com') && !sameSite('www.google.com', 'www.ign.com'), 'same site');
+  // Readings from this run: stable with an emulator open, then swap nearly gone with RAM still "available" as cache.
+  assert(!memoryShort({ available: 2600, swapFree: 2700 }), 'stable machine');
+  assert(memoryShort({ available: 3600, swapFree: 73 }) && memoryShort({ available: 1200, swapFree: 5000 }), 'short of memory');
+  assert(!memoryShort({ available: 8000, swapFree: 300 }), 'idle pages in swap with plenty of RAM');
   console.log('self-check ok');
 }
 
@@ -457,6 +490,7 @@ async function main() {
         session = await launchSession(null);
         inSession = 0;
       }
+      await waitForMemory();
       process.stdout.write(`[${n + 1}/${todo.length}] ${task.task_id} [${task.level}] ${task.confirmed_task.slice(0, 70)} ... `);
       // A harness error usually means a wedged browser: start a new one and give the task one more try.
       let result;

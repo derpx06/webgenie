@@ -75,7 +75,9 @@ end. Logs: `<runDir>/overnight.log`, `run-<i>.log`, `status.log` (every 5 minute
 attempt, with the provider's numbers), `judge.log`, `analyze.log`. `node e2e/mind2web/status.mjs <runDir>` prints the
 same status at any time. `node e2e/mind2web/verify.mjs <runDir>` checks the folder end to end: every task has a final
 result, every task the agent ran has its events, a trace with model-call sessions, a timeline, screenshots and provider
-numbers, and every result is judged with its current outcome (exit code 1 and a list while anything is missing).
+numbers, and every result is judged with its current outcome (exit code 1 and a list while anything is missing). Before each task a worker waits while the machine is short of
+memory (under 1.5 GB of RAM available, or swap nearly full with under 4 GB available), so other programs that grow
+during a long run are not pushed into the kernel's out-of-memory killer; each browser serves 5 tasks.
 Every model call is recorded in full (`kind: session` traces: the page state sent and the tool calls with memory and
 typed text; registered passwords redacted), because the harness turns on `captureSessions`.
 
