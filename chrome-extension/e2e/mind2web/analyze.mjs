@@ -6,6 +6,9 @@
 //
 // Categories are about causes, not sites: infrastructure, limits hit, the agent's own errors, what the site put in the
 // way, what the safety checks refused, questions, and (after judging) what the judge says was missed.
+// For debugging, every task gets a status (success, agent did not finish, finished but judged a failure, not judged yet,
+// not measurable, runs again) and the paths of all its logs, earlier attempts included; analysis.md lists every task that
+// did not succeed with its causes, answer, judge reasoning and logs, and each task folder gets a readable session.md.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -55,6 +58,16 @@ const GUARDS = [
 ];
 // Our own narration showing up as the element covering a target: the agent's status overlay in the way of its clicks.
 const OWN_OVERLAY = /covered by <[^>]*> "(Click|Input|Scroll|Hover|Right click|Send|Navigat|Open|Wait|Select|Drag|Upload|Search|Go |Switch|Close)[^"]*"/i;
+
+/** Where a task stands for debugging. */
+function statusOf(r, judged) {
+  if (['harness_error', 'provider_down'].includes(r.outcome)) return 'runs again';
+  if (['site_down', 'site_blocked'].includes(r.outcome)) return 'not measurable';
+  if (r.outcome !== 'task.ok') return 'agent did not finish';
+  if (!judged || judged.error || judged.excluded) return 'finished, not judged yet';
+  return judged.success ? 'success' : 'finished, judged a failure';
+}
+const STATUS_ORDER = ['agent did not finish', 'finished, judged a failure', 'finished, not judged yet', 'not measurable', 'runs again'];
 
 const tasks = fs
   .readdirSync(runDir, { withFileTypes: true })
@@ -161,12 +174,28 @@ for (const id of tasks) {
     fs.writeFileSync(path.join(dir, 'session.md'), `${lines.join('\n')}\n`);
   }
 
+  const has = file => fs.existsSync(path.join(dir, file));
+  const attemptsDir = path.join(runDir, '.attempts', id);
+  const earlierAttempts = fs.existsSync(attemptsDir) ? fs.readdirSync(attemptsDir).length : 0;
   rows.push({
     task_id: id,
     level: r.level,
     website: r.website,
     task: r.task,
+    status: statusOf(r, judged),
     outcome: r.outcome,
+    agentOutcome: r.agentOutcome ?? null,
+    detail: r.detail ?? null,
+    earlierAttempts,
+    logs: {
+      result: `${id}/result.json`,
+      session: sessions.length > 0 ? `${id}/session.md` : null,
+      trace: has('trace.jsonl') ? `${id}/trace.jsonl` : null,
+      events: has('events.jsonl') ? `${id}/events.jsonl` : null,
+      timeline: has('timeline.txt') ? `${id}/timeline.txt` : null,
+      screenshots: (r.screenshots ?? []).length ? `${id}/trajectory/` : null,
+      earlierAttempts: earlierAttempts ? `.attempts/${id}/` : null,
+    },
     judged: judged?.excluded ? `excluded (${judged.excluded})` : judged?.error ? 'judge error' : judged ? (judged.success ? 'success' : 'failure') : 'not judged',
     steps: r.steps ?? 0,
     seconds: r.seconds ?? 0,
@@ -212,6 +241,7 @@ const analysis = {
   tasks: rows.length,
   outcomes: Object.fromEntries(outcomes),
   judged: { n: judgedRows.length, success: judgedRows.filter(row => row.judged === 'success').length },
+  statuses: Object.fromEntries(count(rows, row => row.status)),
   causes: byCause.map(([cause, n]) => ({ cause, tasks: n, examples: examples(cause) })),
   failedActionTypes: failTypes.slice(0, 30).map(([message, n]) => ({ message, times: n })),
   medians: { steps: median(rows.map(row => row.steps)), seconds: median(rows.map(row => row.seconds)), tokensPerStep: median(rows.map(row => row.tokensPerStep)) },
@@ -227,6 +257,7 @@ const md = [
   `Outcomes: ${outcomes.map(([k, n]) => `${k} ${n}`).join(', ')}`,
   judgedRows.length ? `Judged: ${analysis.judged.success} of ${judgedRows.length} successful` : 'Not judged yet.',
   `Medians: ${analysis.medians.steps} steps, ${analysis.medians.seconds} s, ${analysis.medians.tokensPerStep} input tokens per step`,
+  `Status: ${Object.entries(analysis.statuses).map(([k, n]) => `${k} ${n}`).join(', ')}`,
   '',
   '## Causes (tasks affected)',
   '',
@@ -240,21 +271,39 @@ const md = [
   '| --- | --- |',
   ...analysis.failedActionTypes.map(f => `| ${f.message.replace(/\|/g, '\\|')} | ${f.times} |`),
   '',
-  '## Tasks judged a failure',
+  '## Every task that did not succeed',
   '',
-  ...rows
-    .filter(row => row.judged === 'failure')
-    .map(
-      row =>
-        `- **${row.task_id.slice(0, 12)}** [${row.level}] ${row.task}\n  - outcome ${row.outcome}; causes: ${row.causes.join('; ') || 'none detected'}` +
-        `${row.keyPoints ? `\n  - key points: ${String(row.keyPoints).replace(/\s+/g, ' ').slice(0, 300)}` : ''}` +
-        `\n  - judge: ${String(row.judgeReasoning ?? '').replace(/\s+/g, ' ').slice(0, 300)}` +
-        `${row.unsupportedValues?.length ? `\n  - answer values not seen on any page: ${row.unsupportedValues.join(', ')}` : ''}` +
-        `${row.offSite?.length ? `\n  - off-site: ${row.offSite.join(', ')}` : ''}` +
-        `\n  - session: ${row.task_id}/session.md`,
-    ),
+  'Grouped by status. Log paths are relative to this folder; earlier attempts of a task that ran again are kept whole.',
+  ...STATUS_ORDER.flatMap(status => {
+    const group = rows.filter(row => row.status === status);
+    if (group.length === 0) return [];
+    return [
+      '',
+      `### ${status} (${group.length})`,
+      '',
+      ...group.map(row => {
+        const logs = Object.entries(row.logs)
+          .filter(([, file]) => file)
+          .map(([name, file]) => (name === 'earlierAttempts' ? `earlier attempts ${file} (${row.earlierAttempts})` : file))
+          .join(' · ');
+        return (
+          `- **${row.task_id.slice(0, 12)}** [${row.level}] ${row.task}\n` +
+          `  - ${row.outcome}${row.agentOutcome ? ` (agent: ${row.agentOutcome})` : ''} · judge: ${row.judged} · ${row.steps} steps · ${row.seconds} s · ${row.inputTokens} input tokens` +
+          `${row.detail ? `\n  - detail: ${String(row.detail).slice(0, 200)}` : ''}` +
+          `\n  - causes: ${row.causes.join('; ') || 'none detected'}` +
+          `\n  - answer: ${String(row.answer).replace(/\s+/g, ' ').slice(0, 300) || '(none)'}` +
+          `${row.keyPoints ? `\n  - key points: ${String(row.keyPoints).replace(/\s+/g, ' ').slice(0, 300)}` : ''}` +
+          `${row.judgeReasoning ? `\n  - judge: ${String(row.judgeReasoning).replace(/\s+/g, ' ').slice(0, 400)}` : ''}` +
+          `${row.unsupportedValues?.length ? `\n  - answer values not seen on any page: ${row.unsupportedValues.join(', ')}` : ''}` +
+          `${row.offSite?.length ? `\n  - off-site: ${row.offSite.join(', ')}` : ''}` +
+          `${row.repeatedActions?.length ? `\n  - repeated: ${row.repeatedActions.slice(0, 3).join('; ')}` : ''}` +
+          `\n  - logs: ${logs}`
+        );
+      }),
+    ];
+  }),
   '',
 ].join('\n');
 fs.writeFileSync(path.join(runDir, 'analysis.md'), md);
-console.log(md.split('\n## Tasks judged a failure')[0]);
+console.log(md.split('\n## Every task that did not succeed')[0]);
 console.log(`Written: ${path.join(runDir, 'analysis.json')} and analysis.md`);

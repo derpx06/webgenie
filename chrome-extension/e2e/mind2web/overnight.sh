@@ -128,5 +128,7 @@ wait "$JUDGE_PID" "$STATUS_PID"
 # One more pass picks up judge errors from the last one.
 node e2e/mind2web/judge.mjs "$RUN_DIR" --concurrency 4 >>"$RUN_DIR/judge.log" 2>&1
 node e2e/mind2web/analyze.mjs "$RUN_DIR" >"$RUN_DIR/analyze.log" 2>&1
+# Every task final, logged and judged? The list of anything missing goes to verify.log.
+node e2e/mind2web/verify.mjs "$RUN_DIR" >"$RUN_DIR/verify.log" 2>&1
 node e2e/mind2web/status.mjs "$RUN_DIR" | tee -a "$RUN_DIR/status.log" >>"$RUN_DIR/overnight.log"
-log "judged and analyzed: $RUN_DIR/judgments.json, $RUN_DIR/analysis.md"
+log "judged, analyzed and verified: $RUN_DIR/judgments.json, $RUN_DIR/analysis.md, $RUN_DIR/verify.log"

@@ -33,7 +33,9 @@ const SEARCH_ENGINES = ['google.com', 'bing.com', 'duckduckgo.com', 'search.yaho
 // 500k input tokens: on real sites a model call reads 7-15k tokens, so 150k stopped tasks near step 13 of 25.
 // 1200 s: under project-wide Vertex rate limits (about half of all calls answered 429 with five workers) tasks spent most
 // of 600 s waiting; steps and tokens bound the agent's effort, the clock only has to stop a hung task.
-const LIMITS = { maxSteps: 25, maxMs: 1_200_000, maxInputTokens: 500_000 };
+// 50 steps: at 25, most step-limit endings were still working (a whole run of 25 showed where the agent lacks only up to
+// there); the 500k input-token cap stays. 2400 s so the extra steps fit under rate-limit waits.
+const LIMITS = { maxSteps: 50, maxMs: 2_400_000, maxInputTokens: 500_000 };
 /** Provider-ended attempts after which a task keeps the agent's own outcome (flagged providerAffected) instead of running again. */
 const MAX_PROVIDER_ATTEMPTS = 3;
 const MAX_SHOTS = 40;
