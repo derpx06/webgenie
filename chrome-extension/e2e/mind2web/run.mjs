@@ -401,6 +401,17 @@ async function main() {
   console.log(`Results: ${runDir}\nJudge:   node e2e/mind2web/judge.mjs ${runDir}`);
 }
 
+// Puppeteer attaches to pages a site opens in the background; a timeout there ("Page.enable timed out") rejected with
+// nothing awaiting it and ended the whole worker, losing its task. The task's own awaited calls still fail and are retried
+// as harness errors. Anything else still ends the process.
+process.on('unhandledRejection', error => {
+  if (['ProtocolError', 'TargetCloseError'].includes(error?.name)) {
+    console.log(`(background browser error ignored: ${error.message})`);
+    return;
+  }
+  throw error;
+});
+
 main().catch(error => {
   console.error(`MIND2WEB RUN FAILED: ${error.message}`);
   process.exitCode = 1;
