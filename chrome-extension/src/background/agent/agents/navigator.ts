@@ -808,7 +808,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         if (this.context.scrollRun >= 4) {
           result = new ActionResult({
             ...result,
-            extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row. Elements marked offscreen are on the page already: use them by index (the action scrolls to them). To find a text, use get_complete_page_content with find, or scroll_to_text. Scroll again only for content that is not in the element list.`.trim(),
+            extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row. Elements marked offscreen are on the page already: use them by index (the action scrolls to them). Options you look for (a price or rating filter) often sit inside a collapsed section, menu or filter panel: open the button with that name instead of scrolling. To find a text, use get_complete_page_content with find, or scroll_to_text.`.trim(),
           });
         }
         this.context.activeObservation = postActionState.observation;
