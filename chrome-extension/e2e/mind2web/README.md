@@ -66,9 +66,14 @@ node chrome-extension/e2e/mind2web/run.mjs --level hard --only <task_id>,<task_i
 node chrome-extension/e2e/mind2web/run.mjs --self-check      # the question rules and action history, no browser
 ```
 
-For an unattended run of all 300 tasks, `overnight.sh [runDir]` keeps the machine awake (systemd-inhibit), runs headless
-by default, repeats `run.mjs --all --resume` until every task has a final result, judges finished tasks every 30 minutes
-(`--concurrency 6`), then writes `analysis.md`. Logs: `<runDir>/run.log`, `judge.log`, `analyze.log`, `overnight.log`.
+For an unattended run of all 300 tasks, `WORKERS=5 overnight.sh [runDir]` keeps the machine awake (systemd-inhibit)
+and starts WORKERS parallel `run.mjs --all --resume <runDir> --shard i/WORKERS` processes. Each has its own Chromium
+(headed on its own Xvfb display when `xvfb-run` is installed, which passes bot checks that headless fails), its own
+temporary profile and its own tasks. Each worker repeats its pass until every one of its tasks has a final result (up to
+12 passes). The supervisor judges finished tasks every 30 minutes (`--concurrency 4`) and writes `analysis.md` at the
+end. Logs: `<runDir>/overnight.log`, `run-<i>.log`, `status.log` (every 5 minutes), `attempts.jsonl` (one line per task
+attempt, with the provider's numbers), `judge.log`, `analyze.log`. `node e2e/mind2web/status.mjs <runDir>` prints the
+same status at any time.
 Every model call is recorded in full (`kind: session` traces: the page state sent and the tool calls with memory and
 typed text; registered passwords redacted), because the harness turns on `captureSessions`.
 
@@ -81,9 +86,15 @@ The same environment as `../run.mjs` applies (`E2E_MODEL`, `E2E_PLANNER_MODEL`, 
 Rules per task: the start page is the task's `website`; the firewall denies google.com, bing.com, duckduckgo.com and
 search.yahoo.com (the benchmark requires starting from the website, not a search engine); an order or payment
 confirmation is answered "No, stop here"; any other question is answered "Proceed with any reasonable choice." and
-counted; caps are 25 steps, 600 s and 400k input tokens (a model call on a real site reads 7–12k tokens). A start page that fails with a network error or 5xx is
-recorded as `site_down` and left out of the score; so is a task that ended because the model provider was
-unreachable or the access token expired mid-task, recorded as `provider_down`.
+counted; caps are 25 steps, 600 s and 500k input tokens (a model call on a real site reads 7–15k tokens). A start page
+that fails with a network error or 5xx is recorded as `site_down` and left out of the score. Each result carries
+`provider`: the model calls, failures by kind (429, 5xx, network, auth) and seconds spent waiting on rate limits. A task
+that did not succeed and that the provider held back is recorded as `provider_down` (with the agent's own outcome in
+`agentOutcome`), left out of the score and run again. "Held back" means one of:
+- its last call failed on the provider's side
+- it waited 60 s or more on rate limits
+- it had 10 or more provider errors
+- the agent paused it for rate limits or an unreachable provider
 
 Output, under `chrome-extension/e2e/results/mind2web-<timestamp>/` (gitignored):
 
