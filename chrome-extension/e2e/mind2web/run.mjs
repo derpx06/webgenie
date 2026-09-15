@@ -9,10 +9,14 @@
 // folder and skips tasks that already have a result, except harness errors and provider outages, which run again.
 // Rules: the firewall denies common search engines, so the agent works from the task's website (the benchmark's rule);
 // an order/payment confirmation is answered "No, stop here"; any other question is answered "Proceed with any
-// reasonable choice." and counted; each task is capped at 25 steps, 600 s and 150k input tokens. After navigator actions
+// reasonable choice." and counted; each task is capped at 25 steps, 600 s and 500k input tokens. After navigator actions
 // (act.ok/act.fail) the newest web tab is screenshotted into <task_id>/trajectory/NN.png, at most 40 per task.
-// A task that ended because the model provider was unreachable or the access token expired is recorded as provider_down.
-// Results: e2e/results/mind2web-<timestamp>/<task_id>/{result.json,trajectory/,events.jsonl,trace.jsonl,timeline.txt}.
+// Every task records what the model provider returned (calls, 429s, server and network errors, rate-limit waits). A task
+// that did not succeed and was held back by the provider (its last call failed on the provider's side, or it waited a
+// minute or more on rate limits) is recorded as provider_down and runs again on resume.
+// --shard i/n runs every n-th selected task (from i), so n processes, each with its own browser, share one run folder.
+// Results: e2e/results/mind2web-<timestamp>/<task_id>/{result.json,trajectory/,events.jsonl,trace.jsonl,timeline.txt};
+// attempts.jsonl in the run folder keeps one line per attempt, including those a retry replaced.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -75,6 +79,45 @@ function actionHistory(events) {
   if (answer) history.push(`TASK_COMPLETE -> ANSWER: ${answer}`);
   return history;
 }
+
+/** What the model provider returned during a task, from the trace's llm records. */
+function providerStats(records) {
+  const stats = { calls: 0, failed: 0, rateLimited: 0, serverError: 0, network: 0, auth: 0, other: 0, rateLimitWaitMs: 0, lastCallFailedOnProvider: false };
+  for (const r of records) {
+    if (r.kind !== 'llm') continue;
+    const wait = /rate limited; retrying in ([\d.]+)s/.exec(r.msg ?? '');
+    if (wait) stats.rateLimitWaitMs += Math.round(Number(wait[1]) * 1000);
+    if (!/^llm call/.test(r.msg ?? '') || /superseded/.test(r.msg)) continue;
+    stats.calls++;
+    if (!r.data?.error) {
+      stats.lastCallFailedOnProvider = false;
+      continue;
+    }
+    stats.failed++;
+    const text = `${r.msg} ${JSON.stringify(r.data.error)}`;
+    const kind = /429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(text)
+      ? 'rateLimited'
+      : /Failed to fetch|unreachable|network|ERR_|ECONN|ETIMEDOUT/i.test(text)
+        ? 'network'
+        : /\b401\b|invalid authentication|UNAUTHENTICATED/i.test(text)
+          ? 'auth'
+          : /\b5\d\d\b|UNAVAILABLE|INTERNAL|DEADLINE_EXCEEDED|overloaded/i.test(text)
+            ? 'serverError'
+            : 'other';
+    stats[kind]++;
+    stats.lastCallFailedOnProvider = kind !== 'other';
+  }
+  return stats;
+}
+
+/** A task that did not succeed and that the provider held back (including the agent pausing itself for rate limits or an
+ *  unreachable provider): not a verdict on the agent. */
+const heldBackByProvider = (outcome, provider, events) =>
+  outcome !== 'task.ok' &&
+  (provider.lastCallFailedOnProvider ||
+    provider.rateLimitWaitMs >= 60_000 ||
+    provider.failed - provider.other >= 10 ||
+    events.some(e => e.state === 'task.pause' && /model provider/i.test(String(e.data?.details ?? ''))));
 
 function writeResult(runDir, task, fields) {
   const dir = path.join(runDir, task.task_id);
@@ -172,10 +215,8 @@ async function runTask(harness, task, runId, runDir) {
   fs.writeFileSync(path.join(dir, 'timeline.txt'), timeline(records, run.events));
   for (const page of await harness.webPages()) await page.close().catch(() => {});
 
-  // The model provider could not be reached, or the access token expired mid-task: not a verdict on the agent.
-  const lastCall = records.filter(r => r.kind === 'llm').at(-1);
-  const providerDown =
-    run.outcome !== 'task.ok' && lastCall && /Failed to fetch|provider unreachable|invalid authentication credentials/i.test(`${lastCall.msg} ${JSON.stringify(lastCall.data?.error ?? '')}`);
+  const provider = providerStats(records);
+  const providerDown = heldBackByProvider(run.outcome, provider, run.events);
 
   const declined = run.questions.filter(isOrderConfirmation).length;
   return writeResult(runDir, task, {
@@ -183,6 +224,8 @@ async function runTask(harness, task, runId, runDir) {
     action_history: actionHistory(run.events),
     screenshots,
     outcome: providerDown ? 'provider_down' : run.outcome,
+    ...(providerDown ? { detail: `ended as ${run.outcome}; held back by the model provider`, agentOutcome: run.outcome } : {}),
+    provider,
     steps: run.maxStep,
     seconds: run.seconds,
     questions: run.questions,
@@ -221,13 +264,37 @@ function selfCheck() {
       history[2] === 'TASK_COMPLETE -> ANSWER: The cheapest is $19.',
     `history ${JSON.stringify(history)}`,
   );
+  const llm = (msg, error) => ({ kind: 'llm', msg, data: error ? { error: { message: error } } : {} });
+  const limited = providerStats([
+    llm('llm call gemini-2.5-flash failed', 'Google request failed with status code 429: RESOURCE_EXHAUSTED'),
+    { kind: 'llm', msg: 'rate limited; retrying in 16.9s' },
+    llm('llm call gemini-2.5-flash'),
+    llm('llm call gemini-2.5-flash superseded', 'AbortError'),
+    llm('llm call gemini-2.5-flash failed', 'status code 503 UNAVAILABLE'),
+  ]);
+  assert(limited.calls === 3 && limited.rateLimited === 1 && limited.serverError === 1 && limited.rateLimitWaitMs === 16_900, `stats ${JSON.stringify(limited)}`);
+  assert(heldBackByProvider('limit_time', limited, []), 'last call failed on the provider');
+  assert(!heldBackByProvider('task.ok', limited, []), 'a success stays a success');
+  const agentSide = providerStats([llm('llm call x failed', 'status code 400: invalid tool schema'), llm('llm call x')]);
+  assert(!heldBackByProvider('task.fail', agentSide, []), 'an agent-side failure is not the provider');
+  assert(heldBackByProvider('limit_time', agentSide, [{ state: 'task.pause', data: { details: 'The model provider kept rate-limiting requests.' } }]), 'rate-limit pause');
   console.log('self-check ok');
 }
 
 async function main() {
   const { values: opts } = parseArgs({
-    options: { all: { type: 'boolean' }, resume: { type: 'string' }, limit: { type: 'string' }, only: { type: 'string' }, level: { type: 'string' }, 'self-check': { type: 'boolean' } },
+    options: {
+      all: { type: 'boolean' },
+      resume: { type: 'string' },
+      limit: { type: 'string' },
+      only: { type: 'string' },
+      level: { type: 'string' },
+      shard: { type: 'string' },
+      'self-check': { type: 'boolean' },
+    },
   });
+  const [shardIndex, shardCount] = (opts.shard ?? '0/1').split('/').map(Number);
+  if (!(shardCount >= 1 && shardIndex >= 0 && shardIndex < shardCount)) throw new Error(`--shard wants i/n with 0 <= i < n, got ${opts.shard}`);
   if (opts['self-check']) return selfCheck();
   if (!fs.existsSync(path.join(DIST, 'manifest.json'))) throw new Error(`No build at ${DIST}; run pnpm build first`);
   const sourcePath = path.join(HERE, opts.all ? 'Online_Mind2Web.json' : 'slice.json');
@@ -247,14 +314,17 @@ async function main() {
   const runDir = opts.resume ? path.resolve(opts.resume) : path.join(HERE, '..', 'results', `mind2web-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   const runId = path.basename(runDir);
   fs.mkdirSync(runDir, { recursive: true });
-  const todo = tasks.filter(task => {
+  const mine = tasks.filter((_, n) => n % shardCount === shardIndex);
+  const todo = mine.filter(task => {
     const saved = savedResult(runDir, task);
     return !saved || RETRY_ON_RESUME.has(saved.outcome);
   });
-  console.log(`${tasks.length} tasks selected, ${tasks.length - todo.length} already done, ${todo.length} to run -> ${runDir}`);
+  const shardLabel = shardCount > 1 ? ` (shard ${shardIndex}/${shardCount}: ${mine.length} tasks)` : '';
+  console.log(`${tasks.length} tasks selected${shardLabel}, ${mine.length - todo.length} already done, ${todo.length} to run -> ${runDir}`);
 
   let session = await launchSession(null);
   let inSession = 0;
+  let providerStreak = 0;
   try {
     for (const [n, task] of todo.entries()) {
       if (inSession >= TASKS_PER_BROWSER) {
@@ -281,7 +351,22 @@ async function main() {
         }
       }
       inSession++;
-      console.log(`${result.outcome} (${result.seconds ?? 0}s, ${result.steps ?? 0} steps, ${result.metrics?.tokens.input ?? 0} input tokens, ${result.screenshots.length} shots)`);
+      const p = result.provider;
+      const vertex = p ? `, vertex ${p.calls} calls ${p.failed} failed (429 ${p.rateLimited}, 5xx ${p.serverError}, net ${p.network}, auth ${p.auth}), rate-limit wait ${Math.round(p.rateLimitWaitMs / 1000)}s` : '';
+      console.log(`${result.outcome}${result.agentOutcome ? ` [agent: ${result.agentOutcome}]` : ''} (${result.seconds ?? 0}s, ${result.steps ?? 0} steps, ${result.metrics?.tokens.input ?? 0} input tokens, ${result.screenshots.length} shots${vertex})`);
+      // One line per attempt, across processes (small appends are atomic): a retry replaces the task folder, not this log.
+      fs.appendFileSync(
+        path.join(runDir, 'attempts.jsonl'),
+        `${JSON.stringify({ at: new Date().toISOString(), shard: opts.shard ?? null, task_id: task.task_id, outcome: result.outcome, agentOutcome: result.agentOutcome, detail: result.detail, seconds: result.seconds, steps: result.steps, inputTokens: result.metrics?.tokens.input, provider: p })}\n`,
+      );
+      // The provider is struggling: back off before the next task instead of spending it too.
+      if (result.outcome === 'provider_down') {
+        const pause = Math.min(300, 60 * ++providerStreak);
+        console.log(`model provider trouble (${providerStreak} in a row); waiting ${pause}s before the next task`);
+        await sleep(pause * 1000);
+      } else {
+        providerStreak = 0;
+      }
     }
   } finally {
     await closeSession(session);
@@ -304,10 +389,10 @@ async function main() {
     screenshots: r.screenshots.length,
     answer: String(r.final_result_response || r.detail || '').slice(0, 300),
   }));
-  fs.writeFileSync(
-    path.join(runDir, 'summary.json'),
-    `${JSON.stringify({ runId, model, plannerModel: process.env.E2E_PLANNER_MODEL ?? model, source, limits: LIMITS, results: rows }, null, 2)}\n`,
-  );
+  // Parallel shards each write it: write whole and rename, so a reader never sees half a file.
+  const summaryTmp = path.join(runDir, `summary.json.${process.pid}.tmp`);
+  fs.writeFileSync(summaryTmp, `${JSON.stringify({ runId, model, plannerModel: process.env.E2E_PLANNER_MODEL ?? model, source, limits: LIMITS, results: rows }, null, 2)}\n`);
+  fs.renameSync(summaryTmp, path.join(runDir, 'summary.json'));
   const outcomes = {};
   for (const row of rows) outcomes[row.outcome] = (outcomes[row.outcome] ?? 0) + 1;
   const cost = rows.reduce((n, r) => n + (r.costUsd ?? 0), 0);

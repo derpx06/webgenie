@@ -1,5 +1,7 @@
 import type { IBrowserAdapter } from './IBrowserAdapter';
 
+export const SCRIPT_TIMEOUT_MS = 10_000;
+
 export class ChromeBrowserAdapter implements IBrowserAdapter {
   private getLastRuntimeError(): Error | null {
     const lastError = chrome.runtime?.lastError;
@@ -129,7 +131,14 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
     args?: any[];
     files?: string[];
   }): Promise<Array<{ result: T; frameId: number }>> {
-    return chrome.scripting.executeScript(injection as any) as unknown as Promise<Array<{ result: T; frameId: number }>>;
+    // By default Chrome waits for each frame's document_idle, and a frame that never finishes loading held the agent for
+    // five minutes (Online-Mind2Web, 2 of 10 tasks). Inject at once and give up after SCRIPT_TIMEOUT_MS.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`script injection timed out after ${SCRIPT_TIMEOUT_MS}ms`)), SCRIPT_TIMEOUT_MS);
+    });
+    const injected = chrome.scripting.executeScript({ injectImmediately: true, ...injection } as any) as unknown as Promise<Array<{ result: T; frameId: number }>>;
+    return Promise.race([injected, timeout]).finally(() => clearTimeout(timer));
   }
 
   async getAllFrames(details: { tabId: number }): Promise<any[] | null> {

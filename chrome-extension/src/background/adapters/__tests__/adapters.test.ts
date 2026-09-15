@@ -78,6 +78,18 @@ describe('ChromeBrowserAdapter', () => {
     expect(screenshot).toBe('data:image/png;base64,abc');
   });
 
+  it('injects scripts at once and gives up on a frame that never answers', async () => {
+    vi.useFakeTimers();
+    const executeScript = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal('chrome', { scripting: { executeScript } });
+    const injection = adapter.executeScript({ target: { tabId: 1, allFrames: true }, func: () => 1 });
+    const failed = expect(injection).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await failed;
+    expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({ injectImmediately: true, target: { tabId: 1, allFrames: true } }));
+    vi.useRealTimers();
+  });
+
   it('handles capture visible tab error gracefully', async () => {
     vi.mocked(chrome.tabs.captureVisibleTab).mockRejectedValue(new Error('detaching'));
     const screenshot = await adapter.captureScreenshot();
