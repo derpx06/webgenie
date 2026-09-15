@@ -1242,7 +1242,8 @@ export default class Page {
             break;
           }
         }
-        const text = (layer.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
+        // Rendered text: textContent also holds <style> and <script> contents (a live refusal quoted "@media screen and ...").
+        const text = ((layer as HTMLElement).innerText ?? layer.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
         const buttons = Array.from(layer.querySelectorAll('button, a[href], [role="button"], input[type="submit"], input[type="button"]'))
           .map(button => ((button as HTMLElement).innerText || (button as HTMLInputElement).value || button.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim())
           .filter(label => label && label.length <= 40)
