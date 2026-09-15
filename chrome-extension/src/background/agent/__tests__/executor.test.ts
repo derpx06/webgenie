@@ -548,6 +548,42 @@ describe('An element the page replaced', () => {
   });
 });
 
+describe('A target the page covers or hides', () => {
+  // Each refused click picks another element, as the refusal asks (the live failure tried 39, 101, then 100); repeating
+  // the same click on an unchanged page is the stall check's business.
+  const run = (refused: number[]) => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('Opened Stores') : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Open the Stores page',
+      pages: [{ url: 'https://shop.test/', title: 'Shop', elements: [{ text: 'Home' }, { text: 'Stores' }, { text: 'Deals' }, { text: 'Help' }] }],
+      planner: Array(12).fill(planner),
+      navigator: [...refused.map(index => click(index)), click(1), done('Opened Stores')],
+    });
+    const page = (h.browser as unknown as { page: { clickNode: (...args: unknown[]) => Promise<unknown> } }).page;
+    const realClick = page.clickNode;
+    let left = refused.length;
+    page.clickNode = async (...args: unknown[]) => {
+      if (left-- > 0) throw new Error('The element has no visible area to point at (hidden, collapsed or off the page); choose another element.');
+      return realClick(...args);
+    };
+    return h;
+  };
+
+  it('costs half a failure, so three refused clicks on different targets do not end the task', async () => {
+    const h = run([2, 3, 0]);
+    await settle(h.executor.execute());
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+  });
+
+  it('still ends a task that keeps pointing at hidden targets', async () => {
+    const h = run([2, 3, 0, 2, 3, 0, 2, 3]);
+    await settle(h.executor.execute());
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_FAIL });
+  });
+});
+
 describe('An address the firewall blocks', () => {
   it('is refused as an action the model can recover from, not the end of the task', async () => {
     const { URLNotAllowedError } = await import('../../browser/views');

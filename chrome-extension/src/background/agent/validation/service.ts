@@ -367,6 +367,14 @@ function actionTargetFingerprint(actionArgs: unknown): TargetFingerprint | null 
  * The element an action targeted was removed or replaced by the page after it was read: re-read the page, do not count it
  * as the agent's failure. Puppeteer reports a node a single-page app re-rendered as "Node is detached from document".
  */
+/**
+ * The page's doing rather than a wrong move: the pointer check refused a target the page covers or hides (nothing was
+ * clicked), or the site's connection failed. Online-Mind2Web: 3 of 39 tasks ended on three of these within seconds.
+ */
+export function isPageSideError(message: string): boolean {
+  return /is covered by <|no visible area to point at|net::ERR_(HTTP2_PROTOCOL_ERROR|CONNECTION_(RESET|CLOSED|REFUSED)|TIMED_OUT|EMPTY_RESPONSE|NETWORK_CHANGED)/i.test(message);
+}
+
 export function isStaleElementError(message: string): boolean {
   return /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)|node is detached|detached from (the )?document/i.test(message);
 }

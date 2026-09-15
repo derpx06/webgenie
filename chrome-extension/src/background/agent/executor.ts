@@ -46,7 +46,7 @@ import {
   type TaskCheckpoint,
 } from './contracts';
 import { ensureBrowserObservation } from './validation/observation';
-import { echoesActionResult, hostOf, inventedPersonalData, isApproval, isStaleElementError } from './validation/service';
+import { echoesActionResult, hostOf, inventedPersonalData, isApproval, isPageSideError, isStaleElementError } from './validation/service';
 import type { ValidationStatus } from './validation/types';
 
 const logger = createLogger('Executor');
@@ -816,7 +816,9 @@ export class Executor {
         logger.info(`Target changed under the action; re-reading the page: ${latest.error}`);
       } else if (outcome === 'failed') {
         const failureDetail = latest?.failureReason ?? latest?.error ?? 'failed';
-        context.consecutiveFailures++;
+        // A covered or hidden target, or the site's connection failing, costs half: the model gets room to try another
+        // way, and six in a row still end the task.
+        context.consecutiveFailures += latest?.executionStatus === 'threw' && isPageSideError(latest.error ?? '') ? 0.5 : 1;
         logger.warning(`Navigator action failed (${context.consecutiveFailures}/${context.options.maxFailures}): ${failureDetail}`);
         if (context.consecutiveFailures >= context.options.maxFailures) {
           throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'), failureDetail);
