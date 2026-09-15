@@ -73,7 +73,9 @@ temporary profile and its own tasks. Each worker repeats its pass until every on
 12 passes). The supervisor judges finished tasks every 30 minutes (`--concurrency 4`) and writes `analysis.md` at the
 end. Logs: `<runDir>/overnight.log`, `run-<i>.log`, `status.log` (every 5 minutes), `attempts.jsonl` (one line per task
 attempt, with the provider's numbers), `judge.log`, `analyze.log`. `node e2e/mind2web/status.mjs <runDir>` prints the
-same status at any time.
+same status at any time. `node e2e/mind2web/verify.mjs <runDir>` checks the folder end to end: every task has a final
+result, every task the agent ran has its events, a trace with model-call sessions, a timeline, screenshots and provider
+numbers, and every result is judged with its current outcome (exit code 1 and a list while anything is missing).
 Every model call is recorded in full (`kind: session` traces: the page state sent and the tool calls with memory and
 typed text; registered passwords redacted), because the harness turns on `captureSessions`.
 
