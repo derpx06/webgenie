@@ -375,6 +375,39 @@ export function toNativeInputValue(text: string, type: string): string | null {
   }
 }
 
+/** A read with at most this many interactive elements may be a page that has not rendered its controls yet. */
+export const SPARSE_READ_ELEMENTS = 2;
+
+/**
+ * Re-reads a sparse page (see SPARSE_READ_ELEMENTS) while it is likely still rendering: after a navigation, or while its
+ * document loads. Stops as soon as controls appear, or once the document has loaded and re-reads found no more
+ * elements (a page that really is that sparse costs one or two intervals), and never waits longer than maxWaitMs.
+ */
+export async function settleSparseRead<T extends { selectorMap: Map<number, unknown> }>(
+  first: T,
+  read: () => Promise<T | null>,
+  documentLoading: () => Promise<boolean>,
+  { justNavigated, maxWaitMs = 3000, intervalMs = 400 }: { justNavigated: boolean; maxWaitMs?: number; intervalMs?: number },
+): Promise<T> {
+  let state = first;
+  if (state.selectorMap.size > SPARSE_READ_ELEMENTS || (!justNavigated && !(await documentLoading()))) return state;
+  const deadline = Date.now() + maxWaitMs;
+  let quiet = 0;
+  while (Date.now() + intervalMs < deadline) {
+    await sleep(intervalMs);
+    const next = await read();
+    // A failed re-read (the page moved on, a dialog opened) keeps the read already made; the next read starts over.
+    if (!next) break;
+    const grew = next.selectorMap.size > state.selectorMap.size;
+    state = next;
+    if (state.selectorMap.size > SPARSE_READ_ELEMENTS) break;
+    quiet = grew ? 0 : quiet + 1;
+    // No controls at all is rarer on a real page than a few, so it gets one more re-read.
+    if (quiet >= (state.selectorMap.size === 0 ? 2 : 1) && !(await documentLoading())) break;
+  }
+  return state;
+}
+
 export function getAdaptiveDomRetryDelayMs(attempt: number): number {
   return Math.min(750, Math.max(250, attempt * 250));
 }
@@ -413,6 +446,8 @@ export default class Page {
   private _pendingState: { generation: number; useVision: boolean; promise: Promise<PageState> } | null = null;
   /** URL of the last successful read; a read at a different URL waits for the page to load first. */
   private _lastReadUrl: string | null = null;
+  /** URL whose sparse read was already waited on while its document loaded. */
+  private _settledUrl: string | null = null;
   /** A JavaScript dialog left open for the agent to answer. */
   private _pendingDialog: Dialog | null = null;
   /** True while navigateTo/goBack/goForward/refreshPage run, so their own beforeunload prompt is accepted. */
@@ -662,6 +697,13 @@ export default class Page {
     }
   }
 
+  /** Whether the main document is still loading; a page that cannot answer (mid-navigation) counts as loading. */
+  private async _documentLoading(): Promise<boolean> {
+    const page = this._puppeteerPage;
+    if (!page) return false;
+    return withTimeout(page.evaluate(() => document.readyState !== 'complete'), 500, 'ready state').catch(() => true);
+  }
+
   /** Waits until the element count of every frame holds still for two checks, at most maxWaitMs. */
   private async _waitForDomStability(maxWaitMs = 1000, checkIntervalMs = 50): Promise<void> {
     const page = this._puppeteerPage;
@@ -889,7 +931,8 @@ export default class Page {
       tab => tab.url ?? '',
       () => '',
     );
-    if (liveUrl !== this._lastReadUrl) {
+    const justNavigated = liveUrl !== this._lastReadUrl;
+    if (justNavigated) {
       await this.waitForPageAndFramesLoad();
     }
     await this._waitForDomStability();
@@ -917,6 +960,23 @@ export default class Page {
       state = await read();
     }
     if (state) {
+      // A read with almost no controls right after a navigation, or while the document still loads, is often a page
+      // that has not rendered them yet (16 of 57 real-site traces were told of an empty page that filled a moment later).
+      // A document that keeps loading is waited for once per URL, so a page that never finishes is not slowed on every read.
+      if (state.selectorMap.size <= SPARSE_READ_ELEMENTS) {
+        const waitWhileLoading = this._settledUrl !== state.url;
+        this._settledUrl = state.url;
+        state = await settleSparseRead(
+          state,
+          async () => {
+            if (this._pendingDialog) return null;
+            await this._waitForDomStability();
+            return read();
+          },
+          async () => waitWhileLoading && (await this._documentLoading()),
+          { justNavigated },
+        );
+      }
       this._lastReadUrl = state.url;
       return state;
     }

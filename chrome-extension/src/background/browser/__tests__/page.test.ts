@@ -13,7 +13,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   };
 });
 
-import Page, { build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, toNativeInputValue, typingMethod } from '../page';
+import Page, { build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, settleSparseRead, toNativeInputValue, typingMethod } from '../page';
 import { DOMElementNode } from '../dom/views';
 import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
@@ -173,6 +173,78 @@ describe('Page read retries', () => {
 
     expect(state.url).toBe('https://example.com/done');
     expect(updateState).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('settleSparseRead', () => {
+  const read = (size: number) => ({ size, selectorMap: new Map(Array.from({ length: size }, (_, i) => [i, i])) });
+  const fast = { maxWaitMs: 200, intervalMs: 5 };
+
+  it('reads again after a navigation until the controls appear', async () => {
+    const reads = vi.fn().mockResolvedValueOnce(read(0)).mockResolvedValueOnce(read(1)).mockResolvedValueOnce(read(12));
+    const state = await settleSparseRead(read(0), reads, vi.fn().mockResolvedValue(false), { justNavigated: true, ...fast });
+    expect(state.size).toBe(12);
+    expect(reads).toHaveBeenCalledTimes(3);
+  });
+
+  it('costs one re-read for a loaded page that really has almost no controls', async () => {
+    const reads = vi.fn().mockResolvedValue(read(1));
+    const state = await settleSparseRead(read(1), reads, vi.fn().mockResolvedValue(false), { justNavigated: true, ...fast });
+    expect(state.size).toBe(1);
+    expect(reads).toHaveBeenCalledTimes(1);
+
+    const none = vi.fn().mockResolvedValue(read(0));
+    await settleSparseRead(read(0), none, vi.fn().mockResolvedValue(false), { justNavigated: true, ...fast });
+    expect(none).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits while the document loads, within the time limit', async () => {
+    const reads = vi.fn().mockResolvedValue(read(0));
+    const startedAt = Date.now();
+    await settleSparseRead(read(0), reads, vi.fn().mockResolvedValue(true), { justNavigated: false, ...fast });
+    expect(Date.now() - startedAt).toBeLessThan(400);
+    expect(reads.mock.calls.length).toBeGreaterThan(3);
+  });
+
+  it('does not wait for a loaded page read without a navigation, or for a page with controls', async () => {
+    const reads = vi.fn();
+    await settleSparseRead(read(0), reads, vi.fn().mockResolvedValue(false), { justNavigated: false, ...fast });
+    await settleSparseRead(read(3), reads, vi.fn().mockResolvedValue(true), { justNavigated: true, ...fast });
+    expect(reads).not.toHaveBeenCalled();
+  });
+
+  it('keeps the read it has when a re-read fails', async () => {
+    const reads = vi.fn().mockResolvedValue(null);
+    const first = read(0);
+    await expect(settleSparseRead(first, reads, vi.fn().mockResolvedValue(true), { justNavigated: true, ...fast })).resolves.toBe(first);
+    expect(reads).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Page read right after a navigation', () => {
+  it('does not report a transient blank read when a read shortly after has content', async () => {
+    const adapter = { getTab: vi.fn().mockResolvedValue({ url: 'https://example.com/results', title: 'Results' }) };
+    const page = new Page(1, 'https://example.com/', 'Home', {}, adapter as unknown as IBrowserAdapter);
+    const blank = build_initial_state(1, 'https://example.com/results', 'Results');
+    blank.elementTree.children.push(new DOMElementNode({ tagName: 'div', xpath: null, attributes: {}, children: [], isVisible: true }));
+    const full = build_initial_state(1, 'https://example.com/results', 'Results');
+    full.elementTree.children.push(new DOMElementNode({ tagName: 'div', xpath: null, attributes: {}, children: [], isVisible: true }));
+    for (let i = 0; i < 5; i++) {
+      full.selectorMap.set(i, new DOMElementNode({ tagName: 'a', xpath: null, attributes: {}, children: [], isVisible: true, highlightIndex: i }));
+    }
+    const updateState = vi.fn().mockResolvedValueOnce(blank).mockResolvedValue(full);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _validWebPage: true,
+      _lastReadUrl: 'https://example.com/',
+      _updateState: updateState,
+      waitForPageAndFramesLoad: vi.fn().mockResolvedValue(undefined),
+      _waitForDomStability: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const state = await page.getState();
+
+    expect(state.selectorMap.size).toBe(5);
+    expect(updateState).toHaveBeenCalledTimes(2);
   });
 });
 
