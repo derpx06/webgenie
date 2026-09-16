@@ -215,6 +215,81 @@ export function pointerTarget(el: Element): Element {
   return label ?? Array.from(el.querySelectorAll('*')).find(hasBox) ?? el;
 }
 
+/**
+ * Why a pointer action on the element must not be sent, or null; runs in the page and must stay self-contained.
+ * A covered target names what covers it: its own or the focused field's open list, else the covering layer (the
+ * nearest dialog or fixed/sticky box, or the open dialog whose backdrop it is) by its accessible name, heading or
+ * text, with that layer's buttons. A bare "<div>" did not tell the model what to close (9 of 57 real-site traces).
+ */
+export function coverBlocker(el: Element, isHover: boolean, checkCovered: boolean): { message: string; buttons?: string[] } | null {
+  if (!isHover && ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true')) {
+    return { message: 'The element is disabled' };
+  }
+  if (!checkCovered) return null;
+  const rect = el.getBoundingClientRect();
+  const root = el.getRootNode() as unknown as DocumentOrShadowRoot & ParentNode;
+  const hit = root.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  if (!hit || hit === el || el.contains(hit) || hit.contains(el)) return null;
+  if ((hit.closest('label') as HTMLLabelElement | null)?.control === el) return null;
+
+  const tag = (node: Element) => node.tagName.toLowerCase();
+  const role = (node: Element) => (node.getAttribute('role') ?? '').toLowerCase();
+  // Rendered text: textContent also holds <style> and <script> contents (a live refusal quoted "@media screen and ...").
+  const textOf = (node: Element | null) => (node ? ((node as HTMLElement).innerText ?? '') : '');
+  const clip = (value: string | null | undefined, max = 60) => {
+    const text = (value ?? '').replace(/\s+/g, ' ').trim();
+    return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  };
+  const chain: Element[] = [];
+  for (let node: Element | null = hit; node; node = node.parentElement) chain.push(node);
+
+  // A list a field opened (suggestions, a menu): the target's own, or that of the field being typed into.
+  const focused = root.activeElement;
+  for (const owner of focused && focused !== el ? [el, focused] : [el]) {
+    const ids = `${owner.getAttribute('aria-controls') ?? ''} ${owner.getAttribute('aria-owns') ?? ''}`.split(/\s+/).filter(Boolean);
+    const expanded = owner.getAttribute('aria-expanded') === 'true';
+    const popup = chain.find(node => (node.id && ids.includes(node.id)) || (expanded && ['listbox', 'menu', 'tree', 'grid'].includes(role(node))));
+    if (!popup) continue;
+    const list = role(popup) === 'menu' ? 'menu' : 'list of suggestions';
+    const field = clip(owner.getAttribute('aria-label') || (owner as HTMLInputElement).placeholder || (owner as HTMLInputElement).name, 40);
+    const whose = owner === el ? `its own open ${list}` : `the open ${list} of the focused field${field ? ` "${field}"` : ''}`;
+    return { message: `The element is covered by <${tag(hit)}> ${whose}: choose an option from it, or press Escape to close it first` };
+  }
+
+  const isDialog = (node: Element) =>
+    ['dialog', 'alertdialog'].includes(role(node)) || tag(node) === 'dialog' || node.getAttribute('aria-modal') === 'true';
+  const layer = chain.find(node => isDialog(node) || ['fixed', 'sticky'].includes(getComputedStyle(node).position)) ?? hit;
+  // A backdrop has no text of its own: the dialog it belongs to is what to close.
+  const openDialog = textOf(layer).trim()
+    ? null
+    : (Array.from(root.querySelectorAll('dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]')).find(
+        node => node.getBoundingClientRect().width > 0 && textOf(node).trim(),
+      ) ?? null);
+  const named = openDialog ?? layer;
+  const labelledBy = (named.getAttribute('aria-labelledby') ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(id => textOf(named.ownerDocument.getElementById(id)))
+    .join(' ');
+  const name =
+    clip(named.getAttribute('aria-label')) ||
+    clip(labelledBy) ||
+    clip(textOf(named.querySelector('h1, h2, h3, h4, [role="heading"], legend'))) ||
+    clip(textOf(named)) ||
+    clip(textOf(chain.find(node => textOf(node).trim()) ?? null));
+  const kind = isDialog(named) ? 'dialog ' : ['alert', 'banner', 'region', 'complementary'].includes(role(named)) ? `${role(named)} ` : '';
+  // Labelled as the accessibility tree names them, so they match the indexes of the page read.
+  const buttons = Array.from(named.querySelectorAll('button, a[href], [role="button"], input[type="submit"], input[type="button"]'))
+    .map(button => clip(button.getAttribute('aria-label') || textOf(button) || (button as HTMLInputElement).value || button.getAttribute('title'), 1000))
+    .filter(label => label && label.length <= 40)
+    .slice(0, 6);
+  const what = `${kind}${name ? `"${name}"` : ''}`.trim();
+  const message = openDialog
+    ? `The element is covered by <${tag(layer)}> behind the ${what}`
+    : `The element is covered by <${tag(layer)}>${what ? ` ${what}` : ''}`;
+  return { message, buttons };
+}
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -1288,37 +1363,7 @@ export default class Page {
     await this._puppeteerPage
       ?.evaluate(() => document.getElementById('webgenie-agent-status-capsule')?.style.setProperty('pointer-events', 'none', 'important'))
       .catch(() => undefined);
-    const blocker = await target.evaluate(
-      (el, isHover, checkCovered): { message: string; buttons?: string[] } | null => {
-        if (!isHover && ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true')) {
-          return { message: 'The element is disabled' };
-        }
-        if (!checkCovered) return null;
-        const rect = el.getBoundingClientRect();
-        const root = el.getRootNode() as unknown as DocumentOrShadowRoot;
-        const hit = root.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-        if (!hit || hit === el || el.contains(hit) || hit.contains(el)) return null;
-        if (hit.closest('label')?.control === el) return null;
-        // The covering layer: the nearest dialog or fixed/sticky box around what is on top (a banner, a modal).
-        let layer: Element = hit;
-        for (let node: Element | null = hit; node; node = node.parentElement) {
-          const position = getComputedStyle(node).position;
-          if (position === 'fixed' || position === 'sticky' || node.matches('dialog, [role="dialog"], [role="alertdialog"], [aria-modal="true"]')) {
-            layer = node;
-            break;
-          }
-        }
-        // Rendered text: textContent also holds <style> and <script> contents (a live refusal quoted "@media screen and ...").
-        const text = ((layer as HTMLElement).innerText ?? layer.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
-        const buttons = Array.from(layer.querySelectorAll('button, a[href], [role="button"], input[type="submit"], input[type="button"]'))
-          .map(button => ((button as HTMLElement).innerText || (button as HTMLInputElement).value || button.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim())
-          .filter(label => label && label.length <= 40)
-          .slice(0, 6);
-        return { message: `The element is covered by <${layer.tagName.toLowerCase()}>${text ? ` "${text}"` : ''}`, buttons };
-      },
-      kind === 'hover',
-      checkCover,
-    );
+    const blocker = await target.evaluate(coverBlocker, kind === 'hover', checkCover);
     if (blocker) {
       throw new Error(blocker.buttons ? `${blocker.message}${this._indexedButtons(blocker.buttons)}; close or move past it first` : blocker.message);
     }

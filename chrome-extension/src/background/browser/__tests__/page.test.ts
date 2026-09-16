@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('webextension-polyfill', () => {
   return {};
@@ -13,7 +13,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   };
 });
 
-import Page, { build_initial_state, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, toNativeInputValue, typingMethod } from '../page';
+import Page, { build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, toNativeInputValue, typingMethod } from '../page';
 import { DOMElementNode } from '../dom/views';
 import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
@@ -281,5 +281,140 @@ describe('Page inputTextNode on a native date field', () => {
     await expect(page.inputTextNode(new DOMElementNode({ tagName: 'input', xpath: null, attributes: {}, children: [], isVisible: true }), 'soon'))
       .rejects.toThrow(/2024-05-20/);
     expect(evaluate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('coverBlocker', () => {
+  let all: Fake[] = [];
+  /** A minimal element: tag, attributes, children, rendered text and CSS position; selectors are tag and [attr="v"] lists. */
+  class Fake {
+    parentElement: Fake | null = null;
+    children: Fake[];
+    ownerDocument = { getElementById: (id: string) => all.find(node => node.id === id) ?? null };
+    constructor(
+      public tagName: string,
+      public attrs: Record<string, string> = {},
+      kids: Fake[] = [],
+      private ownText = '',
+      public position = 'static',
+    ) {
+      for (const kid of kids) kid.parentElement = this;
+      this.children = kids;
+      all.push(this);
+    }
+    get id() {
+      return this.attrs.id ?? '';
+    }
+    get innerText(): string {
+      return [this.ownText, ...this.children.map(kid => kid.innerText)].filter(Boolean).join(' ');
+    }
+    getAttribute(name: string) {
+      return this.attrs[name] ?? null;
+    }
+    getBoundingClientRect() {
+      return { left: 0, top: 0, width: 10, height: 10 };
+    }
+    contains(other: Fake): boolean {
+      return other === this || this.children.some(kid => kid.contains(other));
+    }
+    closest() {
+      return null;
+    }
+    descendants(): Fake[] {
+      return this.children.flatMap(kid => [kid, ...kid.descendants()]);
+    }
+    matches(selector: string) {
+      return selector.split(',').some(part => {
+        const m = /^([a-z0-9]*)((?:\[[^\]]+\])*)$/.exec(part.trim());
+        if (!m || (m[1] && m[1] !== this.tagName.toLowerCase())) return false;
+        return [...m[2].matchAll(/\[([\w-]+)(?:="([^"]*)")?\]/g)].every(([, name, value]) =>
+          value === undefined ? name in this.attrs : this.attrs[name] === value,
+        );
+      });
+    }
+    querySelectorAll(selector: string) {
+      return this.descendants().filter(node => node.matches(selector));
+    }
+    querySelector(selector: string) {
+      return this.querySelectorAll(selector)[0] ?? null;
+    }
+  }
+  const mount = (target: Fake, hit: Fake, body: Fake, activeElement: Fake | null = null) => {
+    Object.assign(target, {
+      getRootNode: () => ({ elementFromPoint: () => hit, activeElement, querySelectorAll: (s: string) => body.querySelectorAll(s) }),
+    });
+    return coverBlocker(target as unknown as Element, false, true);
+  };
+
+  beforeEach(() => {
+    all = [];
+    vi.stubGlobal('getComputedStyle', (node: Fake) => ({ position: node.position }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('names a fixed banner by its heading and lists its buttons', () => {
+    const accept = new Fake('BUTTON', {}, [], 'Accept all');
+    const close = new Fake('BUTTON', { 'aria-label': 'Close' }, [], '×');
+    const text = new Fake('P', {}, [], 'We use cookies to improve your experience on this website and more');
+    const banner = new Fake('DIV', {}, [new Fake('H2', {}, [], 'Your privacy choices'), text, accept, close], '', 'fixed');
+    const target = new Fake('BUTTON', {}, [], 'Search');
+    const body = new Fake('BODY', {}, [banner, target]);
+
+    expect(mount(target, text, body)).toEqual({
+      message: 'The element is covered by <div> "Your privacy choices"',
+      buttons: ['Accept all', 'Close'],
+    });
+  });
+
+  it('names a dialog by aria-labelledby and says it is a dialog', () => {
+    const title = new Fake('SPAN', { id: 't' }, [], 'Sign in to continue');
+    const dialog = new Fake('DIV', { role: 'dialog', 'aria-labelledby': 't' }, [title, new Fake('BUTTON', {}, [], 'Not now')]);
+    const target = new Fake('A', {}, [], 'Orders');
+    const body = new Fake('BODY', {}, [dialog, target]);
+
+    expect(mount(target, title, body)?.message).toBe('The element is covered by <div> dialog "Sign in to continue"');
+  });
+
+  it('names the open dialog when the hit is its empty backdrop', () => {
+    const backdrop = new Fake('DIV', { class: 'backdrop' }, [], '', 'fixed');
+    const dialog = new Fake('DIV', { 'aria-modal': 'true', 'aria-label': 'Choose your location' }, [new Fake('BUTTON', {}, [], 'Done')]);
+    const target = new Fake('BUTTON', {}, [], 'Add to cart');
+    const body = new Fake('BODY', {}, [backdrop, dialog, target]);
+
+    expect(mount(target, backdrop, body)).toEqual({
+      message: 'The element is covered by <div> behind the dialog "Choose your location"',
+      buttons: ['Done'],
+    });
+  });
+
+  it('clips a long covering text to about 60 characters', () => {
+    const layer = new Fake('DIV', {}, [], 'x'.repeat(200), 'sticky');
+    const target = new Fake('BUTTON');
+    const message = mount(target, layer, new Fake('BODY', {}, [layer, target]))!.message;
+    expect(message).toBe(`The element is covered by <div> "${'x'.repeat(59)}…"`);
+  });
+
+  it("says when the target's own open list covers it", () => {
+    const option = new Fake('LI', { role: 'option' }, [], 'Paris');
+    const list = new Fake('UL', { id: 'suggestions', role: 'listbox' }, [option]);
+    const target = new Fake('INPUT', { role: 'combobox', 'aria-controls': 'suggestions', 'aria-expanded': 'true' });
+    const blocker = mount(target, option, new Fake('BODY', {}, [target, list]))!;
+    expect(blocker.message).toMatch(/^The element is covered by <li> its own open list of suggestions: choose an option/);
+    expect(blocker.buttons).toBeUndefined();
+  });
+
+  it("says when the focused field's open list covers the target", () => {
+    const option = new Fake('LI', { role: 'option' }, [], 'Paris');
+    const list = new Fake('UL', { role: 'listbox' }, [option]);
+    const field = new Fake('INPUT', { 'aria-label': 'Destination', 'aria-expanded': 'true' });
+    const target = new Fake('BUTTON', {}, [], 'Search');
+    expect(mount(target, option, new Fake('BODY', {}, [field, list, target]), field)?.message).toBe(
+      'The element is covered by <li> the open list of suggestions of the focused field "Destination": choose an option from it, or press Escape to close it first',
+    );
+  });
+
+  it('does not refuse a target that is on top', () => {
+    const target = new Fake('BUTTON');
+    expect(mount(target, target, new Fake('BODY', {}, [target]))).toBeNull();
   });
 });
