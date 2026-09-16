@@ -801,6 +801,38 @@ describe('The same action repeated on the same page', () => {
   });
 });
 
+describe('Questions for the user', () => {
+  it('that only offer to retry are not asked, and the model is told to decide', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('No results') : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Find vegan restaurants near the station',
+      pages: [{ url: 'https://food.test/search', title: 'Search', text: ['No results'] }],
+      planner: Array(6).fill(planner),
+      navigator: [askHuman('Would you like me to try searching the web for vegan restaurants instead?'), done('No results')],
+    });
+    await settle(h.executor.execute());
+
+    expect(h.states()).not.toContain(ExecutionState.ACT_ASK_HUMAN);
+    expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain('Not asked: decide this yourself');
+  });
+
+  it('that ask the user to choose between options the task leaves open are asked', async () => {
+    const h = createHarness({
+      task: 'Book a table for two tonight',
+      pages: [{ url: 'https://food.test/book', title: 'Book', text: ['Free: 19:00, 21:00'] }],
+      planner: [plan({ macro_objective: 'ASK_HUMAN', next_goal: 'Ask which time' })],
+      navigator: [askHuman('Should I book 19:00 or 21:00?', { options: ['19:00', '21:00'] })],
+    });
+    const run = h.executor.execute();
+    await until(() => h.has(ExecutionState.ACT_ASK_HUMAN));
+    expect(JSON.parse(asks(h)[0].data.details).question).toBe('Should I book 19:00 or 21:00?');
+    await h.executor.cancel();
+    await settle(run);
+  });
+});
+
 describe('Screenshots', () => {
   const chart = { url: 'https://stats.test/', title: 'Stats', text: ['Bar chart of monthly sign-ups'] };
   const hasImage = (request: LLMRequest) =>

@@ -88,6 +88,20 @@ export function redactArgs(actionName: string, args: unknown): Record<string, un
   return rest;
 }
 
+/**
+ * Whether a question only offers to retry or try another approach ("Should I try again?", "Would you like me to search
+ * the web instead?"). Searching or looking counts only with a word that makes it another attempt, so "Should I search for
+ * flights on May 3 or May 4?" stays a question for the user.
+ */
+export function offersToRetry(question: string): boolean {
+  return question.split(/(?<=[.!?])\s+/).some(sentence => {
+    const offer = /^\s*(?:would you like me to|should i|do you want me to|shall i)\s+(retry|keep trying|continue trying|proceed without|try|attempt|search|look)\b/i.exec(sentence);
+    if (!offer) return false;
+    return /^(retry|keep trying|continue trying|proceed without)$/i.test(offer[1])
+      || /\b(again|different|another|other|elsewhere|instead|else|web|broader|alternative|without)\b/i.test(sentence);
+  });
+}
+
 export interface NavigatorResult {
   done: boolean;
 }
@@ -465,6 +479,16 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         if (actionName === 'scroll' && indexArg === null && this.context.emptyScrolls >= MAX_EMPTY_SCROLLS) {
           refuse(`Not scrolled: the last ${this.context.emptyScrolls} page scrolls revealed nothing new, so every element of this page is already listed. Use an element marked offscreen by index, open a collapsed section (aria-expanded="false") that may hold what you look for, find a text with get_complete_page_content with find or scroll_to_text, or scroll a specific element by index.`);
           break;
+        }
+
+        // Whether to retry or try another way is the agent's call, not the user's (live runs asked "Would you like me to search
+        // for a different location, or proceed without ...?" and "Would you like me to try searching the web for ...?").
+        if (actionName === 'ask_human') {
+          const { question, type, fields } = actionArgs as { question?: unknown; type?: unknown; fields?: unknown[] };
+          if (type !== 'confirmation' && !fields?.length && offersToRetry(String(question ?? ''))) {
+            refuse('Not asked: decide this yourself: try the approach most likely to work. Ask the user only for decisions or information only they have.');
+            break;
+          }
         }
 
         // A password from the user reaches the page only as its placeholder's value, typed into a password field on
