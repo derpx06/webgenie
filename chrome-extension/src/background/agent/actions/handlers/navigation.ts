@@ -20,6 +20,24 @@ export function redirectNote(requested: string, landed: string): string {
     : '';
 }
 
+/**
+ * The passage around the first occurrence of `wanted` as whole words (case and spacing aside), or null. A substring is
+ * not a match: waiting for "loading" to go never ended while "loadingComplete" was on the page (seven waits in a live run).
+ */
+export function findWholeText(content: string, wanted: string): string | null {
+  const flat = (text: string) => text.replace(/\s+/g, ' ').trim();
+  const target = flat(wanted);
+  if (!target) return null;
+  const text = flat(content);
+  const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+');
+  // Word boundaries only where the wanted text starts or ends with a letter or digit ("$5" may follow a colon).
+  const start = /^[\p{L}\p{N}]/u.test(target) ? '(?<![\\p{L}\\p{N}])' : '';
+  const end = /[\p{L}\p{N}]$/u.test(target) ? '(?![\\p{L}\\p{N}])' : '';
+  const match = new RegExp(`${start}${escaped}${end}`, 'iu').exec(text);
+  if (!match) return null;
+  return text.slice(Math.max(0, match.index - 40), match.index + match[0].length + 40).trim();
+}
+
 export class NavigationHandler extends BaseHandler {
   async handleSearchWeb(input: z.infer<typeof searchWebActionSchema.schema>): Promise<ActionResult> {
     const intent = `Searching the web for: ${input.query}`;
@@ -100,19 +118,19 @@ export class NavigationHandler extends BaseHandler {
       await sleep(seconds * 1000);
       msg = t('act_wait_ok', [seconds.toString()]);
     } else {
-      const flat = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
-      const wanted = flat(condition.text);
       const page = await this.context.browserContext.getCurrentPage();
       const startedAt = Date.now();
       for (;;) {
-        const present = flat(await page.getCompletePageContent().catch(() => '')).includes(wanted);
+        const found = findWholeText(await page.getCompletePageContent().catch(() => ''), condition.text);
         const elapsed = (Date.now() - startedAt) / 1000;
-        if (present !== condition.gone) {
+        if ((found !== null) !== condition.gone) {
           msg = `"${condition.text}" ${condition.gone ? 'is gone from the page' : 'appeared on the page'} after ${elapsed.toFixed(1)} s.`;
           break;
         }
         if (elapsed >= seconds || signal.aborted) {
-          msg = `"${condition.text}" ${condition.gone ? 'is still on the page' : 'did not appear on the page'} after ${seconds} s.`;
+          msg = condition.gone
+            ? `"${condition.text}" is still on the page after ${seconds} s, in: "${found}".`
+            : `"${condition.text}" did not appear on the page after ${seconds} s.`;
           break;
         }
         await sleep(WAIT_POLL_MS);

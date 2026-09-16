@@ -233,8 +233,8 @@ export const waitActionSchema: ActionSchema = {
     'Wait for the page: until a text appears (text) or disappears (text_gone), returning as soon as it does, or for a number of seconds.',
   schema: z.object({
     seconds: z.number().int().optional().describe('longest wait in seconds, 1-10; defaults to 10 with text or text_gone, otherwise 3'),
-    text: z.string().optional().describe('return once this text is on the page (case-insensitive)'),
-    text_gone: z.string().optional().describe('return once this text is no longer on the page'),
+    text: z.string().optional().describe('return once this text is on the page as whole words (case-insensitive; "load" does not match "loading")'),
+    text_gone: z.string().optional().describe('return once this text is no longer on the page as whole words'),
   }),
 };
 
