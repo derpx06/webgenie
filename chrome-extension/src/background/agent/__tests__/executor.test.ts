@@ -293,6 +293,26 @@ describe('Addresses the model opens', () => {
     expect(checks(h)).toHaveLength(0);
     expect(h.browser.actions.map(action => action.type)).toContain('navigate');
   });
+
+  it('say where the site redirected a navigation, ignoring trivial differences', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Open https://news.test/ and read the headline.',
+      pages: [faq, { url: 'https://news.test/intl/home', title: 'News' }],
+      planner: Array(6).fill(planner),
+      navigator: [call('go_to_url', { url: 'https://news.test/' }), done('Finished')],
+    });
+    await settle(h.executor.execute());
+    expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain(
+      'The site redirected to https://news.test/intl/home; opening https://news.test/ again will land there again.',
+    );
+
+    const { redirectNote } = await import('../actions/handlers/navigation');
+    expect(redirectNote('http://www.news.test/a/#top', 'https://news.test/a')).toBe('');
+    expect(redirectNote('https://news.test/a?x=1', 'https://news.test/a?x=2')).toContain('redirected');
+  });
 });
 
 describe("The user's files", () => {

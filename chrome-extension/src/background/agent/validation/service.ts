@@ -152,6 +152,12 @@ export function urlKey(url: string, base?: string): string {
   }
 }
 
+/** An address as the site sees it: urlKey plus the query; http or https, www., a trailing slash and the fragment aside. */
+export function addressKey(url: string, base?: string): string {
+  const key = urlKey(url, base);
+  return key && `${key}${new URL(url, base).search}`;
+}
+
 export function hostOf(url: string | undefined): string {
   try {
     return new URL(url ?? '').host;

@@ -4,6 +4,7 @@ import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
+import { redirectNote } from './navigation';
 
 export class TabHandler extends BaseHandler {
   async handleSwitchTab(input: z.infer<typeof switchTabActionSchema.schema>): Promise<ActionResult> {
@@ -29,7 +30,7 @@ export class TabHandler extends BaseHandler {
     const page = await this.context.browserContext.openTab(url);
     const msg = t('act_openTab_ok', [url]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    return new ActionResult({ extractedContent: `${msg} in new tab ${page.tabId}, now the current tab.`, includeInMemory: true });
+    return new ActionResult({ extractedContent: `${msg} in new tab ${page.tabId}, now the current tab.${redirectNote(url, page.url())}`, includeInMemory: true });
   }
 
   async handleCloseTab(input: z.infer<typeof closeTabActionSchema.schema>): Promise<ActionResult> {

@@ -4,8 +4,21 @@ import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
+import { addressKey } from '../../validation/service';
 
 const WAIT_POLL_MS = 500;
+
+/**
+ * Says where a navigation really landed when the site sent it elsewhere. Without it a live run opened a home page that
+ * redirects 14 times, each result saying only "Navigated to" the address it asked for.
+ */
+export function redirectNote(requested: string, landed: string): string {
+  const wanted = addressKey(requested);
+  const final = addressKey(landed);
+  return wanted && final && wanted !== final
+    ? ` The site redirected to ${landed}; opening ${requested} again will land there again.`
+    : '';
+}
 
 export class NavigationHandler extends BaseHandler {
   async handleSearchWeb(input: z.infer<typeof searchWebActionSchema.schema>): Promise<ActionResult> {
@@ -36,8 +49,9 @@ export class NavigationHandler extends BaseHandler {
     await this.context.browserContext.navigateTo(input.url);
     const msg = t('act_goToUrl_ok', [input.url]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    const landed = await this.context.browserContext.getCurrentPage().then(page => page.url(), () => '');
     return new ActionResult({
-      extractedContent: msg,
+      extractedContent: `${msg}${redirectNote(input.url, landed)}`,
       includeInMemory: true,
     });
   }
