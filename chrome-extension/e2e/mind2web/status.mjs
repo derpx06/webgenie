@@ -17,7 +17,7 @@ const read = file => {
 };
 
 const outcomes = {};
-const vertex = { calls: 0, failed: 0, rateLimited: 0, serverError: 0, network: 0, auth: 0, rateLimitWaitMs: 0 };
+const vertex = { calls: 0, failed: 0, rateLimited: 0, serverError: 0, timeout: 0, network: 0, auth: 0, rateLimitWaitMs: 0 };
 const running = [];
 let done = 0;
 for (const task of tasks) {
@@ -54,6 +54,6 @@ if (attempts.length >= 5) {
 console.log(`${new Date().toISOString()} ${done}/${tasks.length} tasks final${eta}`);
 console.log(`outcomes ${JSON.stringify(outcomes)}`);
 console.log(
-  `vertex: ${vertex.calls} calls, ${vertex.failed} failed (429 ${vertex.rateLimited}, 5xx ${vertex.serverError}, network ${vertex.network}, auth ${vertex.auth}), rate-limit wait ${Math.round(vertex.rateLimitWaitMs / 1000)}s; ${attempts.length} attempts, ${retried} to run again`,
+  `vertex: ${vertex.calls} calls, ${vertex.failed} failed (429 ${vertex.rateLimited}, 5xx ${vertex.serverError}, timeout ${vertex.timeout}, network ${vertex.network}, auth ${vertex.auth}), rate-limit wait ${Math.round(vertex.rateLimitWaitMs / 1000)}s; ${attempts.length} attempts, ${retried} to run again`,
 );
 console.log(`judged ${judged}; in progress: ${running.join('; ') || 'none'}`);

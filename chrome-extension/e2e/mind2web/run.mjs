@@ -129,7 +129,7 @@ function actionHistory(events) {
 
 /** What the model provider returned during a task, from the trace's llm records. */
 function providerStats(records) {
-  const stats = { calls: 0, failed: 0, rateLimited: 0, serverError: 0, network: 0, auth: 0, other: 0, rateLimitWaitMs: 0, lastCallFailedOnProvider: false };
+  const stats = { calls: 0, failed: 0, rateLimited: 0, serverError: 0, timeout: 0, network: 0, auth: 0, other: 0, rateLimitWaitMs: 0, lastCallFailedOnProvider: false };
   for (const r of records) {
     if (r.kind !== 'llm') continue;
     const wait = /rate limited; retrying in ([\d.]+)s/.exec(r.msg ?? '');
@@ -141,16 +141,20 @@ function providerStats(records) {
       continue;
     }
     stats.failed++;
-    const text = `${r.msg} ${JSON.stringify(r.data.error)}`;
+    // The message only: a stack trace's line numbers (":512:") read as 5xx statuses and inflated server errors.
+    const error = r.data.error;
+    const text = `${r.msg} ${typeof error === 'string' ? error : (error.message ?? JSON.stringify(error))}`;
     const kind = /429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(text)
       ? 'rateLimited'
-      : /Failed to fetch|unreachable|network|ERR_|ECONN|ETIMEDOUT/i.test(text)
-        ? 'network'
-        : /\b401\b|invalid authentication|UNAUTHENTICATED/i.test(text)
-          ? 'auth'
-          : /\b5\d\d\b|UNAVAILABLE|INTERNAL|DEADLINE_EXCEEDED|overloaded/i.test(text)
-            ? 'serverError'
-            : 'other';
+      : /timed out|timeout|DEADLINE_EXCEEDED/i.test(text)
+        ? 'timeout'
+        : /Failed to fetch|unreachable|network|ERR_|ECONN/i.test(text)
+          ? 'network'
+          : /\b401\b|invalid authentication|UNAUTHENTICATED/i.test(text)
+            ? 'auth'
+            : /status code 5\d\d|\b50[0-4]\b|UNAVAILABLE|INTERNAL|overloaded/i.test(text)
+              ? 'serverError'
+              : 'other';
     stats[kind]++;
     stats.lastCallFailedOnProvider = kind !== 'other';
   }
@@ -427,6 +431,9 @@ function selfCheck() {
     llm('llm call gemini-2.5-flash failed', 'status code 503 UNAVAILABLE'),
   ]);
   assert(limited.calls === 3 && limited.rateLimited === 1 && limited.serverError === 1 && limited.rateLimitWaitMs === 16_900, `stats ${JSON.stringify(limited)}`);
+  // A live timeout: its stack's line numbers (":512:") once counted as a 5xx.
+  const slow = providerStats([{ kind: 'llm', msg: 'llm call gemini-2.5-flash failed', data: { error: { name: 'Error', message: 'LLM call timed out after 25000ms', stack: 'Error: LLM call timed out after 25000ms\n    at wK (chrome-extension://x/background.iife.js:512:3021)' } } }]);
+  assert(slow.timeout === 1 && slow.serverError === 0 && slow.lastCallFailedOnProvider, `timeout ${JSON.stringify(slow)}`);
   assert(heldBackByProvider('limit_time', limited, []), 'last call failed on the provider');
   assert(!heldBackByProvider('task.ok', limited, []), 'a success stays a success');
   assert(!heldBackByProvider('limit_steps', limited, []), 'the step limit is the agent’s');
@@ -523,7 +530,7 @@ async function main() {
       }
       inSession++;
       const p = result.provider;
-      const vertex = p ? `, vertex ${p.calls} calls ${p.failed} failed (429 ${p.rateLimited}, 5xx ${p.serverError}, net ${p.network}, auth ${p.auth}), rate-limit wait ${Math.round(p.rateLimitWaitMs / 1000)}s` : '';
+      const vertex = p ? `, vertex ${p.calls} calls ${p.failed} failed (429 ${p.rateLimited}, 5xx ${p.serverError}, timeout ${p.timeout ?? 0}, net ${p.network}, auth ${p.auth}), rate-limit wait ${Math.round(p.rateLimitWaitMs / 1000)}s` : '';
       console.log(`${result.outcome}${result.agentOutcome ? ` [agent: ${result.agentOutcome}]` : ''} (${result.seconds ?? 0}s, ${result.steps ?? 0} steps, ${result.metrics?.tokens.input ?? 0} input tokens, ${result.screenshots.length} shots${vertex})`);
       // One line per attempt, across processes (small appends are atomic): a retry replaces the task folder, not this log.
       fs.appendFileSync(
