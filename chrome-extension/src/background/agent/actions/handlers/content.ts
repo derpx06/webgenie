@@ -22,24 +22,51 @@ const MAX_FIND_PASSAGES = 30;
  */
 const SAME_READ_STEPS = 3;
 
-/** Each case-insensitive match of `needle` with the text around it and its character offset; overlapping passages merge. */
+/** A row of a table in page text: cells separated by tabs (how innerText renders table cells) or by pipes. */
+const isTableRow = (line: string) => line.includes('\t') || (line.match(/\|/g)?.length ?? 0) >= 2;
+const cells = (line: string) => line.split(line.includes('\t') ? '\t' : '|').map(cell => cell.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' | ');
+const MAX_ROW_CHARS = 1000;
+
+/**
+ * Each case-insensitive match of `needle` with the text around it and its character offset; overlapping passages merge.
+ * A match inside a table row returns that whole row with the table's first row (its header): a fixed window around the
+ * match ran into the neighbouring row and lost the column names, and the neighbour's value was reported.
+ */
 export function findPassages(text: string, needle: string): string {
   const wanted = needle.trim().toLowerCase();
   const lower = text.toLowerCase();
-  const spans: Array<[number, number]> = [];
+  const spans: Array<{ start: number; end: number; row?: boolean; header?: string }> = [];
   let matches = 0;
   for (let at = wanted ? lower.indexOf(wanted) : -1; at >= 0; at = lower.indexOf(wanted, at + wanted.length)) {
     matches++;
-    const start = Math.max(0, at - FIND_CONTEXT_CHARS);
-    const end = Math.min(text.length, at + wanted.length + FIND_CONTEXT_CHARS);
+    const lineStart = text.lastIndexOf('\n', at) + 1;
+    const lineEnd = text.indexOf('\n', at) < 0 ? text.length : text.indexOf('\n', at);
+    let span: (typeof spans)[number];
+    if (isTableRow(text.slice(lineStart, lineEnd)) && at + wanted.length <= lineEnd) {
+      // The table's first row: walk up while the lines above are rows too.
+      let headerStart = lineStart;
+      while (headerStart > 0) {
+        const above = text.lastIndexOf('\n', headerStart - 2) + 1;
+        if (!isTableRow(text.slice(above, headerStart - 1))) break;
+        headerStart = above;
+      }
+      const header = headerStart < lineStart ? text.slice(headerStart, text.indexOf('\n', headerStart)) : undefined;
+      span = { start: lineStart, end: lineEnd, row: true, header };
+    } else {
+      span = { start: Math.max(0, at - FIND_CONTEXT_CHARS), end: Math.min(text.length, at + wanted.length + FIND_CONTEXT_CHARS) };
+    }
     const last = spans[spans.length - 1];
-    if (last && start <= last[1]) last[1] = end;
-    else spans.push([start, end]);
+    if (last && span.start <= last.end && !last.row && !span.row) last.end = Math.max(last.end, span.end);
+    else if (!(last?.row && last.start === span.start)) spans.push(span);
   }
   if (matches === 0) return `No match for "${needle}" in the page text (${text.length} characters).`;
   const passages = spans
     .slice(0, MAX_FIND_PASSAGES)
-    .map(([start, end]) => `[at character ${start}] ${text.slice(start, end).replace(/\s+/g, ' ').trim()}`);
+    .map(({ start, end, row, header }) =>
+      row
+        ? `[at character ${start}] ${header ? `table header: ${cells(header).slice(0, MAX_ROW_CHARS)}\n  row: ` : 'table row: '}${cells(text.slice(start, end)).slice(0, MAX_ROW_CHARS)}`
+        : `[at character ${start}] ${text.slice(start, end).replace(/\s+/g, ' ').trim()}`,
+    );
   const more = spans.length > MAX_FIND_PASSAGES ? `\n[${spans.length - MAX_FIND_PASSAGES} more passages not shown; search for a longer text]` : '';
   const out = `${matches} ${matches === 1 ? 'match' : 'matches'} for "${needle}":\n${passages.join('\n')}${more}`;
   return out.length > MAX_READ_CHARS ? `${out.slice(0, MAX_READ_CHARS)}\n[passages truncated; search for a longer text]` : out;

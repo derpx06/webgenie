@@ -110,6 +110,15 @@ describe('ContentHandler page text', () => {
     expect(findPassages('Total: 3 items. Total due: $30.', 'total')).toBe('2 matches for "total":\n[at character 0] Total: 3 items. Total due: $30.');
   });
 
+  it('returns a matched table row whole, with the table header, instead of a window into the next row', () => {
+    const page = 'Results\nName\tWins\tLosses\nAmber\t12\t3\nBirch\t7\t9\nFooter text';
+    expect(findPassages(page, 'birch')).toBe('1 match for "birch":\n[at character 36] table header: Name | Wins | Losses\n  row: Birch | 7 | 9');
+    // Pipe-separated rows count as a table; two matches in one row give the row once.
+    expect(findPassages('| Item | Price |\n| Pen 2 | Pen $3 |', 'pen')).toBe('2 matches for "pen":\n[at character 17] table header: Item | Price\n  row: Pen 2 | Pen $3');
+    // Text outside a table keeps the passage around the match.
+    expect(findPassages(page, 'footer')).toContain('[at character 0] Results Name Wins Losses Amber 12 3 Birch 7 9 Footer text');
+  });
+
   it('answers an unchanged re-read with a note while the earlier read is recent, and resends it later', async () => {
     const { handler, context } = handlerFor({ getCompletePageContent: vi.fn(async () => 'Short page') });
 
