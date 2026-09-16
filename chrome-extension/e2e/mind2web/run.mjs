@@ -28,7 +28,16 @@ import { closeSession, launchSession } from '../run.mjs';
 import { taskMetrics, timeline } from '../metrics.mjs';
 
 const HERE = import.meta.dirname;
-const DIST = path.resolve(HERE, '../../../dist');
+// E2E_DIST runs a saved copy of a build (e2e/builds/<commit>), so rounds on different builds do not disturb each other.
+const DIST = path.resolve(process.env.E2E_DIST ?? path.join(HERE, '../../../dist'));
+/** The commit the build was made from (dist/BUILD, written after pnpm build), recorded with every result. */
+const BUILD = (() => {
+  try {
+    return fs.readFileSync(path.join(DIST, 'BUILD'), 'utf8').trim();
+  } catch {
+    return null;
+  }
+})();
 const SEARCH_ENGINES = ['google.com', 'bing.com', 'duckduckgo.com', 'search.yahoo.com'];
 // 500k input tokens: on real sites a model call reads 7-15k tokens, so 150k stopped tasks near step 13 of 25.
 // 1200 s: under project-wide Vertex rate limits (about half of all calls answered 429 with five workers) tasks spent most
@@ -235,6 +244,7 @@ function writeResult(runDir, task, fields) {
     final_result_response: '',
     action_history: [],
     screenshots: [],
+    build: BUILD,
     ...fields,
   };
   fs.writeFileSync(path.join(dir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
@@ -480,7 +490,7 @@ async function main() {
     return !saved || RETRY_ON_RESUME.has(saved.outcome);
   });
   const shardLabel = shardCount > 1 ? ` (shard ${shardIndex}/${shardCount}: ${mine.length} tasks)` : '';
-  console.log(`${tasks.length} tasks selected${shardLabel}, ${mine.length - todo.length} already done, ${todo.length} to run on Vertex ${process.env.E2E_LOCATION ?? 'global'} -> ${runDir}`);
+  console.log(`${tasks.length} tasks selected${shardLabel}, ${mine.length - todo.length} already done, ${todo.length} to run on Vertex ${process.env.E2E_LOCATION ?? 'global'} with build ${BUILD ?? 'unknown'} (${DIST}) -> ${runDir}`);
 
   let session = await launchSession(null);
   let inSession = 0;
@@ -518,7 +528,7 @@ async function main() {
       // One line per attempt, across processes (small appends are atomic): a retry replaces the task folder, not this log.
       fs.appendFileSync(
         path.join(runDir, 'attempts.jsonl'),
-        `${JSON.stringify({ at: new Date().toISOString(), shard: opts.shard ?? null, location: process.env.E2E_LOCATION ?? 'global', task_id: task.task_id, outcome: result.outcome, agentOutcome: result.agentOutcome, detail: result.detail, seconds: result.seconds, steps: result.steps, inputTokens: result.metrics?.tokens.input, provider: p })}\n`,
+        `${JSON.stringify({ at: new Date().toISOString(), build: BUILD, shard: opts.shard ?? null, location: process.env.E2E_LOCATION ?? 'global', task_id: task.task_id, outcome: result.outcome, agentOutcome: result.agentOutcome, detail: result.detail, seconds: result.seconds, steps: result.steps, inputTokens: result.metrics?.tokens.input, provider: p })}\n`,
       );
       // The provider is struggling: back off before the next task instead of spending it too.
       if (result.outcome === 'provider_down') {

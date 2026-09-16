@@ -61,3 +61,5 @@ scratch/*.secrets.*
 
 # Live e2e run results
 chrome-extension/e2e/results/
+# Saved copies of builds that benchmark rounds run on (E2E_DIST)
+chrome-extension/e2e/builds/

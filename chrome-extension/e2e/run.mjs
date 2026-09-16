@@ -23,7 +23,8 @@ import { startFixtures } from './fixtures.mjs';
 import { baselineFrom, compareWithBaseline, mergeBaseline, suiteHealth, taskMetrics, timeline, UNMEASURED, wilson } from './metrics.mjs';
 
 const HERE = import.meta.dirname;
-const DIST = path.resolve(HERE, '../../dist');
+// E2E_DIST runs a saved copy of a build, so the working build can change while a long run uses another.
+const DIST = path.resolve(process.env.E2E_DIST ?? path.join(HERE, '../../dist'));
 const BASELINE = path.join(HERE, 'baseline.json');
 const CHROMIUM = process.env.CHROMIUM_PATH ?? '/usr/bin/chromium';
 const MODEL = process.env.E2E_MODEL ?? 'gemini-2.5-flash';
