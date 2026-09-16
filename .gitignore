@@ -63,3 +63,5 @@ scratch/*.secrets.*
 chrome-extension/e2e/results/
 # Saved copies of builds that benchmark rounds run on (E2E_DIST)
 chrome-extension/e2e/builds/
+# Compressed copies of benchmark round folders (every trace kept)
+chrome-extension/e2e/archive/

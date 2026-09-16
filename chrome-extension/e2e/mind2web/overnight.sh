@@ -135,5 +135,7 @@ node e2e/mind2web/judge.mjs "$RUN_DIR" --concurrency 4 >>"$RUN_DIR/judge.log" 2>
 node e2e/mind2web/analyze.mjs "$RUN_DIR" >"$RUN_DIR/analyze.log" 2>&1
 # Every task final, logged and judged? The list of anything missing goes to verify.log.
 node e2e/mind2web/verify.mjs "$RUN_DIR" >"$RUN_DIR/verify.log" 2>&1
+# Every trace kept: the whole round folder, compressed, outside the working results (e2e/archive, not in git).
+mkdir -p e2e/archive && tar -czf "e2e/archive/$(basename "$RUN_DIR").tar.gz" -C "$(dirname "$RUN_DIR")" "$(basename "$RUN_DIR")" && log "traces archived: e2e/archive/$(basename "$RUN_DIR").tar.gz"
 node e2e/mind2web/status.mjs "$RUN_DIR" | tee -a "$RUN_DIR/status.log" >>"$RUN_DIR/overnight.log"
 log "judged, analyzed and verified: $RUN_DIR/judgments.json, $RUN_DIR/analysis.md, $RUN_DIR/verify.log"
