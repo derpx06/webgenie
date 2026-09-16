@@ -34,6 +34,8 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'aria-autocomplete',
   'draggable',
   'data-value',
+  // A native select's option count, or its option names when few.
+  'options',
 ];
 
 export abstract class DOMBaseNode {
@@ -349,7 +351,7 @@ export class DOMElementNode extends DOMBaseNode {
                    let capLimit = 30;
                    if (key === 'href') {
                      capLimit = 150;
-                   } else if (['aria-label', 'aria-description', 'placeholder', 'title', 'value'].includes(key)) {
+                   } else if (['aria-label', 'aria-description', 'placeholder', 'title', 'value', 'options'].includes(key)) {
                      capLimit = 120;
                    }
                    const capped = capTextLength(value, capLimit);

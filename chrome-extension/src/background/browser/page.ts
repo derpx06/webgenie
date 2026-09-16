@@ -1471,7 +1471,10 @@ export default class Page {
     const native = await handle.evaluate((el, wanted) => {
       if (!(el instanceof HTMLSelectElement)) return null;
       const options = Array.from(el.options);
-      const option = options.find(candidate => candidate.text.trim() === wanted.trim());
+      // The page read shows option names with collapsed spaces; an exact match first, then one ignoring spacing and case.
+      const loose = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
+      const option =
+        options.find(candidate => candidate.text.trim() === wanted.trim()) ?? options.find(candidate => loose(candidate.text) === loose(wanted));
       if (!option) {
         return {
           selected: false,

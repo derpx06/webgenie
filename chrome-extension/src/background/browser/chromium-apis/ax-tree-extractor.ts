@@ -276,6 +276,41 @@ function linkAddress(href: string, frameUrl?: string): string {
   }
 }
 
+/** A native select with at most this many options lists their names; a longer one shows its option count. */
+const MAX_LISTED_OPTIONS = 10;
+
+/** The options under a native select's accessibility node, in order. */
+function selectOptions(select: AXNode, nodesById: Map<string, AXNode>): Array<{ name: string; selected: boolean }> {
+  const options: Array<{ name: string; selected: boolean }> = [];
+  const seen = new Set<string>();
+  const walk = (node: AXNode) => {
+    for (const id of node.childIds ?? []) {
+      const child = nodesById.get(id);
+      if (!child || seen.has(id)) continue;
+      seen.add(id);
+      const role = String(child.role?.value ?? '');
+      if (role === 'option' || role === 'MenuListOption') {
+        options.push({ name: String(child.name?.value ?? '').trim(), selected: propertyMap(child).selected === true });
+      } else {
+        walk(child);
+      }
+    }
+  };
+  walk(select);
+  return options;
+}
+
+/** "Skip to content" / "Skip navigation": a link to a fragment of the page it is on. */
+export function isSkipLink(name: string, href: string, frameUrl?: string): boolean {
+  if (!/^skip (to\b|navigation\b)/i.test(name.trim())) return false;
+  try {
+    const link = new URL(href);
+    return Boolean(link.hash) && Boolean(frameUrl) && new URL(frameUrl!).href.split('#')[0] === link.href.split('#')[0];
+  } catch {
+    return false;
+  }
+}
+
 function nodeAttributes(role: string, name: string, node: AXNode, props: Record<string, unknown>, layout?: NodeLayout, frameUrl?: string) {
   const attributes: Record<string, string> = { ...layout?.attributes };
   if (role) attributes.role = role;
@@ -376,6 +411,8 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
       if (node.ignored && !pageTarget) return visitChildren(into, insideControl);
 
       const props = propertyMap(node);
+      // A keyboard skip link only moves focus within the page; listed, it was clicked as if it led somewhere.
+      if (role === 'link' && isSkipLink(name, String(props.url ?? ''), tree.url)) return false;
       const interactive =
         INTERACTIVE_ROLES.has(role) ||
         (Boolean(props.editable) && props.focusable === true) ||
@@ -417,6 +454,18 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
       });
       if (interactive) selectorMap.set(selectorMap.size, element);
       into.children.push(element);
+
+      // A native <select> is one element: its options become a count (or their names when few), not one element each
+      // (a country list listed 240). select_dropdown_option picks by visible text.
+      const nativeSelect =
+        interactive && (layout?.tagName === 'select' || (node.childIds ?? []).some(id => nodesById.get(id)?.role?.value === 'MenuListPopup'));
+      if (nativeSelect) {
+        const options = selectOptions(node, nodesById);
+        const selected = options.find(option => option.selected)?.name;
+        if (!element.attributes.value && selected) element.attributes.value = selected;
+        element.attributes.options = options.length > MAX_LISTED_OPTIONS ? String(options.length) : options.map(option => option.name).join(' | ');
+        return false;
+      }
 
       const indexedBefore = selectorMap.size;
       const hasText = visitChildren(element, insideControl || interactive);

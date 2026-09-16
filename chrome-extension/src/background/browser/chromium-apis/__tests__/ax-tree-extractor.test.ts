@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDomState, documentLayout, type AXNode, type FrameTree } from '../ax-tree-extractor';
+import { buildDomState, documentLayout, isSkipLink, type AXNode, type FrameTree } from '../ax-tree-extractor';
 import { pruneAXTree } from '../../dom/ax-tree-pruner';
 import type { DOMElementNode } from '../../dom/views';
 
@@ -216,6 +216,73 @@ describe('link addresses', () => {
     const state = buildDomState([{ key: 'main', url: 'https://example.com/jqueryui/menu', nodes }], null);
     expect(state.selectorMap.get(0)?.attributes.href).toBe('/download/jqueryui/menu/menu.xls');
     expect(state.selectorMap.get(1)?.attributes.href).toBe('https://docs.other.org/guide?x=1#top');
+  });
+});
+
+describe('native selects', () => {
+  const selectTree = (count: number, selected: number): AXNode[] => [
+    { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['s', 'b'] },
+    { nodeId: 's', role: { value: 'combobox' }, name: { value: 'Country' }, backendDOMNodeId: 5, childIds: ['p'] },
+    { nodeId: 'p', role: { value: 'MenuListPopup' }, childIds: Array.from({ length: count }, (_, i) => `o${i}`) },
+    ...Array.from({ length: count }, (_, i): AXNode => ({
+      nodeId: `o${i}`,
+      role: { value: 'option' },
+      name: { value: `Country ${i}` },
+      properties: i === selected ? [{ name: 'selected', value: { value: true } }] : [],
+    })),
+    { nodeId: 'b', role: { value: 'button' }, name: { value: 'Continue' }, backendDOMNodeId: 6 },
+  ];
+  const layout = { scrollX: 0, scrollY: 0, nodes: new Map([[5, { tagName: 'select', attributes: {}, x: 0, y: 0, width: 100, height: 20 }]]) };
+
+  it('lists a long select as one element with its value and option count', () => {
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes: selectTree(240, 3), layout }], null));
+    expect(state.selectorMap.size).toBe(2);
+    const select = state.selectorMap.get(0)!;
+    expect(select.tagName).toBe('select');
+    expect(select.attributes.value).toBe('Country 3');
+    expect(select.attributes.options).toBe('240');
+    const serialized = state.elementTree.clickableElementsToString();
+    expect(serialized).toContain('value="Country 3"');
+    expect(serialized).toContain('options="240"');
+    expect(serialized).not.toContain('Country 7');
+  });
+
+  it('names the options of a short select', () => {
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes: selectTree(3, 0), layout }], null));
+    expect(state.selectorMap.get(0)?.attributes.options).toBe('Country 0 | Country 1 | Country 2');
+    expect(state.selectorMap.get(1)?.attributes['aria-label']).toBe('Continue');
+  });
+
+  it('keeps ARIA listbox options as their own elements', () => {
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['l'] },
+      { nodeId: 'l', role: { value: 'listbox' }, name: { value: 'Sizes' }, backendDOMNodeId: 7, childIds: ['a', 'b'] },
+      { nodeId: 'a', role: { value: 'option' }, name: { value: 'Small' } },
+      { nodeId: 'b', role: { value: 'option' }, name: { value: 'Large' } },
+    ];
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes }], null));
+    expect(state.selectorMap.size).toBe(3);
+  });
+});
+
+describe('skip links', () => {
+  it('drops keyboard skip links to a fragment of the same page, keeps other links', () => {
+    const link = (id: string, name: string, url: string): AXNode => ({
+      nodeId: id,
+      role: { value: 'link' },
+      name: { value: name },
+      properties: [{ name: 'url', value: { value: url } }],
+    });
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['a', 'b', 'c', 'd'] },
+      link('a', 'Skip to main content', 'https://example.com/list?q=1#main'),
+      link('b', 'Skip navigation', 'https://example.com/list?q=1#nav'),
+      link('c', 'Skip to checkout', 'https://example.com/checkout'),
+      link('d', 'Results', 'https://example.com/list?q=1#results'),
+    ];
+    const state = buildDomState([{ key: 'main', url: 'https://example.com/list?q=1', nodes }], null);
+    expect([...state.selectorMap.values()].map(node => node.attributes['aria-label'])).toEqual(['Skip to checkout', 'Results']);
+    expect(isSkipLink('Skip to filters', 'https://example.com/#filters', undefined)).toBe(false);
   });
 });
 
