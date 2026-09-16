@@ -176,7 +176,7 @@ const heldBackByProvider = (outcome, provider, events) =>
 
 /** Standard refusal pages: a CDN's "Access Denied", a bot check that has not cleared, a country block. */
 const REFUSAL_TEXT =
-  /access denied|you don't have permission to access|performing security verification|verif(?:y|ies) (?:that )?you are (?:not a bot|(?:a )?human)|just a moment\.\.\.|not available in your (?:area|country|region)|coming from a country|the request could not be satisfied/i;
+  /access denied|you don't have permission to access|performing security verification|verif(?:y|ies) (?:that )?you are (?:not a bot|(?:a )?human)|just a moment\.\.\.|not available in your (?:area|country|region)|coming from a country|the request could not be satisfied|unusual traffic|i'?m not a robot|press (?:&|and) hold|complete the captcha|captcha to continue/i;
 
 /** The refusal a short page shows, or null; a normal page that mentions such words is longer. */
 function refusalText(title, text) {
@@ -448,6 +448,8 @@ function selfCheck() {
   assert(refusalText('marriott.com/default.mi', `# Access Denied\nYou don't have permission to access "http://www.marriott.com/default.mi" on this server.`), 'Akamai page');
   assert(refusalText('Just a moment...', 'Performing security verification\nThis page is displayed while the website verifies you are not a bot.'), 'bot check');
   assert(refusalText('Sorry…', 'Sorry, this request is coming from a country which we currently do not support.'), 'country block');
+  // Verification challenges that ended round 1 tasks recorded as task.ok.
+  assert(refusalText('', 'Our systems have detected unusual traffic from your computer network.') && refusalText('Human verification', "Press & Hold to confirm you are a human (and not a bot)."), 'challenge pages');
   assert(!refusalText('Help center', `If you see access denied, sign in again. ${'Help text. '.repeat(300)}`), 'a long page that mentions it');
   assert(!refusalText('Used cars', 'Browse used cars by make and model.'), 'a normal page');
   assert(sameSite('in.ign.com', 'www.ign.com') && !sameSite('www.google.com', 'www.ign.com'), 'same site');

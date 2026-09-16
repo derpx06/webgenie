@@ -111,5 +111,68 @@ Fixes:
 - **Retry questions** (`ffe68da`, `56a108c`): a question that only offers to retry is sent back to the agent to decide.
   A question about money, an account or personal data is always put to the user.
 
-Unit tests: 320 pass. Next: the gate on round 1's tasks once round 1 finishes. Memory does not allow a sixth browser
+Unit tests: 320 pass.
+
+## Trace review of round 1 (57 tasks, successes included)
+
+Three reviewers read every round 1 trace that ran the agent, and wrote `reviews/<task_id>.json` per task: answer
+assessment, wasted steps, a better strategy, root cause, and improvements not yet covered.
+
+Problems, by tasks affected:
+1. **Pages read too early** (about 16): an "empty page" right after loading, a new tab read before it loaded, a click
+   that opened a tab reported as no change.
+2. **Form batches cut short** (17 of 19 in one batch): after typing, incidental new elements stopped the rest of the
+   batch.
+3. **Bot walls and CAPTCHAs** (about 9): the agent clicked challenge widgets and repeated the question; the harness
+   counted such endings as task.ok.
+4. **Clicks** (about 9): vague "covered by `<div>`" errors; clicks that only changed the URL fragment or opened a popup
+   counted as passed.
+5. **Failed routes** (about 8): the planner repeated a dead-end goal until the token cap.
+6. **Autocomplete fields** (about 8): Enter pressed without choosing a suggestion; suggestions never reported.
+7. **Filters not in effect at the end** (about 9): undone by `go_back`, a popup instead of a sort, a pre-checked filter
+   left on.
+8. **Wrong answers from the right page** (3): table values without their headers; "page reached" given instead of the
+   data.
+9. **Bugs and waste:**
+   - `wait` for text to go away matches substrings;
+   - native selects are listed option by option;
+   - skip links are listed;
+   - native date inputs are typed segment by segment;
+   - the same question is asked twice;
+   - the navigator acted without a plan after the first planner call timed out;
+   - the planner re-plans every 3 steps even when every step passes.
+
+Environment:
+- This network is in India. Several US sites serve regional pages (nfl.com/international, in.ign.com, Amazon without
+  prices), which some tasks cannot overcome. This is recorded as a limitation, not an agent failure.
+- The judge is heavily rate-limited, with over 200 retries a pass.
+
+Harness change: CAPTCHA and "unusual traffic" pages of the task's own site now count as `site_blocked` where a task
+ends.
+
+## Fix set D (in progress)
+
+Three change sets, each assigned its own files:
+- **Perception** (page loading):
+  - wait for a page to load before reporting it empty, and for new tabs;
+  - name what covers a target;
+  - one line for a native select;
+  - no skip links;
+  - date inputs set directly.
+- **Navigator:**
+  - a batch continues unless menus, dialogs or new fields appear;
+  - honest click outcomes;
+  - autocomplete suggestions reported, with a rule to pick one;
+  - bot-wall widgets are never clicked, and the user is asked once;
+  - whole-text `wait`;
+  - no repeated questions.
+- **Planner:**
+  - a memory of failed routes that forces a new route, then a finish;
+  - the first planner call retried;
+  - find returns whole table rows with headers;
+  - applied filters re-checked against the current page before done;
+  - a bot-wall rule;
+  - no interval re-plan while every step passes.
+
+Order: gate build 56a108c (sets A, B, C) against round 1 first, then gate set D on its own build. Memory does not allow a sixth browser
 next to round 1's five.
