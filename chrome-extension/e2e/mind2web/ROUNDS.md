@@ -53,3 +53,35 @@ Folder `e2e/results/mind2web-r1-a920989`. Started 2026-09-16 19:30 UTC with 5 wo
 measures the four fixes above.
 
 Results: pending.
+
+Measured on round 1's first 600 model calls:
+- Navigator page state: 16k characters on average, 109 elements, 73 of them offscreen. `offscreen="true"` takes 7.7% of
+  the state.
+- Model calls: 9.6k input tokens each, 31% cached; 194 output tokens, 156 of them reasoning; 9.9 s per call.
+- The planner makes 180 calls to the navigator's 420.
+
+## Round 2 candidate: build b9062ed
+
+These fixes come from round 0's logs and a survey of leading web agents (browser-use, the Online-Mind2Web paper and
+its judge rules, AgentOccam, Agent-E, WILBUR). Unit tests: 311 pass.
+
+- **Scrolls report what they revealed** (`706c8fa`, `db6b46a`).
+  - A page scroll says how many new elements it revealed.
+  - After six page scrolls that revealed nothing new, further page scrolls are refused, with pointers to offscreen
+    elements, collapsed sections, `find` and `scroll_to_text`.
+  - On a long page whose element list is windowed, a scroll is never counted as empty.
+- **Control summary and filter rules** (`c7ee27f`).
+  - A summary above the element list names collapsed sections and counts form controls.
+  - Navigator and planner rules: criteria go through the site's filter and sort controls, not only the search box, and
+    the page must show them applied.
+- **Checked state on labels** (`d0739cd`): a custom checkbox or radio shows its checked state on its label.
+- **Requirements checklist** (`0c7b53f`).
+  - The planner keeps a checklist of the task's requirements with the evidence for each.
+  - A done is refused while a requirement is still pending; after two refusals it is accepted, and the answer names
+    what was not applied.
+  - Superlatives use the site's sort; a range must match the request, or the answer names the closest option used.
+- **Absence answers** (`e40566c`): an answer that something does not exist, given before the page was read, is sent
+  back once to read it.
+- **Answer on screen** (`b9062ed`): the answer's value is scrolled into view before the task finishes.
+
+Next: a live smoke test, then the gate on round 1's failed and mediocre tasks plus a sample of its successes.
