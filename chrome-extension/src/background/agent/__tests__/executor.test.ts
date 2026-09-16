@@ -603,6 +603,51 @@ describe('A long run of scrolls', () => {
     expect(textOf(requests[3].messages)).not.toContain('scrolls in a row');
     expect(textOf(requests[4].messages)).toContain('4 scrolls in a row');
   });
+
+  const scrolls = (navigator: ReturnType<typeof call>[], onScroll?: (h: ReturnType<typeof createHarness>) => void) => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('Found it') : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Find the Editors Choice filter',
+      pages: [{ url: 'https://reviews.test/', title: 'Reviews', elements: [{ text: 'Home' }, { text: 'Editors Choice' }] }],
+      planner: Array(20).fill(planner),
+      navigator: [...navigator, done('Found it')],
+    });
+    const page = (h.browser as unknown as { page: Record<string, unknown> }).page;
+    Object.assign(page, { getScrollInfo: async () => [0, 800, 5000], scrollByPages: async () => onScroll?.(h) });
+    return h;
+  };
+  const down = () => call('scroll', { direction: 'down', pages: 1 });
+
+  it('says a page scroll revealed nothing new, and refuses page scrolls after six such scrolls', async () => {
+    const h = scrolls([...Array(7).fill(null).map(down), call('scroll', { direction: 'down', index: 1 })]);
+    await settle(h.executor.execute());
+
+    const requests = h.llm.requestsFor('navigator');
+    expect(textOf(requests[1].messages)).toContain('Scrolling revealed nothing new');
+    expect(textOf(requests[6].messages)).toContain('further page scrolls are refused');
+    expect(textOf(requests[6].messages)).not.toContain('Not scrolled');
+    expect(textOf(requests[7].messages)).toContain('Not scrolled: the last 6 page scrolls revealed nothing new');
+    // Scrolling a specific element stays allowed.
+    const lastResults = textOf(requests[8].messages).split('Results of your last actions').pop();
+    expect(lastResults).toContain('Scrolled');
+    expect(lastResults).not.toContain('Not scrolled');
+  });
+
+  it('counts again after a scroll that loads new elements', async () => {
+    let loaded = 2;
+    const h = scrolls(Array(8).fill(null).map(down), harness => {
+      if (loaded === 5) return;
+      loaded++;
+      harness.browser.show({ url: 'https://reviews.test/', title: 'Reviews', elements: Array.from({ length: loaded }, (_, i) => ({ text: `Item ${i}` })) });
+    });
+    await settle(h.executor.execute());
+
+    const texts = h.llm.requestsFor('navigator').map(request => textOf(request.messages));
+    expect(texts[1]).toContain('Scrolling revealed 1 new elements');
+    expect(texts.some(text => text.includes('Not scrolled'))).toBe(false);
+  });
 });
 
 describe('An address the firewall blocks', () => {

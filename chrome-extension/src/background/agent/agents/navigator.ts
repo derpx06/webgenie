@@ -53,6 +53,9 @@ const DATA_CARRYING_ACTIONS = new Set(['input_text', 'go_to_url', 'open_tab', 's
 /** Actions that open an address the model wrote. */
 const NAVIGATING_ACTIONS = new Set(['go_to_url', 'open_tab']);
 
+/** Page scrolls in a row that may reveal nothing new before the next page scroll is refused. */
+const MAX_EMPTY_SCROLLS = 6;
+
 const intentCheckSchema: ActionSchema = {
   name: 'intent_check',
   description: "Report whether the user's own request asks for the action described.",
@@ -452,6 +455,13 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           }));
         };
 
+        // The element list holds the whole page, offscreen elements included: after six page scrolls that listed nothing
+        // new, another one will not either (a live run scrolled 8-21 times for filters already listed or in a collapsed section).
+        if (actionName === 'scroll' && indexArg === null && this.context.emptyScrolls >= MAX_EMPTY_SCROLLS) {
+          refuse(`Not scrolled: the last ${this.context.emptyScrolls} page scrolls revealed nothing new, so every element of this page is already listed. Use an element marked offscreen by index, open a collapsed section (aria-expanded="false") that may hold what you look for, find a text with get_complete_page_content with find or scroll_to_text, or scroll a specific element by index.`);
+          break;
+        }
+
         // A password from the user reaches the page only as its placeholder's value, typed into a password field on
         // the site it was given for; nothing else may carry it (an address, another field, a message).
         const indexedNode = indexArg !== null ? beforeState.selectorMap.get((actionArgs as { index?: number }).index ?? -1) : undefined;
@@ -805,10 +815,27 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // Scrolling on and on for something already listed (Online-Mind2Web: 7 of 35 tasks scrolled 4+ times in a row, one
         // 21 times, for a filter it could use by index) gets a note from the fourth scroll on.
         this.context.scrollRun = actionName === 'scroll' ? this.context.scrollRun + 1 : 0;
-        if (this.context.scrollRun >= 4) {
+        // A page scroll says whether it listed anything new; one that did (a page that loads more) starts the count again.
+        if (actionName === 'scroll' && indexArg === null && !result.error) {
+          const revealed = newElements(beforeState, postActionState).length;
+          this.context.emptyScrolls = revealed > 0 ? 0 : this.context.emptyScrolls + 1;
           result = new ActionResult({
             ...result,
-            extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row. Elements marked offscreen are on the page already: use them by index (the action scrolls to them). Options you look for (a price or rating filter) often sit inside a collapsed section, menu or filter panel: open the button with that name instead of scrolling. To find a text, use get_complete_page_content with find, or scroll_to_text.`.trim(),
+            extractedContent: `${result.extractedContent ?? ''} ${revealed > 0
+              ? `Scrolling revealed ${revealed} new elements.`
+              : 'Scrolling revealed nothing new: every element of this page was already listed; use elements marked offscreen by index, open a collapsed section, or use get_complete_page_content with find.'}`.trim(),
+          });
+        } else if (actionName !== 'scroll') {
+          this.context.emptyScrolls = 0;
+        }
+        if (this.context.scrollRun >= 4) {
+          const empty = this.context.emptyScrolls;
+          const escalation = empty >= MAX_EMPTY_SCROLLS
+            ? ` ${empty} page scrolls in a row revealed nothing new: further page scrolls are refused until you do something else.`
+            : empty >= 3 ? ` ${empty} page scrolls in a row revealed nothing new; after ${MAX_EMPTY_SCROLLS}, page scrolls are refused.` : '';
+          result = new ActionResult({
+            ...result,
+            extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row.${escalation} Elements marked offscreen are on the page already: use them by index (the action scrolls to them). Options you look for (a price or rating filter) often sit inside a collapsed section, menu or filter panel: open the button with that name instead of scrolling. To find a text, use get_complete_page_content with find, or scroll_to_text.`.trim(),
           });
         }
         this.context.activeObservation = postActionState.observation;
