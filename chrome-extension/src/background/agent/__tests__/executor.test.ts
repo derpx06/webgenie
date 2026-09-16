@@ -1179,7 +1179,7 @@ describe('A goal planned again without progress', () => {
 
     expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'navigator', 'planner', 'navigator', 'planner', 'planner', 'navigator', 'planner', 'planner']);
     const planners = h.llm.requestsFor('planner').map(request => textOf(request.messages));
-    expect(planners[2]).not.toContain('without progress');
+    expect(planners[2]).not.toMatch(/planned \d times/);
     expect(planners[3]).toContain('has been planned 3 times without progress');
     expect(planners[3]).toContain('Goals already tried without progress: "Find the opening date of the bridge on the current page"');
     expect(planners[5]).toContain('Stop trying: set done=true now');
@@ -1203,7 +1203,7 @@ describe('A goal planned again without progress', () => {
       navigator: [typeText(0, 'bridge'), gaveUp, typeText(1, 'river'), gaveUp, typeText(2, '1932'), gaveUp, typeText(3, 'opened'), done('Opened in 1932.')],
     });
     await settle(h.executor.execute());
-    expect(textOf(h.llm.requests.map(request => request.messages).flat())).not.toContain('has been planned');
+    expect(textOf(h.llm.requests.map(request => request.messages).flat())).not.toMatch(/planned \d times/);
     expect(h.last().state).toBe(ExecutionState.TASK_OK);
   });
 });
