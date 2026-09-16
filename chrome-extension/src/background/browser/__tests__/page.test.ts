@@ -13,7 +13,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   };
 });
 
-import Page, { build_initial_state, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, typingMethod } from '../page';
+import Page, { build_initial_state, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, toNativeInputValue, typingMethod } from '../page';
 import { DOMElementNode } from '../dom/views';
 import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
@@ -206,5 +206,80 @@ describe('typingMethod', () => {
     expect(typingMethod('line one\nline two', 'contenteditable')).toBe('keys');
     expect(typingMethod('line one\nline two', 'text')).toBe('insert');
     expect(typingMethod('x'.repeat(301), 'textarea')).toBe('insert');
+  });
+});
+
+describe('toNativeInputValue', () => {
+  it.each([
+    ['2024-05-20', 'date', '2024-05-20'],
+    ['2024/5/2', 'date', '2024-05-02'],
+    ['05/20/2024', 'date', '2024-05-20'],
+    ['20/05/2024', 'date', '2024-05-20'],
+    ['20.05.2024', 'date', '2024-05-20'],
+    ['May 20, 2024', 'date', '2024-05-20'],
+    ['Monday, May 20, 2024', 'date', '2024-05-20'],
+    ['20 May 2024', 'date', '2024-05-20'],
+    ['Sept 3rd 2024', 'date', '2024-09-03'],
+    ['2024-05-20T10:00', 'date', '2024-05-20'],
+    ['15:30', 'time', '15:30'],
+    ['3:30 PM', 'time', '15:30'],
+    ['12 am', 'time', '00:00'],
+    ['09:05:30', 'time', '09:05:30'],
+    ['2024-05-20T15:30', 'datetime-local', '2024-05-20T15:30'],
+    ['2024-05-20 15:30', 'datetime-local', '2024-05-20T15:30'],
+    ['May 20, 2024 at 3:30 pm', 'datetime-local', '2024-05-20T15:30'],
+    ['05/20/2024, 9:00 AM', 'datetime-local', '2024-05-20T09:00'],
+    ['2024-05', 'month', '2024-05'],
+    ['05/2024', 'month', '2024-05'],
+    ['May 2024', 'month', '2024-05'],
+    ['#ff0000', 'color', '#ff0000'],
+  ])('%s as %s', (text, type, value) => {
+    expect(toNativeInputValue(text, type)).toBe(value);
+  });
+
+  it.each([
+    ['next Friday', 'date'],
+    ['13/13/2024', 'date'],
+    ['25:00', 'time'],
+    ['13 pm', 'time'],
+    ['2024-05-20', 'datetime-local'],
+    ['2024-13', 'month'],
+  ])('refuses %s as %s', (text, type) => {
+    expect(toNativeInputValue(text, type)).toBeNull();
+  });
+});
+
+describe('Page inputTextNode on a native date field', () => {
+  const dateField = (evaluate: ReturnType<typeof vi.fn>) => {
+    const page = new Page(1, 'https://example.com/', 'Example', {}, {} as IBrowserAdapter);
+    const dispatchMouse = vi.fn();
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _requireHandle: vi.fn().mockResolvedValue({ evaluate }),
+      _dispatchMouse: dispatchMouse,
+    });
+    return { page, dispatchMouse };
+  };
+
+  it('sets the value directly from a written date and reports the value the field holds', async () => {
+    let value = '';
+    const evaluate = vi.fn()
+      .mockResolvedValueOnce({ mode: 'setter', type: 'date', secret: false })
+      .mockImplementationOnce(async (_fn: unknown, next: string) => {
+        value = next;
+      })
+      .mockImplementation(async () => value);
+    const { page, dispatchMouse } = dateField(evaluate);
+
+    await expect(page.inputTextNode(new DOMElementNode({ tagName: 'input', xpath: null, attributes: {}, children: [], isVisible: true }), 'May 20, 2024'))
+      .resolves.toEqual({ matched: true, secret: false, actualLength: 10, actual: '2024-05-20' });
+    expect(dispatchMouse).not.toHaveBeenCalled();
+  });
+
+  it('refuses text that is not a date with the format to use', async () => {
+    const evaluate = vi.fn().mockResolvedValueOnce({ mode: 'setter', type: 'date', secret: false });
+    const { page } = dateField(evaluate);
+    await expect(page.inputTextNode(new DOMElementNode({ tagName: 'input', xpath: null, attributes: {}, children: [], isVisible: true }), 'soon'))
+      .rejects.toThrow(/2024-05-20/);
+    expect(evaluate).toHaveBeenCalledTimes(1);
   });
 });

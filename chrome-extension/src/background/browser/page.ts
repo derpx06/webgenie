@@ -228,10 +228,76 @@ export function typingMethod(text: string, fieldType: string): 'keys' | 'insert'
   return text.includes('\n') && !multiline ? 'insert' : 'keys';
 }
 
-/** The value an <input type=date> needs for a date typed the way a user would (mm/dd/yyyy). */
-function toDateInputValue(text: string): string {
-  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text.trim());
-  return us ? `${us[3]}-${us[1].padStart(2, '0')}-${us[2].padStart(2, '0')}` : text;
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const pad = (value: number | string) => String(value).padStart(2, '0');
+
+function isoDate(year: number, month: number, day: number): string | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${pad(month)}-${pad(day)}`;
+}
+
+function monthNumber(name: string): number {
+  return MONTHS.indexOf(name.slice(0, 3).toLowerCase()) + 1;
+}
+
+/** yyyy-mm-dd from ISO (2024-05-20, 2024/05/20), numeric (05/20/2024; 20/05/2024 when the first part is over 12) or named (May 20, 2024; 20 May 2024). */
+function parseDate(text: string): string | null {
+  const t = text.trim().replace(/^[a-z]+,\s*/i, match => (monthNumber(match) ? match : ''));
+  let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(t);
+  if (m) return isoDate(+m[1], +m[2], +m[3]);
+  m = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(t);
+  if (m) return +m[1] > 12 ? isoDate(+m[3], +m[2], +m[1]) : isoDate(+m[3], +m[1], +m[2]);
+  m = /^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/i.exec(t);
+  if (m && monthNumber(m[1])) return isoDate(+m[3], monthNumber(m[1]), +m[2]);
+  m = /^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\.?,?\s+(\d{4})$/i.exec(t);
+  if (m && monthNumber(m[2])) return isoDate(+m[3], monthNumber(m[2]), +m[1]);
+  return null;
+}
+
+/** HH:MM[:SS] from 24-hour (15:30) or 12-hour (3:30 PM, 3 pm) time. */
+function parseTime(text: string): string | null {
+  const m = /^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*([ap])?\.?\s*m?\.?$/i.exec(text.trim());
+  if (!m || (!m[2] && !m[4])) return null;
+  let hours = +m[1];
+  const minutes = +(m[2] ?? 0);
+  if (m[4]) {
+    if (hours < 1 || hours > 12) return null;
+    hours = (hours % 12) + (m[4].toLowerCase() === 'p' ? 12 : 0);
+  }
+  if (hours > 23 || minutes > 59 || (m[3] && +m[3] > 59)) return null;
+  return `${pad(hours)}:${pad(minutes)}${m[3] ? `:${m[3]}` : ''}`;
+}
+
+/**
+ * The value a native date, time, datetime-local or month input takes for text written the way a person would, or null
+ * when the text is not such a value. Other input types keep the text. A date field typed key by key goes segment by
+ * segment in the locale's order, and failed three times in a row on a real site; its value is set directly instead.
+ */
+export function toNativeInputValue(text: string, type: string): string | null {
+  const t = text.trim();
+  switch (type) {
+    case 'date':
+      return parseDate(t.replace(/T.*$/, ''));
+    case 'time':
+      return parseTime(t);
+    case 'datetime-local': {
+      const m = /^(.+?)(?:T|,?\s+at\s+|,\s*|\s+)(\d{1,2}(?::\d{2}){0,2}\s*(?:[ap]\.?m?\.?)?)$/i.exec(t);
+      const date = m && parseDate(m[1]);
+      const time = m && parseTime(m[2]);
+      return date && time ? `${date}T${time}` : null;
+    }
+    case 'month': {
+      const month = (year: number, value: number) => (value >= 1 && value <= 12 ? `${year}-${pad(value)}` : null);
+      let m = /^(\d{4})[-/.](\d{1,2})$/.exec(t);
+      if (m) return month(+m[1], +m[2]);
+      m = /^(\d{1,2})[-/.](\d{4})$/.exec(t);
+      if (m) return month(+m[2], +m[1]);
+      m = /^([a-z]+)\.?,?\s+(\d{4})$/i.exec(t);
+      return m && monthNumber(m[1]) ? month(+m[2], monthNumber(m[1])) : null;
+    }
+    default:
+      return text;
+  }
 }
 
 export function getAdaptiveDomRetryDelayMs(attempt: number): number {
@@ -1412,7 +1478,12 @@ export default class Page {
       throw new Error(field.error);
     }
 
-    const expected = field.type === 'date' ? toDateInputValue(text) : text;
+    const converted = field.mode === 'setter' && text.trim() ? toNativeInputValue(text, field.type) : text;
+    if (converted === null) {
+      const examples: Record<string, string> = { date: '2024-05-20', time: '15:30', 'datetime-local': '2024-05-20T15:30', month: '2024-05' };
+      throw new Error(`"${text}" is not a ${field.type} this ${field.type} field accepts; type it like ${examples[field.type]} (it is set directly, not typed key by key)`);
+    }
+    const expected = converted;
     const setValue = (value: string) =>
       handle.evaluate((el, next) => {
         const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
