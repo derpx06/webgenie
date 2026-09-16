@@ -64,7 +64,7 @@ export const plannerLLMOutputSchema = z.object({
         evidence: z
           .string()
           .optional()
-          .describe('applied: what on the page shows it (a selected filter or option, the sort label, a value in the URL); not_available: why. A few words.'),
+          .describe('applied: what on the page shows it, quoting the exact page text in double quotes or naming the URL parameter, e.g. sort label "Price: low to high" or price=20-50; not_available: why. A few words.'),
       }),
     )
     .describe(
