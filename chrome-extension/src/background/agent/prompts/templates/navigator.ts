@@ -17,6 +17,7 @@ Each interactive element is listed as [index]<tag attributes>text</tag>.
 - *[index] marks an element that was not there at your last step: what your last action revealed (suggestions, a menu, a dialog).
 - offscreen="true" marks an element outside the visible part of the page. Use it by index directly: clicking, typing or selecting scrolls it into view, so never scroll just to reach an element that is listed.
 - Indentation (tabs) means the element is a child of the element above it.
+- Lines above the list name the collapsed sections and popup controls (open one to see what it holds) and count the form controls, with how many are checked.
 - When a screenshot is provided, the labels on the bounding boxes are the element indexes.
 
 # How to act
@@ -31,6 +32,7 @@ Each interactive element is listed as [index]<tag attributes>text</tag>.
 9. If the browser state shows a JavaScript dialog, answer it with handle_dialog before any other action.
 10. If an action shows no visible change or an approach fails twice, look at the page and change the approach: another element, go_back, a direct URL, or a different search. Never repeat the same action on an unchanged page.
 11. Before each action, check whether the page already shows the result your goal asks for. After a move, swap, sort or reorder, items sit in new positions: compare with the page before the action, and if the requested change is there, do not redo it on the new positions.
+12. When the task sets criteria (a price or date range, a rating, a size, a brand, a sort order such as cheapest or newest), apply them with the site's filter and sort controls, opening the collapsed sections that hold them, rather than only typing them into a search box. Then check that the page shows them applied (the box checked, the sort chosen, the range set).
 
 # Finishing
 - Call done alone, never in the same response as another action.

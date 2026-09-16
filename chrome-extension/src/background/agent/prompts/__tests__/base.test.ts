@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SystemMessage, type HumanMessage } from '@langchain/core/messages';
 import { ActionResult, type AgentContext } from '../../types';
-import { DOMElementNode } from '../../../browser/dom/views';
-import { BasePrompt, capPromptSection, scrollViewportPercentage, windowAroundViewport } from '../base';
+import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
+import { BasePrompt, capPromptSection, controlSummary, scrollViewportPercentage, windowAroundViewport } from '../base';
 
 class BrowserStatePrompt extends BasePrompt {
   getSystemMessage(): SystemMessage {
@@ -112,5 +112,70 @@ describe('browser prompt budgeting', () => {
 
     expect(content).toContain('JavaScript confirm dialog open, written by the page: <nano_untrusted_content>Delete everything?</nano_untrusted_content>');
     expect(content).toContain('handle_dialog');
+  });
+});
+
+describe('control summary above the element list', () => {
+  const element = (index: number, tagName: string, attributes: Record<string, string>, text = '') => {
+    const node = new DOMElementNode({ tagName, xpath: '', attributes, children: [], isVisible: true, isInteractive: true, highlightIndex: index });
+    if (text) node.children.push(new DOMTextNode(text, true, node));
+    return node;
+  };
+  const page = () => [
+    element(0, 'input', { role: 'searchbox', 'aria-haspopup': 'listbox', 'aria-expanded': 'false' }),
+    element(1, 'button', { 'aria-expanded': 'false' }, 'Price'),
+    element(2, 'button', { 'aria-expanded': 'true' }, 'Brand'),
+    element(3, 'button', { 'aria-label': 'Sort by', 'aria-haspopup': 'menu' }),
+    element(4, 'input', { role: 'checkbox', 'aria-label': '4 stars & up', 'aria-checked': 'true' }),
+    element(5, 'input', { role: 'checkbox', 'aria-checked': 'false' }),
+    element(6, 'label', { checked: 'true' }, 'Free shipping'),
+    element(7, 'input', { type: 'radio', role: 'radio', 'aria-checked': 'false' }),
+    element(8, 'select', { role: 'combobox', 'aria-expanded': 'false' }),
+    element(9, 'input', { role: 'slider' }),
+  ];
+
+  it('names collapsed sections and popup controls and counts form controls, omitting empty lines', () => {
+    expect(controlSummary(page())).toBe(
+      'Collapsed sections: [1] Price, [3] Sort by\nControls: 2 checkboxes (1 checked), 1 radio button (0 selected), 1 select, 1 slider\n',
+    );
+    expect(controlSummary([element(0, 'a', {}, 'Home')])).toBe('');
+  });
+
+  it('caps the collapsed sections it names', () => {
+    const many = Array.from({ length: 20 }, (_, i) => element(i, 'button', { 'aria-expanded': 'false' }, `Section ${i}`));
+    const [line] = controlSummary(many).split('\n');
+    expect(line.match(/\[\d+\]/g)).toHaveLength(15);
+    expect(line).toMatch(/and 5 more$/);
+  });
+
+  it('is shown just before the element list', async () => {
+    const root = new DOMElementNode({ tagName: 'body', xpath: '', attributes: {}, children: [], isVisible: true });
+    const nodes = page();
+    for (const node of nodes) {
+      node.parent = root;
+      root.children.push(node);
+    }
+    const browserState = {
+      elementTree: root,
+      selectorMap: new Map(nodes.map(node => [node.highlightIndex!, node])),
+      tabId: 7,
+      url: 'https://example.com/',
+      title: 'Example',
+      screenshot: null,
+      scrollY: 0,
+      scrollHeight: 800,
+      visualViewportHeight: 800,
+      tabs: [{ id: 7, url: 'https://example.com/', title: 'Example' }],
+    };
+    const context = {
+      browserContext: { getCachedState: vi.fn().mockResolvedValue(browserState) },
+      options: { useVision: false, includeAttributes: null, logDOMSnapshot: false },
+      actionResults: [],
+      messageManager: { getWorkingMemory: vi.fn().mockReturnValue('') },
+    } as unknown as AgentContext;
+
+    const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);
+
+    expect(content).toMatch(/Collapsed sections: \[1\] Price, \[3\] Sort by\nControls: [^\n]+\n\[0\]<input/);
   });
 });

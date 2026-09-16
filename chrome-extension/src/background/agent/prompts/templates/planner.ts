@@ -16,7 +16,8 @@ ${plannerSecurityRules}
 5. Go straight to a known URL instead of searching for it. When you must find a site or information, use SEARCH so the navigator uses search_web. When web search or an address is not available (the steps show it blocked or refused), plan with what the current site offers instead of trying it again; when the site itself refuses access (a security check it cannot pass, "access denied"), set done=true and report that.
 6. Prefer authoritative primary sources; for questions about the latest information, check dates.
 7. Work with what is on the current page first. To find something further down a long page, plan to read the page's content (the navigator can search it) rather than scrolling one screen at a time. An element listed with offscreen="true" can be used directly (the navigator's action scrolls to it): never plan a scroll to make a listed element visible.
-8. When the task is about the current page or a specific item and that page or item is missing (an error page, "not found", empty results), that is the answer: set done=true and say so. Never answer about a different page or item in its place.
+8. When the task sets criteria (a price or date range, a rating, a size, a brand, a sort order such as cheapest or newest), plan to apply them with the site's filter and sort controls, opening the collapsed sections that hold them, rather than only typing them into a search box. Results count only when the page shows those criteria applied.
+9. When the task is about the current page or a specific item and that page or item is missing (an error page, "not found", empty results), that is the answer: set done=true and say so. Never answer about a different page or item in its place.
 
 # Completion
 - Set done=true only when every part of the task is done and the browser state or the step results show the evidence: a confirmation, the requested values, the changed state.

@@ -5,6 +5,7 @@ import { createLogger } from '@src/background/log';
 import { record } from '@src/background/trace';
 import { RouteMemory } from '../memory';
 import { ensureBrowserObservation, newElements } from '../validation/observation';
+import type { DOMElementNode } from '../../browser/dom/views';
 
 const logger = createLogger('BasePrompt');
 
@@ -52,6 +53,56 @@ export function windowAroundViewport(text: string, maxChars: number): string {
   if (start > 0) parts.unshift(`... ${start} lines above; scroll up to see them ...`);
   if (end < lines.length - 1) parts.push(`... ${lines.length - 1 - end} lines below; scroll down to see them ...`);
   return parts.join('\n');
+}
+
+const MAX_COLLAPSED_LISTED = 15;
+
+/**
+ * Lines shown above the element list: collapsed sections and popup controls by index and name, and a count of form
+ * controls. A live run scrolled 8-21 times for filters that sat inside collapsed sections or were already listed.
+ */
+export function controlSummary(elements: Iterable<DOMElementNode>): string {
+  const collapsed: string[] = [];
+  let collapsedCount = 0;
+  const counts = { checkbox: 0, checked: 0, radio: 0, selected: 0, select: 0, slider: 0 };
+  for (const node of elements) {
+    const { attributes: a } = node;
+    const role = a.role ?? '';
+    const type = (a.type ?? '').toLowerCase();
+    const on = a['aria-checked'] === 'true' || a.checked === 'true';
+    // Fields and native selects with a popup (autocomplete, options) are not sections; selects are counted below.
+    const field = ['input', 'select', 'textarea'].includes(node.tagName ?? '');
+    if (!field && (a['aria-expanded'] === 'false' || (a['aria-haspopup'] && a['aria-haspopup'] !== 'false' && a['aria-expanded'] !== 'true'))) {
+      collapsedCount++;
+      const name = (a['aria-label'] || node.getAllTextTillNextClickableElement()).replace(/\s+/g, ' ').trim();
+      if (collapsed.length < MAX_COLLAPSED_LISTED) collapsed.push(`[${node.highlightIndex}] ${clip(name, 40) || node.tagName}`);
+    }
+    if (role === 'checkbox' || role === 'switch' || type === 'checkbox') {
+      counts.checkbox++;
+      if (on) counts.checked++;
+    } else if (role === 'radio' || type === 'radio') {
+      counts.radio++;
+      if (on) counts.selected++;
+    } else if (node.tagName === 'select') {
+      counts.select++;
+    } else if (role === 'slider' || type === 'range') {
+      counts.slider++;
+    }
+  }
+  const lines: string[] = [];
+  if (collapsed.length > 0) {
+    const more = collapsedCount > collapsed.length ? ` and ${collapsedCount - collapsed.length} more` : '';
+    lines.push(`Collapsed sections: ${collapsed.join(', ')}${more}`);
+  }
+  const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : noun.endsWith('x') ? 'es' : 's'}`;
+  const controls = [
+    counts.checkbox && `${count(counts.checkbox, 'checkbox')} (${counts.checked} checked)`,
+    counts.radio && `${count(counts.radio, 'radio button')} (${counts.selected} selected)`,
+    counts.select && count(counts.select, 'select'),
+    counts.slider && count(counts.slider, 'slider'),
+  ].filter(Boolean);
+  if (controls.length > 0) lines.push(`Controls: ${controls.join(', ')}`);
+  return lines.map(line => `${line}\n`).join('');
 }
 
 export function scrollViewportPercentage(scrollHeight: number, viewportHeight: number): number | null {
@@ -133,7 +184,7 @@ abstract class BasePrompt {
       // The `nano_untrusted_content` wrapper + system prompt already tell the LLM
       // to ignore injections — strict pattern-matching here causes more harm than good.
       const elementsText = wrapUntrustedContent(
-        windowAroundViewport(rawElementsText, MAX_INTERACTIVE_ELEMENTS_CHARS),
+        controlSummary(browserState.selectorMap.values()) + windowAroundViewport(rawElementsText, MAX_INTERACTIVE_ELEMENTS_CHARS),
         /* filterFirst= */ false,
       );
 
