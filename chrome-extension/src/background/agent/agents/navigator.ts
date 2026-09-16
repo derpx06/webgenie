@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { buildToolDefinitions, buildToolValidators } from '../actions/builder';
 import type { ActionSchema } from '../actions/schemas';
 import { ContextBuilder, routeStep } from '../memory';
+import { elementsWindowed } from '../prompts/base';
 
 import { NavigatorActionRegistry } from './navigator/registry';
 export { NavigatorActionRegistry };
@@ -818,12 +819,18 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // A page scroll says whether it listed anything new; one that did (a page that loads more) starts the count again.
         if (actionName === 'scroll' && indexArg === null && !result.error) {
           const revealed = newElements(beforeState, postActionState).length;
-          this.context.emptyScrolls = revealed > 0 ? 0 : this.context.emptyScrolls + 1;
+          // A long page's element list is cut to a window around the viewport: there a scroll shows other elements even when
+          // the page has no new ones, so it is not an empty scroll, and "every element is listed" would be false.
+          const include = this.context.options.includeAttributes;
+          const windowed = elementsWindowed(beforeState, include) || elementsWindowed(postActionState, include);
+          this.context.emptyScrolls = revealed > 0 || windowed ? 0 : this.context.emptyScrolls + 1;
           result = new ActionResult({
             ...result,
             extractedContent: `${result.extractedContent ?? ''} ${revealed > 0
-              ? `Scrolling revealed ${revealed} new elements.`
-              : 'Scrolling revealed nothing new: every element of this page was already listed; use elements marked offscreen by index, open a collapsed section, or use get_complete_page_content with find.'}`.trim(),
+              ? `Scrolling revealed ${revealed} new element${revealed === 1 ? '' : 's'}.`
+              : windowed
+                ? 'Scrolling moved the part of this long page that the element list shows.'
+                : 'Scrolling revealed nothing new: every element of this page was already listed; use elements marked offscreen by index, open a collapsed section, or use get_complete_page_content with find.'}`.trim(),
           });
         } else if (actionName !== 'scroll') {
           this.context.emptyScrolls = 0;

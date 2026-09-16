@@ -55,6 +55,11 @@ export function windowAroundViewport(text: string, maxChars: number): string {
   return parts.join('\n');
 }
 
+/** Whether the element list the models see is cut to a window around the viewport (a long page's list). */
+export function elementsWindowed(state: { elementTree: { clickableElementsToString(include: string[]): string } }, includeAttributes: string[]): boolean {
+  return state.elementTree.clickableElementsToString(includeAttributes).length > MAX_INTERACTIVE_ELEMENTS_CHARS;
+}
+
 const MAX_COLLAPSED_LISTED = 15;
 
 /**

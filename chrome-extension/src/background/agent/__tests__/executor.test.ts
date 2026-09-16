@@ -645,7 +645,27 @@ describe('A long run of scrolls', () => {
     await settle(h.executor.execute());
 
     const texts = h.llm.requestsFor('navigator').map(request => textOf(request.messages));
-    expect(texts[1]).toContain('Scrolling revealed 1 new elements');
+    expect(texts[1]).toContain('Scrolling revealed 1 new element.');
+    expect(texts.some(text => text.includes('Not scrolled'))).toBe(false);
+  });
+
+  it('never counts or refuses page scrolls on a page whose element list is cut to a window', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('Found it') : plannerUntil('never')(request));
+    const listings = Array.from({ length: 700 }, (_, i) => ({ text: `Listing ${i}: a long descriptive title that fills the element list` }));
+    h = createHarness({
+      task: 'Find the Editors Choice filter',
+      pages: [{ url: 'https://reviews.test/', title: 'Reviews', elements: listings }],
+      planner: Array(20).fill(planner),
+      navigator: [...Array(8).fill(null).map(down), done('Found it')],
+    });
+    const page = (h.browser as unknown as { page: Record<string, unknown> }).page;
+    Object.assign(page, { getScrollInfo: async () => [0, 800, 50000], scrollByPages: async () => {} });
+    await settle(h.executor.execute());
+
+    const texts = h.llm.requestsFor('navigator').map(request => textOf(request.messages));
+    expect(texts[1]).toContain('Scrolling moved the part of this long page');
     expect(texts.some(text => text.includes('Not scrolled'))).toBe(false);
   });
 });
