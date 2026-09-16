@@ -15,6 +15,9 @@ cd "$(dirname "$0")/../.." || exit 1 # chrome-extension
 RUN_DIR="${1:-e2e/results/mind2web-$(date -u +%Y-%m-%dT%H-%M-%SZ)}"
 WORKERS="${WORKERS:-5}"
 PASSES="${PASSES:-12}"
+# ONLY=<task_id>,<task_id> runs a subset (a round of re-runs); E2E_DIST=<build copy> picks the build. Both reach run.mjs,
+# status.mjs and verify.mjs through the environment.
+export ONLY="${ONLY:-}"
 # One Vertex location per worker, in turn. The global endpoint answered 429 to 6 of 6 small test calls while five
 # workers used it (620 of 1015 calls rate-limited); regional endpoints answered 3-4 of 4.
 LOCATIONS="${LOCATIONS:-europe-west1 europe-north1 us-east1 us-west1 us-south1}"
@@ -45,7 +48,9 @@ remaining() {
     const fs = require("fs"), path = require("path");
     const [dir, file, index, count] = process.argv.slice(1);
     let left = 0;
-    JSON.parse(fs.readFileSync(file, "utf8")).forEach((task, n) => {
+    const only = process.env.ONLY ? new Set(process.env.ONLY.split(",")) : null;
+    // Same order and sharding as run.mjs: the --only filter first, then every n-th task.
+    JSON.parse(fs.readFileSync(file, "utf8")).filter(task => !only || only.has(task.task_id)).forEach((task, n) => {
       if (n % Number(count) !== Number(index)) return;
       try {
         const result = JSON.parse(fs.readFileSync(path.join(dir, task.task_id, "result.json"), "utf8"));
@@ -98,7 +103,7 @@ worker() {
     # Tasks the provider held back: give its quota a few minutes before trying them again.
     [ "$pass" -gt 1 ] && sleep 180
     wait_for_vertex || log "worker $i: Vertex unreachable for 30 minutes; trying the pass anyway"
-    E2E_LOCATION="$location" "${RUNNER[@]}" node e2e/mind2web/run.mjs --all --resume "$RUN_DIR" --shard "$i/$WORKERS" >>"$RUN_DIR/run-$i.log" 2>&1
+    E2E_LOCATION="$location" "${RUNNER[@]}" node e2e/mind2web/run.mjs --all --resume "$RUN_DIR" --shard "$i/$WORKERS" ${ONLY:+--only "$ONLY"} >>"$RUN_DIR/run-$i.log" 2>&1
     log "worker $i pass $pass ended with exit $?"
   done
   log "worker $i: $(remaining "$i" "$WORKERS") tasks still without a final result after $PASSES passes"

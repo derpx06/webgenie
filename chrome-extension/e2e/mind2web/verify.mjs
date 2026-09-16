@@ -7,7 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const runDir = path.resolve(process.argv[2] ?? '.');
-const tasks = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'Online_Mind2Web.json'), 'utf8'));
+// ONLY=<task_id>,... checks a round that ran a subset.
+const only = process.env.ONLY ? new Set(process.env.ONLY.split(',')) : null;
+const tasks = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'Online_Mind2Web.json'), 'utf8')).filter(task => !only || only.has(task.task_id));
 let judgments = {};
 try {
   judgments = JSON.parse(fs.readFileSync(path.join(runDir, 'judgments.json'), 'utf8')).tasks;
