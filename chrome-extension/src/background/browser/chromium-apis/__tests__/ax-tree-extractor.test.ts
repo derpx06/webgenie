@@ -237,3 +237,44 @@ describe('documentLayout', () => {
     expect(layout.nodes.get(12)?.x).toBe(5);
   });
 });
+
+describe('checked state of custom-styled checkboxes and radios', () => {
+  // Nodes: 0 label[for=a], 1 input#a checkbox (checked, no box), 2 label, 3 input radio inside it (no box),
+  // 4 label[for=c], 5 input#c checkbox with its own box.
+  const strings = ['LABEL', 'INPUT', 'for', 'a', 'id', 'type', 'checkbox', 'radio', 'c'];
+  const doc = {
+    frameId: 0,
+    nodes: {
+      nodeName: [0, 1, 0, 1, 0, 1],
+      backendNodeId: [10, 11, 12, 13, 14, 15],
+      parentIndex: [-1, -1, -1, 2, -1, -1],
+      attributes: [[2, 3], [4, 3, 5, 6], [], [5, 7], [2, 8], [4, 8, 5, 6]],
+      isClickable: { index: [0, 2, 4] },
+      inputChecked: { index: [1, 5] },
+    },
+    layout: { nodeIndex: [0, 2, 4, 5], bounds: [[0, 0, 80, 20], [0, 30, 80, 20], [0, 60, 80, 20], [0, 60, 16, 16]] },
+  };
+
+  it('puts a hidden input\'s checked state on its label, by for= or by nesting, and leaves visible inputs alone', () => {
+    const layout = documentLayout(doc, strings);
+    expect(layout.nodes.get(10)?.attributes.checked).toBe('true');
+    expect(layout.nodes.get(12)?.attributes.checked).toBe('false');
+    expect(layout.nodes.get(14)?.attributes.checked).toBeUndefined();
+  });
+
+  it('shows the state on the label the model clicks, and the accessibility state on a boxless input', () => {
+    const frames: FrameTree[] = [{
+      key: 'main',
+      nodes: [
+        { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '4'] },
+        { nodeId: '2', ignored: true, role: { value: 'none' }, backendDOMNodeId: 10, childIds: ['3'] },
+        text('3', '4 stars & up'),
+        { nodeId: '4', role: { value: 'checkbox' }, name: { value: 'Free shipping' }, backendDOMNodeId: 11, properties: [{ name: 'checked', value: { value: 'false' } }] },
+      ],
+      layout: documentLayout(doc, strings),
+    }];
+    const serialized = pruneAXTree(buildDomState(frames, { width: 1000, height: 800 })).elementTree.clickableElementsToString();
+    expect(serialized).toMatch(/\[\d\]<label checked="true"[^>]*>4 stars & up \/>/);
+    expect(serialized).toMatch(/\[\d\]<input role="checkbox" aria-label="Free shipping" aria-checked="false" \/>/);
+  });
+});

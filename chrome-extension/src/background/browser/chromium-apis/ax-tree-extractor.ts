@@ -72,7 +72,14 @@ export interface FrameTree {
 
 export interface SnapshotDocument {
   frameId: number;
-  nodes: { nodeName?: number[]; backendNodeId?: number[]; attributes?: number[][]; isClickable?: { index: number[] } };
+  nodes: {
+    nodeName?: number[];
+    backendNodeId?: number[];
+    attributes?: number[][];
+    parentIndex?: number[];
+    isClickable?: { index: number[] };
+    inputChecked?: { index: number[] };
+  };
   layout: { nodeIndex: number[]; bounds: number[][] };
   scrollOffsetX?: number;
   scrollOffsetY?: number;
@@ -201,7 +208,44 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
       height: bounds[3] / scale,
     });
   });
+  labelHiddenChoices(doc, strings, nodes);
   return { scrollX: (doc.scrollOffsetX ?? 0) / scale, scrollY: (doc.scrollOffsetY ?? 0) / scale, nodes };
+}
+
+/**
+ * A custom-styled checkbox or radio hides its input (no box) and draws its label, which is what gets clicked: the label
+ * carries the input's state as checked="true|false", so the models can tell whether a filter took effect.
+ */
+function labelHiddenChoices(doc: SnapshotDocument, strings: string[], nodes: Map<number, NodeLayout>): void {
+  const nodeName = doc.nodes.nodeName ?? [];
+  const backendNodeId = doc.nodes.backendNodeId ?? [];
+  const parents = doc.nodes.parentIndex ?? [];
+  const checked = new Set(doc.nodes.inputChecked?.index ?? []);
+  const tag = (i: number) => (strings[nodeName[i]] ?? '').toUpperCase();
+  const attribute = (i: number, wanted: string) => {
+    const pairs = doc.nodes.attributes?.[i] ?? [];
+    for (let j = 0; j + 1 < pairs.length; j += 2) if (strings[pairs[j]] === wanted) return strings[pairs[j + 1]];
+    return undefined;
+  };
+  const labelFor = new Map<string, number>();
+  nodeName.forEach((_, i) => {
+    const target = tag(i) === 'LABEL' ? attribute(i, 'for') : undefined;
+    if (target) labelFor.set(target, i);
+  });
+  nodeName.forEach((_, i) => {
+    if (tag(i) !== 'INPUT') return;
+    const type = attribute(i, 'type')?.toLowerCase();
+    if (type !== 'checkbox' && type !== 'radio') return;
+    const box = nodes.get(backendNodeId[i]);
+    if (box && box.width > 0 && box.height > 0) return;
+    const id = attribute(i, 'id');
+    let label = id ? labelFor.get(id) : undefined;
+    for (let p = parents[i]; label === undefined && p !== undefined && p >= 0; p = parents[p]) {
+      if (tag(p) === 'LABEL') label = p;
+    }
+    const labelBox = label !== undefined ? nodes.get(backendNodeId[label]) : undefined;
+    if (labelBox) labelBox.attributes.checked = String(checked.has(i));
+  });
 }
 
 function coordinates(x: number, y: number, width: number, height: number): CoordinateSet {
