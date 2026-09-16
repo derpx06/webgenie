@@ -109,6 +109,10 @@ export class AgentContext {
   overwriteChecked = new Set<string>();
   /** Refusals by action (name and arguments, memory aside): a model that repeats a refused action gets told plainly. */
   refusedActions = new Map<string, number>();
+  /** Executed actions by name, page address before it and arguments: a model repeating one gets told from the third time. */
+  actionRepeats = new Map<string, number>();
+  /** Addresses opened with go_to_url or open_tab this task and how often; a fourth open of one is refused. */
+  openedAddresses = new Map<string, number>();
   /** Entries of a list in the task that every value typed since the last other action comes from, and those values. */
   entryCandidates: { entries: Array<{ index: number; text: string }>; values: string[]; url: string } | null = null;
   /** List entries already typed in full on a page (entry text → that page's address); each entry is usually typed once. */

@@ -761,6 +761,46 @@ describe('A refused action tried again', () => {
   });
 });
 
+describe('The same action repeated on the same page', () => {
+  const repeat = (task: string, navigator: ToolCall[], landings: string[] = []) => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('Stopped') : plannerUntil('never')(request));
+    h = createHarness({
+      task,
+      pages: ['https://shop.test/list', ...landings].map(url => ({ url, title: 'List', elements: [{ text: 'More' }, { text: 'Other' }] })),
+      planner: Array(12).fill(planner),
+      navigator: [...navigator, done('Stopped')],
+    });
+    return h;
+  };
+
+  it('gets a note from the third time, and is not refused', async () => {
+    const h = repeat('Find the item', [click(0), click(0), click(0), click(1)]);
+    await settle(h.executor.execute());
+
+    const texts = h.llm.requestsFor('navigator').map(request => textOf(request.messages));
+    expect(texts[2]).not.toContain('You have done exactly this');
+    expect(texts[3]).toContain('You have done exactly this 3 times on this page');
+    expect(texts[4].split('Results of your last actions').pop()).not.toContain('You have done exactly this');
+    expect(h.browser.actions.map(action => action.index)).toEqual([0, 0, 0, 1]);
+  });
+
+  it('refuses a fourth open of the same address', async () => {
+    const open = () => call('go_to_url', { url: 'https://shop.test/home' });
+    const h = repeat('Open https://shop.test/home and find the item', [open(), open(), open(), open()], [
+      // Each open lands on a new page, as a site that redirects with a changing token would.
+      'https://shop.test/home?t=1',
+      'https://shop.test/home?t=2',
+      'https://shop.test/home?t=3',
+    ]);
+    await settle(h.executor.execute());
+
+    expect(h.browser.actions.filter(action => action.type === 'navigate')).toHaveLength(3);
+    expect(textOf(h.llm.requestsFor('navigator')[4].messages)).toContain('Not opened: you already opened this address 3 times in this task');
+  });
+});
+
 describe('Screenshots', () => {
   const chart = { url: 'https://stats.test/', title: 'Stats', text: ['Bar chart of monthly sign-ups'] };
   const hasImage = (request: LLMRequest) =>

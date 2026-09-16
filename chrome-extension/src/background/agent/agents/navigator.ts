@@ -19,6 +19,7 @@ import { HistoryReplayer } from './navigator/replay';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
 import { appearedText, ensureBrowserObservation, newElements } from '../validation/observation';
 import {
+  addressKey,
   amountBefore,
   changesUserValue,
   taskEntriesWith,
@@ -56,6 +57,9 @@ const NAVIGATING_ACTIONS = new Set(['go_to_url', 'open_tab']);
 
 /** Page scrolls in a row that may reveal nothing new before the next page scroll is refused. */
 const MAX_EMPTY_SCROLLS = 6;
+
+/** Times one address may be opened with go_to_url or open_tab in a task; the next open is refused. */
+const MAX_OPENS_PER_ADDRESS = 3;
 
 const intentCheckSchema: ActionSchema = {
   name: 'intent_check',
@@ -516,6 +520,14 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           }
         }
 
+        // Opening the same address again and again lands on the same page (a live run opened one 14 times).
+        const address = NAVIGATING_ACTIONS.has(actionName) ? addressKey(String((actionArgs as { url?: unknown }).url ?? '')) : '';
+        const opened = address ? this.context.openedAddresses.get(address) ?? 0 : 0;
+        if (opened >= MAX_OPENS_PER_ADDRESS) {
+          refuse(`Not opened: you already opened this address ${opened} times in this task, and it gives the same page each time. Take another route: a link, menu or search on the page, go_back, or report what blocks you.`);
+          break;
+        }
+
         // An address the model typed must come from somewhere trustworthy: the user's messages, a link on the page, a page
         // already visited, or, failing those, a page-blind check that the request needs it. Addresses in page text are not.
         if (NAVIGATING_ACTIONS.has(actionName)) {
@@ -736,6 +748,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           result = new ActionResult({ ...result, extractedContent: scrub(result.extractedContent), error: scrub(result.error), failureReason: scrub(result.failureReason) });
         }
         if (typedField && !result?.error) this.context.typedValues.set(typedField, typedText);
+        if (address && !result?.error) this.context.openedAddresses.set(address, opened + 1);
         // Track which list entries the values typed in a row come from. Any other action ends the row; a row of two or more
         // values that pins down one entry marks it as typed on this page.
         if (actionName !== 'input_text') {
@@ -849,6 +862,21 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
             ...result,
             extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row.${escalation} Elements marked offscreen are on the page already: use them by index (the action scrolls to them). Options you look for (a price or rating filter) often sit inside a collapsed section, menu or filter panel: open the button with that name instead of scrolling. To find a text, use get_complete_page_content with find, or scroll_to_text.`.trim(),
           });
+        }
+        // The same action on the same page, over and over (live runs: go_back 11 times, switch_tab back and forth, the same
+        // typing or click 3-4 times), gets a note from the third time. Nothing is refused: pagination and "load more" repeat
+        // legitimately. Scrolls have their own note; done and ask_human results are an answer and a question.
+        if (actionName !== 'scroll' && actionName !== 'done' && actionName !== 'ask_human') {
+          const times = this.countRepeat(actionName, actionArgs, beforeState.url);
+          if (times >= 3) {
+            const escalation = times >= 8
+              ? ' Stop repeating it: take a different route now, or finish with done (success: false) and explain what blocks you.'
+              : times >= 5 ? ' Repeating it again will not work.' : '';
+            result = new ActionResult({
+              ...result,
+              extractedContent: `${result.extractedContent ?? ''} You have done exactly this ${times} times on this page and the page did not give you what you need; do something different: another element, another route, get_complete_page_content with find, or report what blocks you.${escalation}`.trim(),
+            });
+          }
         }
         this.context.activeObservation = postActionState.observation;
         if (mutating && contractId) {
@@ -994,6 +1022,15 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     }
 
     return results;
+  }
+
+  /** Counts an executed action by name, the page address it started on and its arguments (engine stamps aside). */
+  private countRepeat(actionName: string, actionArgs: unknown, pageUrl: string): number {
+    const { memory: _memory, observationId: _observation, targetFingerprint: _target, ...args } = (actionArgs ?? {}) as Record<string, unknown>;
+    const signature = `${actionName}|${addressKey(pageUrl) || pageUrl}|${JSON.stringify(args)}`;
+    const times = (this.context.actionRepeats.get(signature) ?? 0) + 1;
+    this.context.actionRepeats.set(signature, times);
+    return times;
   }
 
   private async delayBetweenActions() {
