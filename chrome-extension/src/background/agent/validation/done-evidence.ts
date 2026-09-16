@@ -1,4 +1,6 @@
 import type { AgentContext } from '../types';
+import type { PlannerRequirement } from '../contracts/types';
+import { DOMElementNode } from '../../browser/dom/views';
 import { echoesActionResult } from './service';
 import { visibleText } from './observation';
 
@@ -53,4 +55,41 @@ export function absenceUnread(context: AgentContext, answer: string, reportedFai
   if (!reportedFailure && !ABSENCE.test(answer)) return false;
   if (context.pageRead?.url === state.url) return false;
   return !EMPTY_RESULTS.test(visibleText(state));
+}
+
+/** What an applied requirement's evidence names that a page can be searched for: double-quoted text and URL parameters. */
+function evidenceValues(evidence: string): string[] {
+  const quoted = [...evidence.matchAll(/["“]([^"”]{2,80})["”]/g)].map(match => match[1]);
+  const params = evidence.match(/[\w.[\]-]+=[^\s&,;)"”]+/g) ?? [];
+  return [...quoted, ...params].map(value => value.replace(/\s+/g, ' ').trim().toLowerCase()).filter(Boolean);
+}
+
+/**
+ * Applied requirements whose recorded evidence the current page no longer shows: none of its quoted texts or URL
+ * parameters is in the page text, an attribute (a selected value, a label) or the address. Filters claimed applied
+ * were gone by the end (a later go_back removed a checkbox filter). Evidence with nothing to search for is not judged.
+ */
+export function staleRequirements(context: AgentContext, requirements: PlannerRequirement[]): PlannerRequirement[] {
+  const state = context.promptState;
+  if (!state) return [];
+  const parts = [visibleText(state), state.url ?? ''];
+  try {
+    parts.push(decodeURIComponent((state.url ?? '').replace(/\+/g, ' ')));
+  } catch {
+    // A malformed address is searched as it is.
+  }
+  const stack: unknown[] = state.elementTree ? [state.elementTree] : [];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node instanceof DOMElementNode) {
+      parts.push(...Object.values(node.attributes ?? {}));
+      stack.push(...node.children);
+    }
+  }
+  const page = parts.join('\n').replace(/\s+/g, ' ').toLowerCase();
+  return requirements.filter(item => {
+    if (item.status !== 'applied' || !item.evidence) return false;
+    const values = evidenceValues(item.evidence);
+    return values.length > 0 && !values.some(value => page.includes(value));
+  });
 }

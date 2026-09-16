@@ -9,7 +9,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import type { NextStepContract } from '../../contracts';
-import { absenceUnread, doneEvidence } from '../done-evidence';
+import { absenceUnread, doneEvidence, staleRequirements } from '../done-evidence';
 import { titleFromTask } from '../../../core/task-groups/manager';
 
 function contextOnPage(lines: string[]) {
@@ -76,5 +76,32 @@ describe('titleFromTask', () => {
     expect(titleFromTask('Fill in the form: text input "WebGenie", password "pw-123", textarea')).toBe('Fill in the form: text input');
     expect(titleFromTask('Log in with jamie@example.com and S3cret-Pass!word please')).toBe('Log in with and please');
     expect(titleFromTask('"12345"')).toBe('Task');
+  });
+});
+
+describe('staleRequirements', () => {
+  const applied = (requirement: string, evidence: string) => ({ requirement, status: 'applied' as const, evidence });
+
+  it('names an applied requirement none of whose quoted evidence or URL parameters the current page shows', () => {
+    const context = contextOnPage(['Results', 'Sort: Relevance']);
+    (context.promptState as BrowserState).url = 'https://shop.test/search?q=mug&price=10-20';
+    const sort = applied('sorted by price, lowest first', 'sort label "Price: low to high"');
+    const price = applied('price $10-20', 'URL has price=10-20');
+    const brand = applied('brand Acme', 'checkbox "Acme" checked');
+    expect(staleRequirements(context, [sort, price, brand, { requirement: 'in stock', status: 'pending' }])).toEqual([sort, brand]);
+  });
+
+  it('finds evidence in attributes and the decoded address, and does not judge evidence with nothing to search for', () => {
+    const context = contextOnPage(['Results']);
+    const select = new DOMElementNode({ tagName: 'select', xpath: '/body/select', attributes: { value: 'Newest first' }, children: [], isVisible: true });
+    context.promptState!.elementTree.children.push(select);
+    (context.promptState as BrowserState).url = 'https://shop.test/search?color=Dark+Blue';
+    expect(
+      staleRequirements(context, [
+        applied('newest first', 'sort "Newest first" selected'),
+        applied('dark blue', 'filter "dark blue" in the address'),
+        applied('4 stars and up', 'the rating filter is selected'),
+      ]),
+    ).toEqual([]);
   });
 });
