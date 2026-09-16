@@ -13,6 +13,7 @@ import {
   ExecutionRouter,
   ProgressLedger,
   TaskCheckpointStore,
+  GoalRepeats,
   getReplanDecision,
   normalizeNextStepContract,
   normalizePlannerOutputContract,
@@ -180,6 +181,29 @@ describe('P1 replanning and progress', () => {
     expect(decide({ stalled: true })).toMatchObject({ shouldReplan: true, trigger: 'progress_stall' });
     expect(decide({ stepsSinceLastPlan: 3 })).toMatchObject({ shouldReplan: true, trigger: 'step_interval' });
     expect(decide()).toMatchObject({ shouldReplan: false, trigger: 'none' });
+  });
+
+  it('skips the interval re-plan while every step since the plan passed, until twice the interval', () => {
+    expect(decide({ stepsSinceLastPlan: 3, stepsPassedSinceLastPlan: true }).shouldReplan).toBe(false);
+    expect(decide({ stepsSinceLastPlan: 6, stepsPassedSinceLastPlan: true })).toMatchObject({ trigger: 'step_interval' });
+    expect(decide({ stepsSinceLastPlan: 3, stepsPassedSinceLastPlan: false })).toMatchObject({ trigger: 'step_interval' });
+    expect(decide({ stepsSinceLastPlan: 3, stepsPassedSinceLastPlan: true, requirementReopened: true })).toMatchObject({ trigger: 'step_interval' });
+    // Every other trigger still applies to a passing run.
+    expect(decide({ stepsSinceLastPlan: 3, stepsPassedSinceLastPlan: true, stalled: true })).toMatchObject({ trigger: 'progress_stall' });
+  });
+
+  it('counts a goal planned again, reworded, until the task makes progress', () => {
+    const goals = new GoalRepeats();
+    expect(goals.plan('Find the delivery date on the current page')).toBe(1);
+    expect(goals.plan('Search for "blue kettle"')).toBe(1);
+    expect(goals.plan('Find the delivery date on this page.')).toBe(2);
+    expect(goals.plan('find delivery date')).toBe(3);
+    expect(goals.plan('Open result 2')).toBe(1);
+    expect(goals.plan('Open result 3')).toBe(1);
+    expect(goals.repeated()).toEqual(['find delivery date']);
+    goals.progress();
+    expect(goals.repeated()).toEqual([]);
+    expect(goals.plan('Find the delivery date')).toBe(1);
   });
 
   it('does not replan after a single unvalidated step', () => {
