@@ -27,5 +27,8 @@ describe('offersToRetry', () => {
     expect(offersToRetry('Which of the two flights do you want, 9:00 or 14:30?')).toBe(false);
     expect(offersToRetry('Should I search for flights on May 3 or May 4?')).toBe(false);
     expect(offersToRetry('Should I try the blue or the red one?')).toBe(false);
+    // Money, account and personal data stay the user's choice even when worded as another attempt.
+    expect(offersToRetry('The payment failed. Do you want me to try a different card?')).toBe(false);
+    expect(offersToRetry('Would you like me to try another shipping address?')).toBe(false);
   });
 });

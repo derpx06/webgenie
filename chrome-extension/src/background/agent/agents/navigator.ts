@@ -94,6 +94,8 @@ export function redactArgs(actionName: string, args: unknown): Record<string, un
  * flights on May 3 or May 4?" stays a question for the user.
  */
 export function offersToRetry(question: string): boolean {
+  // A choice about the user's money, account or data stays theirs even when worded as a retry ("try a different card?").
+  if (/\b(card|payment|pay|account|password|address|phone|email|order|purchase|subscription|subscribe|delete|cancel|refund|booking|reservation)\b/i.test(question)) return false;
   return question.split(/(?<=[.!?])\s+/).some(sentence => {
     const offer = /^\s*(?:would you like me to|should i|do you want me to|shall i)\s+(retry|keep trying|continue trying|proceed without|try|attempt|search|look)\b/i.exec(sentence);
     if (!offer) return false;
