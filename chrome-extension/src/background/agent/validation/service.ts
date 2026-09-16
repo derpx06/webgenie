@@ -3,7 +3,7 @@ import type { DOMElementNode } from '../../browser/dom/views';
 import type { FormCommitInfo } from '../../browser/page';
 import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
-import { ensureBrowserObservation, visibleContentKey } from './observation';
+import { ensureBrowserObservation, visibleContentKey, visibleText } from './observation';
 
 export interface NormalizedIndexedAction {
   ok: boolean;
@@ -216,6 +216,50 @@ export function echoesActionResult(text: string): boolean {
 /** Affirmative answers to a confirmation; anything else counts as no. */
 export function isApproval(answer: string): boolean {
   return /^\s*(yes|y|yeah|yep|ok|okay|sure|confirm(ed)?|approve(d)?|go ahead|proceed|do it|place it|buy it|pay)\b/i.test(answer);
+}
+
+/** Names of CAPTCHA and bot-check widgets and of the controls inside them. */
+const CHALLENGE_NAME = /captcha|turnstile|security challenge|not a robot|verify (that )?you('re| are) (a )?human|are you (a )?(robot|human)|human verification|press (and|&) hold/i;
+/** Addresses of frames that serve CAPTCHA and bot-check widgets. */
+const CHALLENGE_FRAME = /recaptcha|hcaptcha|challenges\.cloudflare\.com|turnstile|captcha|arkoselabs|funcaptcha/i;
+/** Wording of a page that blocks automated visitors until a check is passed. A footer naming a CAPTCHA provider is not one. */
+const CHALLENGE_PAGE = /verify (that )?you('re| are) (a )?human|i'?m not a robot|unusual traffic|press (and|&) hold|are you a robot|checking (if the site connection is secure|your browser)|complete the security check|confirm you are human/i;
+
+/**
+ * Whether an element is (inside) a CAPTCHA or bot-check widget: its name or an ancestor's says so, or it sits in a frame
+ * served by a challenge provider. Live runs clicked "I'm not a robot" boxes and challenge buttons themselves.
+ */
+export function isChallengeElement(node: DOMElementNode | undefined): boolean {
+  if (!node) return false;
+  try {
+    if (CHALLENGE_FRAME.test(node.frame?.url() ?? '')) return true;
+  } catch {
+    // a detached frame: judge by names only
+  }
+  if (CHALLENGE_NAME.test(node.getAllTextTillNextClickableElement(2))) return true;
+  for (let current: DOMElementNode | null = node; current; current = current.parent) {
+    const names = [current.attributes['aria-label'], current.attributes.title, current.attributes.name, current.attributes.placeholder];
+    if (names.some(name => name && CHALLENGE_NAME.test(name))) return true;
+  }
+  return false;
+}
+
+/**
+ * The wording of a verification challenge the page shows ("verify you are human"), or null. Judged by text only: the
+ * invisible CAPTCHA badge many sign-in pages carry is a widget but blocks nothing.
+ */
+export function challengeOnPage(state: BrowserState): string | null {
+  return CHALLENGE_PAGE.exec(visibleText(state))?.[0] ?? null;
+}
+
+/** Whether a question to the user is about a CAPTCHA or bot check. */
+export function isChallengeQuestion(question: string): boolean {
+  return /captcha|not a robot|verification challenge|bot (check|detection)|security (check|challenge)|verify (that )?you('re| are) (a )?human|press (and|&) hold|human verification/i.test(question);
+}
+
+/** A question as compared for repeats: lowercase words only. */
+export function normalizeQuestion(question: string): string {
+  return question.toLowerCase().replace(new RegExp('[^\\p{L}\\p{N}]+', 'gu'), ' ').trim();
 }
 
 export function staleIndexResult(index: number, observationId: string): ActionResult {

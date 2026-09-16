@@ -6,7 +6,11 @@ import { appearedText, createBrowserObservation, listElements, revealedControls 
 import type { ValidationEvidence } from '../types';
 import {
   amountBefore,
+  challengeOnPage,
   changesUserValue,
+  isChallengeElement,
+  isChallengeQuestion,
+  normalizeQuestion,
   taskEntriesWith,
   inventedPersonalData,
   commitQuestion,
@@ -617,5 +621,42 @@ describe('revealed controls', () => {
     expect(controls.fields.map(node => node.highlightIndex)).toEqual([4]);
     expect(controls.dialog.map(node => node.highlightIndex)).toEqual([5]);
     expect(listElements(revealed, 2)).toBe('[2] "Paris", [3] "Name" and 3 more');
+  });
+});
+
+describe('verification challenges', () => {
+  it('recognises challenge widgets by their names, their ancestors and their frames', () => {
+    expect(isChallengeElement(element(1, { attributes: { role: 'checkbox', 'aria-label': "I'm not a robot" } }))).toBe(true);
+    const frame = new DOMElementNode({
+      tagName: 'iframe',
+      xpath: null,
+      attributes: { 'aria-label': 'Widget containing a Cloudflare security challenge' },
+      children: [],
+      isVisible: true,
+    });
+    const inside = element(2, { attributes: { 'aria-label': 'Verify' } });
+    inside.parent = frame;
+    expect(isChallengeElement(inside)).toBe(true);
+    const framed = element(3, { attributes: { 'aria-label': 'Check' } });
+    framed.frame = { url: () => 'https://www.google.com/recaptcha/api2/anchor?k=1' } as unknown as DOMElementNode['frame'];
+    expect(isChallengeElement(framed)).toBe(true);
+    expect(isChallengeElement(element(4, { attributes: { 'aria-label': 'Search' } }))).toBe(false);
+    expect(isChallengeElement(undefined)).toBe(false);
+  });
+
+  it('finds challenge wording on a page, but not a footer naming a CAPTCHA provider', () => {
+    const withText = (text: string) => {
+      const root = new DOMElementNode({ tagName: 'body', xpath: '', attributes: {}, children: [], isVisible: true });
+      root.children.push(new DOMTextNode(text, true, root));
+      return state({ elementTree: root });
+    };
+    expect(challengeOnPage(withText('Our systems have detected unusual traffic from your computer network.'))).toBe('unusual traffic');
+    expect(challengeOnPage(withText('This site is protected by reCAPTCHA and the Google Privacy Policy applies.'))).toBeNull();
+  });
+
+  it('recognises questions about a challenge, and compares questions by their words', () => {
+    expect(isChallengeQuestion('Could you please solve the CAPTCHA in the browser?')).toBe(true);
+    expect(isChallengeQuestion('Which size do you want?')).toBe(false);
+    expect(normalizeQuestion('Which colour,  do you want?')).toBe(normalizeQuestion('which colour do you want'));
   });
 });

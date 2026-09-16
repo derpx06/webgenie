@@ -4,7 +4,7 @@ vi.mock('webextension-polyfill', () => ({}));
 vi.mock('@extension/i18n', () => ({ t: (key: string) => key }));
 
 import { ExecutionState } from '../../event/types';
-import { click, createHarness, done, plan, settle, stubChrome, textOf, typeText, until } from '../../__tests__/fakes';
+import { askHuman, click, createHarness, done, plan, settle, stubChrome, textOf, typeText, until } from '../../__tests__/fakes';
 import type { PageSpec, Script } from '../../__tests__/fakes';
 
 beforeEach(() => {
@@ -111,5 +111,48 @@ describe('Clicks that change nothing useful', () => {
     const { sent } = await run([{ url, title: 'Shop', elements: [{ text: 'Sort' }] }, opened], [click(0), done('Open')]);
 
     expect(sent()).toContain('A menu or list opened: [1] "Price: low to high".');
+  });
+});
+
+describe('Verification challenges', () => {
+  const blocked = {
+    url: 'https://site.test/search',
+    title: 'Just a moment',
+    text: ['Verify you are human'],
+    elements: [{ tag: 'input', attributes: { type: 'checkbox', 'aria-label': "I'm not a robot" } }],
+  };
+
+  it('are never clicked, and the user is asked about them once', async () => {
+    const { h, sent } = await run(
+      [blocked],
+      [
+        click(0),
+        askHuman('Please complete the CAPTCHA in the browser, then answer done.'),
+        askHuman('The CAPTCHA is still there. Could you solve the captcha again?'),
+        click(0),
+        done('The site blocks automated access', false),
+      ],
+      ['done'],
+    );
+
+    expect(h.browser.actions).toEqual([]);
+    expect(h.events.filter(event => event.state === ExecutionState.ACT_ASK_HUMAN)).toHaveLength(1);
+    const text = sent();
+    expect(text).toContain('[0] is part of a verification challenge (CAPTCHA or bot check). Do not interact with verification challenges');
+    expect(text).toContain('Not asked: the user was already asked about the verification challenge in this task.');
+    expect(text).toContain('[0] is part of a verification challenge, and the user was already asked to complete it.');
+  });
+});
+
+describe('Questions to the user', () => {
+  it('are not asked again once answered', async () => {
+    const { h, sent } = await run(
+      [{ url: 'https://shop.test/', title: 'Shop' }],
+      [askHuman('Which colour do you want?'), askHuman('Which colour do you want?'), done('Blue')],
+      ['blue'],
+    );
+
+    expect(h.events.filter(event => event.state === ExecutionState.ACT_ASK_HUMAN)).toHaveLength(1);
+    expect(sent()).toContain('Not asked: the user already answered this: blue');
   });
 });

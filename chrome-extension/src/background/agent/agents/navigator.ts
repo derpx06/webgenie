@@ -21,6 +21,10 @@ import { appearedText, elementKey, ensureBrowserObservation, listElements, newEl
 import {
   addressKey,
   amountBefore,
+  challengeOnPage,
+  isChallengeElement,
+  isChallengeQuestion,
+  normalizeQuestion,
   changesUserValue,
   taskEntriesWith,
   isStaleElementError,
@@ -337,6 +341,29 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     this.context.entryCandidates = null;
   }
 
+  /** Questions the navigator put to the user in this conversation with the answers they gave, oldest first. */
+  private answeredQuestions(): Array<{ question: string; answer: string }> {
+    const answered: Array<{ question: string; answer: string }> = [];
+    let pending: string | null = null;
+    for (const entry of this.context.messageManager.getTranscript()) {
+      if (entry.type === 'turn_ai') {
+        const asked = (entry.message as { tool_calls?: Array<{ name: string; args: Record<string, unknown> }> }).tool_calls
+          ?.find(toolCall => toolCall.name === 'ask_human');
+        if (asked) pending = String(asked.args.question ?? '');
+      } else if (entry.type === 'turn_tool' && pending !== null && String(entry.message.content).startsWith('Not asked')) {
+        pending = null;
+      } else if (entry.type === 'human_answer' && pending !== null) {
+        const text = String(entry.message.content);
+        const answer = /Answer from the user:\s*([\s\S]*?)\s*(<\/|$)/.exec(text)?.[1] ?? text;
+        answered.push({ question: pending, answer: answer.slice(0, 300) });
+        pending = null;
+      } else if (entry.type === 'task') {
+        pending = null;
+      }
+    }
+    return answered;
+  }
+
   private userText(only?: 'task' | 'human_answer'): string {
     return this.context.messageManager
       .getTranscript()
@@ -502,11 +529,32 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
             refuse('Not asked: decide this yourself: try the approach most likely to work. Ask the user only for decisions or information only they have.');
             break;
           }
+          // Live runs asked a question the user had already answered, and the same CAPTCHA question three times.
+          const answered = this.answeredQuestions();
+          const wanted = normalizeQuestion(String(question ?? ''));
+          const repeat = wanted ? answered.find(entry => normalizeQuestion(entry.question) === wanted) : undefined;
+          if (repeat) {
+            refuse(`Not asked: the user already answered this: ${repeat.answer}`);
+            break;
+          }
+          if (isChallengeQuestion(String(question ?? '')) && answered.some(entry => isChallengeQuestion(entry.question))) {
+            refuse('Not asked: the user was already asked about the verification challenge in this task. If it is still on the page, the site blocks automated access: finish with done (success: false) and say so. Otherwise go on with the task.');
+            break;
+          }
+        }
+
+        const indexedNode = indexArg !== null ? beforeState.selectorMap.get((actionArgs as { index?: number }).index ?? -1) : undefined;
+
+        // CAPTCHAs and bot checks are the user's to pass: live runs clicked "I'm not a robot" boxes and challenge widgets.
+        if (actionName !== 'scroll' && isChallengeElement(indexedNode)) {
+          refuse(this.answeredQuestions().some(entry => isChallengeQuestion(entry.question))
+            ? `Not done: [${indexArg}] is part of a verification challenge, and the user was already asked to complete it. Do not interact with verification challenges: finish with done (success: false) and report that the site blocks automated access.`
+            : `Not done: [${indexArg}] is part of a verification challenge (CAPTCHA or bot check). Do not interact with verification challenges: ask the user once with ask_human to complete it in the browser; if it is still there after their answer, finish with done (success: false) and report that the site blocks automated access.`);
+          break;
         }
 
         // A password from the user reaches the page only as its placeholder's value, typed into a password field on
         // the site it was given for; nothing else may carry it (an address, another field, a message).
-        const indexedNode = indexArg !== null ? beforeState.selectorMap.get((actionArgs as { index?: number }).index ?? -1) : undefined;
         let callArgs = actionArgs;
         const placeholders = JSON.stringify(actionArgs).match(SECRET_PLACEHOLDER) ?? [];
         if (placeholders.length > 0) {
@@ -881,6 +929,10 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           const key = typedNode ? elementKey(typedNode) : null;
           const field = key ? [...postActionState.selectorMap.values()].find(node => elementKey(node) === key) : undefined;
           if (field?.attributes['aria-invalid'] === 'true') notes.push('The field is now marked invalid.');
+        }
+        const challenge = mutating && !result.error ? challengeOnPage(postActionState) : null;
+        if (challenge && !challengeOnPage(beforeState)) {
+          notes.push(`The page now shows a verification challenge ("${challenge}"). Do not interact with it or repeat what triggered it: ask the user once with ask_human to complete it; if it remains after their answer, finish with done (success: false) and report that the site blocks automated access.`);
         }
         result = new ActionResult({
           ...result,
