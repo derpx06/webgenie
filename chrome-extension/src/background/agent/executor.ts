@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnread, doneEvidence, reportedValues } from './validation/done-evidence';
+import { absenceUnread, doneEvidence, reportedValues, staleRequirements } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -38,11 +38,13 @@ import { Client, RunTree } from 'langsmith';
 import { getLangchainCallbacks } from 'langsmith/langchain';
 import {
   ExecutionRouter,
+  GoalRepeats,
   TaskCheckpointStore,
   TraceStore,
   getReplanDecision,
   isCheckpointResumable,
   shouldForceReplanAfterResume,
+  type PlannerRequirement,
   type TaskCheckpoint,
 } from './contracts';
 import { ensureBrowserObservation, viewportText } from './validation/observation';
@@ -91,6 +93,16 @@ export class Executor {
   private doneReportedFailure = false;
   /** `actions|layoutFingerprint` per navigator step, for stall detection. */
   private stepKeys: string[] = [];
+  /** Goals planned since the task last made progress; a goal planned again and again is a failed route. */
+  private readonly goalRepeats = new GoalRepeats();
+  /** A goal was planned five times without progress: the planner was told to finish, and its done is accepted as it is. */
+  private mustFinish = false;
+  /** Navigator steps since the last plan that did not validate as passed. */
+  private unpassedSinceLastPlan = 0;
+  /** The last plan moved a requirement from applied back to pending. */
+  private requirementReopened = false;
+  /** A done whose applied requirements the current page no longer shows was sent back once. */
+  private evidenceRechecked = false;
   constructor(
     task: string,
     taskId: string,
@@ -166,6 +178,9 @@ export class Executor {
     this.context.requirements = [];
     this.context.requirementRefusals = 0;
     this.context.absenceChecked = false;
+    this.evidenceRechecked = false;
+    this.goalRepeats.progress();
+    this.mustFinish = false;
 
     // need to reset previous action results that are not included in memory
     this.context.actionResults = this.context.actionResults.filter(result => result.includeInMemory);
@@ -180,7 +195,10 @@ export class Executor {
     if (!planOutput?.result?.done) return 'continue';
     const context = this.context;
     const answer = planOutput.result.final_answer || context.finalAnswer || '';
-    const pending = (planOutput.result.requirements ?? context.requirements).filter(item => item.status === 'pending').map(item => item.requirement);
+    const requirements = planOutput.result.requirements ?? context.requirements;
+    const pending = requirements.filter(item => item.status === 'pending').map(item => item.requirement);
+    // Told to finish after a goal kept failing: the done ends the task, with what was not applied named below.
+    if (this.mustFinish) return this.acceptCompletion(answer, pending);
     // An answer quoting "Clicked button with index 2" reports what the agent did, not what the page shows. Two refusals
     // at most: a model that keeps quoting it should not burn the task's time limit.
     if (echoesActionResult(answer) && context.echoRejections < 2) {
@@ -192,11 +210,22 @@ export class Executor {
       context.requirementRefusals++;
       return this.refuseCompletion(planOutput, `Not done: these requirements are still pending: ${pending.join('; ')}. Apply each with the site's sort or filter controls and check that the page shows it applied, or mark it not_available with the reason.`);
     }
+    // A filter recorded as applied that a later action removed (going back, a new search): the page must still show it.
+    const stale = this.evidenceRechecked ? [] : staleRequirements(context, requirements);
+    if (stale.length > 0) {
+      this.evidenceRechecked = true;
+      return this.refuseCompletion(planOutput, `Not done: the current page no longer shows the evidence recorded for these applied requirements: ${stale.map(item => `${item.requirement} (${item.evidence})`).join('; ')}. Every applied filter or sort must still be in effect on the CURRENT page (the selected option, the checked control, the sort label or the URL parameter); a later go_back, reload or new search can remove it. Check the current page state: apply again what is missing, or mark it pending or not_available.`);
+    }
     // "Not found" said about a results page nobody read.
     if (!context.absenceChecked && absenceUnread(context, answer, this.doneReportedFailure)) {
       context.absenceChecked = true;
       return this.refuseCompletion(planOutput, 'The answer says something is missing, but the current page was not read. Before concluding, read it: get_complete_page_content with find set to the key term of the task, then decide from what it returns.');
     }
+    return this.acceptCompletion(answer, pending);
+  }
+
+  private acceptCompletion(answer: string, pending: string[]): 'complete' {
+    const context = this.context;
     logger.info('✅ Planner confirms task completion');
     // The navigator's done text is the provisional answer; a planner final_answer replaces it. Requirements still
     // pending after the refusals are named, so the answer never implies they were applied.
@@ -205,9 +234,34 @@ export class Executor {
     return 'complete';
   }
 
-  /** Sends a done back to the planner with `note` as the result it sees next. */
+  /**
+   * A plan that is not done, checked for a failed route: the same goal planned for the third time without progress is
+   * sent back with the goals already tried; from the fifth the planner is told to finish, and a plan that still does
+   * not finish ends the task.
+   */
+  private checkRepeatedGoal(planOutput: AgentOutput<PlannerOutput>): 'refused' | 'continue' {
+    const plan = planOutput.result;
+    if (!plan || plan.done) return 'continue';
+    const goal = plan.next_goal || plan.macro_objective;
+    const plans = this.goalRepeats.plan(goal);
+    if (plans > 1) record({ level: 'info', kind: 'span', component: 'Executor', msg: 'goal repeated', data: { plans } });
+    if (this.mustFinish) {
+      throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'), `the plan kept repeating goals that made no progress: ${goal}`);
+    }
+    const tried = this.goalRepeats.repeated().map(item => `"${item}"`).join('; ');
+    if (plans >= 5) {
+      this.mustFinish = true;
+      return this.refuseCompletion(planOutput, `The goal "${goal}" has been planned ${plans} times without progress (goals tried without progress: ${tried}). Stop trying: set done=true now with the best answer the steps, findings and page give, including every requested value found, and say plainly what could not be found or done.`);
+    }
+    if (plans === 3) {
+      return this.refuseCompletion(planOutput, `The goal "${goal}" has been planned ${plans} times without progress: no new page state, finding or applied requirement came of it. Goals already tried without progress: ${tried}. Do not plan them again. Choose a different route (another page, the site's own search or navigation, a different control), or, if what is known already answers the task, set done=true with it.`);
+    }
+    return 'continue';
+  }
+
+  /** Sends a plan back to the planner with `note` as the result it sees next. */
   private refuseCompletion(planOutput: AgentOutput<PlannerOutput>, note: string): 'refused' {
-    logger.warning(`Completion rejected: ${note}`);
+    logger.warning(`Plan sent back: ${note}`);
     // A rejected answer must not end the task as done if the loop stops before the planner decides again.
     planOutput.result!.done = false;
     this.context.finalAnswer = null;
@@ -398,6 +452,8 @@ export class Executor {
           stalled,
           stepsSinceLastPlan: context.nSteps - this.lastPlanningStep,
           planningInterval: context.options.planningInterval,
+          stepsPassedSinceLastPlan: this.unpassedSinceLastPlan === 0,
+          requirementReopened: this.requirementReopened,
         });
         logger.info(`[Planner] Replan decision: ${replanDecision.shouldReplan} trigger=${replanDecision.trigger} reason=${replanDecision.reason}`);
         // Stuck (steps that did not validate, or a stall): this step's state carries a screenshot when vision is on.
@@ -433,6 +489,8 @@ export class Executor {
               break;
             }
           }
+          const requirementsBefore = context.requirements;
+          const findingsBefore = context.findings.length;
           latestPlanOutput = await this.runPlanner(getStepState);
           // Look before asking: with vision on, a question the planner means to put to the user is reconsidered once with a
           // screenshot in front of it (V1 and V2 asked the user what the page showed).
@@ -486,24 +544,36 @@ export class Executor {
           if (latestPlanOutput) {
             planned = true;
             unvalidatedSteps = 0;
+            this.unpassedSinceLastPlan = 0;
+            this.noteRequirementChanges(requirementsBefore, findingsBefore);
           }
           await this.saveCheckpoint(taskText, 'running');
+          // The navigator never acts without a plan: a first planner call that failed (a timeout) is made again, and
+          // the failure budget ends a planner that keeps failing.
+          if (!planned) continue;
 
           // Check if task is complete after planner run
-          const completion = this.checkTaskCompletion(latestPlanOutput);
+          let completion = this.checkTaskCompletion(latestPlanOutput);
           if (completion === 'complete') break;
-          // A refused done goes straight back to the planner with the reason; the navigator has nothing to do.
+          if (completion === 'continue' && latestPlanOutput) completion = this.checkRepeatedGoal(latestPlanOutput);
+          // A refused plan goes straight back to the planner with the reason; the navigator has nothing to do.
           completionRefused = completion === 'refused';
           if (completionRefused) continue;
         }
 
+        const findingsBefore = context.findings.length;
         const navigatorStep = await this.navigate(getStepState);
         navigatorDone = navigatorStep.done;
         navigatorErrored = navigatorStep.errored;
         // Unknown and failed both mean the page did not confirm the action; passed resets the streak.
         if (navigatorStep.outcome === 'passed') unvalidatedSteps = 0;
         else if (navigatorStep.outcome === 'failed' || navigatorStep.outcome === 'unknown') unvalidatedSteps++;
-        stalled = !navigatorErrored && this.recordStepAndCheckStall();
+        if (navigatorStep.outcome !== 'passed') this.unpassedSinceLastPlan++;
+        const stepRecord = navigatorErrored ? { stalled: false, fresh: false } : this.recordStep();
+        stalled = stepRecord.stalled;
+        // Progress: a validated action this task had not done on that layout before, or a new finding. Repeating a
+        // search or reopening a page validates too, but is not new.
+        if ((navigatorStep.outcome === 'passed' && stepRecord.fresh) || context.findings.length > findingsBefore) this.goalRepeats.progress();
         if (stalled) {
           context.consecutiveFailures++;
           logger.warning(`Progress stalled: the same actions repeated on an unchanged page (failures ${context.consecutiveFailures}/${context.options.maxFailures})`);
@@ -752,7 +822,7 @@ export class Executor {
    * Records this step's actions and resulting layout. The same actions on the same layout three times within the last
    * six steps are a stall, whether in a row or alternating with something else (A, B, A, B, A).
    */
-  private recordStepAndCheckStall(): boolean {
+  private recordStep(): { stalled: boolean; fresh: boolean } {
     const record = this.context.history.history[this.context.history.history.length - 1];
     let actions = 'null';
     try {
@@ -760,10 +830,23 @@ export class Executor {
     } catch {
       // Unparseable output is not a repeat.
     }
-    if (actions === 'null') return false;
+    if (actions === 'null') return { stalled: false, fresh: false };
     const key = `${actions}|${this.context.activeObservation?.layoutFingerprint ?? ''}`;
+    const fresh = !this.stepKeys.includes(key);
     this.stepKeys.push(key);
-    return this.stepKeys.slice(-6).filter(recent => recent === key).length >= 3;
+    return { stalled: this.stepKeys.slice(-6).filter(recent => recent === key).length >= 3, fresh };
+  }
+
+  /**
+   * After a plan: a requirement it newly marks applied, or a finding, is progress; one it moves from applied back to
+   * pending keeps the interval re-plan on.
+   */
+  private noteRequirementChanges(before: PlannerRequirement[], findingsBefore: number): void {
+    const statusBefore = new Map(before.map(item => [item.requirement.toLowerCase(), item.status]));
+    const after = this.context.requirements;
+    this.requirementReopened = after.some(item => item.status === 'pending' && statusBefore.get(item.requirement.toLowerCase()) === 'applied');
+    const newlyApplied = after.some(item => item.status === 'applied' && statusBefore.get(item.requirement.toLowerCase()) !== 'applied');
+    if (newlyApplied || this.context.findings.length > findingsBefore) this.goalRepeats.progress();
   }
 
   /**
@@ -1013,6 +1096,8 @@ export class Executor {
       this.context.secrets.set(placeholder, { value, host });
     }
     this.context.blockedState = null;
+    // The user's answer is new information: goals that failed before may work with it.
+    this.goalRepeats.progress();
     this.context.waitingForHuman = false;
     this.context.humanQuestion = null;
     // Emit resume event

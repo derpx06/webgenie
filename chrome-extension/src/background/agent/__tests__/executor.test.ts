@@ -102,9 +102,13 @@ describe('Executor loop', () => {
   });
 });
 
-/** The planner keeps planning the task until the page shows `finished`, then confirms. */
+/**
+ * The planner keeps planning the task until the page shows `finished`, then confirms. Each goal is numbered, so these
+ * tests are not about a goal repeated without progress (see "A goal planned again without progress").
+ */
+let plannedGoals = 0;
 const plannerUntil = (finished: string) => (request: LLMRequest) =>
-  textOf(request.messages.at(-1)!).includes(finished) ? planDone() : plan({ macro_objective: 'FORM_FILL', next_goal: 'Carry on with the task' });
+  textOf(request.messages.at(-1)!).includes(finished) ? planDone() : plan({ macro_objective: 'FORM_FILL', next_goal: `Carry on with the task, part ${++plannedGoals}` });
 const asks = (h: ReturnType<typeof createHarness>) => h.events.filter(event => event.state === ExecutionState.ACT_ASK_HUMAN);
 
 describe('Commit confirmations', () => {
@@ -986,7 +990,7 @@ describe('Accepting an evidenced done', () => {
 });
 
 describe('Requirements the task sets', () => {
-  const results = { url: 'https://shop.test/search?q=mug', title: 'Mugs', text: ['Blue mug $12', 'Red mug $5'] };
+  const results = { url: 'https://shop.test/search?q=mug', title: 'Mugs', text: ['Sort by: Price: low to high', 'Blue mug $12', 'Red mug $5'] };
   const task = 'Find the cheapest mug';
   const bySort = (status: 'pending' | 'applied', evidence?: string) => ({ requirements: [{ requirement: 'sorted by price, lowest first', status, ...(evidence ? { evidence } : {}) }] });
 
@@ -1153,5 +1157,113 @@ describe('Passwords from the user', () => {
     expect(sent).not.toContain('hunter22!');
     expect(sent).toContain('Password: {{secret_1}}');
     expect(sent).toContain('a password placeholder can only be typed into a password field');
+  });
+});
+
+describe('A goal planned again without progress', () => {
+  const page = { url: 'https://news.test/article', title: 'Article', text: ['Opening paragraph'], elements: [{ tag: 'input', attributes: { 'aria-label': 'Search' } }] };
+  const task = 'When was the bridge opened?';
+  const same = plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Find the opening date of the bridge on the current page' });
+  const reworded = plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Find the bridge opening date on this page.' });
+  const gaveUp = done('The date is not on this page.', false);
+
+  it('is sent back on the third plan with the goals tried, and must finish from the fifth', async () => {
+    const h = createHarness({
+      task,
+      pages: [page],
+      planner: [same, reworded, same, reworded, same, planDone('The page does not give the opening date.')],
+      navigator: [gaveUp, gaveUp, gaveUp],
+    });
+
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'navigator', 'planner', 'navigator', 'planner', 'planner', 'navigator', 'planner', 'planner']);
+    const planners = h.llm.requestsFor('planner').map(request => textOf(request.messages));
+    expect(planners[2]).not.toContain('without progress');
+    expect(planners[3]).toContain('has been planned 3 times without progress');
+    expect(planners[3]).toContain('Goals already tried without progress: "Find the opening date of the bridge on the current page"');
+    expect(planners[5]).toContain('Stop trying: set done=true now');
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The page does not give the opening date.' } });
+  });
+
+  it('ends the task when the planner keeps the goal after being told to finish', async () => {
+    const h = createHarness({ task, pages: [page], planner: [same, same, same, same, same, same], navigator: [gaveUp, gaveUp, gaveUp] });
+    await settle(h.executor.execute());
+    expect(h.last().state).toBe(ExecutionState.TASK_FAIL);
+    expect(h.llm.requestsFor('planner')).toHaveLength(6);
+  });
+
+  it('is not counted while the steps in between make progress', async () => {
+    // Each step fills another field: a validated action not done before.
+    const fields = { ...page, elements: ['Name', 'Place', 'Year', 'Notes'].map(label => ({ tag: 'input', attributes: { 'aria-label': label } })) };
+    const h = createHarness({
+      task,
+      pages: [fields],
+      planner: [same, same, same, same, planDone('Opened in 1932.')],
+      navigator: [typeText(0, 'bridge'), gaveUp, typeText(1, 'river'), gaveUp, typeText(2, '1932'), gaveUp, typeText(3, 'opened'), done('Opened in 1932.')],
+    });
+    await settle(h.executor.execute());
+    expect(textOf(h.llm.requests.map(request => request.messages).flat())).not.toContain('has been planned');
+    expect(h.last().state).toBe(ExecutionState.TASK_OK);
+  });
+});
+
+describe('A first planner call that fails', () => {
+  it('is made again before the navigator acts', async () => {
+    const h = createHarness({
+      task: 'What does the page say the answer is?',
+      pages: [{ url: 'https://example.test/', title: 'Example', text: ['The answer is 42'] }],
+      planner: [new Error('planner call failed'), plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the answer' }), planDone()],
+      navigator: [done('The answer is 42')],
+    });
+
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner', 'navigator', 'planner']);
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The answer is 42' } });
+  });
+});
+
+describe('An applied requirement the current page no longer shows', () => {
+  const unsorted = { url: 'https://shop.test/search?q=mug', title: 'Mugs', text: ['Sort by: Relevance', 'Blue mug $12', 'Red mug $5'] };
+  const finish = call('plan', {
+    ...planDone('The cheapest mug is the Red mug at $5').args,
+    requirements: [{ requirement: 'sorted by price, lowest first', status: 'applied', evidence: 'sort label "Price: low to high"' }],
+  });
+
+  it('sends the done back once, naming the requirement and its evidence', async () => {
+    const h = createHarness({ task: 'Find the cheapest mug', pages: [unsorted], planner: [finish, finish] });
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner']);
+    expect(textOf(h.llm.requestsFor('planner')[1].messages)).toContain(
+      'no longer shows the evidence recorded for these applied requirements: sorted by price, lowest first (sort label "Price: low to high")',
+    );
+    expect(h.last().state).toBe(ExecutionState.TASK_OK);
+  });
+});
+
+describe('The planning interval', () => {
+  const form = { url: 'https://forms.test/', title: 'Form', text: ['Notes'], elements: [{ tag: 'input', attributes: { 'aria-label': 'Note' } }] };
+
+  it('does not re-plan while every step validates, and does when a step did not', async () => {
+    const typing = createHarness({
+      task: 'Type three notes',
+      pages: [form],
+      planner: [plan({ macro_objective: 'FORM_FILL', next_goal: 'Type the notes' }), planDone()],
+      navigator: [typeText(0, 'one'), typeText(0, 'two'), typeText(0, 'three'), done('Typed the notes')],
+    });
+    await settle(typing.executor.execute());
+    expect(typing.llm.requests.map(request => request.agent)).toEqual(['planner', 'navigator', 'navigator', 'navigator', 'navigator', 'planner']);
+
+    const read = call('get_complete_page_content', {});
+    const reading = createHarness({
+      task: 'Read the notes',
+      pages: [form],
+      planner: [plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the notes' }), plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Report the notes' }), planDone()],
+      navigator: [read, call('scroll', { direction: 'down' }), read, done('Notes')],
+    });
+    await settle(reading.executor.execute());
+    expect(reading.llm.requests.map(request => request.agent)).toEqual(['planner', 'navigator', 'navigator', 'navigator', 'planner', 'navigator', 'planner']);
   });
 });
