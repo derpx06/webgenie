@@ -10,6 +10,7 @@ export type ReplanTrigger =
   | 'initial'
   | 'human_needed'
   | 'contract_complete'
+  | 'completion_refused'
   | 'navigator_error'
   | 'validation'
   | 'progress_stall'
@@ -50,6 +51,14 @@ export interface PlannerLLMOutput {
   /** The planner expects this phase to finish the task. */
   final_phase?: boolean;
   success_condition?: string;
+  /** The task's constraints and whether each is applied on the page; completion waits while any is pending. */
+  requirements?: PlannerRequirement[];
+}
+
+export interface PlannerRequirement {
+  requirement: string;
+  status: 'applied' | 'not_available' | 'pending';
+  evidence?: string;
 }
 
 export interface ReplanDecision {

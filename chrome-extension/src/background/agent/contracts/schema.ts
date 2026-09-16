@@ -56,6 +56,20 @@ export const plannerLLMOutputSchema = z.object({
     .string()
     .optional()
     .describe('Optional: observable evidence on the page that the next phase succeeded'),
+  requirements: z
+    .array(
+      z.object({
+        requirement: z.string().describe('one constraint the task sets, in a few words, e.g. "price $20-50", "sorted by newest", "4 stars and up"'),
+        status: z.enum(['applied', 'not_available', 'pending']).describe('applied: the page visibly shows it applied; not_available: the site cannot apply it; pending: not applied yet'),
+        evidence: z
+          .string()
+          .optional()
+          .describe('applied: what on the page shows it (a selected filter or option, the sort label, a value in the URL); not_available: why. A few words.'),
+      }),
+    )
+    .describe(
+      'Every concrete constraint of the task (a range, an order implied by a superlative, a count, an attribute) with its status; repeat the whole list in every plan. Empty when the task sets none.',
+    ),
   // Required, so the planner decides on every plan: left optional, it was almost never set (9 of 13 done checks in a live run).
   final_phase: z.boolean().describe('true when finishing next_goal finishes the whole task (nothing is left after it); false otherwise'),
 });

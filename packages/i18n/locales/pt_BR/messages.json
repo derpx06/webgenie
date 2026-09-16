@@ -571,6 +571,15 @@
   "exec_task_pause": {
     "message": "Tarefa pausada"
   },
+  "exec_requirements_notApplied": {
+    "message": "Não aplicado: $REQUIREMENTS$",
+    "placeholders": {
+      "requirements": {
+        "content": "$1",
+        "example": "sorted by newest; price $20-50"
+      }
+    }
+  },
   "exec_task_fail": {
     "message": "Tarefa falhou: \n\n$ERROR_MESSAGE$",
     "placeholders": {

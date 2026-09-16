@@ -106,11 +106,12 @@ describe('P1 contracts', () => {
       macro_objective: 'NAVIGATE',
       next_goal: 'open example',
       final_phase: false,
+      requirements: [],
       allowed_actions: ['go_to_url'],
       next_step_contract: { id: 'contract-schema', createdAt: 1000 },
     });
 
-    expect(parsed).toEqual({ done: false, macro_objective: 'NAVIGATE', next_goal: 'open example', final_phase: false });
+    expect(parsed).toEqual({ done: false, macro_objective: 'NAVIGATE', next_goal: 'open example', final_phase: false, requirements: [] });
     expect(plannerLLMOutputSchema.safeParse({ done: false, macro_objective: 'NAVIGATE' }).success).toBe(false);
     expect(plannerLLMOutputSchema.safeParse({ done: false, macro_objective: 'NAVIGATE', next_goal: 'open example' }).success).toBe(false);
   });
@@ -173,6 +174,7 @@ describe('P1 replanning and progress', () => {
     expect(decide({ planned: false })).toMatchObject({ shouldReplan: true, trigger: 'initial' });
     expect(decide({ waitingForHuman: true })).toMatchObject({ shouldReplan: true, trigger: 'human_needed' });
     expect(decide({ navigatorDone: true })).toMatchObject({ shouldReplan: true, trigger: 'contract_complete' });
+    expect(decide({ completionRefused: true })).toMatchObject({ shouldReplan: true, trigger: 'completion_refused' });
     expect(decide({ navigatorErrored: true })).toMatchObject({ shouldReplan: true, trigger: 'navigator_error' });
     expect(decide({ unvalidatedSteps: 2 })).toMatchObject({ shouldReplan: true, trigger: 'validation' });
     expect(decide({ stalled: true })).toMatchObject({ shouldReplan: true, trigger: 'progress_stall' });

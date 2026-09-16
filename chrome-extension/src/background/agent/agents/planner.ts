@@ -63,6 +63,7 @@ export class PlannerAgent extends BaseAgent<PlannerOutput> {
         this.context.lastMacroObjective = cleanedPlan.macro_objective;
       }
       this.context.currentContract = cleanedPlan.next_step_contract ?? null;
+      if (cleanedPlan.requirements) this.context.requirements = cleanedPlan.requirements;
       if (this.context.traceStore) {
         void this.context.traceStore.append({
           taskId: this.context.taskId,

@@ -571,6 +571,15 @@
   "exec_task_pause": {
     "message": "任務已暫停"
   },
+  "exec_requirements_notApplied": {
+    "message": "未套用：$REQUIREMENTS$",
+    "placeholders": {
+      "requirements": {
+        "content": "$1",
+        "example": "sorted by newest; price $20-50"
+      }
+    }
+  },
   "exec_task_fail": {
     "message": "任務失敗：\n\n$ERROR_MESSAGE$",
     "placeholders": {

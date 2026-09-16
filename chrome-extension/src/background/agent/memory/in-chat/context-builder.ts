@@ -119,6 +119,11 @@ export class ContextBuilder {
       ].join('\n')
       : '';
     if (contractBlock) sections.push(contractBlock);
+    addList(
+      'REQUIREMENTS',
+      (context.requirements ?? []).map(item => `- ${item.status}: ${item.requirement}${item.evidence ? ` (${item.evidence})` : ''}`),
+      800,
+    );
 
     // The navigator has each action's result as a tool message; the validation summary would repeat it.
     const progressLines = actor === 'planner' ? (context.validatedProgress ?? []).slice(-12).map(record => `- ${record.status}: ${record.summary}`) : [];

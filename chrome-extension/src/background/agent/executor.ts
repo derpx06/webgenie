@@ -160,42 +160,58 @@ export class Executor {
     this.context.approvedCommitKey = null;
     this.context.declinedCommitKeys.clear();
     this.forgetRefusedIntents();
+    // Requirements and the completion checks built on them belong to one task.
+    this.context.requirements = [];
+    this.context.requirementRefusals = 0;
 
     // need to reset previous action results that are not included in memory
     this.context.actionResults = this.context.actionResults.filter(result => result.includeInMemory);
   }
 
   /**
-   * Check if task is complete based on planner output and handle completion
+   * Whether the planner's done ends the task. A done is sent back to the planner ('refused') when its answer quotes an
+   * action result or a requirement is still pending. Each refusal is
+   * capped, so a planner that keeps finishing the same way finishes.
    */
-  private checkTaskCompletion(planOutput: AgentOutput<PlannerOutput> | null): boolean {
-    if (planOutput?.result?.done) {
-      const answer = planOutput.result.final_answer || this.context.finalAnswer || '';
-      // An answer quoting "Clicked button with index 2" reports what the agent did, not what the page shows. Two refusals
-      // at most: a model that keeps quoting it should not burn the task's time limit.
-      if (echoesActionResult(answer) && this.context.echoRejections < 2) {
-        this.context.echoRejections++;
-        const msg = 'The answer quotes an action result ("Clicked …", "Dragged element …", "Input … into index …"), which is not page text. Answer again without quoting action results: describe only what the current page shows, or, if the task asks for no text, just say what was done. If a message the task asks for is still loading, wait and read it.';
-        logger.warning(`Completion rejected: ${msg}`);
-        // A rejected answer must not end the task as done if the loop stops before the planner decides again.
-        planOutput.result.done = false;
-        this.context.finalAnswer = null;
-        this.context.actionResults = [new ActionResult({
-          executed: false,
-          validated: 'unknown',
-          retryability: 'replan',
-          failureReason: msg,
-          extractedContent: msg,
-          includeInMemory: true,
-        })];
-        return false;
-      }
-      logger.info('✅ Planner confirms task completion');
-      // The navigator's done text is the provisional answer; a planner final_answer replaces it.
-      this.context.finalAnswer = answer || null;
-      return true;
+  private checkTaskCompletion(planOutput: AgentOutput<PlannerOutput> | null): 'complete' | 'refused' | 'continue' {
+    if (!planOutput?.result?.done) return 'continue';
+    const context = this.context;
+    const answer = planOutput.result.final_answer || context.finalAnswer || '';
+    const pending = (planOutput.result.requirements ?? context.requirements).filter(item => item.status === 'pending').map(item => item.requirement);
+    // An answer quoting "Clicked button with index 2" reports what the agent did, not what the page shows. Two refusals
+    // at most: a model that keeps quoting it should not burn the task's time limit.
+    if (echoesActionResult(answer) && context.echoRejections < 2) {
+      context.echoRejections++;
+      return this.refuseCompletion(planOutput, 'The answer quotes an action result ("Clicked …", "Dragged element …", "Input … into index …"), which is not page text. Answer again without quoting action results: describe only what the current page shows, or, if the task asks for no text, just say what was done. If a message the task asks for is still loading, wait and read it.');
     }
-    return false;
+    // Typing the criteria into a search box finished tasks whose sort or filters were never applied.
+    if (pending.length > 0 && context.requirementRefusals < 2) {
+      context.requirementRefusals++;
+      return this.refuseCompletion(planOutput, `Not done: these requirements are still pending: ${pending.join('; ')}. Apply each with the site's sort or filter controls and check that the page shows it applied, or mark it not_available with the reason.`);
+    }
+    logger.info('✅ Planner confirms task completion');
+    // The navigator's done text is the provisional answer; a planner final_answer replaces it. Requirements still
+    // pending after the refusals are named, so the answer never implies they were applied.
+    const notApplied = pending.length > 0 ? `\n\n${t('exec_requirements_notApplied', [pending.join('; ')])}` : '';
+    context.finalAnswer = answer ? `${answer}${notApplied}` : null;
+    return 'complete';
+  }
+
+  /** Sends a done back to the planner with `note` as the result it sees next. */
+  private refuseCompletion(planOutput: AgentOutput<PlannerOutput>, note: string): 'refused' {
+    logger.warning(`Completion rejected: ${note}`);
+    // A rejected answer must not end the task as done if the loop stops before the planner decides again.
+    planOutput.result!.done = false;
+    this.context.finalAnswer = null;
+    this.context.actionResults = [new ActionResult({
+      executed: false,
+      validated: 'unknown',
+      retryability: 'replan',
+      failureReason: note,
+      extractedContent: note,
+      includeInMemory: true,
+    })];
+    return 'refused';
   }
 
   /**
@@ -303,6 +319,7 @@ export class Executor {
       let navigatorErrored = false;
       let unvalidatedSteps = 0;
       let stalled = false;
+      let completionRefused = false;
       const deterministicRoute = ExecutionRouter.routeTask(taskText);
       if (deterministicRoute) {
         context.currentContract = deterministicRoute.contract;
@@ -342,6 +359,7 @@ export class Executor {
           navigatorDone,
           navigatorErrored,
           waitingForHuman: context.actionResults.some(result => result.isWaitingForHuman),
+          completionRefused,
           unvalidatedSteps,
           stalled,
           stepsSinceLastPlan: context.nSteps - this.lastPlanningStep,
@@ -374,7 +392,7 @@ export class Executor {
               id: 'planner',
               result: { done: true, final_answer: answer, macro_objective: 'VERIFY_STATE', next_goal: 'Report the result', final_phase: true },
             };
-            if (this.checkTaskCompletion(accepted)) {
+            if (this.checkTaskCompletion(accepted) === 'complete') {
               latestPlanOutput = accepted;
               break;
             }
@@ -436,9 +454,11 @@ export class Executor {
           await this.saveCheckpoint(taskText, 'running');
 
           // Check if task is complete after planner run
-          if (this.checkTaskCompletion(latestPlanOutput)) {
-            break;
-          }
+          const completion = this.checkTaskCompletion(latestPlanOutput);
+          if (completion === 'complete') break;
+          // A refused done goes straight back to the planner with the reason; the navigator has nothing to do.
+          completionRefused = completion === 'refused';
+          if (completionRefused) continue;
         }
 
         const navigatorStep = await this.navigate(getStepState);

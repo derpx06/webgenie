@@ -571,6 +571,15 @@
   "exec_task_pause": {
     "message": "Task paused"
   },
+  "exec_requirements_notApplied": {
+    "message": "Not applied: $REQUIREMENTS$",
+    "placeholders": {
+      "requirements": {
+        "content": "$1",
+        "example": "sorted by newest; price $20-50"
+      }
+    }
+  },
   "exec_task_fail": {
     "message": "Task failed: \n\n$ERROR_MESSAGE$",
     "placeholders": {

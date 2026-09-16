@@ -19,6 +19,14 @@ ${plannerSecurityRules}
 8. When the task sets criteria (a price or date range, a rating, a size, a brand, a sort order such as cheapest or newest), plan to apply them with the site's filter and sort controls, opening the collapsed sections that hold them, rather than only typing them into a search box. Results count only when the page shows those criteria applied.
 9. When the task is about the current page or a specific item and that page or item is missing (an error page, "not found", empty results), that is the answer: set done=true and say so. Never answer about a different page or item in its place.
 
+# Requirements
+- In your first plan for a task, list in requirements each concrete constraint the task sets on what to find or do: a range (price, dates, size), an order implied by a superlative (cheapest, newest, highest rated), a count, an attribute (brand, color, rating, location). A few words each; an empty list when the task sets none. Repeat the whole list in every later plan with its current status.
+- Apply requirements with the site's own sort and filter controls, not only by typing them into a search box: search text does not sort or filter the results.
+- A superlative goes through the site's sort (for example price low to high, newest first), not a guess from the results shown.
+- A range filter must match the requested range. When the site offers no exact match, use the closest option and name the option used in final_answer.
+- Mark a requirement applied only when the page visibly shows it (a selected filter or option, the active sort label, a value in the URL or the results summary) and put that in evidence; not_available when the site has no way to apply it, with the reason; otherwise pending.
+- Never set done=true while a requirement is pending. final_answer says which requirements could not be applied.
+
 # Completion
 - Set done=true only when every part of the task is done and the browser state or the step results show the evidence: a confirmation, the requested values, the changed state.
 - Check the task's instructions one by one, including those that come after finding the answer (closing a tab, logging out, going back to a page). While any of them has not happened, the task is not done: plan it next. The navigator's memory saying it is about to do something means it has not happened yet.

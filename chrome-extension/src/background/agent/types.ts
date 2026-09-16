@@ -22,6 +22,7 @@ import type {
 import type {
   BlockedState,
   NextStepContract,
+  PlannerRequirement,
   ValidatedProgressRecord,
 } from './contracts/types';
 import type { TaskCheckpointStore } from './contracts/checkpoint';
@@ -118,6 +119,10 @@ export class AgentContext {
   lastDragKey: string | null = null;
   /** Completions refused this task because the answer quoted an action result; capped so a refusal never loops. */
   echoRejections = 0;
+  /** The task's constraints as the latest plan listed them. */
+  requirements: PlannerRequirement[] = [];
+  /** Completions refused this task because a requirement was still pending; capped at two. */
+  requirementRefusals = 0;
   /** The page read shown to the models this step; element indexes in their actions refer to it. */
   promptState?: BrowserState;
   currentContract?: NextStepContract | null;

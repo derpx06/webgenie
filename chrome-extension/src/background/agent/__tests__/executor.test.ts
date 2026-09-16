@@ -869,6 +869,46 @@ describe('Accepting an evidenced done', () => {
   });
 });
 
+describe('Requirements the task sets', () => {
+  const results = { url: 'https://shop.test/search?q=mug', title: 'Mugs', text: ['Blue mug $12', 'Red mug $5'] };
+  const task = 'Find the cheapest mug';
+  const bySort = (status: 'pending' | 'applied', evidence?: string) => ({ requirements: [{ requirement: 'sorted by price, lowest first', status, ...(evidence ? { evidence } : {}) }] });
+
+  it('sends a done back to the planner while one is pending, and finishes once the page shows it applied', async () => {
+    const h = createHarness({
+      task,
+      pages: [results],
+      planner: [
+        plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the results', ...bySort('pending') }),
+        call('plan', { ...planDone('The cheapest mug is the Red mug at $5').args, ...bySort('pending') }),
+        call('plan', { ...planDone('The cheapest mug is the Red mug at $5').args, ...bySort('applied', 'sort label "Price: low to high"') }),
+      ],
+      navigator: [done('The cheapest mug is the Red mug at $5')],
+    });
+
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'navigator', 'planner', 'planner']);
+    const replan = textOf(h.llm.requestsFor('planner')[2].messages);
+    expect(replan).toContain('these requirements are still pending: sorted by price, lowest first');
+    expect(replan).toContain('[REQUIREMENTS]\n- pending: sorted by price, lowest first');
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The cheapest mug is the Red mug at $5' } });
+  });
+
+  it('accepts the third done after two refusals and says what was not applied', async () => {
+    const finish = call('plan', { ...planDone('The cheapest mug shown is the Red mug at $5').args, ...bySort('pending') });
+    const h = createHarness({ task, pages: [results], planner: [finish, finish, finish] });
+
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner', 'planner']);
+    expect(h.last()).toMatchObject({
+      state: ExecutionState.TASK_OK,
+      data: { details: 'The cheapest mug shown is the Red mug at $5\n\nexec_requirements_notApplied' },
+    });
+  });
+});
+
 describe('Batches of actions', () => {
   it('stops a batch when an action reveals new elements, and marks them *[index] at the next step', async () => {
     // eslint-disable-next-line prefer-const
