@@ -37,3 +37,20 @@ export function doneEvidence(context: AgentContext, answer: string, success: boo
   if (page && missing.length > 0) reasons.push(`not on the page: ${missing.slice(0, 3).join(', ')}`);
   return { skippable: reasons.length === 0, reasons };
 }
+
+/** An answer saying something is not there. */
+const ABSENCE = /\b(no (results?|matches|matching|items?|products?|listings?|records?)\b|not found|no\b[^.]{0,40}\b(was|were) found|there (is|are|was|were) no\b|nothing (was )?found|no such|(could ?n[o']?t|cannot|can't|unable to|did ?n[o']?t) (find|locate)|(does|do) ?n[o']?t (exist|have))/i;
+/** A page saying its search or listing came back empty. */
+const EMPTY_RESULTS = /\b(no (results?|matches|matching)|0 (results?|matches|items)|nothing (was )?found|not found|did ?n[o']?t match|could ?n[o']?t find|returned no)\b/i;
+
+/**
+ * Whether an answer of absence ("no results", "not found", or a reported failure) rests on a page that was never read:
+ * no get_complete_page_content on the current address and no empty-result message in the page state.
+ */
+export function absenceUnread(context: AgentContext, answer: string, reportedFailure: boolean): boolean {
+  const state = context.promptState;
+  if (!state || !/^https?:/i.test(state.url)) return false;
+  if (!reportedFailure && !ABSENCE.test(answer)) return false;
+  if (context.pageRead?.url === state.url) return false;
+  return !EMPTY_RESULTS.test(visibleText(state));
+}

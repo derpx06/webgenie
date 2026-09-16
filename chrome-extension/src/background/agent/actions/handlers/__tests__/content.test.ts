@@ -24,7 +24,7 @@ function handlerFor(page: Record<string, unknown>, context: Record<string, unkno
     emitEvent: vi.fn(),
     findings: [],
     nSteps: 1,
-    browserContext: { getCurrentPage: vi.fn(async () => page) },
+    browserContext: { getCurrentPage: vi.fn(async () => ({ url: () => 'https://example.test/', ...page })) },
     ...context,
   } as unknown as AgentContext;
   return { handler: new ContentHandler(agentContext), context: agentContext };

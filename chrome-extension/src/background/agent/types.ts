@@ -123,6 +123,10 @@ export class AgentContext {
   requirements: PlannerRequirement[] = [];
   /** Completions refused this task because a requirement was still pending; capped at two. */
   requirementRefusals = 0;
+  /** A completion reporting absence was sent back once to read the page first; once per task. */
+  absenceChecked = false;
+  /** The last get_complete_page_content text and the address it was read on. */
+  pageRead: { url: string; text: string } | null = null;
   /** The page read shown to the models this step; element indexes in their actions refer to it. */
   promptState?: BrowserState;
   currentContract?: NextStepContract | null;

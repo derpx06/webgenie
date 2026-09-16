@@ -9,7 +9,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import type { NextStepContract } from '../../contracts';
-import { doneEvidence } from '../done-evidence';
+import { absenceUnread, doneEvidence } from '../done-evidence';
 import { titleFromTask } from '../../../core/task-groups/manager';
 
 function contextOnPage(lines: string[]) {
@@ -20,6 +20,30 @@ function contextOnPage(lines: string[]) {
   context.currentContract = { id: 'c1' } as NextStepContract;
   return context;
 }
+
+describe('absenceUnread', () => {
+  const on = (lines: string[], url = 'https://shop.test/search?q=lamp') => {
+    const context = contextOnPage(lines);
+    (context.promptState as BrowserState).url = url;
+    return context;
+  };
+
+  it('flags an answer of absence about a page that was neither read nor shows an empty result', () => {
+    for (const answer of ['No results for brass lamp.', 'No brass lamp was found.', 'I could not find a brass lamp.', 'There are no brass lamps.']) {
+      expect(absenceUnread(on(['Desk', 'Chair']), answer, false)).toBe(true);
+    }
+    expect(absenceUnread(on(['Desk', 'Chair']), 'Checkout needs a sign-in.', true)).toBe(true);
+  });
+
+  it('passes an answer that finds something, a page read on this address, an empty-result page, or no web page', () => {
+    expect(absenceUnread(on(['Desk', 'Chair']), 'The brass lamp costs $40.', false)).toBe(false);
+    const read = on(['Desk', 'Chair']);
+    read.pageRead = { url: 'https://shop.test/search?q=lamp', text: 'Desk Chair' };
+    expect(absenceUnread(read, 'No brass lamp was found.', false)).toBe(false);
+    expect(absenceUnread(on(['0 results for "brass lamp"']), 'No brass lamp was found.', false)).toBe(false);
+    expect(absenceUnread(on([], 'about:blank'), 'No such thing exists.', false)).toBe(false);
+  });
+});
 
 describe('doneEvidence', () => {
   it('accepts a successful final-phase answer whose values are all on the page', () => {

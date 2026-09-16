@@ -159,6 +159,8 @@ export interface PageSpec {
   title?: string;
   /** Static text lines shown before the elements. */
   text?: string[];
+  /** What get_complete_page_content returns; defaults to the text lines. */
+  content?: string;
   elements?: ElementSpec[];
   dialog?: PageDialog;
 }
@@ -250,6 +252,7 @@ export class FakeBrowserContext {
     },
     formCommitInfo: async (node?: DOMElementNode) => this.formFor(node),
     navigateTo: async (url: string) => this.act({ type: 'navigate', url }),
+    getCompletePageContent: async () => this.current.content ?? (this.current.text ?? []).join('\n'),
     goBack: async () => this.act({ type: 'go_back' }),
     removeHighlight: async () => {},
     invalidateCache: () => {},

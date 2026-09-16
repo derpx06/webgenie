@@ -8,7 +8,7 @@ export interface ReplanDecisionInput {
   navigatorErrored: boolean;
   /** The last step asked the user; their answer must reach the planner. */
   waitingForHuman: boolean;
-  /** The planner's last done was sent back (a pending requirement); it must plan again. */
+  /** The planner's last done was sent back (a pending requirement, an unread page); it must plan again. */
   completionRefused?: boolean;
   /** Consecutive steps whose last page-changing action validated failed or unknown. */
   unvalidatedSteps: number;

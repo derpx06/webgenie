@@ -909,6 +909,47 @@ describe('Requirements the task sets', () => {
   });
 });
 
+describe('An answer that something is missing', () => {
+  const results = { url: 'https://shop.test/search?q=lamp', title: 'Search', text: ['Showing products'], elements: [{ text: 'Desk' }, { text: 'Chair' }] };
+  const task = 'Is there a brass lamp for sale?';
+  const read = call('get_complete_page_content', { find: 'brass lamp' });
+
+  it('is sent back once to read the results page first', async () => {
+    const h = createHarness({
+      task,
+      pages: [{ ...results, content: 'Showing products\nDesk\nChair' }],
+      planner: [
+        plan({ macro_objective: 'SEARCH', next_goal: 'Look for a brass lamp' }),
+        planDone('No brass lamp was found.'),
+        plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the results for "brass lamp"' }),
+        planDone('No brass lamp is for sale.'),
+      ],
+      navigator: [done('No brass lamp was found.', false), read, done('No brass lamp is listed.', false)],
+    });
+
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'navigator', 'planner', 'planner', 'navigator', 'navigator', 'planner']);
+    expect(textOf(h.llm.requestsFor('planner')[2].messages)).toContain('get_complete_page_content with find set to the key term');
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'No brass lamp is for sale.' } });
+  });
+
+  it('is sent back only once per task', async () => {
+    const h = createHarness({ task, pages: [results], planner: [planDone('No brass lamp was found.'), planDone('No brass lamp was found.')] });
+    await settle(h.executor.execute());
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner']);
+    expect(h.last().state).toBe(ExecutionState.TASK_OK);
+  });
+
+  it('is accepted at once when the page itself shows an empty result', async () => {
+    const empty = { ...results, text: ['No results for "brass lamp"'] };
+    const h = createHarness({ task, pages: [empty], planner: [planDone('No brass lamp was found.')] });
+    await settle(h.executor.execute());
+    expect(h.llm.requestsFor('planner')).toHaveLength(1);
+    expect(h.last().state).toBe(ExecutionState.TASK_OK);
+  });
+});
+
 describe('Batches of actions', () => {
   it('stops a batch when an action reveals new elements, and marks them *[index] at the next step', async () => {
     // eslint-disable-next-line prefer-const

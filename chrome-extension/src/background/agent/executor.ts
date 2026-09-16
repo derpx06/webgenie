@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { doneEvidence } from './validation/done-evidence';
+import { absenceUnread, doneEvidence } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -87,6 +87,8 @@ export class Executor {
   private pendingAnswer: { response: string; secrets: string[] } | null = null;
   /** The latest plan expected its phase to finish the task. */
   private lastPlanFinalPhase = false;
+  /** The navigator's last done, which the planner is checking, reported failure. */
+  private doneReportedFailure = false;
   /** `actions|layoutFingerprint` per navigator step, for stall detection. */
   private stepKeys: string[] = [];
   constructor(
@@ -163,6 +165,7 @@ export class Executor {
     // Requirements and the completion checks built on them belong to one task.
     this.context.requirements = [];
     this.context.requirementRefusals = 0;
+    this.context.absenceChecked = false;
 
     // need to reset previous action results that are not included in memory
     this.context.actionResults = this.context.actionResults.filter(result => result.includeInMemory);
@@ -170,8 +173,8 @@ export class Executor {
 
   /**
    * Whether the planner's done ends the task. A done is sent back to the planner ('refused') when its answer quotes an
-   * action result or a requirement is still pending. Each refusal is
-   * capped, so a planner that keeps finishing the same way finishes.
+   * action result, a requirement is still pending, or it reports absence without the page having been read. Each
+   * refusal is capped, so a planner that keeps finishing the same way finishes.
    */
   private checkTaskCompletion(planOutput: AgentOutput<PlannerOutput> | null): 'complete' | 'refused' | 'continue' {
     if (!planOutput?.result?.done) return 'continue';
@@ -188,6 +191,11 @@ export class Executor {
     if (pending.length > 0 && context.requirementRefusals < 2) {
       context.requirementRefusals++;
       return this.refuseCompletion(planOutput, `Not done: these requirements are still pending: ${pending.join('; ')}. Apply each with the site's sort or filter controls and check that the page shows it applied, or mark it not_available with the reason.`);
+    }
+    // "Not found" said about a results page nobody read.
+    if (!context.absenceChecked && absenceUnread(context, answer, this.doneReportedFailure)) {
+      context.absenceChecked = true;
+      return this.refuseCompletion(planOutput, 'The answer says something is missing, but the current page was not read. Before concluding, read it: get_complete_page_content with find set to the key term of the task, then decide from what it returns.');
     }
     logger.info('✅ Planner confirms task completion');
     // The navigator's done text is the provisional answer; a planner final_answer replaces it. Requirements still
@@ -381,6 +389,8 @@ export class Executor {
           // Would the evidence alone have been enough to accept the navigator's done? Logged next to the planner's
           // verdict, so skipping the check can be enabled only once the two agree in live runs.
           const doneResult = replanDecision.trigger === 'contract_complete' ? context.actionResults.find(result => result.isDone) : undefined;
+          // A refused completion keeps the failure it was checking.
+          if (replanDecision.trigger !== 'completion_refused') this.doneReportedFailure = doneResult?.success === false;
           const evidence = doneResult
             ? doneEvidence(context, doneResult.extractedContent ?? '', doneResult.success === true, this.lastPlanFinalPhase)
             : null;

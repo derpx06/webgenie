@@ -154,6 +154,7 @@ export class ContentHandler extends BaseHandler {
     const page = await this.context.browserContext.getCurrentPage();
     try {
       const content = await page.getCompletePageContent();
+      this.context.pageRead = { url: page.url(), text: content };
       const msg = `Successfully extracted ${content.length} characters of page content.`;
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
       if (input.find) {
