@@ -174,5 +174,26 @@ Three change sets, each assigned its own files:
   - a bot-wall rule;
   - no interval re-plan while every step passes.
 
-Order: gate build 56a108c (sets A, B, C) against round 1 first, then gate set D on its own build. Memory does not allow a sixth browser
+Order: gate build 56a108c (sets A, B, C) against round 1 first, then gate set D on its own build.
+
+## Round 3 candidate: build e4a4861 (56a108c plus set D)
+
+Set D is merged, in three parts:
+- **Perception:** `d9e2663`, `4eab95a`, `f708e8d`, `624e361`, `d7f5d6d`.
+- **Navigator:** `58187b6`, `dc23bc6`, `d386b0f`, `7a2294b`.
+- **Planner:** `e0ccab7`, `8cd64c0`, `811125f`, `a6fb41c`, `a57364b`, `6bcf712`, `e4a4861`.
+
+Build, type-check and 399 unit tests pass.
+
+Risks for the gate to watch:
+- Autocomplete fields now wait an extra 0.5 s.
+- A same-page anchor click now counts as `unknown`.
+- A field labelled "captcha" is refused.
+- "Progress" (for repeated goals) is a heuristic, and reworded goals are merged by shared words.
+- Fewer interval re-plans while every step passes.
+- Select options over 10 are not listed by name.
+- The new-tab event arriving over `chrome.debugger` is unverified.
+
+The live smoke test and both gates wait for round 1 to finish: a sixth browser next to round 1's five made the machine
+thrash. Memory does not allow a sixth browser
 next to round 1's five.
