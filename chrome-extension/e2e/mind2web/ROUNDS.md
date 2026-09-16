@@ -84,4 +84,32 @@ its judge rules, AgentOccam, Agent-E, WILBUR). Unit tests: 311 pass.
   back once to read it.
 - **Answer on screen** (`b9062ed`): the answer's value is scrolled into view before the task finishes.
 
-Next: a live smoke test, then the gate on round 1's failed and mediocre tasks plus a sample of its successes.
+A live smoke test on b9062ed (Discogs, 2 steps, task.ok) showed the planner filling `requirements: []` for a task
+without criteria, with no re-asks.
+
+## Round 2 candidate: build 56a108c (b9062ed plus set C)
+
+Evidence from round 1's first 45 tasks (build a920989):
+- **Scroll loops.** Still behind 5 of 10 tasks that did not finish (10–17 scrolls each); b9062ed targets these.
+- **Other repeated actions.**
+  - One site redirected its home page elsewhere from this network, and the agent opened the home page 14 times: the
+    result never said where it landed.
+  - The address guard refused another page of that same site (its standings page), because its question asked whether
+    the request needed exactly that address.
+  - Also: `go_back` 11 times, `switch_tab` back and forth.
+- **Questions.** 7 of 45 tasks asked the user something. Five were bot checks (allowed by the policy). Two were useless
+  offers to try another approach.
+
+Fixes:
+- **Redirect note** (`6dcc698`): navigation results say where a redirect landed.
+- **Same-site addresses** (`39d06be`).
+  - Another page of the current site gets a same-site question from the page-blind check: is it a reasonable step, and
+    not something the user did not ask for.
+  - An address that embeds another address keeps the strict question.
+- **Repeated actions** (`19ab8f4`): the same action on the same page gets a firmer note at 3, 5 and 8 repeats; the
+  fourth open of one address is refused.
+- **Retry questions** (`ffe68da`, `56a108c`): a question that only offers to retry is sent back to the agent to decide.
+  A question about money, an account or personal data is always put to the user.
+
+Unit tests: 320 pass. Next: the gate on round 1's tasks once round 1 finishes. Memory does not allow a sixth browser
+next to round 1's five.
