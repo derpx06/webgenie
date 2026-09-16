@@ -31,8 +31,8 @@ export function findWholeText(content: string, wanted: string): string | null {
   const text = flat(content);
   const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+');
   // Word boundaries only where the wanted text starts or ends with a letter or digit ("$5" may follow a colon).
-  const start = /^[\p{L}\p{N}]/u.test(target) ? '(?<![\\p{L}\\p{N}])' : '';
-  const end = /[\p{L}\p{N}]$/u.test(target) ? '(?![\\p{L}\\p{N}])' : '';
+  const start = new RegExp('^[\\p{L}\\p{N}]', 'u').test(target) ? '(?<![\\p{L}\\p{N}])' : '';
+  const end = new RegExp('[\\p{L}\\p{N}]$', 'u').test(target) ? '(?![\\p{L}\\p{N}])' : '';
   const match = new RegExp(`${start}${escaped}${end}`, 'iu').exec(text);
   if (!match) return null;
   return text.slice(Math.max(0, match.index - 40), match.index + match[0].length + 40).trim();
