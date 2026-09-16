@@ -9,7 +9,7 @@ export interface DoneEvidence {
 }
 
 /** Numbers and quoted text in an answer: the values a wrong answer would get wrong. */
-function reportedValues(answer: string): string[] {
+export function reportedValues(answer: string): string[] {
   const quoted = [...answer.matchAll(/["“]([^"”]{2,80})["”]/g)].map(match => match[1]);
   const numbers = answer.match(/\d[\d.,:/-]*\d|\d/g) ?? [];
   return [...new Set([...quoted, ...numbers].map(value => value.trim().toLowerCase()))].filter(Boolean);

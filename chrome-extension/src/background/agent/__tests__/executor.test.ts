@@ -950,6 +950,32 @@ describe('An answer that something is missing', () => {
   });
 });
 
+describe('An answer read from off-screen page text', () => {
+  const task = 'How much does this kettle weigh?';
+  const finish = (page: { url: string; text?: string[]; offscreenText?: string[] }) =>
+    createHarness({
+      task,
+      pages: [{ title: 'Kettle', ...page }],
+      planner: [plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the weight', final_phase: true }), planDone()],
+      navigator: [call('get_complete_page_content', { find: 'weight' }), done('The kettle weighs 2.35 kg.')],
+    });
+
+  it('is scrolled into view before the task finishes, without a model call', async () => {
+    const h = finish({ url: 'https://shop.test/kettle', text: ['Steel kettle'], offscreenText: ['Weight: 2.35 kg'] });
+    await settle(h.executor.execute());
+    expect(h.browser.actions).toEqual([{ type: 'scroll_to_text', text: '2.35' }]);
+    expect(h.llm.remaining()).toBe(0);
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The kettle weighs 2.35 kg.' } });
+  });
+
+  it('is left alone when it is already on screen', async () => {
+    const h = finish({ url: 'https://shop.test/kettle', text: ['Steel kettle', 'Weight: 2.35 kg'] });
+    await settle(h.executor.execute());
+    expect(h.browser.actions).toEqual([]);
+    expect(h.last().state).toBe(ExecutionState.TASK_OK);
+  });
+});
+
 describe('Batches of actions', () => {
   it('stops a batch when an action reveals new elements, and marks them *[index] at the next step', async () => {
     // eslint-disable-next-line prefer-const

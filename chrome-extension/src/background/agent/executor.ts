@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnread, doneEvidence } from './validation/done-evidence';
+import { absenceUnread, doneEvidence, reportedValues } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -45,7 +45,7 @@ import {
   shouldForceReplanAfterResume,
   type TaskCheckpoint,
 } from './contracts';
-import { ensureBrowserObservation } from './validation/observation';
+import { ensureBrowserObservation, viewportText } from './validation/observation';
 import { echoesActionResult, hostOf, inventedPersonalData, isApproval, isPageSideError, isStaleElementError } from './validation/service';
 import type { ValidationStatus } from './validation/types';
 
@@ -220,6 +220,32 @@ export class Executor {
       includeInMemory: true,
     })];
     return 'refused';
+  }
+
+  /**
+   * An answer read from page text that is off screen is scrolled into view (no model call), so the page the task ends
+   * on shows it. Skipped when a value of the answer is already on screen or none is found.
+   */
+  private async showAnswerOnPage(): Promise<void> {
+    const { finalAnswer, pageRead, promptState } = this.context;
+    if (!finalAnswer || !pageRead || !promptState || promptState.url !== pageRead.url) return;
+    const read = pageRead.text.toLowerCase();
+    const values = reportedValues(finalAnswer).filter(value => value.length >= 3 && read.includes(value));
+    const onScreen = viewportText(promptState).toLowerCase();
+    if (values.length === 0 || values.some(value => onScreen.includes(value))) return;
+    try {
+      const page = await this.context.browserContext.getCurrentPage();
+      if (page.url() !== pageRead.url) return;
+      // Longest first: a longer value is less likely to match somewhere else on the page.
+      for (const value of values.sort((a, b) => b.length - a.length).slice(0, 3)) {
+        if (await page.scrollToText(value)) {
+          record({ level: 'info', kind: 'span', component: 'Executor', msg: 'answer scrolled into view', data: { chars: value.length } });
+          return;
+        }
+      }
+    } catch (error) {
+      logger.warning(`Could not scroll the answer into view: ${error}`);
+    }
   }
 
   /**
@@ -507,6 +533,7 @@ export class Executor {
         // Track task cancellation
         void analytics.trackTaskCancelled(this.context.taskId);
       } else if (isCompleted) {
+        await this.showAnswerOnPage();
         context.taskArchive.addRecord({ taskId: context.taskId, goal: taskText, outcome: context.finalAnswer || 'Task completed successfully' });
         // Only the route is remembered across tasks: pages and kinds of elements, nothing the user wrote or the page said.
         if (context.taskStartUrl) await RouteMemory.save(context.taskStartUrl, context.routeSteps);

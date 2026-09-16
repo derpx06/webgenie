@@ -75,6 +75,18 @@ export function visibleText(state: BrowserState): string {
   return pageText(state.elementTree);
 }
 
+/** Text of the page read whose element is in the viewport. */
+export function viewportText(state: BrowserState): string {
+  const parts: string[] = [];
+  const stack: unknown[] = state.elementTree ? [state.elementTree] : [];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node instanceof DOMTextNode && node.isParentInViewport()) parts.push(node.text);
+    else if (node instanceof DOMElementNode) stack.push(...node.children);
+  }
+  return parts.join(' ');
+}
+
 /**
  * Short text that is on the page after an action but was not before (an error, a confirmation, a status), at most
  * five pieces. Kept in the action's result, so a message that the next action removes is not lost.

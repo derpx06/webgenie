@@ -159,14 +159,16 @@ export interface PageSpec {
   title?: string;
   /** Static text lines shown before the elements. */
   text?: string[];
-  /** What get_complete_page_content returns; defaults to the text lines. */
+  /** Text lines in the page read but outside the viewport. */
+  offscreenText?: string[];
+  /** What get_complete_page_content returns; defaults to every text line. */
   content?: string;
   elements?: ElementSpec[];
   dialog?: PageDialog;
 }
 
 export interface BrowserAction {
-  type: 'click' | 'double_click' | 'hover' | 'right_click' | 'input' | 'send_keys' | 'navigate' | 'go_back' | 'upload';
+  type: 'click' | 'double_click' | 'hover' | 'right_click' | 'input' | 'send_keys' | 'navigate' | 'go_back' | 'upload' | 'scroll_to_text';
   index?: number;
   /** The element's text, as the model saw it. */
   label?: string;
@@ -186,6 +188,11 @@ function buildDom(spec: PageSpec): Pick<BrowserState, 'elementTree' | 'selectorM
   });
   const selectorMap = new Map<number, DOMElementNode>();
   for (const line of spec.text ?? []) body.children.push(new DOMTextNode(line, true, body));
+  if (spec.offscreenText?.length) {
+    const below = new DOMElementNode({ tagName: 'div', xpath: '/body/div', attributes: {}, children: [], isVisible: true, isInViewport: false, parent: body });
+    for (const line of spec.offscreenText) below.children.push(new DOMTextNode(line, true, below));
+    body.children.push(below);
+  }
   (spec.elements ?? []).forEach((element, index) => {
     const tag = element.tag ?? 'button';
     const node = new DOMElementNode({
@@ -252,7 +259,13 @@ export class FakeBrowserContext {
     },
     formCommitInfo: async (node?: DOMElementNode) => this.formFor(node),
     navigateTo: async (url: string) => this.act({ type: 'navigate', url }),
-    getCompletePageContent: async () => this.current.content ?? (this.current.text ?? []).join('\n'),
+    getCompletePageContent: async () => this.current.content ?? [...(this.current.text ?? []), ...(this.current.offscreenText ?? [])].join('\n'),
+    /** Scrolling does not change the page served. */
+    scrollToText: async (text: string) => {
+      this.actions.push({ type: 'scroll_to_text', text });
+      const content = this.current.content ?? [...(this.current.text ?? []), ...(this.current.offscreenText ?? [])].join('\n');
+      return content.toLowerCase().includes(text.toLowerCase());
+    },
     goBack: async () => this.act({ type: 'go_back' }),
     removeHighlight: async () => {},
     invalidateCache: () => {},
