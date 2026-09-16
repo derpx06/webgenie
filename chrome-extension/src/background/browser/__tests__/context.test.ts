@@ -239,4 +239,35 @@ describe('BrowserContext with Adapter Dependency Injection', () => {
       { id: 2, url: 'https://foo.com', title: 'Foo' },
     ]);
   });
+
+  it('lists a tab that is still opening by its pending URL', async () => {
+    tabsMap.set(2, { id: 2, url: '', pendingUrl: 'https://foo.com/item', status: 'loading' } as any);
+    tabsMap.set(3, { id: 3, url: '', status: 'loading' } as any);
+    const tabInfos = await context.getTabInfos();
+    expect(tabInfos.slice(1)).toEqual([
+      { id: 2, url: 'https://foo.com/item', title: 'https://foo.com/item' },
+      { id: 3, url: 'about:blank', title: 'about:blank' },
+    ]);
+  });
+
+  it('waits for a tab to finish loading when switching to it', async () => {
+    let updateListener: ((tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => void) | null = null;
+    mockAdapter.addTabUpdatedListener.mockImplementation((listener: typeof updateListener) => {
+      updateListener = listener;
+    });
+    tabsMap.set(2, { ...tabsMap.get(1)!, id: 2, url: 'https://foo.com/item', status: 'loading', active: false } as chrome.tabs.Tab);
+
+    let switched = false;
+    const switching = context.switchTab(2).then(page => {
+      switched = true;
+      return page;
+    });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(switched).toBe(false);
+
+    tabsMap.get(2)!.status = 'complete';
+    updateListener!(2, { status: 'complete' });
+    expect((await switching).tabId).toBe(2);
+    expect(context.getCurrentTabId()).toBe(2);
+  });
 });

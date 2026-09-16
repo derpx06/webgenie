@@ -248,6 +248,58 @@ describe('Page read right after a navigation', () => {
   });
 });
 
+describe('Page click that opens a tab', () => {
+  const clickable = (onRelease: () => void, adapter: Record<string, unknown>) => {
+    const page = new Page(7, 'https://example.com/', 'Example', {}, adapter as unknown as IBrowserAdapter);
+    const target = {
+      scrollIntoView: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn().mockResolvedValue(null),
+      clickablePoint: vi.fn().mockResolvedValue({ x: 5, y: 5 }),
+    };
+    const handle = { evaluateHandle: vi.fn().mockResolvedValue({ asElement: () => target }) };
+    const client = {
+      send: vi.fn(async (_method: string, params: { type: string }) => {
+        if (params.type === 'mouseReleased') onRelease();
+      }),
+    };
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _puppeteerPage: { evaluate: vi.fn().mockResolvedValue(undefined) },
+      _pageClient: () => client,
+    });
+    return { page, handle };
+  };
+
+  it('waits for the tab the page asked to open and reports it', async () => {
+    let created: ((tab: chrome.tabs.Tab) => void) | undefined;
+    const adapter = {
+      addTabCreatedListener: vi.fn(listener => (created = listener)),
+      removeTabCreatedListener: vi.fn(),
+    };
+    const { page, handle } = clickable(() => {
+      (page as unknown as { _windowOpened: boolean })._windowOpened = true;
+      setTimeout(() => created?.({ id: 99, openerTabId: 7 } as chrome.tabs.Tab), 30);
+    }, adapter);
+
+    Object.assign(page, { _requireHandle: vi.fn().mockResolvedValue(handle) });
+    const outcome = await page.clickNode(new DOMElementNode({ tagName: 'a', xpath: null, attributes: {}, children: [], isVisible: true }));
+
+    expect(outcome).toEqual({ dialog: undefined, fileChooser: false, newTabId: 99 });
+    expect(adapter.removeTabCreatedListener).toHaveBeenCalledWith(created);
+  });
+
+  it('does not wait after a click that opened nothing', async () => {
+    const adapter = { addTabCreatedListener: vi.fn(), removeTabCreatedListener: vi.fn() };
+    const { page, handle } = clickable(() => undefined, adapter);
+    Object.assign(page, { _requireHandle: vi.fn().mockResolvedValue(handle) });
+
+    const startedAt = Date.now();
+    const outcome = await page.clickNode(new DOMElementNode({ tagName: 'button', xpath: null, attributes: {}, children: [], isVisible: true }));
+
+    expect(outcome.newTabId).toBeUndefined();
+    expect(Date.now() - startedAt).toBeLessThan(500);
+  });
+});
+
 describe('pointerTarget', () => {
   const element = (width: number, height: number, extra: Record<string, unknown> = {}) =>
     ({ getBoundingClientRect: () => ({ width, height }), querySelectorAll: () => [], labels: null, ...extra }) as unknown as Element;

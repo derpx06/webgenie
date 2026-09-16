@@ -221,6 +221,8 @@ export default class BrowserContext {
   public async switchTab(tabId: number): Promise<Page> {
     logger.info('switchTab', tabId);
     await this._browserAdapter.updateTab(tabId, { active: true });
+    // A tab a click just opened is still loading: reading it now showed a blank page.
+    await this.waitForTabEvents(tabId).catch(() => logger.warning(`switchTab: tab ${tabId} is still loading, continuing`));
     const page = await this._getPage(await this._browserAdapter.getTab(tabId));
     this._currentTabId = tabId;
     return page;
@@ -287,9 +289,12 @@ export default class BrowserContext {
 
   public async getTabInfos(): Promise<TabInfo[]> {
     const tabs = await this._browserAdapter.queryTabs({});
-    return tabs
-      .filter((tab): tab is chrome.tabs.Tab & { id: number; url: string } => Boolean(tab.id && tab.url))
-      .map(tab => ({ id: tab.id, url: tab.url, title: tab.title || tab.url }));
+    // A tab that has not committed its first page yet has only a pendingUrl; left out, a click that opened it read as
+    // "the page did not visibly change".
+    return tabs.flatMap(tab => {
+      const url = tab.url || tab.pendingUrl || (tab.status === 'loading' ? 'about:blank' : '');
+      return tab.id && url ? [{ id: tab.id, url, title: tab.title || url }] : [];
+    });
   }
 
   /** The last page read while it is still current (not invalidated, same URL); otherwise a new read. */

@@ -41,6 +41,9 @@ const logger = createLogger('Page');
 /** Navigations wait for the document to be parsed; the next page read waits for the network to go idle. */
 const NAVIGATION_OPTIONS = { waitUntil: 'domcontentloaded' as const, timeout: 15000 };
 
+/** How long a gesture that asked for a new window waits for the browser to create its tab. */
+const NEW_TAB_WAIT_MS = 2000;
+
 /**
  * Runs in the page: the body's text, then the rendered text of each open shadow root (slotted content included),
  * labelled with its host like frames are, so text a web component renders is readable and locatable.
@@ -116,6 +119,8 @@ const inspectForm = (start: Element | null): FormCommitInfo => {
 export interface MouseOutcome {
   dialog?: PageDialog;
   fileChooser: boolean;
+  /** The tab the gesture opened, once the browser has created it. */
+  newTabId?: number;
 }
 
 export interface InputOutcome {
@@ -453,6 +458,8 @@ export default class Page {
   /** True while navigateTo/goBack/goForward/refreshPage run, so their own beforeunload prompt is accepted. */
   private _agentNavigating = false;
   private _fileChooserOpened = false;
+  /** The page asked for a new window or tab (window.open, a target=_blank link or form) since the last gesture began. */
+  private _windowOpened = false;
   /** The file input of the last chooser the page opened (intercepted), for uploadFile. */
   private _fileChooserNode: number | null = null;
   private _browserAdapter: IBrowserAdapter;
@@ -590,6 +597,9 @@ export default class Page {
       await client.send('Emulation.setFocusEmulationEnabled', { enabled: true });
       // A native file picker would block the tab; the agent is told about the chooser instead.
       await client.send('Page.setInterceptFileChooserDialog', { enabled: true });
+      client.on('Page.windowOpen', () => {
+        this._windowOpened = true;
+      });
       client.on('Page.fileChooserOpened', event => {
         this._fileChooserOpened = true;
         this._fileChooserNode = event.backendNodeId ?? null;
@@ -1437,6 +1447,32 @@ export default class Page {
     const client = this._pageClient();
     const button = kind === 'right' ? 'right' : 'left';
     this._fileChooserOpened = false;
+    this._windowOpened = false;
+    // Tabs created while the gesture runs; a tab this one opens is created asynchronously, often after the click is
+    // acknowledged, and a check made at that moment missed it.
+    const createdTabs: chrome.tabs.Tab[] = [];
+    const onTabCreated = (tab: chrome.tabs.Tab) => void createdTabs.push(tab);
+    this._browserAdapter.addTabCreatedListener(onTabCreated);
+    try {
+      const outcome = await this._sendMouseEvents(client, kind, button, x, y, clickCount);
+      if (kind !== 'hover' && !outcome.dialog && this._windowOpened) {
+        for (const startedAt = Date.now(); createdTabs.length === 0 && Date.now() - startedAt < NEW_TAB_WAIT_MS; ) await sleep(50);
+      }
+      const opened = createdTabs.find(tab => tab.openerTabId === this._tabId) ?? (this._windowOpened ? createdTabs[0] : undefined);
+      return opened?.id !== undefined ? { ...outcome, newTabId: opened.id } : outcome;
+    } finally {
+      this._browserAdapter.removeTabCreatedListener(onTabCreated);
+    }
+  }
+
+  private async _sendMouseEvents(
+    client: CDPSession,
+    kind: 'click' | 'right' | 'hover',
+    button: 'left' | 'right',
+    x: number,
+    y: number,
+    clickCount: number,
+  ): Promise<MouseOutcome> {
     const events: Promise<unknown>[] = [client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })];
     if (kind !== 'hover') {
       for (let count = 1; count <= clickCount; count++) {
