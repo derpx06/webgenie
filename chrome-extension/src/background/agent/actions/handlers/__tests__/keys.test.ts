@@ -51,7 +51,7 @@ describe('send_keys', () => {
 describe('input_text submit', () => {
   const typed = { matched: true, secret: false, actualLength: 5, actual: 'hello' };
 
-  it('presses Enter in the field after typing, and points at suggestions of an autocomplete field', async () => {
+  it('presses Enter in the field after typing', async () => {
     const field = node(2, { role: 'combobox' });
     const page = {
       getCurrentState: vi.fn(async () => ({ selectorMap: new Map([[2, field]]) })),
@@ -64,7 +64,6 @@ describe('input_text submit', () => {
     expect(page.sendKeys).toHaveBeenCalledWith('Enter', field);
     expect(page.inputTextNode.mock.invocationCallOrder[0]).toBeLessThan(page.sendKeys.mock.invocationCallOrder[0]);
     expect(result.extractedContent).toContain('You typed "hello" into [2] and pressed Enter');
-    expect(result.extractedContent).toContain('This field offers suggestions');
   });
 
   it('only types without submit', async () => {

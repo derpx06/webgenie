@@ -154,10 +154,8 @@ export class InteractionHandler extends BaseHandler {
     const shown = outcome.secret ? '•'.repeat(input.text.length) : input.text;
     const msg = t('act_inputText_ok', [shown, input.index.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    const suggests = node.attributes.role === 'combobox' || /^(list|both)$/.test(node.attributes.autocomplete ?? node.attributes['aria-autocomplete'] ?? '');
-    const hint = suggests ? ' This field offers suggestions: to use one, click it in the browser state instead of pressing Enter.' : '';
     return new ActionResult({
-      extractedContent: ownAction(`You typed "${shown}" into [${input.index}]${input.submit ? ' and pressed Enter' : ''}`) + hint,
+      extractedContent: ownAction(`You typed "${shown}" into [${input.index}]${input.submit ? ' and pressed Enter' : ''}`),
       includeInMemory: true,
       evidence: [
         {

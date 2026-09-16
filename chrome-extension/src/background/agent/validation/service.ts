@@ -3,7 +3,7 @@ import type { DOMElementNode } from '../../browser/dom/views';
 import type { FormCommitInfo } from '../../browser/page';
 import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
-import { ensureBrowserObservation } from './observation';
+import { ensureBrowserObservation, visibleContentKey } from './observation';
 
 export interface NormalizedIndexedAction {
   ok: boolean;
@@ -589,6 +589,28 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
           'none',
           [evidence('target_state', true, 'The target element changed state.', beforeTargetState, afterTargetState)],
         );
+      }
+    }
+    // A click that only moved the address fragment (an in-page anchor, an overlay's #hash) or reloaded the same address
+    // into the same content did nothing the task can use; passing it hid that from the model in live runs.
+    if (actionName === 'click_element' && readable && !openedNewTab && (changedUrl || docChanged)) {
+      const withoutFragment = (url: string) => url.split('#')[0];
+      const sameAddress = withoutFragment(before.url) === withoutFragment(after.url)
+        && withoutFragment(activeTabUrl(before)) === withoutFragment(activeTabUrl(after));
+      if (sameAddress && visibleContentKey(before) === visibleContentKey(after)) {
+        const fragment = (url: string) => (url.includes('#') ? url.slice(url.indexOf('#')) : 'none');
+        const message = changedUrl
+          ? `The click only changed the address fragment (${fragment(before.url)} to ${fragment(after.url)}); the page content did not change.`
+          : 'The click left the page at the same address with the same content as before (it was re-rendered or reloaded, nothing else).';
+        const unchanged = cloneWithValidation(
+          result,
+          'unknown',
+          'retry_reobserve',
+          [evidence(changedUrl ? 'url_change' : 'document_change', false, message, before.url, after.url)],
+          `${message} Do not count it as progress; check the page and try another element or route.`,
+        );
+        unchanged.extractedContent = `${result.extractedContent ?? ''} ${message}`.trim();
+        return unchanged;
       }
     }
     if (changedUrl || docChanged || contentChanged || openedNewTab) {

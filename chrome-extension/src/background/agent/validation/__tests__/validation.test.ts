@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ActionResult } from '../../types';
 import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type { BrowserState } from '../../../browser/views';
-import { appearedText, createBrowserObservation } from '../observation';
+import { appearedText, createBrowserObservation, listElements, revealedControls } from '../observation';
 import type { ValidationEvidence } from '../types';
 import {
   amountBefore,
@@ -564,5 +564,58 @@ describe('appearedText', () => {
     const before = page('Login Page', 'Username');
     const after = page('Login Page', 'Username', '  Your password is invalid!  ', 'ok', 'x'.repeat(300), 'Login Page');
     expect(appearedText(before, after)).toEqual(['Your password is invalid!']);
+  });
+});
+
+describe('click outcomes that change nothing useful', () => {
+  const click = (before: BrowserState, after: BrowserState) =>
+    validateActionOutcome({
+      actionName: 'click_element',
+      actionArgs: { index: 1 },
+      before,
+      after,
+      result: new ActionResult({ executed: true, executionStatus: 'executed', extractedContent: 'You clicked [1]' }),
+    });
+
+  it('does not pass a click that only changed the address fragment, and says so', () => {
+    const moved = 'https://example.com/start#vignette';
+    const result = click(state(), state({ url: moved, tabs: [{ id: 7, url: moved, title: 'Start' }] }));
+
+    expect(result.validated).toBe('unknown');
+    expect(result.extractedContent).toContain('only changed the address fragment (none to #vignette)');
+    expect(result.failureReason).toContain('Do not count it as progress');
+  });
+
+  it('does not pass a reload into the same address and content, but passes one whose content changed', () => {
+    const reloaded = state({ selectorMap: new Map([[1, element(1, { backendNodeId: 555 })]]) });
+    expect(click(state(), reloaded).validated).toBe('unknown');
+    expect(click(state(), reloaded).extractedContent).toContain('same address with the same content');
+
+    const updated = state({ selectorMap: new Map([[1, element(1, { backendNodeId: 555, attributes: { 'aria-label': 'Added' } })]]) });
+    expect(click(state(), updated).validated).toBe('passed');
+  });
+});
+
+describe('revealed controls', () => {
+  it('sorts new elements into options, dialog content and new fields, ignoring a re-rendered field', () => {
+    const name = element(1, { tagName: 'input', attributes: { 'aria-label': 'Name' } });
+    const before = state({ selectorMap: new Map([[1, name]]) });
+    const dialog = new DOMElementNode({ tagName: 'div', xpath: null, attributes: { role: 'dialog' }, children: [], isVisible: true });
+    const inDialog = element(5, { attributes: { 'aria-label': 'Close' } });
+    inDialog.parent = dialog;
+    const revealed = [
+      element(2, { tagName: 'li', attributes: { role: 'option', 'aria-label': 'Paris' } }),
+      element(3, { tagName: 'input', attributes: { 'aria-label': 'Name' }, backendNodeId: 900 }),
+      element(4, { tagName: 'input', attributes: { 'aria-label': 'Email' } }),
+      inDialog,
+      element(6, { tagName: 'a', attributes: { 'aria-label': 'Help' } }),
+    ];
+
+    const controls = revealedControls(before, revealed);
+
+    expect(controls.options.map(node => node.highlightIndex)).toEqual([2]);
+    expect(controls.fields.map(node => node.highlightIndex)).toEqual([4]);
+    expect(controls.dialog.map(node => node.highlightIndex)).toEqual([5]);
+    expect(listElements(revealed, 2)).toBe('[2] "Paris", [3] "Name" and 3 more');
   });
 });

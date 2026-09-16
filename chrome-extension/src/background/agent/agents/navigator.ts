@@ -17,7 +17,7 @@ import { NavigatorActionRegistry } from './navigator/registry';
 export { NavigatorActionRegistry };
 import { HistoryReplayer } from './navigator/replay';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
-import { appearedText, ensureBrowserObservation, newElements } from '../validation/observation';
+import { appearedText, elementKey, ensureBrowserObservation, listElements, newElements, revealedControls } from '../validation/observation';
 import {
   addressKey,
   amountBefore,
@@ -70,6 +70,17 @@ const intentCheckSchema: ActionSchema = {
 };
 const INTENT_CHECK_TOOLS = buildToolDefinitions([intentCheckSchema]);
 const INTENT_CHECK_VALIDATORS = buildToolValidators([intentCheckSchema]);
+
+/** Text that appears after typing and reads as the field's complaint, not as content. */
+const FIELD_MESSAGE = /\b(must|required|invalid|please (select|choose|enter|pick)|select (one |an? |a valid )?\w* from|not (valid|found|recognized|recognised|available)|error|no (results|matches|suggestions))\b/i;
+
+/** Whether a field offers suggestions while typing (a combobox, an autocomplete list). */
+function offersSuggestions(node: DOMElementNode | undefined): boolean {
+  const attributes = node?.attributes ?? {};
+  return attributes.role === 'combobox'
+    || /^(list|both|inline)$/.test(attributes['aria-autocomplete'] ?? '')
+    || attributes['aria-haspopup'] === 'listbox';
+}
 
 /** Actions that still work while a JavaScript dialog blocks the page. */
 const DIALOG_SAFE_ACTIONS = new Set(['handle_dialog', 'ask_human', 'done']);
@@ -818,7 +829,9 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // Typing often changes the page after a short delay (suggestions, inline validation). The read after a step's
         // last typing action is what the next model call sees, so it waits for that instead of costing a wait step.
         // ponytail: fixed 500 ms, covers common debounces; a mutation-quiet wait if slower widgets need it.
-        if (actionName === 'input_text' && i === actions.length - 1 && !result.error) {
+        // A field that offers suggestions waits too, wherever it is in the batch: its suggestions are listed in the result.
+        const suggests = actionName === 'input_text' && offersSuggestions(typedNode) && (actionArgs as { submit?: unknown }).submit !== true;
+        if (actionName === 'input_text' && (i === actions.length - 1 || suggests) && !result.error) {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
         const postActionState = !mutating
@@ -847,15 +860,35 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           // A field's own value is not a message: drop what was just typed and masked password dots.
           ? appearedText(beforeState, postActionState).filter(text => text !== typed && !/^•+$/.test(text))
           : [];
+        // What appeared, by kind: suggestions for a typed value, a menu or a dialog a click opened, a field's complaint.
+        const revealed = mutating && !result.error ? newElements(beforeState, postActionState) : [];
+        const controls = revealedControls(beforeState, revealed);
+        const notes: string[] = appeared.length > 0 ? [`New text on the page: ${appeared.map(text => JSON.stringify(text)).join('; ')}.`] : [];
+        if (suggests && !result.error) {
+          const shown = controls.options.length > 0
+            ? controls.options
+            : [...postActionState.selectorMap.values()].filter(node => /^(option|menuitem)$/.test(node.attributes.role ?? '') && node.isInViewport);
+          notes.push(shown.length > 0
+            ? `Suggestions: ${listElements(shown)}. Click the one that matches instead of pressing Enter; if none matches, try a shorter or different form of the value once.`
+            : 'No suggestions appeared for this text.');
+        } else if (controls.options.length > 0) {
+          notes.push(`A menu or list opened: ${listElements(controls.options)}.`);
+        }
+        if (controls.dialog.length > 0) notes.push(`A dialog opened with: ${listElements(controls.dialog)}.`);
+        if (actionName === 'input_text' && !result.error) {
+          const complaints = appeared.filter(text => FIELD_MESSAGE.test(text));
+          if (complaints.length > 0) notes.push(`The page answered the typing with: ${complaints.map(text => JSON.stringify(text)).join('; ')}. Fix what it asks before going on.`);
+          const key = typedNode ? elementKey(typedNode) : null;
+          const field = key ? [...postActionState.selectorMap.values()].find(node => elementKey(node) === key) : undefined;
+          if (field?.attributes['aria-invalid'] === 'true') notes.push('The field is now marked invalid.');
+        }
         result = new ActionResult({
           ...result,
           contractId,
           actionId,
           validationId,
           observationId: result.observationId ?? beforeObservation.id,
-          extractedContent: appeared.length > 0
-            ? `${result.extractedContent ?? ''} New text on the page: ${appeared.map(text => JSON.stringify(text)).join('; ')}.`.trim()
-            : result.extractedContent,
+          extractedContent: notes.length > 0 ? `${result.extractedContent ?? ''} ${notes.join(' ')}`.trim() : result.extractedContent,
         });
         // Scrolling on and on for something already listed (Online-Mind2Web: 7 of 35 tasks scrolled 4+ times in a row, one
         // 21 times, for a filter it could use by index) gets a note from the fourth scroll on.
@@ -979,11 +1012,17 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           break;
         }
 
-        // New controls (suggestions, a menu, a dialog) change what the rest of the batch should do: look at them first.
-        const revealed = mutating && i < actions.length - 1 ? newElements(beforeState, postActionState) : [];
-        if (revealed.length > 0) {
-          logger.info(`Action ${i + 1} (${actionName}) revealed ${revealed.length} new elements; the remaining actions wait for the next step.`);
-          result.extractedContent = `${result.extractedContent ?? ''} New elements appeared, so the rest of this response was not run.`.trim();
+        // Suggestions, a menu, a dialog or new form fields change what the rest of the batch should do: look at them first.
+        // Anything else that appeared (a validation message's link, a counter) does not: 17 of 19 form tasks in one batch
+        // lost a step per field when every new element stopped the batch.
+        const blocking = [
+          controls.options.length > 0 ? 'options or menu items' : '',
+          controls.dialog.length > 0 ? 'a dialog' : '',
+          controls.fields.length > 0 ? 'new form fields' : '',
+        ].filter(Boolean);
+        if (i < actions.length - 1 && blocking.length > 0) {
+          logger.info(`Action ${i + 1} (${actionName}) revealed ${blocking.join(', ')}; the remaining actions wait for the next step.`);
+          result.extractedContent = `${result.extractedContent ?? ''} It revealed ${blocking.join(', ')}, so the rest of this response was not run.`.trim();
           break;
         }
 

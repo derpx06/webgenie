@@ -70,6 +70,83 @@ export function newElements(before: BrowserState | undefined, after: BrowserStat
   });
 }
 
+const OPTION_ROLE = /^(option|listbox|menu|menuitem|menuitemcheckbox|menuitemradio)$/;
+const FIELD_ROLE = /^(textbox|searchbox|combobox|checkbox|radio|spinbutton|slider|switch)$/;
+const FIELD_TAG = /^(input|select|textarea)$/;
+
+/** What a person reads as an element's name: its accessible name, else its text, else its value. */
+export function elementLabel(node: DOMElementNode): string {
+  return (node.attributes['aria-label'] || node.getAllTextTillNextClickableElement(2) || node.attributes.value || node.attributes.placeholder || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+}
+
+function inDialog(node: DOMElementNode): boolean {
+  for (let current: DOMElementNode | null = node; current; current = current.parent) {
+    if (/^(dialog|alertdialog)$/.test(current.attributes.role ?? '') || current.tagName === 'dialog') return true;
+  }
+  return false;
+}
+
+const fieldSignature = (node: DOMElementNode) =>
+  // The value is left out: typing changes it.
+  [node.tagName, node.attributes.role, node.attributes.type, node.attributes.name, node.attributes['aria-label'], node.attributes.placeholder].join('|');
+
+export interface RevealedControls {
+  /** Suggestions, options and menu items. */
+  options: DOMElementNode[];
+  /** Elements inside a dialog. */
+  dialog: DOMElementNode[];
+  /** Form fields the earlier read had no field like (same tag, role, type, name and label): a re-rendered form is not new. */
+  fields: DOMElementNode[];
+}
+
+/**
+ * Sorts new elements (see newElements) into the kinds the next action may have to handle first. Everything else that
+ * appears (a link in a validation message, a counter) is incidental.
+ */
+export function revealedControls(before: BrowserState, revealed: DOMElementNode[]): RevealedControls {
+  const knownFields = new Set([...before.selectorMap.values()].map(fieldSignature));
+  return {
+    options: revealed.filter(node => OPTION_ROLE.test(node.attributes.role ?? '') || node.tagName === 'option'),
+    dialog: revealed.filter(inDialog),
+    fields: revealed.filter(
+      node => (FIELD_ROLE.test(node.attributes.role ?? '') || FIELD_TAG.test(node.tagName ?? '')) && !knownFields.has(fieldSignature(node)),
+    ),
+  };
+}
+
+/** Elements as `[index] "label"`, at most `max`, with a count of the rest. */
+export function listElements(nodes: DOMElementNode[], max = 5): string {
+  const shown = nodes.slice(0, max).map(node => `[${node.highlightIndex}] ${JSON.stringify(elementLabel(node))}`).join(', ');
+  return nodes.length > max ? `${shown} and ${nodes.length - max} more` : shown;
+}
+
+const contentKeys = new WeakMap<BrowserState, string>();
+
+/**
+ * What the page shows, whatever its address and element identities: title, elements (role, name, tag, text, state) and
+ * text. A fragment-only address change or a reload into the same content leaves it unchanged.
+ */
+export function visibleContentKey(state: BrowserState): string {
+  let key = contentKeys.get(state);
+  if (key === undefined) {
+    key = stableHash({
+      title: state.title,
+      targets: [...state.selectorMap.values()].map(node => [
+        node.attributes.role,
+        node.tagName,
+        elementLabel(node),
+        STATE_ATTRIBUTES.map(name => node.attributes[name] ?? '').join('|'),
+      ]),
+      text: pageText(state.elementTree),
+    });
+    contentKeys.set(state, key);
+  }
+  return key;
+}
+
 /** All text of a page read, in document order. */
 export function visibleText(state: BrowserState): string {
   return pageText(state.elementTree);
