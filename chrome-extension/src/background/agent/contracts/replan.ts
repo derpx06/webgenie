@@ -50,7 +50,7 @@ function goalWords(goal: string): Set<string> {
   return new Set(
     goal
       .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/[!-/:-@[-`{-~“”‘’…]+/g, ' ')
       .split(/\s+/)
       .filter(word => (word.length > 2 || /\d/.test(word)) && !GOAL_STOPWORDS.has(word)),
   );
