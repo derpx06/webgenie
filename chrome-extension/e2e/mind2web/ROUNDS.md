@@ -197,3 +197,51 @@ Risks for the gate to watch:
 The live smoke test and both gates wait for round 1 to finish: a sixth browser next to round 1's five made the machine
 thrash. Memory does not allow a sixth browser
 next to round 1's five.
+
+## Round 1 trace review, all 247 measurable tasks (2026-09-17)
+
+Every task that was not excluded got a review in `results/mind2web-r1-a920989/reviews/<task_id>.json`, successes
+included: answer check, wasted steps, root cause, better strategy, fixes already made since a920989 and new general
+improvements with evidence. `reviews/harness-audit.json` checks the 53 blocked or down tasks and the harness.
+
+- **Answers (reviewer's reading of the trace, not the judge):**
+
+  | Outcome | Reviews | Verdicts |
+  | --- | --- | --- |
+  | `task.ok` | 179 | 93 correct, 41 partially correct, 21 wrong, 10 no answer, 10 honest refusals, 4 unclear |
+  | `limit_tokens` | 45 | all no answer |
+  | `task.fail` | 22 | all no answer |
+  | `limit_steps` | 1 | no answer |
+
+- **Steps:** 3,914 taken, where the reviewers estimate 1,653 would have done.
+- **Blocked tasks:** 51 of 53 correctly excluded. 8 scored tasks ended on a bot check.
+- **Rate-limit waits:** 44% of task time.
+- **Improvements proposed, by area:**
+
+  | Area | Count |
+  | --- | --- |
+  | planner | 114 |
+  | tools | 83 |
+  | harness | 76 |
+  | validation | 71 |
+  | perception | 70 |
+  | prompts | 68 |
+  | navigator | 49 |
+  | efficiency | 33 |
+
+Harness fixes made from the review (commits since `1edfcd7`):
+- **Screenshots** (`c785fad`, `1725707`):
+  - taken from the tab the agent works in;
+  - taken after the page renders, plus one when the task ends;
+  - past the cap, the newest replaces the last.
+- **Personal details and sign-ins:** these questions are answered that none are given. The old answer, "Proceed with any reasonable choice", led the agent to make up contact details (`c785fad`).
+- **Human-check wording:** "confirm you are human" counts as a refusal page (`c785fad`).
+- **Result records:** each result records the harness commit, limits, models, region, language and time zone (`c785fad`, `83e21a2`).
+- **Summary:** `summary.json` covers the whole folder (`c785fad`).
+- **Locale:** the browser runs as a US user, `E2E_LANG=en-US` and `E2E_TZ=America/New_York` (`83e21a2`). The machine's en-IN locale and Kolkata clock had served regional pages and shifted dates.
+
+**Consequence for comparisons:** round 1's screenshots were taken before pages rendered, and it ran with the machine's locale. A round on the new harness therefore is not compared with round 1 directly. Its baseline is the same tasks re-run on build a920989 with the new harness.
+
+Judge: full WebJudge. Verdicts use gemini-2.5-pro; key points and screenshot scores use gemini-3-flash-preview; 4 tasks are judged at a time. Every call is stored per task in `judgment.md` and `judge-calls.jsonl`.
+
+Round 1 judging paused at 18:31 on 2026-09-17: uploads ran at 2.7 KB/s with 1.3–3 s ping, and a watcher resumes the judge when uploads pass 150 KB/s.
