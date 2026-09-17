@@ -183,7 +183,8 @@ async function limited(fn) {
 async function generate(stage, system, text, images = []) {
   let refreshed = false;
   for (let attempt = 0; ; attempt++) {
-    const callModel = stage === 'image' && opts['image-model'] ? opts['image-model'] : model;
+    // Only the verdict needs the judge model: key points (text extraction) and screenshot scores use --image-model.
+    const callModel = stage !== 'outcome' && opts['image-model'] ? opts['image-model'] : model;
     const reply = await limited(async () => {
       const parts = [{ text }];
       for (const file of images) {
