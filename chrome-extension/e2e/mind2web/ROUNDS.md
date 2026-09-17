@@ -245,3 +245,26 @@ Harness fixes made from the review (commits since `1edfcd7`):
 Judge: full WebJudge. Verdicts use gemini-2.5-pro; key points and screenshot scores use gemini-3-flash-preview; 4 tasks are judged at a time. Every call is stored per task in `judgment.md` and `judge-calls.jsonl`.
 
 Round 1 judging paused at 18:31 on 2026-09-17: uploads ran at 2.7 KB/s with 1.3–3 s ping, and a watcher resumes the judge when uploads pass 150 KB/s.
+
+## Round 2 gate: candidate 6347e1c against baseline a920989, same harness (started 2026-09-17 14:16 UTC)
+
+Candidate `6347e1c`: round 1's build plus every agent fix from the trace review, 428 unit tests.
+
+| Area | Fixes |
+| --- | --- |
+| Prompts | Only registered tools are mentioned (no web search when it is blocked); today's date leads the state; answers keep the values already found; "none exist" needs criteria really applied |
+| Commit gate | Links, and buttons that only open a menu or dialog, are not commits |
+| Rate limits | No hedged duplicate request while a model is rate-limited |
+| Perception | A slow large page gets a second, longer read and is never called empty |
+| Clicks | Hidden unlabelled checkboxes are clicked through their visible wrapper; before refusing a covered click, four inner points are tried and the page is scrolled and checked again; the target's own dialog is never blamed; an empty box is clicked through |
+| Validation | A scroll that cannot move costs no failure budget; only progress refills the failure budget; a link click caught by an overlay is not a navigation; selects are judged by the address |
+| Navigator | A made-up personal value never becomes known through the agent's own messages; indexes the page read did not show are refused; rewording a search box is allowed |
+| Executor | No look-before-asking re-plan once done; a task ended by its failure budget reports its best answer |
+
+Tasks: 60, seeded (20260917) from the round 1 reviews. 40 were not answered correctly (20 `task.ok`, 17 `limit_tokens`, 3 `task.fail`) and 20 were answered correctly (`e2e/results/gate-r2-selection.json`).
+
+Runs:
+- `mind2web-r2-base-a920989` (round 1's build).
+- `mind2web-r2-cand-6347e1c`.
+
+Both runs use the new harness (US locale, screenshots of the agent's tab once rendered), one worker each at the same time, so they share network conditions and quota. `JUDGE=0`: both are judged afterwards with the same judge. The candidate is kept if it improves over the baseline with no regressions that the traces confirm (`compare.mjs`).
