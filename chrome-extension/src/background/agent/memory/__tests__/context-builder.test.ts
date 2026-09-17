@@ -6,6 +6,7 @@ import { ActionResult, AgentContext } from '../../types';
 import type BrowserContext from '../../../browser/context';
 import type { EventManager } from '../../event/manager';
 import { ContextBuilder, localDateTime } from '../in-chat/context-builder';
+import { PlannerPrompt } from '../../prompts/planner';
 
 function makeContext() {
   const messageManager = new MessageManager(undefined, null);
@@ -134,6 +135,30 @@ describe('ContextBuilder packets', () => {
 
     expect(second[0]).toBe(first[0]);
     expect(text(second[1])).toBe(text(first[1]));
+  });
+
+  /**
+   * The planner reports a cache hit on 2% of its calls against the navigator's 83% (r2-cand: 8 of 339 vs 893 of 1029,
+   * and its own hits are duplicate requests of one call). This pins down what is ours: the planner's prefix is the
+   * system prompt and the user's messages, byte for byte the same from one call to the next, with everything that
+   * changes (today's date, the plan, findings, the page) in the last message. What is left is the provider's
+   * implicit cache, which takes the navigator's ~5k-token prefix (system prompt + 34 tool schemas) and not the
+   * planner's ~3k one (system prompt + the single plan tool).
+   */
+  it('keeps the planner prefix byte-identical between calls, so a provider can cache it', () => {
+    const { context, messageManager } = makeContext();
+    const tools = new Set(['done', 'click_element', 'scroll']);
+    messageManager.addTask('find the cheapest flight');
+    const first = ContextBuilder.buildContextPacket(context, new PlannerPrompt(tools).getSystemMessage(), state(1), 'planner');
+
+    messageManager.addToolTurn([call('a', 'click_element', { index: 3 })], [new ActionResult({ extractedContent: 'Clicked' })]);
+    context.findings.push('Flight A: $120');
+    const second = ContextBuilder.buildContextPacket(context, new PlannerPrompt(tools).getSystemMessage(), state(2), 'planner');
+
+    const prefix = (packet: BaseMessage[]) => packet.slice(0, -1).map(message => JSON.stringify(message.toDict()));
+    expect(prefix(second)).toEqual(prefix(first));
+    expect(prefix(second)).toHaveLength(2);
+    expect(text(second[second.length - 1])).toContain('Flight A: $120');
   });
 
   it('gives the planner the steps as text and no tool-call messages', () => {
