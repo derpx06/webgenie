@@ -42,6 +42,17 @@ export function doneEvidence(context: AgentContext, answer: string, success: boo
 
 /** An answer saying something is not there. */
 const ABSENCE = /\b(no (results?|matches|matching|items?|products?|listings?|records?)\b|not found|no\b[^.]{0,40}\b(was|were) found|there (is|are|was|were) no\b|nothing (was )?found|no such|(could ?n[o']?t|cannot|can't|unable to|did ?n[o']?t) (find|locate)|(does|do) ?n[o']?t (exist|have))/i;
+/** An answer saying the task cannot be done ("this site cannot…", "I am unable to…", "is not possible"). */
+const GIVES_UP = /\b(can ?not|can't|could ?n[o']?t|unable to|not (?:possible|able to)|(?:does|do) ?n[o']?t (?:support|offer|allow|provide))\b/i;
+
+/**
+ * Whether a planner's done gives the task up before any step was taken on a web page. A live planner answered at step 0,
+ * from the start address alone, that a job site "is for jobs in Ohio, I cannot search New York" without looking at it.
+ */
+export function givesUpUnseen(context: AgentContext, answer: string): boolean {
+  return context.nSteps === 0 && /^https?:/i.test(context.promptState?.url ?? '') && GIVES_UP.test(answer);
+}
+
 /** A page saying its search or listing came back empty. */
 const EMPTY_RESULTS = /\b(no (results?|matches|matching)|0 (results?|matches|items)|nothing (was )?found|not found|did ?n[o']?t match|could ?n[o']?t find|returned no)\b/i;
 

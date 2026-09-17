@@ -1134,6 +1134,38 @@ describe('Requirements the task sets', () => {
   });
 });
 
+describe('A task given up before any step', () => {
+  const home = { url: 'https://jobs.test/', title: 'Job search', text: ['Search jobs'], elements: [{ tag: 'input', text: 'Keywords' }] };
+  const task = 'Find a logistics job near zip 11005';
+  const giveUp = planDone('This site only lists jobs in one state, so I cannot search near zip 11005.');
+
+  it('sends a done that gives up at step 0 back once, to look at the site first', async () => {
+    const h = createHarness({
+      task,
+      pages: [home],
+      planner: [giveUp, plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the search form' }), planDone('No logistics job is listed near 11005.')],
+      navigator: [done('The site has a keyword search with a location field.')],
+    });
+
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner', 'navigator', 'planner']);
+    expect(textOf(h.llm.requestsFor('planner')[1].messages)).toContain('no step has been taken on the page yet');
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+  });
+
+  it('accepts the same give-up the second time, and never refuses an answer that does not give up', async () => {
+    const twice = createHarness({ task, pages: [home], planner: [giveUp, giveUp] });
+    await settle(twice.executor.execute());
+    expect(twice.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner']);
+    expect(twice.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+
+    const answered = createHarness({ task: 'What is 2 + 2?', pages: [home], planner: [planDone('4')] });
+    await settle(answered.executor.execute());
+    expect(answered.llm.requests.map(request => request.agent)).toEqual(['planner']);
+  });
+});
+
 describe('An answer that something is missing', () => {
   const results = { url: 'https://shop.test/search?q=lamp', title: 'Search', text: ['Showing products'], elements: [{ text: 'Desk' }, { text: 'Chair' }] };
   const task = 'Is there a brass lamp for sale?';

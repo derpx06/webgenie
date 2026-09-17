@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnread, doneEvidence, reportedValues, searchOnlyEvidence, staleRequirements } from './validation/done-evidence';
+import { absenceUnread, doneEvidence, givesUpUnseen, reportedValues, searchOnlyEvidence, staleRequirements } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -105,6 +105,7 @@ export class Executor {
   private evidenceRechecked = false;
   /** Whether a done was already sent back for requirements "applied" only through the search text. */
   private searchEvidenceRefused = false;
+  private unseenGiveUpRefused = false;
   constructor(
     task: string,
     taskId: string,
@@ -182,6 +183,7 @@ export class Executor {
     this.context.absenceChecked = false;
     this.evidenceRechecked = false;
     this.searchEvidenceRefused = false;
+    this.unseenGiveUpRefused = false;
     this.goalRepeats.progress();
     this.mustFinish = false;
 
@@ -202,6 +204,11 @@ export class Executor {
     const pending = requirements.filter(item => item.status === 'pending').map(item => item.requirement);
     // Told to finish after a goal kept failing: the done ends the task, with what was not applied named below.
     if (this.mustFinish) return this.acceptCompletion(answer, pending);
+    // Given up before looking: once, the planner has to look at what the site offers first.
+    if (!this.unseenGiveUpRefused && givesUpUnseen(context, answer)) {
+      this.unseenGiveUpRefused = true;
+      return this.refuseCompletion(planOutput, 'Not done: no step has been taken on the page yet, so nothing shows the task cannot be done here. Plan a first step that looks at what the site offers for the task (its search, filters, menus or links), and finish only when the page shows it cannot be done.');
+    }
     // An answer quoting "Clicked button with index 2" reports what the agent did, not what the page shows. Two refusals
     // at most: a model that keeps quoting it should not burn the task's time limit.
     if (echoesActionResult(answer) && context.echoRejections < 2) {
