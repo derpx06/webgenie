@@ -38,6 +38,20 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'options',
 ];
 
+/** Longest address shown on an element line: `href` was 22% of the element block's characters in a live run. */
+const MAX_HREF_CHARS = 60;
+const HREF_HEAD_CHARS = 24;
+
+/**
+ * A long address keeps its start and, when it carries a query, its end: requirements are applied with `name=value`
+ * parameters and quoted as evidence (`validation/done-evidence.ts`), so the middle of the path is what goes.
+ */
+export function capHref(href: string, maxLength = MAX_HREF_CHARS): string {
+  if (href.length <= maxLength) return href;
+  if (!href.includes('?')) return capTextLength(href, maxLength);
+  return `${href.slice(0, HREF_HEAD_CHARS)}...${href.slice(HREF_HEAD_CHARS - maxLength)}`;
+}
+
 export abstract class DOMBaseNode {
   isVisible: boolean;
   parent: DOMElementNode | null;
@@ -352,13 +366,8 @@ export class DOMElementNode extends DOMBaseNode {
                  .map(([key, value]) => {
                    // A field's value and an element's label are what the model checks its work against: cut short,
                    // a typed address or a long option name cannot be verified.
-                   let capLimit = 30;
-                   if (key === 'href') {
-                     capLimit = 150;
-                   } else if (['aria-label', 'aria-description', 'placeholder', 'title', 'value', 'options'].includes(key)) {
-                     capLimit = 120;
-                   }
-                   const capped = capTextLength(value, capLimit);
+                   const capLimit = ['aria-label', 'aria-description', 'placeholder', 'title', 'value', 'options'].includes(key) ? 120 : 30;
+                   const capped = key === 'href' ? capHref(value) : capTextLength(value, capLimit);
                    const escaped = capped.replace(/"/g, '&quot;');
                    return `${key}="${escaped}"`;
                  })

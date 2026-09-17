@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DOMElementNode, DOMTextNode } from '../views';
+import { capHref, DOMElementNode, DOMTextNode } from '../views';
 
 describe('DOM Views Serialization Refinements', () => {
   it('should serialize off-screen elements with offscreen="true"', () => {
@@ -125,5 +125,28 @@ describe('heading text', () => {
     const lines = root.clickableElementsToString().split('\n').map(line => line.trim());
     expect(lines).toContain('# All products');
     expect(lines).toContain('Books to Scrape');
+  });
+});
+
+describe('long addresses on an element line', () => {
+  const long = 'https://shop.test/catalogue/category/books/mystery_3/index.html?sort=price_asc&page=2&rating=5';
+
+  it('keep the start and the query, and cut the middle of the path', () => {
+    const capped = capHref(long);
+
+    expect(capped).toBe('https://shop.test/catalo....html?sort=price_asc&page=2&rating=5');
+    expect(capped).toContain('rating=5');
+    expect(capped.length).toBeLessThanOrEqual(63);
+  });
+
+  it('cut the end of an address with no query, and leave a short one alone', () => {
+    expect(capHref('https://shop.test/catalogue/category/books/mystery_3/index.html')).toBe('https://shop.test/catalogue/category/books/mystery_3/index.h...');
+    expect(capHref('/catalogue/books/1')).toBe('/catalogue/books/1');
+  });
+
+  it('shortens the href on the element line', () => {
+    const link = new DOMElementNode({ tagName: 'a', xpath: '/a', attributes: { href: long }, children: [], isVisible: true, isInteractive: true, isTopElement: true, isInViewport: true, highlightIndex: 0 });
+
+    expect(link.clickableElementsToString(['href'])).toContain('href="https://shop.test/catalo....html?sort=price_asc&page=2&rating=5"');
   });
 });
