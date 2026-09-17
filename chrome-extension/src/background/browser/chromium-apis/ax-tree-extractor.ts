@@ -49,6 +49,8 @@ interface NodeLayout {
   y: number;
   width: number;
   height: number;
+  /** Corner radius in CSS pixels, so the overlay can glow in the element's own shape. */
+  radius?: number;
 }
 
 /** Layout of one document, in that document's coordinates (CSS pixels). */
@@ -82,7 +84,7 @@ export interface SnapshotDocument {
     isClickable?: { index: number[] };
     inputChecked?: { index: number[] };
   };
-  layout: { nodeIndex: number[]; bounds: number[][] };
+  layout: { nodeIndex: number[]; bounds: number[][]; styles?: number[][] };
   scrollOffsetX?: number;
   scrollOffsetY?: number;
 }
@@ -145,6 +147,24 @@ const INTERNAL_PROPERTIES = new Set(['focusable', 'focused', 'editable', 'settab
 /** DOM attributes the accessibility tree does not expose but the model needs (a password or date field). */
 const SNAPSHOT_ATTRIBUTES = new Set(['type', 'name', 'placeholder', 'draggable']);
 
+/** Computed styles asked of every layout node, in this order; only the on-page overlay uses them. */
+const SNAPSHOT_STYLES = ['border-top-left-radius'] as const;
+
+/**
+ * A CSS length as the snapshot reports it, in CSS pixels; a percentage resolves against the element's shorter side,
+ * which is how a rounded corner is measured. Anything else (calc, a keyword, empty) is no radius at all.
+ */
+export function parseRadius(value: string | undefined, width: number, height: number): number | undefined {
+  if (!value) return undefined;
+  const match = /^([\d.]+)(px|%)$/.exec(value.trim());
+  if (!match) return undefined;
+  const size = Number(match[1]);
+  if (!Number.isFinite(size) || size <= 0) return undefined;
+  const pixels = match[2] === '%' ? (size / 100) * Math.min(width, height) : size;
+  // A pill is drawn with a huge radius; cap it at half the box so the overlay never draws a bigger curve than the element.
+  return Math.min(pixels, Math.min(width, height) / 2);
+}
+
 const ROLE_TAGS: Record<string, string> = {
   button: 'button',
   link: 'a',
@@ -200,14 +220,17 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
       const name = strings[pairs[j]];
       if (SNAPSHOT_ATTRIBUTES.has(name)) selected[name] = strings[pairs[j + 1]] ?? '';
     }
+    const width = bounds[2] / scale;
+    const height = bounds[3] / scale;
     nodes.set(id, {
       tagName: (strings[nodeName[nodeIndex]] ?? '').toLowerCase(),
       attributes: selected,
       clickable: clickable.has(nodeIndex),
       x: bounds[0] / scale,
       y: bounds[1] / scale,
-      width: bounds[2] / scale,
-      height: bounds[3] / scale,
+      width,
+      height,
+      radius: parseRadius(strings[doc.layout.styles?.[i]?.[0] ?? -1], width, height),
     });
   });
   labelHiddenChoices(doc, strings, nodes);
@@ -449,6 +472,7 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         highlightIndex: interactive ? selectorMap.size : null,
         viewportCoordinates: coords,
         pageCoordinates: pageCoords,
+        cornerRadius: layout?.radius,
         parent: into,
         backendNodeId: node.backendDOMNodeId,
         frame: tree.frame,
@@ -570,7 +594,7 @@ async function readLayouts(sessions: CDPSession[], scale: number, timeoutMs = FR
   await Promise.all(
     sessions.map(async client => {
       try {
-        const snapshot = await withTimeout(client.send('DOMSnapshot.captureSnapshot', { computedStyles: [] }), timeoutMs);
+        const snapshot = await withTimeout(client.send('DOMSnapshot.captureSnapshot', { computedStyles: [...SNAPSHOT_STYLES] }), timeoutMs);
         for (const doc of snapshot.documents) {
           layouts.set(snapshot.strings[doc.frameId], documentLayout(doc as unknown as SnapshotDocument, snapshot.strings, scale));
         }

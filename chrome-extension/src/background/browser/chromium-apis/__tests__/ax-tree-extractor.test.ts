@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildDomState, documentLayout, getAXTreeState, isSkipLink, type AXNode, type FrameTree } from '../ax-tree-extractor';
+import { buildDomState, documentLayout, getAXTreeState, isSkipLink, parseRadius, type AXNode, type FrameTree } from '../ax-tree-extractor';
 import { pruneAXTree } from '../../dom/ax-tree-pruner';
 import type { DOMElementNode } from '../../dom/views';
 
@@ -376,5 +376,28 @@ describe('getAXTreeState on a slow page', () => {
     const read = getAXTreeState(page);
     await vi.advanceTimersByTimeAsync(20000);
     expect((await read).unreadable).toBe(true);
+  });
+});
+
+describe('corner radius', () => {
+  it('reads a pixel radius, resolves a percentage against the shorter side and caps it at half the box', () => {
+    expect(parseRadius('8px', 200, 40)).toBe(8);
+    expect(parseRadius('25%', 200, 40)).toBe(10);
+    expect(parseRadius('9999px', 200, 40)).toBe(20);
+  });
+
+  it('is no radius for a square corner, a missing value or anything it cannot measure', () => {
+    for (const value of [undefined, '', '0px', 'calc(2px + 1em)', 'inherit', '-4px'])
+      expect(parseRadius(value, 200, 40)).toBeUndefined();
+  });
+
+  it('carries the snapshot style through to the layout node', () => {
+    const doc = {
+      frameId: 0,
+      nodes: { nodeName: [1], backendNodeId: [77], attributes: [[]] },
+      layout: { nodeIndex: [0], bounds: [[0, 0, 120, 48]], styles: [[2]] },
+    };
+    const layout = documentLayout(doc as never, ['', 'BUTTON', '24px'], 1);
+    expect(layout.nodes.get(77)?.radius).toBe(24);
   });
 });

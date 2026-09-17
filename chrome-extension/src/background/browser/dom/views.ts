@@ -105,6 +105,8 @@ export class DOMElementNode extends DOMBaseNode {
   highlightIndex: number | null;
   viewportCoordinates?: CoordinateSet;
   pageCoordinates?: CoordinateSet;
+  /** Corner radius in CSS pixels; the on-page overlay glows in the element's own shape. */
+  cornerRadius?: number;
   viewportInfo?: ViewportInfo;
   backendNodeId?: number;
   /** The frame the node was read from; its backendNodeId is only meaningful there. */
@@ -127,6 +129,7 @@ export class DOMElementNode extends DOMBaseNode {
     highlightIndex?: number | null;
     viewportCoordinates?: CoordinateSet;
     pageCoordinates?: CoordinateSet;
+    cornerRadius?: number;
     viewportInfo?: ViewportInfo;
     parent?: DOMElementNode | null;
     backendNodeId?: number;
@@ -145,6 +148,7 @@ export class DOMElementNode extends DOMBaseNode {
     this.highlightIndex = params.highlightIndex ?? null;
     this.viewportCoordinates = params.viewportCoordinates;
     this.pageCoordinates = params.pageCoordinates;
+    this.cornerRadius = params.cornerRadius;
     this.viewportInfo = params.viewportInfo;
     this.backendNodeId = params.backendNodeId;
     this.frame = params.frame;
