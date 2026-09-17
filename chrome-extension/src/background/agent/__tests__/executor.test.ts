@@ -1291,11 +1291,25 @@ describe('A goal planned again without progress', () => {
     expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The page does not give the opening date.' } });
   });
 
-  it('ends the task when the planner keeps the goal after being told to finish', async () => {
-    const h = createHarness({ task, pages: [page], planner: [same, same, same, same, same, same], navigator: [gaveUp, gaveUp, gaveUp] });
+  it('ends the task when the planner keeps the goal after being told to finish, with one last answer', async () => {
+    const h = createHarness({
+      task,
+      pages: [page],
+      planner: [same, same, same, same, same, same, planDone('The opening date is not on this page.')],
+      navigator: [gaveUp, gaveUp, gaveUp],
+    });
     await settle(h.executor.execute());
     expect(h.last().state).toBe(ExecutionState.TASK_FAIL);
-    expect(h.llm.requestsFor('planner')).toHaveLength(6);
+    expect(h.last().data.details).toMatch(/^The opening date is not on this page\.\n\nexec_task_fail/);
+    const planners = h.llm.requestsFor('planner');
+    expect(planners).toHaveLength(7);
+    expect(textOf(planners[6].messages)).toContain('The task is stopping now');
+  });
+
+  it('ends with the bare failure when the last planner call fails', async () => {
+    const h = createHarness({ task, pages: [page], planner: [same, same, same, same, same, same], navigator: [gaveUp, gaveUp, gaveUp] });
+    await settle(h.executor.execute());
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_FAIL, data: { details: 'exec_task_fail' } });
   });
 
   it('is not counted while the steps in between make progress', async () => {

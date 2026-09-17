@@ -639,7 +639,7 @@ export class Executor {
         // The loop only stops early on the failure budget.
         const failureMessage = t('exec_errors_maxFailuresReached');
         logger.error(`❌ Task failed: ${failureMessage}`);
-        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_task_fail', [failureMessage]));
+        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, await this.withLastAnswer(t('exec_task_fail', [failureMessage]), failureMessage));
         await this.saveCheckpoint(taskText, 'failed');
         void analytics.trackTaskFailed(this.context.taskId, analytics.categorizeError(new MaxFailuresReachedError(failureMessage)));
       }
@@ -695,7 +695,8 @@ export class Executor {
       } else {
         await this.saveCheckpoint(this.tasks[this.tasks.length - 1], 'failed');
         const errorMessage = formatExecutionError(error);
-        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_task_fail', [errorMessage]));
+        const failText = t('exec_task_fail', [errorMessage]);
+        await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, error instanceof MaxFailuresReachedError ? await this.withLastAnswer(failText, errorMessage) : failText);
 
         // Track task failure with detailed error categorization
         const errorCategory = analytics.categorizeError(error instanceof Error ? error : errorMessage);
@@ -863,6 +864,23 @@ export class Executor {
   /**
    * Helper method to run planner and store its output
    */
+  /**
+   * A task the failure budget ends still reports what it found: one last planner call, told the task is stopping, gives
+   * the best answer so far and what blocked the rest. Any failure of that call leaves the bare failure message.
+   */
+  private async withLastAnswer(failText: string, reason: string): Promise<string> {
+    if (!this.planner || this.context.stopped) return failText;
+    try {
+      const note = `The task is stopping now: ${reason}. This is the last planner call: set done=true with the best answer the steps, findings and page give, including every requested value found, and say plainly what blocked the rest. Plan no further actions.`;
+      this.context.actionResults = [new ActionResult({ executed: false, validated: 'unknown', failureReason: note, extractedContent: note, includeInMemory: true })];
+      const answer = (await this.planner.execute(await this.buildStepState())).result?.final_answer?.trim();
+      return answer ? `${answer}\n\n${failText}` : failText;
+    } catch (error) {
+      logger.warning(`No last answer after the failure budget ended the task: ${error}`);
+      return failText;
+    }
+  }
+
   /** The current page state. The previous step's action results are rendered into it once, then cleared. */
   private async buildStepState(): Promise<HumanMessage> {
     const state = await this.navigatorPrompt.getUserMessage(this.context);
