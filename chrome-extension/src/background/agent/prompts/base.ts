@@ -203,9 +203,6 @@ abstract class BasePrompt {
       stepInfoDescription = `Current step: ${context.stepInfo.stepNumber + 1}/${context.stepInfo.maxSteps}`;
     }
 
-    const timeStr = new Date().toISOString().slice(0, 16).replace('T', ' '); // Format: YYYY-MM-DD HH:mm
-    stepInfoDescription += `${stepInfoDescription ? '\n' : ''}Current date and time: ${timeStr}`;
-
     let actionResultsDescription = '';
     if (context.actionResults.length > 0) {
       for (let i = 0; i < context.actionResults.length; i++) {

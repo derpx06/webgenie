@@ -79,6 +79,12 @@ export function renderTurnsAsText(turns: Array<{ ai: AIMessage; results: ToolMes
   return kept.join('\n');
 }
 
+/** YYYY-MM-DD HH:mm in the browser's time zone. */
+export function localDateTime(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function withHeader(state: HumanMessage, header: string): HumanMessage {
   if (!header) return state;
   if (typeof state.content === 'string') return new HumanMessage(`${header}\n\n${state.content}`);
@@ -101,7 +107,8 @@ export class ContextBuilder {
 
   /** Non-empty blocks shown above the browser state. */
   private static stateSections(context: AgentContext, actor: 'planner' | 'navigator'): string[] {
-    const sections: string[] = [];
+    // First, so a model that trusts its own sense of "now" reads it before any page date (a planner called last year's dates "future").
+    const sections: string[] = [`[TODAY]\n${localDateTime(new Date())}. Dates before it are in the past, whatever your own knowledge suggests.`];
     if (context.taskStartUrl) sections.push(`[TASK STARTED ON]\n${context.taskStartUrl}`);
     const addList = (title: string, lines: string[], maxChars: number) => {
       if (lines.length > 0) sections.push(`[${title}]\n${this.formatLinesWithBudget(lines, maxChars)}`);

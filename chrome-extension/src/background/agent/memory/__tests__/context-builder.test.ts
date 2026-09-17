@@ -5,7 +5,7 @@ import { MessageMetadata, type MessageHistory } from '../../messages/views';
 import { ActionResult, AgentContext } from '../../types';
 import type BrowserContext from '../../../browser/context';
 import type { EventManager } from '../../event/manager';
-import { ContextBuilder } from '../in-chat/context-builder';
+import { ContextBuilder, localDateTime } from '../in-chat/context-builder';
 
 function makeContext() {
   const messageManager = new MessageManager(undefined, null);
@@ -39,7 +39,13 @@ describe('ContextBuilder packets', () => {
     expect(packet[2]).toBeInstanceOf(AIMessage);
     expect(packet[3]).toBeInstanceOf(ToolMessage);
     expect(text(packet[3])).toBe('Clicked');
-    expect(text(packet[packet.length - 1])).toBe('browser state 1');
+    expect(text(packet[packet.length - 1])).toMatch(/^\[TODAY\]\n\d{4}-\d\d-\d\d \d\d:\d\d\. Dates before it are in the past[^]*browser state 1$/);
+  });
+
+  it('formats today in the browser time zone for both agents', () => {
+    expect(localDateTime(new Date(2026, 8, 7, 5, 3))).toBe('2026-09-07 05:03');
+    const { context } = makeContext();
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner').at(-1)!)).toContain('[TODAY]');
   });
 
   it('adds a task once on resume and keeps follow-up tasks and human answers in order', () => {
@@ -155,7 +161,7 @@ describe('ContextBuilder packets', () => {
 
     const packet = ContextBuilder.buildContextPacket(context, system, state(1));
 
-    expect(packet.map(text)).toEqual(['navigator system', expect.stringContaining('read the heading'), 'browser state 1']);
+    expect(packet.map(text)).toEqual(['navigator system', expect.stringContaining('read the heading'), expect.stringMatching(/^\[TODAY\][^]*browser state 1$/)]);
   });
 
   it('shows saved findings to both agents, newest kept within the budget, with delimiter tags defanged', () => {
