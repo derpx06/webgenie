@@ -99,7 +99,9 @@ out of the score. That means either:
   cleared, a country block), and still does 8 s later;
 - or the task ends on such a refusal page of the task's own site. The agent's outcome is kept in `agentOutcome`. Every result records the start page's HTTP status as `startStatus`. Each result carries `provider`: the model calls, failures by
 kind (429, 5xx, network, auth) and seconds spent waiting on rate limits. Each result also records `build` and `harness` (the harness
-commit, limits, models and region). Screenshots come from the tab the agent works in, after each action once the page has
+commit, limits, models, region, browser language and time zone). `overnight.sh` sets `E2E_LANG=en-US` and
+`E2E_TZ=America/New_York`: the tasks are written for a US user, and this machine's en-IN and Asia/Kolkata served
+regional pages and shifted dates (only the language and clock change, not the network). Screenshots come from the tab the agent works in, after each action once the page has
 loaded plus 1 s and once more at the end, at most 40 per task; past that the
 newest replaces the last, so the page a task ended on is always there. `summary.json` covers every task with a result
 in the folder, whatever `--only` selected.

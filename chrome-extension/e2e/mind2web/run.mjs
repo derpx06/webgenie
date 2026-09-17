@@ -330,6 +330,8 @@ function writeResult(runDir, task, fields) {
       model: process.env.E2E_MODEL ?? 'gemini-2.5-flash',
       plannerModel: process.env.E2E_PLANNER_MODEL ?? process.env.E2E_MODEL ?? 'gemini-2.5-flash',
       location: process.env.E2E_LOCATION ?? 'global',
+      lang: process.env.E2E_LANG ?? null,
+      timeZone: process.env.E2E_TZ ?? null,
     },
     ...fields,
   };

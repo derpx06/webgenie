@@ -19,6 +19,8 @@ E2E_ORACLE=1 E2E_SUITE=all pnpm -F chrome-extension e2e   # no browser agent, no
 | `E2E_ONLY` | | Comma-separated task ids; overrides the suite (a "subset run") |
 | `E2E_REPEAT` | 1 | Attempts per task; extra attempts are labelled `<id>-r2`, … |
 | `E2E_HEADLESS` | headed | Any value runs headless |
+| `E2E_LANG` | machine's | Browser language, e.g. `en-US` (UI language and Accept-Language) |
+| `E2E_TZ` | machine's | Browser time zone, e.g. `America/New_York` |
 | `E2E_MODEL` | `gemini-2.5-flash` | Navigator model (and planner, unless the next is set) |
 | `E2E_PLANNER_MODEL` | `E2E_MODEL` | Planner model |
 | `E2E_PROJECT` / `E2E_LOCATION` | gcloud project / `global` | Vertex AI project and location (`global` gets fewer 429s) |

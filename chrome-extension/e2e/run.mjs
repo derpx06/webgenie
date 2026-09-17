@@ -764,7 +764,13 @@ export async function launchSession(fixtures) {
   // Downloads go to the profile's own folder without a Save As prompt, so checkers can read what was saved.
   const downloadsDir = path.join(profile, 'downloads');
   fs.mkdirSync(path.join(profile, 'Default'), { recursive: true });
-  fs.writeFileSync(path.join(profile, 'Default', 'Preferences'), JSON.stringify({ download: { default_directory: downloadsDir, prompt_for_download: false } }));
+  // E2E_LANG and E2E_TZ give the browser a user's language and time zone instead of this machine's (a benchmark written
+  // for one region otherwise sees another region's pages and dates).
+  const lang = process.env.E2E_LANG;
+  fs.writeFileSync(
+    path.join(profile, 'Default', 'Preferences'),
+    JSON.stringify({ download: { default_directory: downloadsDir, prompt_for_download: false }, ...(lang ? { intl: { accept_languages: `${lang},${lang.split('-')[0]}` } } : {}) }),
+  );
   const browser = await puppeteer.launch({
     executablePath: CHROMIUM,
     headless: process.env.E2E_HEADLESS ? true : false,
@@ -773,7 +779,8 @@ export async function launchSession(fixtures) {
     // A hung page call fails in a minute instead of the default three.
     protocolTimeout: 60_000,
     ignoreDefaultArgs: ['--disable-extensions'],
-    args: [`--disable-extensions-except=${DIST}`, `--load-extension=${DIST}`, '--no-first-run', '--no-default-browser-check', '--window-size=1400,900'],
+    args: [`--disable-extensions-except=${DIST}`, `--load-extension=${DIST}`, '--no-first-run', '--no-default-browser-check', '--window-size=1400,900', ...(lang ? [`--lang=${lang}`] : [])],
+    env: { ...process.env, ...(process.env.E2E_TZ ? { TZ: process.env.E2E_TZ } : {}), ...(lang ? { LANG: `${lang.replace('-', '_')}.UTF-8`, LANGUAGE: lang } : {}) },
   });
   try {
     const worker = await browser.waitForTarget(t => t.type() === 'service_worker' && t.url().startsWith('chrome-extension://'), { timeout: 30_000 });

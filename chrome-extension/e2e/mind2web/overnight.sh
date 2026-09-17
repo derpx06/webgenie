@@ -18,6 +18,9 @@ PASSES="${PASSES:-12}"
 # ONLY=<task_id>,<task_id> runs a subset (a round of re-runs); E2E_DIST=<build copy> picks the build. Both reach run.mjs,
 # status.mjs and verify.mjs through the environment.
 export ONLY="${ONLY:-}"
+# Online-Mind2Web's tasks are written for a US user: the browser gets US English and a US time zone instead of this
+# machine's (en-IN, Asia/Kolkata served regional pages and shifted dates). Only language and clock; the network is unchanged.
+export E2E_LANG="${E2E_LANG:-en-US}" E2E_TZ="${E2E_TZ:-America/New_York}"
 # One Vertex location per worker, in turn. The global endpoint answered 429 to 6 of 6 small test calls while five
 # workers used it (620 of 1015 calls rate-limited); regional endpoints answered 3-4 of 4.
 LOCATIONS="${LOCATIONS:-europe-west1 europe-north1 us-east1 us-west1 us-south1}"
