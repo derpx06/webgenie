@@ -38,6 +38,9 @@ const { values: opts, positionals } = parseArgs({
     // The per-screenshot relevance scores are many small calls (one per screenshot); key points and the verdict stay on
     // --model. Set to a faster model when the judge model's quota cannot keep up.
     'image-model': { type: 'string' },
+    // --last-images N skips the per-screenshot scoring (one call per screenshot) and sends the verdict call the last N
+    // screenshots: two calls per task. Not WebJudge's pipeline; use it the same way for every round compared.
+    'last-images': { type: 'string' },
     out: { type: 'string' },
     merge: { type: 'boolean', default: false },
   },
@@ -256,7 +259,10 @@ async function judgeTask(taskId) {
 
   const keyPoints = parseKeyPoints(await generate('key_points', KEY_POINTS_SYSTEM, `Task: ${result.task}`));
   const imagePrompt = `**Task**: ${result.task}\n\n**Key Points for Task Completion**: ${keyPoints}\n\nThe snapshot of the web page is shown in the image.`;
-  const scored = await Promise.all(shots.map(async file => ({ file, ...parseImage(await generate('image', IMAGE_SYSTEM, imagePrompt, [file])) })));
+  const lastImages = Number(opts['last-images'] ?? 0);
+  const scored = lastImages > 0
+    ? shots.slice(-lastImages).map(file => ({ file, score: THRESHOLD, thought: '' }))
+    : await Promise.all(shots.map(async file => ({ file, ...parseImage(await generate('image', IMAGE_SYSTEM, imagePrompt, [file])) })));
 
   const kept = scored.filter(image => image.score >= THRESHOLD).slice(0, MAX_IMAGE);
   // Not upstream: a request over the size budget would be rejected, so drop the lowest-scored (earliest on ties) first.
@@ -271,7 +277,9 @@ async function judgeTask(taskId) {
 
   const actions = (result.action_history ?? []).map((step, i) => `${i + 1}. ${typeof step === 'string' ? step : step.action}`).join('\n');
   let text = `User Task: ${result.task}\n\nKey Points: ${keyPoints}\n\nAction History:\n${actions}`;
-  if (kept.length) {
+  if (kept.length && lastImages > 0) {
+    text += `\n\nThe last ${kept.length} snapshots of the webpage in the agent's trajectory are attached, in order.`;
+  } else if (kept.length) {
     const thoughts = kept.map(image => image.thought).filter(Boolean);
     text += `\n\nThe potentially important snapshots of the webpage in the agent's trajectory and their reasons:\n${thoughts.map((t, i) => `${i + 1}. ${t}`).join('\n')}`;
   }
@@ -352,6 +360,7 @@ async function main() {
           note: 'WebJudge re-implemented with a Gemini judge; Online-Mind2Web reports WebJudge with o4-mini, so these rates are not comparable to the leaderboard.',
           judgeModel: model,
           imageModel: opts['image-model'] ?? model,
+          judgeMode: opts['last-images'] ? `last ${opts['last-images']} screenshots, no per-screenshot scoring` : 'WebJudge (every screenshot scored)',
           requestedModel: opts.model,
           threshold: THRESHOLD,
           judgedAt: new Date().toISOString(),
