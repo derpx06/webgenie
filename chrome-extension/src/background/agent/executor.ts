@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnread, doneEvidence, reportedValues, staleRequirements } from './validation/done-evidence';
+import { absenceUnread, doneEvidence, reportedValues, searchOnlyEvidence, staleRequirements } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -103,6 +103,8 @@ export class Executor {
   private requirementReopened = false;
   /** A done whose applied requirements the current page no longer shows was sent back once. */
   private evidenceRechecked = false;
+  /** Whether a done was already sent back for requirements "applied" only through the search text. */
+  private searchEvidenceRefused = false;
   constructor(
     task: string,
     taskId: string,
@@ -179,6 +181,7 @@ export class Executor {
     this.context.requirementRefusals = 0;
     this.context.absenceChecked = false;
     this.evidenceRechecked = false;
+    this.searchEvidenceRefused = false;
     this.goalRepeats.progress();
     this.mustFinish = false;
 
@@ -215,6 +218,12 @@ export class Executor {
     if (stale.length > 0) {
       this.evidenceRechecked = true;
       return this.refuseCompletion(planOutput, `Not done: the current page no longer shows the evidence recorded for these applied requirements: ${stale.map(item => `${item.requirement} (${item.evidence})`).join('; ')}. Every applied filter or sort must still be in effect on the CURRENT page (the selected option, the checked control, the sort label or the URL parameter); a later go_back, reload or new search can remove it. Check the current page state: apply again what is missing, or mark it pending or not_available.`);
+    }
+    // Criteria typed into a search box and "confirmed" by the results' own text were never applied by the site.
+    const searchOnly = this.searchEvidenceRefused ? [] : searchOnlyEvidence(requirements);
+    if (searchOnly.length > 0) {
+      this.searchEvidenceRefused = true;
+      return this.refuseCompletion(planOutput, `Not done: the evidence for these applied requirements is the search or its results, not a filter or sort the site applied: ${searchOnly.map(item => `${item.requirement} (${item.evidence})`).join('; ')}. Search text does not filter results. Apply each with the site's filter or sort controls (open a collapsed filter section if needed) and record the selected option, chip, sort label or URL parameter as evidence; mark it not_available only when the site offers no such control.`);
     }
     // "Not found" said about a results page nobody read.
     if (!context.absenceChecked && absenceUnread(context, answer, this.doneReportedFailure)) {

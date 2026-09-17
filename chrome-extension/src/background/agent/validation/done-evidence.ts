@@ -93,3 +93,18 @@ export function staleRequirements(context: AgentContext, requirements: PlannerRe
     return values.length > 0 && !values.some(value => page.includes(value));
   });
 }
+
+/**
+ * Applied requirements whose only evidence is the search or the results' own text, not a filter, sort or selection the
+ * site applied. Search text does not filter results: a live run typed a make and model into the search box and marked
+ * both applied because "Search results show" them.
+ */
+export function searchOnlyEvidence(requirements: PlannerRequirement[]): PlannerRequirement[] {
+  return requirements.filter(
+    item =>
+      item.status === 'applied' &&
+      !!item.evidence &&
+      /\b(search(es|ed|ing)?|results?|listings?|matches|titles?)\b/i.test(item.evidence) &&
+      !/\b(filter(s|ed)?|sort(ed)?|selected|checked|chip|facet|option|toggle|refine(d|ment)?|url|parameter)\b|[\w-]+=\S/i.test(item.evidence),
+  );
+}

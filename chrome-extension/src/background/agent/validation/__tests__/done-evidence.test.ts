@@ -9,7 +9,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import type { NextStepContract } from '../../contracts';
-import { absenceUnread, doneEvidence, staleRequirements } from '../done-evidence';
+import { absenceUnread, doneEvidence, searchOnlyEvidence, staleRequirements } from '../done-evidence';
 import { titleFromTask } from '../../../core/task-groups/manager';
 
 function contextOnPage(lines: string[]) {
@@ -76,6 +76,19 @@ describe('titleFromTask', () => {
     expect(titleFromTask('Fill in the form: text input "WebGenie", password "pw-123", textarea')).toBe('Fill in the form: text input');
     expect(titleFromTask('Log in with jamie@example.com and S3cret-Pass!word please')).toBe('Log in with and please');
     expect(titleFromTask('"12345"')).toBe('Task');
+  });
+});
+
+describe('searchOnlyEvidence', () => {
+  const applied = (requirement: string, evidence: string) => ({ requirement, status: 'applied' as const, evidence });
+
+  it('names requirements evidenced only by the search or its results, not by a filter the site applied', () => {
+    // Wording from a live run that typed "2022 Tesla Model 3" into a search box.
+    const year = applied('Year: 2022', 'URL parameter Year=2022-2022');
+    const make = applied('Make: Tesla', "Search results show 'Tesla Model 3'");
+    const sort = applied('cheapest first', 'sort label "Price: low to high" selected in the results');
+    const brand = applied('brand Acme', 'filter chip "Acme" above the results');
+    expect(searchOnlyEvidence([year, make, sort, brand, { requirement: 'in stock', status: 'pending' }])).toEqual([make]);
   });
 });
 
