@@ -24,8 +24,8 @@ import { wilson } from '../metrics.mjs';
 const { values: opts, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    model: { type: 'string', default: 'gemini-2.5-pro' },
-    'fallback-model': { type: 'string', default: 'gemini-2.5-flash' },
+    model: { type: 'string', default: 'gemini-3.1-pro-preview' },
+    'fallback-model': { type: 'string', default: 'gemini-2.5-pro' },
     limit: { type: 'string' },
     concurrency: { type: 'string', default: '6' },
     // Tasks judged at once; their calls share the --concurrency slots.
