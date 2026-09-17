@@ -610,6 +610,22 @@ describe('An element the page replaced', () => {
   });
 });
 
+describe('Stalls', () => {
+  it('end the task when the same action keeps validating on an unchanged page', async () => {
+    const h = createHarness({
+      task: 'Find the opening hours',
+      pages: [{ url: 'https://shop.test/', title: 'Shop', elements: [{ text: 'Home' }] }],
+      planner: Array(12).fill(plan({ macro_objective: 'EXPLORE_PAGE', next_goal: 'Scroll to find the opening hours' })),
+      navigator: Array(12).fill(call('scroll', { direction: 'down' })),
+    });
+    await settle(h.executor.execute());
+
+    // Steps 3, 4 and 5 are stalls; the scroll at the bottom validates each time but no longer refills the budget.
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_FAIL });
+    expect(h.llm.requestsFor('navigator')).toHaveLength(5);
+  });
+});
+
 describe('A target the page covers or hides', () => {
   // Each refused click picks another element, as the refusal asks (the live failure tried 39, 101, then 100); repeating
   // the same click on an unchanged page is the stall check's business.
@@ -677,7 +693,14 @@ describe('A long run of scrolls', () => {
       navigator: [...navigator, done('Found it')],
     });
     const page = (h.browser as unknown as { page: Record<string, unknown> }).page;
-    Object.assign(page, { getScrollInfo: async () => [0, 800, 5000], scrollByPages: async () => onScroll?.(h) });
+    // Each scroll moves the window, so repeating it on the same elements is a scroll run, not a stall.
+    Object.assign(page, {
+      getScrollInfo: async () => [0, 800, 5000],
+      scrollByPages: async () => {
+        h.browser.scrollY += 800;
+        onScroll?.(h);
+      },
+    });
     return h;
   };
   const down = () => call('scroll', { direction: 'down', pages: 1 });

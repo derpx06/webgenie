@@ -583,7 +583,12 @@ export class Executor {
         stalled = stepRecord.stalled;
         // Progress: a validated action this task had not done on that layout before, or a new finding. Repeating a
         // search or reopening a page validates too, but is not new.
-        if ((navigatorStep.outcome === 'passed' && stepRecord.fresh) || context.findings.length > findingsBefore) this.goalRepeats.progress();
+        if ((navigatorStep.outcome === 'passed' && stepRecord.fresh) || context.findings.length > findingsBefore) {
+          this.goalRepeats.progress();
+          // Only progress refills the failure budget: a repeat that validates (a read, a scroll at the end) between
+          // stalls kept the count at 1/3 and the task ran to its token limit.
+          context.consecutiveFailures = 0;
+        }
         if (stalled) {
           context.consecutiveFailures++;
           logger.warning(`Progress stalled: the same actions repeated on an unchanged page (failures ${context.consecutiveFailures}/${context.options.maxFailures})`);
@@ -922,7 +927,7 @@ export class Executor {
     }
   }
 
-  /** Runs one navigator step and charges the failure budget: failed results and errors cost, passed and done reset. */
+  /** Runs one navigator step and charges the failure budget: failed results and errors cost, done resets. */
   private async navigate(getState: () => Promise<HumanMessage>): Promise<NavigatorStep> {
     const context = this.context;
     const idle: NavigatorStep = { done: false, errored: false, outcome: null };
@@ -959,8 +964,10 @@ export class Executor {
       const done = navOutput.result?.done === true;
       const latest = [...results].reverse().find(result => result.validated !== 'not_applicable');
       const outcome = latest?.validated ?? null;
-      if (done || outcome === 'passed') {
+      if (done) {
         context.consecutiveFailures = 0;
+      } else if (outcome === 'passed') {
+        // The loop refills the failure budget when the step was new (recordStep).
       } else if (outcome === 'failed' && latest?.executionStatus === 'threw' && isStaleElementError(latest.error ?? '')) {
         // The page replaced the element after it was read: not the agent's failure, so it costs nothing from the failure budget.
         logger.info(`Target changed under the action; re-reading the page: ${latest.error}`);

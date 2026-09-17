@@ -223,6 +223,8 @@ export class FakeBrowserContext {
   readonly actions: BrowserAction[] = [];
   /** Page reads served (cached and fresh). */
   reads = 0;
+  /** The window position a page read reports; a test that scrolls moves it. */
+  scrollY = 0;
   config: BrowserContextConfig = {
     ...DEFAULT_BROWSER_CONTEXT_CONFIG,
     actionSettleTimeoutMs: 250,
@@ -266,6 +268,10 @@ export class FakeBrowserContext {
       const content = this.current.content ?? [...(this.current.text ?? []), ...(this.current.offscreenText ?? [])].join('\n');
       return content.toLowerCase().includes(text.toLowerCase());
     },
+    scrollByPages: async () => {},
+    scrollToPercent: async () => {},
+    /** [scrollY, viewport height, page height]: the page always fits the viewport. */
+    getScrollInfo: async () => [0, 1000, 1000],
     goBack: async () => this.act({ type: 'go_back' }),
     removeHighlight: async () => {},
     invalidateCache: () => {},
@@ -315,7 +321,7 @@ export class FakeBrowserContext {
       url: spec.url,
       title,
       screenshot: null,
-      scrollY: 0,
+      scrollY: this.scrollY,
       scrollHeight: 1000,
       visualViewportHeight: 1000,
       dialog: spec.dialog,
