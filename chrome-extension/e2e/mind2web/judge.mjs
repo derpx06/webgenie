@@ -5,7 +5,9 @@
 //        [--limit N] [--concurrency 2] [--threshold 3] [--project <id>] [--location us-central1] [--dry-run]
 //
 // Input: <runDir>/<task_id>/result.json ({ task, level, outcome, action_history, screenshots }) and the screenshots in
-// <runDir>/<task_id>/trajectory/. Output: <runDir>/judgments.json, written after every task; a re-run judges only the
+// <runDir>/<task_id>/trajectory/. Output: <runDir>/judgments.json, written after every task, and per task judgment.md (key
+// points, every screenshot score and reason, the verdict) and judge-calls.jsonl (every call: prompt, screenshots, raw reply,
+// retries); a re-run judges only the
 // tasks not judged yet (or that errored). --dry-run makes no API call and needs no credentials: it prints each
 // request's payload size, answers with canned text, and writes judgments.dry-run.json.
 //
@@ -25,7 +27,7 @@ const { values: opts, positionals } = parseArgs({
     model: { type: 'string', default: 'gemini-2.5-pro' },
     'fallback-model': { type: 'string', default: 'gemini-2.5-flash' },
     limit: { type: 'string' },
-    concurrency: { type: 'string', default: '2' },
+    concurrency: { type: 'string', default: '6' },
     threshold: { type: 'string', default: '3' },
     project: { type: 'string', default: process.env.E2E_PROJECT },
     location: { type: 'string', default: process.env.E2E_LOCATION ?? 'global' },
@@ -37,10 +39,7 @@ const { values: opts, positionals } = parseArgs({
     shard: { type: 'string' },
     // The per-screenshot relevance scores are many small calls (one per screenshot); key points and the verdict stay on
     // --model. Set to a faster model when the judge model's quota cannot keep up.
-    'image-model': { type: 'string' },
-    // --last-images N skips the per-screenshot scoring (one call per screenshot) and sends the verdict call the last N
-    // screenshots: two calls per task. Not WebJudge's pipeline; use it the same way for every round compared.
-    'last-images': { type: 'string' },
+    'image-model': { type: 'string', default: 'gemini-3-flash-preview' },
     out: { type: 'string' },
     merge: { type: 'boolean', default: false },
   },
@@ -165,6 +164,8 @@ function accessToken(refresh = false) {
   return token;
 }
 
+/** model -> { until, backoff }: the shared pause after a 429 on that model. */
+const pauses = new Map();
 let active = 0;
 const waiting = [];
 async function limited(fn) {
@@ -183,11 +184,15 @@ async function limited(fn) {
  * body inside the slot so pending calls hold no image data; the wait before a retry is outside the slot (retries that
  * slept inside it held every slot and a round's judging stalled). The per-screenshot stage uses --image-model when set.
  */
-async function generate(stage, system, text, images = []) {
+async function generate(stage, system, text, images = [], calls = []) {
   let refreshed = false;
+  const started = Date.now();
+  const retries = [];
   for (let attempt = 0; ; attempt++) {
-    // Only the verdict needs the judge model: key points (text extraction) and screenshot scores use --image-model.
+    // Only the verdict uses the judge model; key points and the many per-screenshot scores use --image-model when set.
     const callModel = stage !== 'outcome' && opts['image-model'] ? opts['image-model'] : model;
+    const pause = pauses.get(callModel);
+    if (pause && pause.until > Date.now()) await sleep(pause.until - Date.now() + Math.random() * 1000);
     const reply = await limited(async () => {
       const parts = [{ text }];
       for (const file of images) {
@@ -216,9 +221,18 @@ async function generate(stage, system, text, images = []) {
         return { error };
       }
     });
-    if (reply.text !== undefined) return reply.text;
+    const callRecord = extra => calls.push({ stage, model: callModel, images: images.map(file => path.basename(file)), prompt: text, retries, ms: Date.now() - started, ...extra });
+    if (reply.text !== undefined) {
+      pauses.delete(callModel);
+      callRecord({ response: reply.text });
+      return reply.text;
+    }
     if (reply.error) {
-      if (attempt >= 5) throw reply.error;
+      retries.push(`network: ${reply.error.message}`);
+      if (attempt >= 5) {
+        callRecord({ error: reply.error.message });
+        throw reply.error;
+      }
       await sleep(2000 * 2 ** attempt);
       continue;
     }
@@ -232,12 +246,21 @@ async function generate(stage, system, text, images = []) {
       accessToken(true);
       continue;
     }
-    if ((reply.status === 429 || reply.status >= 500) && attempt < 8) {
-      const wait = reply.retryAfter || Math.min(60_000, 2000 * 2 ** attempt) * (0.5 + Math.random());
+    // A 429 is the model's per-minute quota: every call to that model waits out one shared pause (doubling while 429s
+    // continue, cleared by a success) instead of each retrying on its own and keeping the quota exhausted.
+    if ((reply.status === 429 || reply.status >= 500) && Date.now() - started < 30 * 60_000) {
+      const current = pauses.get(callModel);
+      if (!current || current.until <= Date.now()) {
+        const backoff = Math.min(120_000, (current?.backoff ?? 5000) * 2);
+        pauses.set(callModel, { backoff, until: Date.now() + (reply.retryAfter || backoff) });
+      }
+      const wait = pauses.get(callModel).until - Date.now();
       console.log(`  ${reply.status} on ${stage}; retrying in ${(wait / 1000).toFixed(1)}s`);
+      retries.push(`${reply.status} after ${((Date.now() - started) / 1000).toFixed(1)}s`);
       await sleep(wait);
       continue;
     }
+    callRecord({ error: `${reply.status}: ${reply.detail}` });
     throw new Error(`Vertex AI ${reply.status} on ${stage}: ${reply.detail}`);
   }
 }
@@ -257,12 +280,20 @@ async function judgeTask(taskId) {
       : [];
   const shots = names.map(name => path.join(shotDir, name));
 
-  const keyPoints = parseKeyPoints(await generate('key_points', KEY_POINTS_SYSTEM, `Task: ${result.task}`));
+  // Every call of this judgment (prompt, screenshots, raw reply, retries), kept next to the task even when judging fails.
+  const calls = [];
+  const saveCalls = () => !DRY && fs.writeFileSync(path.join(dir, 'judge-calls.jsonl'), calls.map(call => JSON.stringify(call)).join('\n') + '\n');
+  try {
+    return await judgeWith(result, dir, shots, calls);
+  } finally {
+    saveCalls();
+  }
+}
+
+async function judgeWith(result, dir, shots, calls) {
+  const keyPoints = parseKeyPoints(await generate('key_points', KEY_POINTS_SYSTEM, `Task: ${result.task}`, [], calls));
   const imagePrompt = `**Task**: ${result.task}\n\n**Key Points for Task Completion**: ${keyPoints}\n\nThe snapshot of the web page is shown in the image.`;
-  const lastImages = Number(opts['last-images'] ?? 0);
-  const scored = lastImages > 0
-    ? shots.slice(-lastImages).map(file => ({ file, score: THRESHOLD, thought: '' }))
-    : await Promise.all(shots.map(async file => ({ file, ...parseImage(await generate('image', IMAGE_SYSTEM, imagePrompt, [file])) })));
+  const scored = await Promise.all(shots.map(async file => ({ file, ...parseImage(await generate('image', IMAGE_SYSTEM, imagePrompt, [file], calls)) })));
 
   const kept = scored.filter(image => image.score >= THRESHOLD).slice(0, MAX_IMAGE);
   // Not upstream: a request over the size budget would be rejected, so drop the lowest-scored (earliest on ties) first.
@@ -277,9 +308,7 @@ async function judgeTask(taskId) {
 
   const actions = (result.action_history ?? []).map((step, i) => `${i + 1}. ${typeof step === 'string' ? step : step.action}`).join('\n');
   let text = `User Task: ${result.task}\n\nKey Points: ${keyPoints}\n\nAction History:\n${actions}`;
-  if (kept.length && lastImages > 0) {
-    text += `\n\nThe last ${kept.length} snapshots of the webpage in the agent's trajectory are attached, in order.`;
-  } else if (kept.length) {
+  if (kept.length) {
     const thoughts = kept.map(image => image.thought).filter(Boolean);
     text += `\n\nThe potentially important snapshots of the webpage in the agent's trajectory and their reasons:\n${thoughts.map((t, i) => `${i + 1}. ${t}`).join('\n')}`;
   }
@@ -288,8 +317,9 @@ async function judgeTask(taskId) {
     OUTCOME_SYSTEM,
     text,
     kept.map(image => image.file),
+    calls,
   );
-  return {
+  const judgment = {
     level: result.level,
     agentOutcome: result.outcome,
     success: parseOutcome(response),
@@ -299,6 +329,35 @@ async function judgeTask(taskId) {
     imagesSent: kept.length,
     droppedForSize,
   };
+  if (!DRY) fs.writeFileSync(path.join(dir, 'judgment.md'), judgmentMarkdown(result, judgment, kept));
+  return judgment;
+}
+
+/** The whole judgment, readable next to the task's timeline: key points, every screenshot's score and reason, the verdict. */
+function judgmentMarkdown(result, judgment, kept) {
+  const sent = new Set(kept.map(image => path.basename(image.file)));
+  const shots = judgment.imageScores.map(
+    image => `| ${image.screenshot} | ${image.score} | ${sent.has(image.screenshot) ? 'yes' : 'no'} | ${image.thought.replaceAll('|', '\\|')} |`,
+  );
+  return [
+    `# Judgment: ${judgment.success ? 'SUCCESS' : 'FAILURE'}`,
+    '',
+    `- Task: ${result.task}`,
+    `- Agent outcome: ${result.outcome}; level ${result.level}`,
+    `- Judge: ${model} (screenshots: ${opts['image-model'] ?? model}), threshold ${THRESHOLD}, ${judgment.imagesSent} screenshot(s) sent${judgment.droppedForSize.length ? `, dropped for size: ${judgment.droppedForSize.join(', ')}` : ''}`,
+    '',
+    '## Key points',
+    judgment.keyPoints.trim(),
+    '',
+    '## Screenshots',
+    '| screenshot | score | sent | reason |',
+    '| --- | --- | --- | --- |',
+    ...shots,
+    '',
+    '## Verdict',
+    judgment.reasoning.trim(),
+    '',
+  ].join('\n');
 }
 
 function summarize(tasks) {
@@ -360,7 +419,6 @@ async function main() {
           note: 'WebJudge re-implemented with a Gemini judge; Online-Mind2Web reports WebJudge with o4-mini, so these rates are not comparable to the leaderboard.',
           judgeModel: model,
           imageModel: opts['image-model'] ?? model,
-          judgeMode: opts['last-images'] ? `last ${opts['last-images']} screenshots, no per-screenshot scoring` : 'WebJudge (every screenshot scored)',
           requestedModel: opts.model,
           threshold: THRESHOLD,
           judgedAt: new Date().toISOString(),

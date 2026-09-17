@@ -22,6 +22,15 @@ const read = file => {
 };
 const judgmentsOf = dir => read(path.join(dir, 'judgments.json'))?.tasks ?? {};
 const judged = { base: judgmentsOf(baseDir), round: judgmentsOf(roundDir) };
+// Verdicts from different judges are not comparable: refuse rather than report changes the judge made.
+const judgeOf = dir => {
+  const file = read(path.join(dir, 'judgments.json'));
+  return file ? `${file.judgeModel} / ${file.imageModel ?? file.judgeModel} / threshold ${file.threshold}` : null;
+};
+if (judgeOf(baseDir) && judgeOf(roundDir) && judgeOf(baseDir) !== judgeOf(roundDir)) {
+  console.error(`different judges: baseline ${judgeOf(baseDir)}, round ${judgeOf(roundDir)}; judge both the same way first`);
+  process.exit(2);
+}
 
 /** A task's result in a folder: 1 judged success, 0 judged failure, null not comparable; with the numbers behind it. */
 function stateOf(dir, judgments, id) {

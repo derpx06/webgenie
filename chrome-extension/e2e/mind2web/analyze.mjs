@@ -194,6 +194,8 @@ for (const id of tasks) {
       events: has('events.jsonl') ? `${id}/events.jsonl` : null,
       timeline: has('timeline.txt') ? `${id}/timeline.txt` : null,
       screenshots: (r.screenshots ?? []).length ? `${id}/trajectory/` : null,
+      judgment: has('judgment.md') ? `${id}/judgment.md` : null,
+      judgeCalls: has('judge-calls.jsonl') ? `${id}/judge-calls.jsonl` : null,
       earlierAttempts: earlierAttempts ? `.attempts/${id}/` : null,
     },
     judged: judged?.excluded ? `excluded (${judged.excluded})` : judged?.error ? 'judge error' : judged ? (judged.success ? 'success' : 'failure') : 'not judged',

@@ -73,7 +73,7 @@ wait_for_vertex() {
 # Judge finished tasks every 30 minutes; judge.mjs resumes and only judges what is new or errored.
 judge_loop() {
   while true; do
-    node e2e/mind2web/judge.mjs "$RUN_DIR" --concurrency 4 >>"$RUN_DIR/judge.log" 2>&1
+    node e2e/mind2web/judge.mjs "$RUN_DIR" >>"$RUN_DIR/judge.log" 2>&1
     [ -f "$FLAG" ] && break
     for _ in $(seq 1 30); do
       [ -f "$FLAG" ] && break
@@ -131,7 +131,7 @@ touch "$FLAG"
 log "all workers finished; waiting for the last judge pass"
 wait "$JUDGE_PID" "$STATUS_PID"
 # One more pass picks up judge errors from the last one.
-node e2e/mind2web/judge.mjs "$RUN_DIR" --concurrency 4 >>"$RUN_DIR/judge.log" 2>&1
+node e2e/mind2web/judge.mjs "$RUN_DIR" >>"$RUN_DIR/judge.log" 2>&1
 node e2e/mind2web/analyze.mjs "$RUN_DIR" >"$RUN_DIR/analyze.log" 2>&1
 # Every task final, logged and judged? The list of anything missing goes to verify.log.
 node e2e/mind2web/verify.mjs "$RUN_DIR" >"$RUN_DIR/verify.log" 2>&1

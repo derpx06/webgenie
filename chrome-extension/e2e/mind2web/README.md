@@ -123,16 +123,20 @@ Output, under `chrome-extension/e2e/results/mind2web-<timestamp>/` (gitignored):
 
 ```bash
 node chrome-extension/e2e/mind2web/judge.mjs chrome-extension/e2e/results/mind2web-<timestamp>
-node chrome-extension/e2e/mind2web/judge.mjs <runDir> --limit 5 --concurrency 2 --model gemini-2.5-flash
+node chrome-extension/e2e/mind2web/judge.mjs <runDir> --limit 5 --model gemini-2.5-pro --image-model gemini-3-flash-preview
 node chrome-extension/e2e/mind2web/judge.mjs <runDir> --dry-run   # payload sizes only, no credentials, no calls
 ```
 
 Three stages as in WebJudge: key points from the task text; a 1-5 score per screenshot; an outcome call with the key
 points, the action history and the screenshots scoring at least `--threshold` (3). Output is `<runDir>/judgments.json`
 (per task: `success`, `keyPoints`, `reasoning`, screenshot scores) with a summary: success rate and Wilson 95% interval,
-overall and per level. It is written after every task, and a re-run judges only what is missing or errored. The judge
-defaults to `gemini-2.5-pro` and falls back to `gemini-2.5-flash` when the model returns 404. 429 and 5xx responses are
-retried with backoff. The access token comes from `gcloud auth print-access-token` and is kept in memory only.
+overall and per level. It is written after every task, and a re-run judges only what is missing or errored. For review,
+each task folder also gets `judgment.md` (key points, every screenshot's score and reason and whether it was sent, the
+verdict with its reasoning) and `judge-calls.jsonl` (every call: stage, model, prompt, screenshots, raw reply, retries).
+The verdict uses `--model` (`gemini-2.5-pro`, falling back to `gemini-2.5-flash` on 404); key points and screenshot scores
+use `--image-model` (`gemini-3-flash-preview`), a separate per-minute quota. A 429 pauses every call to that model
+together (doubling up to 2 minutes, for up to 30 minutes per call). `compare.mjs` refuses two folders judged with
+different models or thresholds. The access token comes from `gcloud auth print-access-token` and is kept in memory only.
 
 **The scores are indicative.** Online-Mind2Web validates WebJudge with o4-mini (about 86% agreement with humans).
 A Gemini judge has not been validated against their human labels, so the numbers are not comparable to the leaderboard.
