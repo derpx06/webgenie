@@ -141,7 +141,7 @@ All calls go through `invokeLLM` / `invokeTools` in `agent/agents/base.ts`; mode
 
 - **Tools:** native tool calling (`bindTools`, forced tool choice where supported) with Zod validation and up to two re-asks carrying the issues; or the tools rendered into the prompt with a JSON reply for models without usable tool calling. A provider that rejects the tools payload switches that agent to the prompt fallback for the rest of the task.
 - **Timeouts:** per provider and model from `callTimeoutMs` (e.g. 25 s Gemini/Vertex, 30 s OpenAI-compatible, longer for reasoning models, 90 s Ollama); a retry gets 1.5×.
-- **Hedging:** a call still running after 10 s (`HEDGE_AFTER_MS`) is duplicated; the first reply wins and the other is aborted.
+- **Hedging:** a call still running after 10 s (`HEDGE_AFTER_MS`) is duplicated, unless that model was rate limited in the last minute (`NO_HEDGE_AFTER_RATE_LIMIT_MS`); the first reply wins and the other is aborted.
 - **Transient errors** (timeout, 5xx, network) are retried once.
 - **Rate limits and lost connections:** the server's hint (`retryDelay`, `retry-after`, capped at 30 s) or jittered exponential backoff, with a per-model cooldown shared by all callers. A call that gets no response at all ("Failed to fetch", `isNetworkError`) waits the same way. Once waiting would exceed 180 s in total (`RATE_LIMIT_BUDGET_MS`; a per-minute quota recovers in 20–60 s) the task is **paused** with a resumable checkpoint (`ChatModelRateLimitError`, or its subclass `ProviderUnreachableError` with the "back online" message).
 - **Calls with a screenshot** get twice the time limit and hedge delay; screenshots are at most 1280 px wide, JPEG quality 60, with neutral element labels so a label's colour is never read as the page's.

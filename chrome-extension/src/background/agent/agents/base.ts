@@ -146,6 +146,12 @@ const SUPERSEDED = 'superseded by a faster duplicate request';
 export const RATE_LIMIT_BUDGET_MS = 180_000;
 /** When a model may be called again after a rate limit, shared by every caller in this worker (planner, navigator, checks). */
 const cooldownUntil = new Map<string, number>();
+/**
+ * No duplicate of a slow call for this long after the model's last rate limit: against a spent quota the duplicate only
+ * adds a request that is refused too (mind2web run: 670 duplicates among 6,624 rate limits, 44% of task time waiting).
+ */
+export const NO_HEDGE_AFTER_RATE_LIMIT_MS = 60_000;
+const rateLimitedAt = new Map<string, number>();
 
 /** A wait the provider asked for: Google's retryDelay ("30s") or a Retry-After value in seconds. */
 export function retryDelayHint(error: unknown): number | null {
@@ -367,6 +373,7 @@ export async function invokeLLM(
         rateLimitRetries++;
         rateLimitWaitedMs += delay;
         cooldownUntil.set(cooldownKey, Math.max(cooldownUntil.get(cooldownKey) ?? 0, Date.now() + delay));
+        if (!offline) rateLimitedAt.set(cooldownKey, Date.now());
         record({
           level: 'warning',
           kind: 'llm',
@@ -423,6 +430,7 @@ function invokeHedged(model: InvokableModel, messages: BaseMessage[], options: I
             if (!finished) finish(() => resolve(reply));
           },
           error => {
+            if (isRateLimitError(error)) rateLimitedAt.set(options.model ?? 'default', Date.now());
             running--;
             if (!finished && running === 0) finish(() => reject(error));
           },
@@ -430,7 +438,7 @@ function invokeHedged(model: InvokableModel, messages: BaseMessage[], options: I
         .finally(() => options.signal?.removeEventListener('abort', forward));
     };
     const hedgeTimer = setTimeout(() => {
-      if (finished) return;
+      if (finished || Date.now() - (rateLimitedAt.get(options.model ?? 'default') ?? -Infinity) < NO_HEDGE_AFTER_RATE_LIMIT_MS) return;
       record({
         level: 'warning',
         kind: 'llm',

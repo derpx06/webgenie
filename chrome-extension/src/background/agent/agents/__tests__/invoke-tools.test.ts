@@ -159,6 +159,18 @@ describe('slow calls', () => {
     expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
 
+  it('sends no duplicate while the model was rate limited in the last minute', async () => {
+    const options = { component: 'test', model: 'limited-model', timeoutMs: 5_000, hedgeAfterMs: 30, rateLimitDelaysMs: [1] };
+    const slow = () => new Promise<AIMessage>(resolve => setTimeout(() => resolve(new AIMessage({ content: 'slow answer' })), 120));
+    const { chatModel, stub } = stubModel([() => Promise.reject(new Error('429 Resource exhausted')), slow, new AIMessage({ content: 'never' })]);
+
+    expect((await invokeLLM(chatModel, packet, options)).text).toBe('slow answer');
+    expect(stub.invoke).toHaveBeenCalledTimes(2);
+
+    const other = stubModel([hang, new AIMessage({ content: 'from the duplicate' })]);
+    expect((await invokeLLM(other.chatModel, packet, { ...options, model: 'other-model' })).text).toBe('from the duplicate');
+  });
+
   it('fails at once, without a duplicate, when a call fails before it is slow', async () => {
     const { chatModel, stub } = stubModel([() => Promise.reject(new Error('400 Bad Request')), new AIMessage({ content: 'never' })]);
     await expect(invokeLLM(chatModel, packet, { component: 'test', timeoutMs: 5_000, hedgeAfterMs: 2_000 })).rejects.toThrow('400');
