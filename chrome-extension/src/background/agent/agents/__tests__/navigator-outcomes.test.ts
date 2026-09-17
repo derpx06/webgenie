@@ -4,7 +4,7 @@ vi.mock('webextension-polyfill', () => ({}));
 vi.mock('@extension/i18n', () => ({ t: (key: string) => key }));
 
 import { ExecutionState } from '../../event/types';
-import { askHuman, click, createHarness, done, plan, settle, stubChrome, textOf, typeText, until } from '../../__tests__/fakes';
+import { askHuman, call, click, createHarness, done, plan, settle, stubChrome, textOf, typeText, until } from '../../__tests__/fakes';
 import type { PageSpec, Script } from '../../__tests__/fakes';
 
 beforeEach(() => {
@@ -111,6 +111,39 @@ describe('Clicks that change nothing useful', () => {
     const { sent } = await run([{ url, title: 'Shop', elements: [{ text: 'Sort' }] }, opened], [click(0), done('Open')]);
 
     expect(sent()).toContain('A menu or list opened: [1] "Price: low to high".');
+  });
+});
+
+describe('Actions repeated on a page that does not change', () => {
+  const url = 'https://form.test/';
+
+  it('are refused from the fourth identical one on', async () => {
+    const page = { url, title: 'Form', elements: [{ tag: 'input', attributes: { type: 'text', 'aria-label': 'City' } }] };
+    const type = typeText(0, 'Paris');
+    const { h, sent } = await run([page], [type, type, type, type, done('Typed')]);
+
+    expect(h.browser.actions.filter(action => action.type === 'input')).toHaveLength(3);
+    expect(sent()).toContain('you have already done exactly this 3 times on this page and nothing on it changed');
+  });
+
+  it('go on as long as each one changes the page', async () => {
+    const feed = (items: number) => ({
+      url,
+      title: 'Feed',
+      elements: [{ text: 'Load more' }, ...Array.from({ length: items }, (_, i) => ({ tag: 'a', text: `Item ${i + 1}` }))],
+    });
+    const { h, sent } = await run([feed(1), feed(2), feed(3), feed(4), feed(5)], [click(0), click(0), click(0), click(0), done('Loaded')]);
+
+    expect(h.browser.actions.filter(action => action.type === 'click')).toHaveLength(4);
+    expect(sent()).not.toContain('nothing on it changed');
+  });
+
+  it('refuse a page scroll after three that revealed nothing new', async () => {
+    const scroll = call('scroll', { direction: 'down' });
+    const { h, sent } = await run([{ url, title: 'Long page', elements: [{ text: 'Top' }] }], [scroll, scroll, scroll, scroll, done('Read')]);
+
+    expect(h.browser.actions.filter(action => action.type === 'scroll_to_text')).toHaveLength(0);
+    expect(sent()).toContain('Not scrolled: the last 3 page scrolls revealed nothing new');
   });
 });
 

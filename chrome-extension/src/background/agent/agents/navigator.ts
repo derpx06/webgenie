@@ -62,7 +62,17 @@ const DATA_CARRYING_ACTIONS = new Set(['input_text', 'go_to_url', 'open_tab', 's
 const NAVIGATING_ACTIONS = new Set(['go_to_url', 'open_tab']);
 
 /** Page scrolls in a row that may reveal nothing new before the next page scroll is refused. */
-const MAX_EMPTY_SCROLLS = 6;
+const MAX_EMPTY_SCROLLS = 3;
+
+/**
+ * Times one action may run unchanged on a page before the next identical one is refused: 36% of all executed actions
+ * in a live run were an exact repeat of an earlier one. Any change on the page clears the count, so a list that loads
+ * more, a page that turns or a menu that opens can be worked the same way again.
+ */
+const MAX_IDENTICAL_ACTIONS = 3;
+
+/** Actions left out of the repeat count: scrolls have their own, and a done or a question is not a repeat. */
+const UNCOUNTED_REPEATS = new Set(['scroll', 'done', 'ask_human']);
 
 /** Times one address may be opened with go_to_url or open_tab in a task; the next open is refused. */
 const MAX_OPENS_PER_ADDRESS = 3;
@@ -553,10 +563,17 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           }));
         };
 
-        // The element list holds the whole page, offscreen elements included: after six page scrolls that listed nothing
+        // The element list holds the whole page, offscreen elements included: after three page scrolls that listed nothing
         // new, another one will not either (a live run scrolled 8-21 times for filters already listed or in a collapsed section).
         if (actionName === 'scroll' && indexArg === null && this.context.emptyScrolls >= MAX_EMPTY_SCROLLS) {
           refuse(`Not scrolled: the last ${this.context.emptyScrolls} page scrolls revealed nothing new, so every element of this page is already listed. Use an element marked offscreen by index, open a collapsed section (aria-expanded="false") that may hold what you look for, find a text with get_complete_page_content with find or scroll_to_text, or scroll a specific element by index.`);
+          break;
+        }
+
+        // The same action on an unchanged page, three times over: the fourth does not work either.
+        if (!UNCOUNTED_REPEATS.has(actionName)
+          && (this.context.actionRepeats.get(this.repeatKey(actionName, actionArgs, beforeState.url)) ?? 0) >= MAX_IDENTICAL_ACTIONS) {
+          refuse(`Not done: you have already done exactly this ${MAX_IDENTICAL_ACTIONS} times on this page and nothing on it changed, so this one is refused. Do something else: another element, a collapsed section or menu that may hold what you look for, get_complete_page_content with find, another route, or finish with done (success: false) and say what blocks you.`);
           break;
         }
 
@@ -985,20 +1002,25 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           extractedContent: notes.length > 0 ? `${result.extractedContent ?? ''} ${notes.join(' ')}`.trim() : result.extractedContent,
         });
         // Scrolling on and on for something already listed (Online-Mind2Web: 7 of 35 tasks scrolled 4+ times in a row, one
-        // 21 times, for a filter it could use by index) gets a note from the fourth scroll on.
+        // 21 times, for a filter it could use by index) gets a note from the last scroll that is allowed.
+        // What the action did to the page: a new address, new elements or text, or more of it than before. An action
+        // that changed nothing is the one worth refusing when it comes again; a list that loads more is not.
+        const changedPage = revealed.length > 0
+          || appeared.length > 0
+          || addressKey(postActionState.url) !== addressKey(beforeState.url)
+          || postActionState.scrollHeight !== beforeState.scrollHeight;
         this.context.scrollRun = actionName === 'scroll' ? this.context.scrollRun + 1 : 0;
         // A page scroll says whether it listed anything new; one that did (a page that loads more) starts the count again.
         if (actionName === 'scroll' && indexArg === null && !result.error) {
-          const revealed = newElements(beforeState, postActionState).length;
           // A long page's element list is cut to a window around the viewport: there a scroll shows other elements even when
           // the page has no new ones, so it is not an empty scroll, and "every element is listed" would be false.
           const include = this.context.options.includeAttributes;
           const windowed = elementsWindowed(beforeState, include) || elementsWindowed(postActionState, include);
-          this.context.emptyScrolls = revealed > 0 || windowed ? 0 : this.context.emptyScrolls + 1;
+          this.context.emptyScrolls = changedPage || windowed ? 0 : this.context.emptyScrolls + 1;
           result = new ActionResult({
             ...result,
-            extractedContent: `${result.extractedContent ?? ''} ${revealed > 0
-              ? `Scrolling revealed ${revealed} new element${revealed === 1 ? '' : 's'}.`
+            extractedContent: `${result.extractedContent ?? ''} ${revealed.length > 0
+              ? `Scrolling revealed ${revealed.length} new element${revealed.length === 1 ? '' : 's'}.`
               : windowed
                 ? 'Scrolling moved the part of this long page that the element list shows.'
                 : 'Scrolling revealed nothing new: every element of this page was already listed; use elements marked offscreen by index, open a collapsed section, or use get_complete_page_content with find.'}`.trim(),
@@ -1006,28 +1028,26 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         } else if (actionName !== 'scroll') {
           this.context.emptyScrolls = 0;
         }
-        if (this.context.scrollRun >= 4) {
+        if (this.context.scrollRun >= MAX_EMPTY_SCROLLS) {
           const empty = this.context.emptyScrolls;
           const escalation = empty >= MAX_EMPTY_SCROLLS
             ? ` ${empty} page scrolls in a row revealed nothing new: further page scrolls are refused until you do something else.`
-            : empty >= 3 ? ` ${empty} page scrolls in a row revealed nothing new; after ${MAX_EMPTY_SCROLLS}, page scrolls are refused.` : '';
+            : '';
           result = new ActionResult({
             ...result,
             extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row.${escalation} Elements marked offscreen are on the page already: use them by index (the action scrolls to them). Options you look for (a price or rating filter) often sit inside a collapsed section, menu or filter panel: open the button with that name instead of scrolling. To find a text, use get_complete_page_content with find, or scroll_to_text.`.trim(),
           });
         }
         // The same action on the same page, over and over (live runs: go_back 11 times, switch_tab back and forth, the same
-        // typing or click 3-4 times), gets a note from the third time. Nothing is refused: pagination and "load more" repeat
-        // legitimately. Scrolls have their own note; done and ask_human results are an answer and a question.
-        if (actionName !== 'scroll' && actionName !== 'done' && actionName !== 'ask_human') {
+        // typing or click 3-4 times). Anything the page did is progress, so the counts start again; a run of actions that
+        // changed nothing gets a note on the last one that is allowed, and the next identical one is refused above.
+        if (changedPage) this.context.actionRepeats.clear();
+        if (!UNCOUNTED_REPEATS.has(actionName)) {
           const times = this.countRepeat(actionName, actionArgs, beforeState.url);
-          if (times >= 3) {
-            const escalation = times >= 8
-              ? ' Stop repeating it: take a different route now, or finish with done (success: false) and explain what blocks you.'
-              : times >= 5 ? ' Repeating it again will not work.' : '';
+          if (times >= MAX_IDENTICAL_ACTIONS) {
             result = new ActionResult({
               ...result,
-              extractedContent: `${result.extractedContent ?? ''} You have done exactly this ${times} times on this page and the page did not give you what you need; do something different: another element, another route, get_complete_page_content with find, or report what blocks you.${escalation}`.trim(),
+              extractedContent: `${result.extractedContent ?? ''} You have done exactly this ${times} times on this page and nothing on it changed, so another one is refused; do something different: another element, another route, get_complete_page_content with find, or report what blocks you.`.trim(),
             });
           }
         }
@@ -1183,12 +1203,17 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     return results;
   }
 
-  /** Counts an executed action by name, the page address it started on and its arguments (engine stamps aside). */
-  private countRepeat(actionName: string, actionArgs: unknown, pageUrl: string): number {
+  /** One action by name, the page address it started on and its arguments (engine stamps aside). */
+  private repeatKey(actionName: string, actionArgs: unknown, pageUrl: string): string {
     const { memory: _memory, observationId: _observation, targetFingerprint: _target, ...args } = (actionArgs ?? {}) as Record<string, unknown>;
-    const signature = `${actionName}|${addressKey(pageUrl) || pageUrl}|${JSON.stringify(args)}`;
-    const times = (this.context.actionRepeats.get(signature) ?? 0) + 1;
-    this.context.actionRepeats.set(signature, times);
+    return `${actionName}|${addressKey(pageUrl) || pageUrl}|${JSON.stringify(args)}`;
+  }
+
+  /** Counts an executed action; the count runs from the last change on the page, not from the start of the task. */
+  private countRepeat(actionName: string, actionArgs: unknown, pageUrl: string): number {
+    const key = this.repeatKey(actionName, actionArgs, pageUrl);
+    const times = (this.context.actionRepeats.get(key) ?? 0) + 1;
+    this.context.actionRepeats.set(key, times);
     return times;
   }
 

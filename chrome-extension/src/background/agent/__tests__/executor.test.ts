@@ -711,7 +711,7 @@ describe('A target the page covers or hides', () => {
 });
 
 describe('A long run of scrolls', () => {
-  it('gets a note from the fourth scroll on that listed elements are used by index', async () => {
+  it('gets a note from the third scroll on that listed elements are used by index', async () => {
     // eslint-disable-next-line prefer-const
     let h: ReturnType<typeof createHarness>;
     const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('Found it') : plannerUntil('never')(request));
@@ -726,8 +726,8 @@ describe('A long run of scrolls', () => {
     await settle(h.executor.execute());
 
     const requests = h.llm.requestsFor('navigator');
-    expect(textOf(requests[3].messages)).not.toContain('scrolls in a row');
-    expect(textOf(requests[4].messages)).toContain('4 scrolls in a row');
+    expect(textOf(requests[2].messages)).not.toContain('scrolls in a row');
+    expect(textOf(requests[3].messages)).toContain('3 scrolls in a row');
   });
 
   const scrolls = (navigator: ReturnType<typeof call>[], onScroll?: (h: ReturnType<typeof createHarness>) => void) => {
@@ -753,24 +753,24 @@ describe('A long run of scrolls', () => {
   };
   const down = () => call('scroll', { direction: 'down', pages: 1 });
 
-  it('says a page scroll revealed nothing new, and refuses page scrolls after six such scrolls', async () => {
-    const h = scrolls([...Array(7).fill(null).map(down), call('scroll', { direction: 'down', index: 1 })]);
+  it('says a page scroll revealed nothing new, and refuses page scrolls after three such scrolls', async () => {
+    const h = scrolls([...Array(4).fill(null).map(down), call('scroll', { direction: 'down', index: 1 })]);
     await settle(h.executor.execute());
 
     const requests = h.llm.requestsFor('navigator');
     expect(textOf(requests[1].messages)).toContain('Scrolling revealed nothing new');
-    expect(textOf(requests[6].messages)).toContain('further page scrolls are refused');
-    expect(textOf(requests[6].messages)).not.toContain('Not scrolled');
-    expect(textOf(requests[7].messages)).toContain('Not scrolled: the last 6 page scrolls revealed nothing new');
+    expect(textOf(requests[3].messages)).toContain('further page scrolls are refused');
+    expect(textOf(requests[3].messages)).not.toContain('Not scrolled');
+    expect(textOf(requests[4].messages)).toContain('Not scrolled: the last 3 page scrolls revealed nothing new');
     // Scrolling a specific element stays allowed.
-    const lastResults = textOf(requests[8].messages).split('Results of your last actions').pop();
+    const lastResults = textOf(requests[5].messages).split('Results of your last actions').pop();
     expect(lastResults).toContain('Scrolled');
     expect(lastResults).not.toContain('Not scrolled');
   });
 
   it('counts again after a scroll that loads new elements', async () => {
     let loaded = 2;
-    const h = scrolls(Array(8).fill(null).map(down), harness => {
+    const h = scrolls(Array(6).fill(null).map(down), harness => {
       if (loaded === 5) return;
       loaded++;
       harness.browser.show({ url: 'https://reviews.test/', title: 'Reviews', elements: Array.from({ length: loaded }, (_, i) => ({ text: `Item ${i}` })) });
