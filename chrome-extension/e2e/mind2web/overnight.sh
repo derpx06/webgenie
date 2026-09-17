@@ -30,7 +30,7 @@ RUN_DIR="$(cd "$RUN_DIR" && pwd)"
 
 # Hold off sleep and idle suspend for the whole run.
 if [ -z "${WEBGENIE_INHIBITED:-}" ] && command -v systemd-inhibit >/dev/null; then
-  WEBGENIE_INHIBITED=1 WORKERS="$WORKERS" PASSES="$PASSES" LOCATIONS="$LOCATIONS" exec systemd-inhibit --what=sleep:idle --who=webgenie --why="Online-Mind2Web run" "$0" "$RUN_DIR"
+  WEBGENIE_INHIBITED=1 JUDGE="${JUDGE:-1}" WORKERS="$WORKERS" PASSES="$PASSES" LOCATIONS="$LOCATIONS" exec systemd-inhibit --what=sleep:idle --who=webgenie --why="Online-Mind2Web run" "$0" "$RUN_DIR"
 fi
 
 # No windows on the screen: a normal, headed Chromium on a virtual display (Xvfb) when available. Real headless
@@ -117,8 +117,12 @@ log "run folder $RUN_DIR ($WORKERS workers, browser: $browser)"
 # Force-stopped browsers leave profiles in /tmp (a small tmpfs); clear them once, before any worker starts one.
 if [ "$(ps -eo pid=,args= | awk '$2 ~ /chromium$/ && /webgenie-e2e-/' | wc -l)" = "0" ]; then rm -rf /tmp/webgenie-e2e-*; fi
 
-judge_loop &
-JUDGE_PID=$!
+# JUDGE=0 leaves judging for later (a slow uplink: judge calls carry the screenshots).
+JUDGE_PID=
+if [ "${JUDGE:-1}" != 0 ]; then
+  judge_loop &
+  JUDGE_PID=$!
+fi
 status_loop &
 STATUS_PID=$!
 
@@ -132,9 +136,9 @@ wait "${WORKER_PIDS[@]}"
 
 touch "$FLAG"
 log "all workers finished; waiting for the last judge pass"
-wait "$JUDGE_PID" "$STATUS_PID"
+wait $JUDGE_PID "$STATUS_PID"
 # One more pass picks up judge errors from the last one.
-node e2e/mind2web/judge.mjs "$RUN_DIR" >>"$RUN_DIR/judge.log" 2>&1
+[ "${JUDGE:-1}" != 0 ] && node e2e/mind2web/judge.mjs "$RUN_DIR" >>"$RUN_DIR/judge.log" 2>&1
 node e2e/mind2web/analyze.mjs "$RUN_DIR" >"$RUN_DIR/analyze.log" 2>&1
 # Every task final, logged and judged? The list of anything missing goes to verify.log.
 node e2e/mind2web/verify.mjs "$RUN_DIR" >"$RUN_DIR/verify.log" 2>&1
