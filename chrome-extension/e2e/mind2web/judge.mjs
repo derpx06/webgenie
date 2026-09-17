@@ -41,7 +41,7 @@ const { values: opts, positionals } = parseArgs({
     shard: { type: 'string' },
     // The per-screenshot relevance scores are many small calls (one per screenshot); key points and the verdict stay on
     // --model. Set to a faster model when the judge model's quota cannot keep up.
-    'image-model': { type: 'string', default: 'gemini-3-flash-preview' },
+    'image-model': { type: 'string', default: 'gemini-2.5-flash' },
     // Screenshots go as JPEG, at most this wide: Gemini reads images in 768 px tiles, so a 2108 px PNG carries no more
     // for the judge than a 1280 px JPEG a third of the size (4 MB of upload per task on a slow line).
     'image-width': { type: 'string', default: '1280' },
