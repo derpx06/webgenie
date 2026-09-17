@@ -28,6 +28,8 @@ const { values: opts, positionals } = parseArgs({
     'fallback-model': { type: 'string', default: 'gemini-2.5-flash' },
     limit: { type: 'string' },
     concurrency: { type: 'string', default: '6' },
+    // Tasks judged at once; their calls share the --concurrency slots.
+    tasks: { type: 'string', default: '3' },
     threshold: { type: 'string', default: '3' },
     project: { type: 'string', default: process.env.E2E_PROJECT },
     location: { type: 'string', default: process.env.E2E_LOCATION ?? 'global' },
@@ -149,7 +151,8 @@ function parseImage(response) {
 const parseOutcome = response => (response.toLowerCase().split('status:')[1] ?? '').includes('success');
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const gcloud = (...args) => execFileSync('gcloud', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const gcloud = (...args) =>
+  execFileSync('gcloud', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 
 let model = opts.model;
 let project = opts.project;
@@ -196,14 +199,26 @@ async function generate(stage, system, text, images = [], calls = []) {
     const reply = await limited(async () => {
       const parts = [{ text }];
       for (const file of images) {
-        parts.push({ inlineData: { mimeType: /\.png$/i.test(file) ? 'image/png' : 'image/jpeg', data: fs.readFileSync(file).toString('base64') } });
+        parts.push({
+          inlineData: {
+            mimeType: /\.png$/i.test(file) ? 'image/png' : 'image/jpeg',
+            data: fs.readFileSync(file).toString('base64'),
+          },
+        });
       }
-      const body = JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts }], generationConfig: { temperature: 0 } });
+      const body = JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts }],
+        generationConfig: { temperature: 0 },
+      });
       if (DRY) {
-        console.log(`  [dry-run] ${stage}: ${images.length} image(s), payload ${(Buffer.byteLength(body) / 1e6).toFixed(3)} MB`);
+        console.log(
+          `  [dry-run] ${stage}: ${images.length} image(s), payload ${(Buffer.byteLength(body) / 1e6).toFixed(3)} MB`,
+        );
         return { text: CANNED[stage] };
       }
-      const host = opts.location === 'global' ? 'aiplatform.googleapis.com' : `${opts.location}-aiplatform.googleapis.com`;
+      const host =
+        opts.location === 'global' ? 'aiplatform.googleapis.com' : `${opts.location}-aiplatform.googleapis.com`;
       const url = `https://${host}/v1/projects/${project}/locations/${opts.location}/publishers/google/models/${callModel}:generateContent`;
       try {
         const response = await fetch(url, {
@@ -214,14 +229,32 @@ async function generate(stage, system, text, images = [], calls = []) {
         });
         if (response.ok) {
           const json = await response.json();
-          return { text: (json.candidates?.[0]?.content?.parts ?? []).filter(part => !part.thought).map(part => part.text ?? '').join('') };
+          return {
+            text: (json.candidates?.[0]?.content?.parts ?? [])
+              .filter(part => !part.thought)
+              .map(part => part.text ?? '')
+              .join(''),
+          };
         }
-        return { status: response.status, retryAfter: Number(response.headers.get('retry-after')) * 1000, detail: (await response.text()).slice(0, 300) };
+        return {
+          status: response.status,
+          retryAfter: Number(response.headers.get('retry-after')) * 1000,
+          detail: (await response.text()).slice(0, 300),
+        };
       } catch (error) {
         return { error };
       }
     });
-    const callRecord = extra => calls.push({ stage, model: callModel, images: images.map(file => path.basename(file)), prompt: text, retries, ms: Date.now() - started, ...extra });
+    const callRecord = extra =>
+      calls.push({
+        stage,
+        model: callModel,
+        images: images.map(file => path.basename(file)),
+        prompt: text,
+        retries,
+        ms: Date.now() - started,
+        ...extra,
+      });
     if (reply.text !== undefined) {
       pauses.delete(callModel);
       callRecord({ response: reply.text });
@@ -282,7 +315,9 @@ async function judgeTask(taskId) {
 
   // Every call of this judgment (prompt, screenshots, raw reply, retries), kept next to the task even when judging fails.
   const calls = [];
-  const saveCalls = () => !DRY && fs.writeFileSync(path.join(dir, 'judge-calls.jsonl'), calls.map(call => JSON.stringify(call)).join('\n') + '\n');
+  const saveCalls = () =>
+    !DRY &&
+    fs.writeFileSync(path.join(dir, 'judge-calls.jsonl'), calls.map(call => JSON.stringify(call)).join('\n') + '\n');
   try {
     return await judgeWith(result, dir, shots, calls);
   } finally {
@@ -293,7 +328,12 @@ async function judgeTask(taskId) {
 async function judgeWith(result, dir, shots, calls) {
   const keyPoints = parseKeyPoints(await generate('key_points', KEY_POINTS_SYSTEM, `Task: ${result.task}`, [], calls));
   const imagePrompt = `**Task**: ${result.task}\n\n**Key Points for Task Completion**: ${keyPoints}\n\nThe snapshot of the web page is shown in the image.`;
-  const scored = await Promise.all(shots.map(async file => ({ file, ...parseImage(await generate('image', IMAGE_SYSTEM, imagePrompt, [file], calls)) })));
+  const scored = await Promise.all(
+    shots.map(async file => ({
+      file,
+      ...parseImage(await generate('image', IMAGE_SYSTEM, imagePrompt, [file], calls)),
+    })),
+  );
 
   const kept = scored.filter(image => image.score >= THRESHOLD).slice(0, MAX_IMAGE);
   // Not upstream: a request over the size budget would be rejected, so drop the lowest-scored (earliest on ties) first.
@@ -306,7 +346,9 @@ async function judgeWith(result, dir, shots, calls) {
     droppedForSize.push(path.basename(worst.file));
   }
 
-  const actions = (result.action_history ?? []).map((step, i) => `${i + 1}. ${typeof step === 'string' ? step : step.action}`).join('\n');
+  const actions = (result.action_history ?? [])
+    .map((step, i) => `${i + 1}. ${typeof step === 'string' ? step : step.action}`)
+    .join('\n');
   let text = `User Task: ${result.task}\n\nKey Points: ${keyPoints}\n\nAction History:\n${actions}`;
   if (kept.length) {
     const thoughts = kept.map(image => image.thought).filter(Boolean);
@@ -325,7 +367,11 @@ async function judgeWith(result, dir, shots, calls) {
     success: parseOutcome(response),
     keyPoints,
     reasoning: response,
-    imageScores: scored.map(image => ({ screenshot: path.basename(image.file), score: image.score, thought: image.thought })),
+    imageScores: scored.map(image => ({
+      screenshot: path.basename(image.file),
+      score: image.score,
+      thought: image.thought,
+    })),
     imagesSent: kept.length,
     droppedForSize,
   };
@@ -337,7 +383,8 @@ async function judgeWith(result, dir, shots, calls) {
 function judgmentMarkdown(result, judgment, kept) {
   const sent = new Set(kept.map(image => path.basename(image.file)));
   const shots = judgment.imageScores.map(
-    image => `| ${image.screenshot} | ${image.score} | ${sent.has(image.screenshot) ? 'yes' : 'no'} | ${image.thought.replaceAll('|', '\\|')} |`,
+    image =>
+      `| ${image.screenshot} | ${image.score} | ${sent.has(image.screenshot) ? 'yes' : 'no'} | ${image.thought.replaceAll('|', '\\|')} |`,
   );
   return [
     `# Judgment: ${judgment.success ? 'SUCCESS' : 'FAILURE'}`,
@@ -365,11 +412,18 @@ function summarize(tasks) {
   const judged = rows.filter(t => !t.excluded && !t.error);
   const stats = list => {
     const k = list.filter(t => t.success).length;
-    return { n: list.length, success: k, rate: list.length ? +(k / list.length).toFixed(3) : null, ci95: wilson(k, list.length) };
+    return {
+      n: list.length,
+      success: k,
+      rate: list.length ? +(k / list.length).toFixed(3) : null,
+      ci95: wilson(k, list.length),
+    };
   };
   return {
     overall: stats(judged),
-    byLevel: Object.fromEntries(['easy', 'medium', 'hard'].map(level => [level, stats(judged.filter(t => t.level === level))])),
+    byLevel: Object.fromEntries(
+      ['easy', 'medium', 'hard'].map(level => [level, stats(judged.filter(t => t.level === level))]),
+    ),
     excluded: rows.filter(t => t.excluded).map(t => `${t.task_id} (${t.excluded})`),
     errors: rows.filter(t => t.error).map(t => t.task_id),
   };
@@ -384,7 +438,10 @@ async function main() {
   if (opts.merge) {
     const merged = {};
     // Shard files sort before judgments.json, so a shard's verdict is kept over the main file's.
-    for (const file of fs.readdirSync(runDir).filter(name => /^judgments(\.\d+)?\.json$/.test(name)).sort()) {
+    for (const file of fs
+      .readdirSync(runDir)
+      .filter(name => /^judgments(\.\d+)?\.json$/.test(name))
+      .sort()) {
       for (const [id, entry] of Object.entries(readTasks(path.join(runDir, file)))) {
         if (!merged[id] || (merged[id].error && !entry.error)) merged[id] = entry;
       }
@@ -407,8 +464,12 @@ async function main() {
       return false; // being written right now: the next pass sees it
     }
   };
-  const todo = ids.filter(id => !tasks[id] || tasks[id].error || changed(id)).slice(0, opts.limit ? Number(opts.limit) : undefined);
-  console.log(`judging ${todo.length} of ${ids.length} tasks with ${model} (concurrency ${CONCURRENCY}, threshold ${THRESHOLD})${DRY ? ' [dry-run]' : ''}`);
+  const todo = ids
+    .filter(id => !tasks[id] || tasks[id].error || changed(id))
+    .slice(0, opts.limit ? Number(opts.limit) : undefined);
+  console.log(
+    `judging ${todo.length} of ${ids.length} tasks with ${model} (concurrency ${CONCURRENCY}, threshold ${THRESHOLD})${DRY ? ' [dry-run]' : ''}`,
+  );
 
   const save = () =>
     fs.writeFileSync(
@@ -433,20 +494,30 @@ async function main() {
   if (opts.merge) {
     save();
     const merged = summarize(tasks);
-    console.log(`merged into ${path.basename(outFile)}: ${merged.overall.n} judged (${merged.overall.success} success), ${merged.excluded.length} excluded, ${merged.errors.length} judge errors`);
+    console.log(
+      `merged into ${path.basename(outFile)}: ${merged.overall.n} judged (${merged.overall.success} success), ${merged.excluded.length} excluded, ${merged.errors.length} judge errors`,
+    );
     return;
   }
 
+  // A few tasks at a time, so tasks finish one after another: starting every task at once spreads a rate-limited quota
+  // over all of them and none finishes for hours.
+  const queue = [...todo];
+  const TASKS = Math.max(1, Number(opts.tasks));
   await Promise.all(
-    todo.map(async id => {
-      try {
-        tasks[id] = await judgeTask(id);
-        console.log(`${id}: ${tasks[id].excluded ? `excluded (${tasks[id].excluded})` : tasks[id].success ? 'success' : 'failure'}`);
-      } catch (error) {
-        tasks[id] = { error: error.message };
-        console.log(`${id}: judge error: ${error.message}`);
+    Array.from({ length: TASKS }, async () => {
+      for (let id = queue.shift(); id; id = queue.shift()) {
+        try {
+          tasks[id] = await judgeTask(id);
+          console.log(
+            `${id}: ${tasks[id].excluded ? `excluded (${tasks[id].excluded})` : tasks[id].success ? 'success' : 'failure'}`,
+          );
+        } catch (error) {
+          tasks[id] = { error: error.message };
+          console.log(`${id}: judge error: ${error.message}`);
+        }
+        save();
       }
-      save();
     }),
   );
   save();

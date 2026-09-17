@@ -8,9 +8,9 @@
 // Tasks: the 60-task slice (slice.json) by default; --all runs every task in Online_Mind2Web.json. --resume reuses a run
 // folder and skips tasks that already have a result, except harness errors and provider outages, which run again.
 // Rules: the firewall denies common search engines, so the agent works from the task's website (the benchmark's rule);
-// an order/payment confirmation is answered "No, stop here"; any other question is answered "Proceed with any
-// reasonable choice." and counted; each task is capped at 25 steps, 1200 s and 500k input tokens. After navigator actions
-// (act.ok/act.fail) the newest web tab is screenshotted into <task_id>/trajectory/NN.png, at most 40 per task.
+// an order/payment confirmation is answered "No, stop here"; a request for personal details or a sign-in is answered that none are given; any other question is answered "Proceed with any
+// reasonable choice." and counted; each task is capped at 50 steps, 2400 s and 500k input tokens. After navigator actions
+// (act.ok/act.fail) the tab the agent works in is screenshotted into <task_id>/trajectory/NN.png, at most 40 per task.
 // Every task records what the model provider returned (calls, 429s, server and network errors, rate-limit waits). A task
 // the provider ended (its last call failed on the provider's side, the agent paused for rate limits, or it ran out of
 // time after two minutes or more of rate-limit waits) is recorded as provider_down and runs again on resume, at most
@@ -23,6 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { closeSession, launchSession } from '../run.mjs';
 import { taskMetrics, timeline } from '../metrics.mjs';
@@ -44,6 +45,18 @@ const SEARCH_ENGINES = ['google.com', 'bing.com', 'duckduckgo.com', 'search.yaho
 // of 600 s waiting; steps and tokens bound the agent's effort, the clock only has to stop a hung task.
 // 50 steps: at 25, most step-limit endings were still working (a whole run of 25 showed where the agent lacks only up to
 // there); the 500k input-token cap stays. 2400 s so the extra steps fit under rate-limit waits.
+/** The last commit that changed the harness, recorded with every result next to the build. */
+const HARNESS_COMMIT = (() => {
+  try {
+    return (
+      execFileSync('git', ['-C', HERE, 'log', '-1', '--format=%h', '--', '.', '../run.mjs', '../metrics.mjs'], {
+        encoding: 'utf8',
+      }).trim() || null
+    );
+  } catch {
+    return null;
+  }
+})();
 const LIMITS = { maxSteps: 50, maxMs: 2_400_000, maxInputTokens: 500_000 };
 /** Provider-ended attempts after which a task keeps the agent's own outcome (flagged providerAffected) instead of running again. */
 const MAX_PROVIDER_ATTEMPTS = 3;
@@ -52,12 +65,15 @@ const MAX_SHOTS = 40;
 const TASKS_PER_BROWSER = 5;
 const DECLINE = 'No, stop here';
 const PROCEED = 'Proceed with any reasonable choice.';
+const NO_PERSONAL_DATA =
+  "I can't give personal or account details. Don't enter any or make them up: go as far as the task allows without them, then finish and say what is left.";
 /** Outcomes that say nothing about the agent; a resumed run tries these tasks again. */
 const RETRY_ON_RESUME = new Set(['harness_error', 'provider_down']);
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 /** true once the promise settles successfully within ms, false on timeout or error. */
-const within = (promise, ms) => Promise.race([promise.then(() => true), sleep(ms).then(() => false)]).catch(() => false);
+const within = (promise, ms) =>
+  Promise.race([promise.then(() => true), sleep(ms).then(() => false)]).catch(() => false);
 
 /** Whether this machine reaches the internet at all: a tiny always-up endpoint, or the model provider's host. */
 async function online() {
@@ -103,7 +119,10 @@ async function waitForMemory() {
   for (let waited = 0; ; waited += 60) {
     const free = freeMemoryMb();
     if (!free || !memoryShort(free)) return;
-    if (waited % 600 === 0) console.log(`(waiting for memory before the next task: ${free.available} MB available, ${free.swapFree} MB swap free)`);
+    if (waited % 600 === 0)
+      console.log(
+        `(waiting for memory before the next task: ${free.available} MB available, ${free.swapFree} MB swap free)`,
+      );
     await sleep(60_000);
   }
 }
@@ -111,7 +130,14 @@ async function waitForMemory() {
 /** The system's own commit confirmation, or a question that asks to confirm an order or a payment. */
 const isOrderConfirmation = question =>
   /^Confirm before I continue:/.test(question) ||
-  (/\b(confirm|should I|shall I|do you want|proceed)\b/i.test(question) && /\b(order|pay|payment|purchase|checkout|buy|book|reserve|subscribe)/i.test(question));
+  (/\b(confirm|should I|shall I|do you want|proceed)\b/i.test(question) &&
+    /\b(order|pay|payment|purchase|checkout|buy|book|reserve|subscribe)/i.test(question));
+
+/** A question asking for the user's own details or credentials, which the benchmark never provides. */
+const asksPersonalData = question =>
+  /\b(your|my|the user's)\b[^?.]{0,60}\b(name|e-?mail|phone|mobile|address|zip|postcode|postal code|date of birth|birthday|card|password|username|login|account|passport|credentials)\b|\b(log ?in|sign ?in|password|credentials|contact details|personal (?:details|information))\b/i.test(
+    question,
+  );
 
 /** drive() answers scripted questions in order and tests each script's `expect` first; recording the question there
  *  lets one script pick its answer by question. */
@@ -120,7 +146,11 @@ function responder() {
     question: '',
     expect: { test: question => ((script.question = question), true) },
     get answer() {
-      return isOrderConfirmation(script.question) ? DECLINE : PROCEED;
+      return isOrderConfirmation(script.question)
+        ? DECLINE
+        : asksPersonalData(script.question)
+          ? NO_PERSONAL_DATA
+          : PROCEED;
     },
   };
   return script;
@@ -150,7 +180,18 @@ function actionHistory(events) {
 
 /** What the model provider returned during a task, from the trace's llm records. */
 function providerStats(records) {
-  const stats = { calls: 0, failed: 0, rateLimited: 0, serverError: 0, timeout: 0, network: 0, auth: 0, other: 0, rateLimitWaitMs: 0, lastCallFailedOnProvider: false };
+  const stats = {
+    calls: 0,
+    failed: 0,
+    rateLimited: 0,
+    serverError: 0,
+    timeout: 0,
+    network: 0,
+    auth: 0,
+    other: 0,
+    rateLimitWaitMs: 0,
+    lastCallFailedOnProvider: false,
+  };
   for (const r of records) {
     if (r.kind !== 'llm') continue;
     const wait = /rate limited; retrying in ([\d.]+)s/.exec(r.msg ?? '');
@@ -197,7 +238,7 @@ const heldBackByProvider = (outcome, provider, events) =>
 
 /** Standard refusal pages: a CDN's "Access Denied", a bot check that has not cleared, a country block. */
 const REFUSAL_TEXT =
-  /access denied|you don't have permission to access|performing security verification|verif(?:y|ies) (?:that )?you are (?:not a bot|(?:a )?human)|just a moment\.\.\.|not available in your (?:area|country|region)|coming from a country|the request could not be satisfied|unusual traffic|i'?m not a robot|press (?:&|and) hold|complete the captcha|captcha to continue/i;
+  /access denied|you don't have permission to access|performing security verification|(?:verif(?:y|ies)|confirm) (?:that )?you(?: are|'re) (?:not a (?:ro)?bot|(?:a )?human)|just a moment\.\.\.|not available in your (?:area|country|region)|coming from a country|the request could not be satisfied|unusual traffic|i'?m not a robot|press (?:&|and) hold|complete the captcha|captcha to continue/i;
 
 /** The refusal a short page shows, or null; a normal page that mentions such words is longer. */
 function refusalText(title, text) {
@@ -210,7 +251,11 @@ const sameSite = (a, b) => a.split('.').slice(-2).join('.') === b.split('.').sli
 
 /** A refusal page of the task's own site in this tab, as `host "text" (title)`, or null. */
 async function refusalPage(page, siteHost) {
-  const read = page.evaluate(() => ({ href: location.href, title: document.title, text: (document.body?.innerText ?? '').slice(0, 4000) }));
+  const read = page.evaluate(() => ({
+    href: location.href,
+    title: document.title,
+    text: (document.body?.innerText ?? '').slice(0, 4000),
+  }));
   const info = await Promise.race([read, sleep(5000).then(() => null)]).catch(() => null);
   if (!info) return null;
   let pageHost;
@@ -247,14 +292,23 @@ function reclassified(runDir, task, saved) {
   if (saved?.outcome !== 'provider_down' || !saved.agentOutcome || !saved.provider) return saved;
   let events = [];
   try {
-    events = fs.readFileSync(path.join(runDir, task.task_id, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
+    events = fs
+      .readFileSync(path.join(runDir, task.task_id, 'events.jsonl'), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map(line => JSON.parse(line));
   } catch {
     // no events: judged on the provider numbers alone
   }
   const blamed = heldBackByProvider(saved.agentOutcome, saved.provider, events);
   if (blamed && providerAttempts(runDir, task.task_id) < MAX_PROVIDER_ATTEMPTS) return saved;
   const { agentOutcome, detail: _detail, ...rest } = saved;
-  return writeResult(runDir, task, { ...rest, outcome: agentOutcome, reclassifiedFrom: 'provider_down', ...(blamed ? { providerAffected: true } : {}) });
+  return writeResult(runDir, task, {
+    ...rest,
+    outcome: agentOutcome,
+    reclassifiedFrom: 'provider_down',
+    ...(blamed ? { providerAffected: true } : {}),
+  });
 }
 
 function writeResult(runDir, task, fields) {
@@ -270,6 +324,13 @@ function writeResult(runDir, task, fields) {
     action_history: [],
     screenshots: [],
     build: BUILD,
+    harness: {
+      commit: HARNESS_COMMIT,
+      limits: LIMITS,
+      model: process.env.E2E_MODEL ?? 'gemini-2.5-flash',
+      plannerModel: process.env.E2E_PLANNER_MODEL ?? process.env.E2E_MODEL ?? 'gemini-2.5-flash',
+      location: process.env.E2E_LOCATION ?? 'global',
+    },
     ...fields,
   };
   fs.writeFileSync(path.join(dir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
@@ -283,6 +344,18 @@ function savedResult(runDir, task) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The tab the agent works in: the agent makes its tab active when it opens or switches to one, while the newest tab can
+ * be one a link opened in the background (a task's screenshots showed a privacy-policy tab for 14 steps).
+ */
+async function agentPage(harness) {
+  const pages = await harness.webPages();
+  const url = await harness.ctl
+    .evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.url)
+    .catch(() => null);
+  return pages.filter(page => page.url() === url).at(-1) ?? pages.at(-1);
 }
 
 async function runTask(harness, task, runId, runDir) {
@@ -301,7 +374,11 @@ async function runTask(harness, task, runId, runDir) {
   await harness.clearOrigins([new URL(task.website).origin]);
   await harness.configure(taskId, task.confirmed_task.slice(0, 60), {
     // A task whose own website is on a search engine's domain keeps that domain reachable.
-    'firewall-settings': { enabled: true, allowList: [], denyList: SEARCH_ENGINES.filter(domain => host !== domain && !host.endsWith(`.${domain}`)) },
+    'firewall-settings': {
+      enabled: true,
+      allowList: [],
+      denyList: SEARCH_ENGINES.filter(domain => host !== domain && !host.endsWith(`.${domain}`)),
+    },
   });
   // Count navigator actions beside drive()'s own listener; a new control page or port gets its own hook.
   await harness.ctl.evaluate(() => {
@@ -316,7 +393,14 @@ async function runTask(harness, task, runId, runDir) {
   const web = await harness.browser.newPage();
   let nav = await web.goto(task.website, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(error => error);
   // ponytail: one navigation decides site_down (network error or 5xx); a bot wall that answers 5xx is counted as down too.
-  const down = nav instanceof Error ? (/net::ERR_/.test(nav.message) ? nav.message : null) : nav && nav.status() >= 500 ? `HTTP ${nav.status()}` : null;
+  const down =
+    nav instanceof Error
+      ? /net::ERR_/.test(nav.message)
+        ? nav.message
+        : null
+      : nav && nav.status() >= 500
+        ? `HTTP ${nav.status()}`
+        : null;
   if (down) {
     await web.close().catch(() => {});
     // Offline is this machine, not the site: round 1 recorded 61 tasks site_down with ERR_INTERNET_DISCONNECTED while the
@@ -328,8 +412,15 @@ async function runTask(harness, task, runId, runDir) {
   // site to work on, and looking up the tab by that address failed as a harness error on every retry.
   if (web.url().startsWith('chrome-error://')) {
     await web.close().catch(() => {});
-    if (!(await online())) return writeResult(runDir, task, { outcome: 'harness_error', detail: 'offline: the start page showed the browser error page' });
-    return writeResult(runDir, task, { outcome: 'site_down', detail: 'the start page showed the browser error page (the site refused or reset the connection)' });
+    if (!(await online()))
+      return writeResult(runDir, task, {
+        outcome: 'harness_error',
+        detail: 'offline: the start page showed the browser error page',
+      });
+    return writeResult(runDir, task, {
+      outcome: 'site_down',
+      detail: 'the start page showed the browser error page (the site refused or reset the connection)',
+    });
   }
   // A site that refuses this network on its own start page ("Access Denied", a country block, a bot check) cannot be
   // measured from here: 7 of 23 judged "successes" were honest reports of such a block, scored as failures. A check that
@@ -342,7 +433,11 @@ async function runTask(harness, task, runId, runDir) {
     if (isRefusal(again)) {
       const title = await web.title().catch(() => '');
       await web.close().catch(() => {});
-      return writeResult(runDir, task, { outcome: 'site_blocked', detail: `HTTP ${again} on the start page twice${title ? ` ("${title.slice(0, 80)}")` : ''}`, startStatus });
+      return writeResult(runDir, task, {
+        outcome: 'site_blocked',
+        detail: `HTTP ${again} on the start page twice${title ? ` ("${title.slice(0, 80)}")` : ''}`,
+        startStatus,
+      });
     }
   }
   // The same refusal served with status 200 (Akamai "Access Denied" on a store's start page) is read from the page.
@@ -351,11 +446,18 @@ async function runTask(harness, task, runId, runDir) {
     const still = await refusalPage(web, host);
     if (still) {
       await web.close().catch(() => {});
-      return writeResult(runDir, task, { outcome: 'site_blocked', detail: `refusal page at the start, still there 8 s later: ${still}`, startStatus });
+      return writeResult(runDir, task, {
+        outcome: 'site_blocked',
+        detail: `refusal page at the start, still there 8 s later: ${still}`,
+        startStatus,
+      });
     }
   }
   await web.bringToFront();
-  const tabId = await harness.ctl.evaluate(async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id, web.url());
+  const tabId = await harness.ctl.evaluate(
+    async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id,
+    web.url(),
+  );
   if (!tabId) throw new Error(`no tab found for ${web.url()}`);
 
   const screenshots = [];
@@ -368,17 +470,28 @@ async function runTask(harness, task, runId, runDir) {
       const acts = await harness.ctl.evaluate(() => window.__acts).catch(() => seen);
       if (acts > seen) {
         seen = acts;
-        const name = `${String(screenshots.length).padStart(2, '0')}.png`;
-        const page = (await harness.webPages()).at(-1);
-        if (page && (await within(page.screenshot({ path: path.join(dir, 'trajectory', name) }), 10_000))) screenshots.push(name);
+        // At the cap the newest screenshot replaces the last one, so the page the task ended on is always kept.
+        const full = screenshots.length >= MAX_SHOTS;
+        const name = full ? screenshots.at(-1) : `${String(screenshots.length).padStart(2, '0')}.png`;
+        const page = await agentPage(harness);
+        if (page && (await within(page.screenshot({ path: path.join(dir, 'trajectory', name) }), 10_000)) && !full)
+          screenshots.push(name);
       }
-      if (stopping || screenshots.length >= MAX_SHOTS) break;
+      if (stopping) break;
     }
   })().catch(() => {});
 
   let run;
   try {
-    run = await harness.drive({ taskId, tabId, task: task.confirmed_task, ...LIMITS, allowHuman: false, human: Array(50).fill(responder()), page: web });
+    run = await harness.drive({
+      taskId,
+      tabId,
+      task: task.confirmed_task,
+      ...LIMITS,
+      allowHuman: false,
+      human: Array(50).fill(responder()),
+      page: web,
+    });
   } finally {
     driving = false;
   }
@@ -392,7 +505,7 @@ async function runTask(harness, task, runId, runDir) {
   fs.writeFileSync(path.join(dir, 'timeline.txt'), timeline(records, run.events));
   // A task that ends on a refusal page of its own site was refused on the way (a car site served "Access Denied" after its
   // start page had loaded): not measurable from this network either.
-  const lastPage = (await harness.webPages()).at(-1);
+  const lastPage = await agentPage(harness);
   const refusedAtEnd = lastPage ? await refusalPage(lastPage, host) : null;
   for (const page of await harness.webPages()) await page.close().catch(() => {});
 
@@ -429,7 +542,8 @@ function selfCheck() {
   const assert = (ok, label) => {
     if (!ok) throw new Error(`self-check failed: ${label}`);
   };
-  const system = 'Confirm before I continue: "Place order" on shop.example/checkout (amount shown: $40.00). This may place an order, make a payment, or change an account or your data. Should I do it?';
+  const system =
+    'Confirm before I continue: "Place order" on shop.example/checkout (amount shown: $40.00). This may place an order, make a payment, or change an account or your data. Should I do it?';
   assert(isOrderConfirmation(system), 'system confirmation');
   assert(isOrderConfirmation('Should I proceed to checkout and pay $12?'), 'navigator payment confirmation');
   assert(!isOrderConfirmation('Which size do you want, M or L?'), 'plain question');
@@ -437,6 +551,17 @@ function selfCheck() {
   const script = Array(50).fill(responder());
   assert(script[0].expect.test(system) && script[0].answer === DECLINE, 'declines an order');
   assert(script[1].expect.test('Which colour?') && script[1].answer === PROCEED, 'proceeds otherwise');
+  assert(
+    script[2].expect.test('Please provide your phone number and email to continue.') &&
+      script[2].answer === NO_PERSONAL_DATA,
+    'no personal data',
+  );
+  assert(
+    script[3].expect.test('Should I sign in to see the price?') && script[3].answer === NO_PERSONAL_DATA,
+    'no sign-in',
+  );
+  assert(!asksPersonalData('Which delivery date do you prefer?'), 'plain choice is not personal data');
+  assert(refusalText('', 'Please confirm you are human to continue'), 'human check wording');
   const events = [
     { state: 'act.start', data: { details: 'Click element with index 6' } },
     { state: 'act.ok', data: { details: 'Clicked button with index 6: Search' } },
@@ -461,32 +586,91 @@ function selfCheck() {
     llm('llm call gemini-2.5-flash superseded', 'AbortError'),
     llm('llm call gemini-2.5-flash failed', 'status code 503 UNAVAILABLE'),
   ]);
-  assert(limited.calls === 3 && limited.rateLimited === 1 && limited.serverError === 1 && limited.rateLimitWaitMs === 16_900, `stats ${JSON.stringify(limited)}`);
+  assert(
+    limited.calls === 3 && limited.rateLimited === 1 && limited.serverError === 1 && limited.rateLimitWaitMs === 16_900,
+    `stats ${JSON.stringify(limited)}`,
+  );
   // A live timeout: its stack's line numbers (":512:") once counted as a 5xx.
-  const slow = providerStats([{ kind: 'llm', msg: 'llm call gemini-2.5-flash failed', data: { error: { name: 'Error', message: 'LLM call timed out after 25000ms', stack: 'Error: LLM call timed out after 25000ms\n    at wK (chrome-extension://x/background.iife.js:512:3021)' } } }]);
-  assert(slow.timeout === 1 && slow.serverError === 0 && slow.lastCallFailedOnProvider, `timeout ${JSON.stringify(slow)}`);
+  const slow = providerStats([
+    {
+      kind: 'llm',
+      msg: 'llm call gemini-2.5-flash failed',
+      data: {
+        error: {
+          name: 'Error',
+          message: 'LLM call timed out after 25000ms',
+          stack:
+            'Error: LLM call timed out after 25000ms\n    at wK (chrome-extension://x/background.iife.js:512:3021)',
+        },
+      },
+    },
+  ]);
+  assert(
+    slow.timeout === 1 && slow.serverError === 0 && slow.lastCallFailedOnProvider,
+    `timeout ${JSON.stringify(slow)}`,
+  );
   assert(heldBackByProvider('limit_time', limited, []), 'last call failed on the provider');
   assert(!heldBackByProvider('task.ok', limited, []), 'a success stays a success');
   assert(!heldBackByProvider('limit_steps', limited, []), 'the step limit is the agent’s');
-  const agentSide = providerStats([llm('llm call x failed', 'status code 400: invalid tool schema'), llm('llm call x')]);
+  const agentSide = providerStats([
+    llm('llm call x failed', 'status code 400: invalid tool schema'),
+    llm('llm call x'),
+  ]);
   assert(!heldBackByProvider('task.fail', agentSide, []), 'an agent-side failure is not the provider');
-  assert(heldBackByProvider('limit_time', agentSide, [{ state: 'task.pause', data: { details: 'The model provider kept rate-limiting requests.' } }]), 'rate-limit pause');
+  assert(
+    heldBackByProvider('limit_time', agentSide, [
+      { state: 'task.pause', data: { details: 'The model provider kept rate-limiting requests.' } },
+    ]),
+    'rate-limit pause',
+  );
   const waited = { ...agentSide, rateLimitWaitMs: 300_000 };
   assert(!heldBackByProvider('task.fail', waited, []), 'waiting does not make the agent’s own failure the provider’s');
-  assert(heldBackByProvider('limit_time', waited, []) && !heldBackByProvider('limit_time', { ...waited, rateLimitWaitMs: 60_000 }, []), 'out of time after long waits');
-  assert(isRefusal(403) && isRefusal(451) && isRefusal(401) && !isRefusal(200) && !isRefusal(404) && !isRefusal(null), 'refusal statuses');
+  assert(
+    heldBackByProvider('limit_time', waited, []) &&
+      !heldBackByProvider('limit_time', { ...waited, rateLimitWaitMs: 60_000 }, []),
+    'out of time after long waits',
+  );
+  assert(
+    isRefusal(403) && isRefusal(451) && isRefusal(401) && !isRefusal(200) && !isRefusal(404) && !isRefusal(null),
+    'refusal statuses',
+  );
   // Texts from live refusal pages: Akamai with status 200, a Cloudflare check, a country block.
-  assert(refusalText('marriott.com/default.mi', `# Access Denied\nYou don't have permission to access "http://www.marriott.com/default.mi" on this server.`), 'Akamai page');
-  assert(refusalText('Just a moment...', 'Performing security verification\nThis page is displayed while the website verifies you are not a bot.'), 'bot check');
-  assert(refusalText('Sorry…', 'Sorry, this request is coming from a country which we currently do not support.'), 'country block');
+  assert(
+    refusalText(
+      'marriott.com/default.mi',
+      `# Access Denied\nYou don't have permission to access "http://www.marriott.com/default.mi" on this server.`,
+    ),
+    'Akamai page',
+  );
+  assert(
+    refusalText(
+      'Just a moment...',
+      'Performing security verification\nThis page is displayed while the website verifies you are not a bot.',
+    ),
+    'bot check',
+  );
+  assert(
+    refusalText('Sorry…', 'Sorry, this request is coming from a country which we currently do not support.'),
+    'country block',
+  );
   // Verification challenges that ended round 1 tasks recorded as task.ok.
-  assert(refusalText('', 'Our systems have detected unusual traffic from your computer network.') && refusalText('Human verification', "Press & Hold to confirm you are a human (and not a bot)."), 'challenge pages');
-  assert(!refusalText('Help center', `If you see access denied, sign in again. ${'Help text. '.repeat(300)}`), 'a long page that mentions it');
+  assert(
+    refusalText('', 'Our systems have detected unusual traffic from your computer network.') &&
+      refusalText('Human verification', 'Press & Hold to confirm you are a human (and not a bot).'),
+    'challenge pages',
+  );
+  assert(
+    !refusalText('Help center', `If you see access denied, sign in again. ${'Help text. '.repeat(300)}`),
+    'a long page that mentions it',
+  );
   assert(!refusalText('Used cars', 'Browse used cars by make and model.'), 'a normal page');
   assert(sameSite('in.ign.com', 'www.ign.com') && !sameSite('www.google.com', 'www.ign.com'), 'same site');
   // Readings from this run: stable with an emulator open, then swap nearly gone with RAM still "available" as cache.
   assert(!memoryShort({ available: 2600, swapFree: 2700 }), 'stable machine');
-  assert(memoryShort({ available: 3600, swapFree: 73 }) && memoryShort({ available: 1200, swapFree: 5000 }), 'short of memory');
+  assert(
+    memoryShort({ available: 3600, swapFree: 73 }) && memoryShort({ available: 1200, swapFree: 5000 }),
+    'short of memory',
+  );
   assert(!memoryShort({ available: 8000, swapFree: 300 }), 'idle pages in swap with plenty of RAM');
   console.log('self-check ok');
 }
@@ -504,7 +688,8 @@ async function main() {
     },
   });
   const [shardIndex, shardCount] = (opts.shard ?? '0/1').split('/').map(Number);
-  if (!(shardCount >= 1 && shardIndex >= 0 && shardIndex < shardCount)) throw new Error(`--shard wants i/n with 0 <= i < n, got ${opts.shard}`);
+  if (!(shardCount >= 1 && shardIndex >= 0 && shardIndex < shardCount))
+    throw new Error(`--shard wants i/n with 0 <= i < n, got ${opts.shard}`);
   if (opts['self-check']) return selfCheck();
   if (!fs.existsSync(path.join(DIST, 'manifest.json'))) throw new Error(`No build at ${DIST}; run pnpm build first`);
   const sourcePath = path.join(HERE, opts.all ? 'Online_Mind2Web.json' : 'slice.json');
@@ -515,13 +700,18 @@ async function main() {
   const source = opts.all
     ? { file: 'Online_Mind2Web.json', sha256: createHash('sha256').update(raw).digest('hex'), tasks: pool.length }
     : { seed: parsed.seed, sourceSha256: parsed.sourceSha256 };
-  const only = opts.only?.split(',').map(id => id.trim()).filter(Boolean);
+  const only = opts.only
+    ?.split(',')
+    .map(id => id.trim())
+    .filter(Boolean);
   const tasks = pool
     .filter(t => (!only || only.includes(t.task_id)) && (!opts.level || t.level === opts.level))
     .slice(0, opts.limit ? Number(opts.limit) : undefined);
   if (tasks.length === 0) throw new Error('no tasks selected');
 
-  const runDir = opts.resume ? path.resolve(opts.resume) : path.join(HERE, '..', 'results', `mind2web-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  const runDir = opts.resume
+    ? path.resolve(opts.resume)
+    : path.join(HERE, '..', 'results', `mind2web-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   const runId = path.basename(runDir);
   fs.mkdirSync(runDir, { recursive: true });
   const mine = tasks.filter((_, n) => n % shardCount === shardIndex);
@@ -530,7 +720,9 @@ async function main() {
     return !saved || RETRY_ON_RESUME.has(saved.outcome);
   });
   const shardLabel = shardCount > 1 ? ` (shard ${shardIndex}/${shardCount}: ${mine.length} tasks)` : '';
-  console.log(`${tasks.length} tasks selected${shardLabel}, ${mine.length - todo.length} already done, ${todo.length} to run on Vertex ${process.env.E2E_LOCATION ?? 'global'} with build ${BUILD ?? 'unknown'} (${DIST}) -> ${runDir}`);
+  console.log(
+    `${tasks.length} tasks selected${shardLabel}, ${mine.length - todo.length} already done, ${todo.length} to run on Vertex ${process.env.E2E_LOCATION ?? 'global'} with build ${BUILD ?? 'unknown'} (${DIST}) -> ${runDir}`,
+  );
 
   let session = await launchSession(null);
   let inSession = 0;
@@ -544,7 +736,9 @@ async function main() {
       }
       await waitForMemory();
       await waitForNetwork();
-      process.stdout.write(`[${n + 1}/${todo.length}] ${task.task_id} [${task.level}] ${task.confirmed_task.slice(0, 70)} ... `);
+      process.stdout.write(
+        `[${n + 1}/${todo.length}] ${task.task_id} [${task.level}] ${task.confirmed_task.slice(0, 70)} ... `,
+      );
       // A harness error usually means a wedged browser: start a new one and give the task one more try.
       let result;
       for (let tries = 1; ; tries++) {
@@ -564,8 +758,12 @@ async function main() {
       }
       inSession++;
       const p = result.provider;
-      const vertex = p ? `, vertex ${p.calls} calls ${p.failed} failed (429 ${p.rateLimited}, 5xx ${p.serverError}, timeout ${p.timeout ?? 0}, net ${p.network}, auth ${p.auth}), rate-limit wait ${Math.round(p.rateLimitWaitMs / 1000)}s` : '';
-      console.log(`${result.outcome}${result.agentOutcome ? ` [agent: ${result.agentOutcome}]` : ''} (${result.seconds ?? 0}s, ${result.steps ?? 0} steps, ${result.metrics?.tokens.input ?? 0} input tokens, ${result.screenshots.length} shots${vertex})`);
+      const vertex = p
+        ? `, vertex ${p.calls} calls ${p.failed} failed (429 ${p.rateLimited}, 5xx ${p.serverError}, timeout ${p.timeout ?? 0}, net ${p.network}, auth ${p.auth}), rate-limit wait ${Math.round(p.rateLimitWaitMs / 1000)}s`
+        : '';
+      console.log(
+        `${result.outcome}${result.agentOutcome ? ` [agent: ${result.agentOutcome}]` : ''} (${result.seconds ?? 0}s, ${result.steps ?? 0} steps, ${result.metrics?.tokens.input ?? 0} input tokens, ${result.screenshots.length} shots${vertex})`,
+      );
       // One line per attempt, across processes (small appends are atomic): a retry replaces the task folder, not this log.
       fs.appendFileSync(
         path.join(runDir, 'attempts.jsonl'),
@@ -585,7 +783,8 @@ async function main() {
   }
 
   // The summary covers every selected task with a result in the folder, including those from earlier, resumed sessions.
-  const results = tasks.map(task => savedResult(runDir, task)).filter(Boolean);
+  // Every task of the dataset, not only this selection: an --only re-run must not shrink the round's summary.
+  const results = pool.map(task => savedResult(runDir, task)).filter(Boolean);
   const model = process.env.E2E_MODEL ?? 'gemini-2.5-flash';
   const rows = results.map(r => ({
     task_id: r.task_id,
@@ -603,13 +802,18 @@ async function main() {
   }));
   // Parallel shards each write it: write whole and rename, so a reader never sees half a file.
   const summaryTmp = path.join(runDir, `summary.json.${process.pid}.tmp`);
-  fs.writeFileSync(summaryTmp, `${JSON.stringify({ runId, model, plannerModel: process.env.E2E_PLANNER_MODEL ?? model, source, limits: LIMITS, results: rows }, null, 2)}\n`);
+  fs.writeFileSync(
+    summaryTmp,
+    `${JSON.stringify({ runId, model, plannerModel: process.env.E2E_PLANNER_MODEL ?? model, source, limits: LIMITS, results: rows }, null, 2)}\n`,
+  );
   fs.renameSync(summaryTmp, path.join(runDir, 'summary.json'));
   const outcomes = {};
   for (const row of rows) outcomes[row.outcome] = (outcomes[row.outcome] ?? 0) + 1;
   const cost = rows.reduce((n, r) => n + (r.costUsd ?? 0), 0);
   const tokens = rows.reduce((n, r) => n + (r.inputTokens ?? 0), 0);
-  console.log(`${rows.length} of ${tasks.length} tasks have results ${JSON.stringify(outcomes)}, ${tokens} input tokens, estimated cost $${cost.toFixed(2)}. Not scored yet.`);
+  console.log(
+    `${rows.length} of ${tasks.length} tasks have results ${JSON.stringify(outcomes)}, ${tokens} input tokens, estimated cost $${cost.toFixed(2)}. Not scored yet.`,
+  );
   console.log(`Results: ${runDir}\nJudge:   node e2e/mind2web/judge.mjs ${runDir}`);
 }
 

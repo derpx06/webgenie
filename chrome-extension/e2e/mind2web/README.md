@@ -89,15 +89,19 @@ The same environment as `../run.mjs` applies (`E2E_MODEL`, `E2E_PLANNER_MODEL`, 
 
 Rules per task: the start page is the task's `website`; the firewall denies google.com, bing.com, duckduckgo.com and
 search.yahoo.com (the benchmark requires starting from the website, not a search engine); an order or payment
-confirmation is answered "No, stop here"; any other question is answered "Proceed with any reasonable choice." and
-counted; caps are 25 steps, 1200 s and 500k input tokens (a model call on a real site reads 7–15k tokens; under
+confirmation is answered "No, stop here"; a request for personal details, credentials or a sign-in is answered that
+none are given and none may be made up; any other question is answered "Proceed with any reasonable choice." and
+counted; caps are 50 steps, 2400 s and 500k input tokens (a model call on a real site reads 7–15k tokens; under
 project-wide Vertex rate limits most of a task's time can be waiting). A start page that fails with a network error or
 5xx is recorded as `site_down` and left out of the score. A site that refuses this network is `site_blocked` and left
 out of the score. That means either:
 - its start page answers 401, 403 or 451, or shows a standard refusal page ("Access Denied", a bot check that has not
   cleared, a country block), and still does 8 s later;
 - or the task ends on such a refusal page of the task's own site. The agent's outcome is kept in `agentOutcome`. Every result records the start page's HTTP status as `startStatus`. Each result carries `provider`: the model calls, failures by
-kind (429, 5xx, network, auth) and seconds spent waiting on rate limits.
+kind (429, 5xx, network, auth) and seconds spent waiting on rate limits. Each result also records `build` and `harness` (the harness
+commit, limits, models and region). Screenshots come from the tab the agent works in, at most 40 per task; past that the
+newest replaces the last, so the page a task ended on is always there. `summary.json` covers every task with a result
+in the folder, whatever `--only` selected.
 
 A task the provider ended is recorded as `provider_down`, with the agent's own outcome in `agentOutcome`. It is left out
 of the score and runs again. "Ended by the provider" means one of:
