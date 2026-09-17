@@ -126,12 +126,12 @@ export class Executor {
 
     this.generalSettings = extraArgs?.generalSettings;
     this.tasks.push(task);
-    // With vision, both prompts say the navigator can look at the page, so neither asks the user what it shows.
-    this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep, context.options.useVision);
-    this.plannerPrompt = new PlannerPrompt(context.options.useVision);
-
     const actionBuilder = new ActionBuilder(context);
     const navigatorActionRegistry = new NavigatorActionRegistry(actionBuilder.buildDefaultActions());
+    // Both prompts offer only the registered tools; with view_screenshot they say the navigator can look at the page.
+    const tools = new Set(navigatorActionRegistry.getAllActions().map(action => action.name()));
+    this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep, tools);
+    this.plannerPrompt = new PlannerPrompt(tools);
 
     // Initialize agents with their respective prompts
     this.navigator = new NavigatorAgent(navigatorActionRegistry, {

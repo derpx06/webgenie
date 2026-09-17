@@ -6,6 +6,7 @@ import { record } from '@src/background/trace';
 import { RouteMemory } from '../memory';
 import { ensureBrowserObservation, newElements } from '../validation/observation';
 import type { DOMElementNode } from '../../browser/dom/views';
+import * as actionSchemas from '../actions/schemas';
 
 const logger = createLogger('BasePrompt');
 
@@ -108,6 +109,31 @@ export function controlSummary(elements: Iterable<DOMElementNode>): string {
   ].filter(Boolean);
   if (controls.length > 0) lines.push(`Controls: ${controls.join(', ')}`);
   return lines.map(line => `${line}\n`).join('');
+const TOOL_NAMES = Object.values(actionSchemas).flatMap(value =>
+  typeof value === 'object' && value !== null && 'name' in value && 'schema' in value ? [String(value.name)] : [],
+);
+
+/**
+ * The prompt for the tools this task has, so it never offers one that is missing (with web search removed, the planner
+ * kept planning searches and the navigator asked the user for the tool): a sentence naming an unregistered tool is left
+ * out, and a sentence starting with [[without tool_name]] is kept only when that tool is missing.
+ */
+export function forTools(prompt: string, tools: ReadonlySet<string>): string {
+  const absent = TOOL_NAMES.filter(name => !tools.has(name));
+  const namesAbsent = new RegExp(`\\b(${absent.join('|')})\\b`);
+  return prompt
+    .split('\n')
+    .flatMap(line => {
+      const [, item, body] = /^(\s*(?:-\s+|\d+\.\s+)?)(.*)$/.exec(line)!;
+      const kept = body.split(/(?<=\.)\s+(?=[A-Z[])/).flatMap(sentence => {
+        const marker = /^\[\[without (\w+)\]\]\s*/.exec(sentence);
+        if (marker) return tools.has(marker[1]) ? [] : [sentence.slice(marker[0].length)];
+        return absent.length > 0 && namesAbsent.test(sentence) ? [] : [sentence];
+      });
+      // A line whose every sentence was left out goes too.
+      return body !== '' && kept.length === 0 ? [] : [item + kept.join(' ')];
+    })
+    .join('\n');
 }
 
 export function scrollViewportPercentage(scrollHeight: number, viewportHeight: number): number | null {

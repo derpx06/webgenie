@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { BasePrompt } from './base';
+import { BasePrompt, forTools } from './base';
 import { type HumanMessage, SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '@src/background/agent/types';
 import { createLogger } from '@src/background/log';
@@ -14,15 +14,16 @@ const NAVIGATOR_VISION_RULES = `# Seeing the page
 export class NavigatorPrompt extends BasePrompt {
   private systemMessage: SystemMessage;
 
+  /** `tools`: the names of the registered actions; the prompt mentions no other tool. */
   constructor(
-    private readonly maxActionsPerStep = 10,
-    vision = false,
+    private readonly maxActionsPerStep: number,
+    tools: ReadonlySet<string>,
   ) {
     super();
 
     // Format the template with the maxActionsPerStep
-    const formattedPrompt = navigatorSystemPromptTemplate.replace('{{max_actions}}', this.maxActionsPerStep.toString()).trim();
-    this.systemMessage = new SystemMessage(vision ? `${formattedPrompt}\n\n${NAVIGATOR_VISION_RULES}` : formattedPrompt);
+    const formattedPrompt = forTools(navigatorSystemPromptTemplate.replace('{{max_actions}}', this.maxActionsPerStep.toString()).trim(), tools);
+    this.systemMessage = new SystemMessage(tools.has('view_screenshot') ? `${formattedPrompt}\n\n${NAVIGATOR_VISION_RULES}` : formattedPrompt);
   }
 
   getSystemMessage(): SystemMessage {
