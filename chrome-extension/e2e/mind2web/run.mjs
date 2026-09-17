@@ -10,7 +10,7 @@
 // Rules: the firewall denies common search engines, so the agent works from the task's website (the benchmark's rule);
 // an order/payment confirmation is answered "No, stop here"; a request for personal details or a sign-in is answered that none are given; any other question is answered "Proceed with any
 // reasonable choice." and counted; each task is capped at 50 steps, 2400 s and 500k input tokens. After navigator actions
-// (act.ok/act.fail) the tab the agent works in is screenshotted into <task_id>/trajectory/NN.png, at most 40 per task.
+// (act.ok/act.fail), once the page has loaded (at most 5 s) plus 1 s, and once more when the task ends, the tab the agent works in is screenshotted into <task_id>/trajectory/NN.png, at most 40 per task.
 // Every task records what the model provider returned (calls, 429s, server and network errors, rate-limit waits). A task
 // the provider ended (its last call failed on the provider's side, the agent paused for rate limits, or it ran out of
 // time after two minutes or more of rate-limit waits) is recorded as provider_down and runs again on resume, at most
@@ -462,6 +462,22 @@ async function runTask(harness, task, runId, runDir) {
 
   const screenshots = [];
   let driving = true;
+  // At the cap the newest screenshot replaces the last one, so the page the task ended on is always kept.
+  const shoot = async () => {
+    const full = screenshots.length >= MAX_SHOTS;
+    const name = full ? screenshots.at(-1) : `${String(screenshots.length).padStart(2, '0')}.png`;
+    const page = await agentPage(harness);
+    if (!page) return;
+    // Right after an action the page is often still loading (a skeleton list, a blank body): wait for the load and a
+    // moment of rendering, bounded, so the screenshot shows what the action produced.
+    await within(
+      page.waitForFunction(() => document.readyState === 'complete', { timeout: 5000 }),
+      5500,
+    );
+    await sleep(1000);
+    if ((await within(page.screenshot({ path: path.join(dir, 'trajectory', name) }), 10_000)) && !full)
+      screenshots.push(name);
+  };
   const shooter = (async () => {
     let seen = 0;
     for (;;) {
@@ -470,12 +486,7 @@ async function runTask(harness, task, runId, runDir) {
       const acts = await harness.ctl.evaluate(() => window.__acts).catch(() => seen);
       if (acts > seen) {
         seen = acts;
-        // At the cap the newest screenshot replaces the last one, so the page the task ended on is always kept.
-        const full = screenshots.length >= MAX_SHOTS;
-        const name = full ? screenshots.at(-1) : `${String(screenshots.length).padStart(2, '0')}.png`;
-        const page = await agentPage(harness);
-        if (page && (await within(page.screenshot({ path: path.join(dir, 'trajectory', name) }), 10_000)) && !full)
-          screenshots.push(name);
+        await shoot();
       }
       if (stopping) break;
     }
@@ -496,6 +507,8 @@ async function runTask(harness, task, runId, runDir) {
     driving = false;
   }
   await shooter;
+  // The page the answer was read from, after the last action has settled.
+  await shoot().catch(() => {});
   await sleep(900); // the trace sink flushes every 500 ms
 
   const records = await harness.readTraces(taskId).catch(() => []);
