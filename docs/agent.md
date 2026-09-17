@@ -26,7 +26,7 @@ The switch in `index.ts` handles: `heartbeat`, `new_task`, `follow_up_task`, `ca
 Per step `executor.ts`:
 
 1. checks stop, pause and the answer wait (`shouldStop`), and `maxFailures`;
-2. asks `contracts/replan.ts` whether to plan. Triggers in order: `initial`, `human_needed`, `completion_refused` (the last plan was sent back, see below), `contract_complete` (navigator said done), `navigator_error`, `validation` (two unvalidated steps in a row), `progress_stall` (same actions on the same layout 3 times in the last 6 steps), `step_interval` (`planningInterval`, default 3). The interval re-plan waits while every navigator step since the last plan validated `passed` and that plan moved no requirement from `applied` back to `pending`; it still fires at twice the interval;
+2. asks `contracts/replan.ts` whether to plan. Triggers in order: `initial`, `human_needed`, `completion_refused` (the last plan was sent back, see below), `contract_complete` (navigator said done), `navigator_error`, `validation` (two unvalidated steps in a row), `progress_stall` (same actions on the same layout 3 times in the last 6 steps), `step_interval` (`planningInterval`, default 5). The interval re-plan waits while every navigator step since the last plan validated `passed` and that plan moved no requirement from `applied` back to `pending`; it still fires at twice the interval;
 3. builds the page state once and shares it between planner and navigator;
 4. runs the planner when planning, then the navigator (up to `maxActionsPerStep` tool calls), saving a checkpoint after each. The navigator never runs without a plan: a first planner call that failed (a timeout, an error, which counts toward `maxFailures`) is made again on the next step.
 

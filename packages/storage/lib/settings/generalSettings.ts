@@ -46,7 +46,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   // Selective: a screenshot only when the model asks for one or the task is stuck, and only for models that read images.
   useVision: true,
   useVisionForPlanner: false,
-  planningInterval: 3,
+  planningInterval: 5,
   actionSettleTimeoutMs: 2000,
   actionDelayMs: 150,
   displayHighlights: true,

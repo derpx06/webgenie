@@ -1398,23 +1398,29 @@ describe('The planning interval', () => {
   const form = { url: 'https://forms.test/', title: 'Form', text: ['Notes'], elements: [{ tag: 'input', attributes: { 'aria-label': 'Note' } }] };
 
   it('does not re-plan while every step validates, and does when a step did not', async () => {
-    const typing = createHarness({
-      task: 'Type three notes',
-      pages: [form],
-      planner: [plan({ macro_objective: 'FORM_FILL', next_goal: 'Type the notes' }), planDone()],
-      navigator: [typeText(0, 'one'), typeText(0, 'two'), typeText(0, 'three'), done('Typed the notes')],
+    const feed = (items: number) => ({
+      url: 'https://feed.test/',
+      title: 'Feed',
+      elements: [{ text: 'Load more' }, ...Array.from({ length: items }, (_, i) => ({ tag: 'a', text: `Item ${i + 1}` }))],
     });
-    await settle(typing.executor.execute());
-    expect(typing.llm.requests.map(request => request.agent)).toEqual(['planner', 'navigator', 'navigator', 'navigator', 'navigator', 'planner']);
+    const loading = createHarness({
+      task: 'Load the whole feed',
+      pages: Array.from({ length: 7 }, (_, i) => feed(i + 1)),
+      planner: [plan({ macro_objective: 'EXPLORE_PAGE', next_goal: 'Load the feed' }), planDone()],
+      navigator: [...Array(6).fill(null).map(() => click(0)), done('Loaded')],
+    });
+    await settle(loading.executor.execute());
+    // Six steps that all validate, more than the interval: the doubling keeps the planner out until the done.
+    expect(loading.llm.requests.map(request => request.agent)).toEqual(['planner', ...Array(7).fill('navigator'), 'planner']);
 
     const read = call('get_complete_page_content', {});
     const reading = createHarness({
       task: 'Read the notes',
       pages: [form],
       planner: [plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the notes' }), plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Report the notes' }), planDone()],
-      navigator: [read, call('scroll', { direction: 'down' }), read, done('Notes')],
+      navigator: [read, call('scroll', { direction: 'down' }), read, call('scroll', { direction: 'down' }), read, done('Notes')],
     });
     await settle(reading.executor.execute());
-    expect(reading.llm.requests.map(request => request.agent)).toEqual(['planner', 'navigator', 'navigator', 'navigator', 'planner', 'navigator', 'planner']);
+    expect(reading.llm.requests.map(request => request.agent)).toEqual(['planner', ...Array(5).fill('navigator'), 'planner', 'navigator', 'planner']);
   });
 });
