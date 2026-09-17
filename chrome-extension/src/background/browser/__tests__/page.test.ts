@@ -477,9 +477,9 @@ describe('coverBlocker', () => {
       return this.querySelectorAll(selector)[0] ?? null;
     }
   }
-  const mount = (target: Fake, hit: Fake, body: Fake, activeElement: Fake | null = null) => {
+  const mount = (target: Fake, hit: Fake | ((x: number, y: number) => Fake), body: Fake, activeElement: Fake | null = null) => {
     Object.assign(target, {
-      getRootNode: () => ({ elementFromPoint: () => hit, activeElement, querySelectorAll: (s: string) => body.querySelectorAll(s) }),
+      getRootNode: () => ({ elementFromPoint: typeof hit === 'function' ? hit : () => hit, activeElement, querySelectorAll: (s: string) => body.querySelectorAll(s) }),
     });
     return coverBlocker(target as unknown as Element, false, true);
   };
@@ -499,6 +499,7 @@ describe('coverBlocker', () => {
     const body = new Fake('BODY', {}, [banner, target]);
 
     expect(mount(target, text, body)).toEqual({
+      covered: true,
       message: 'The element is covered by <div> "Your privacy choices"',
       buttons: ['Accept all', 'Close'],
     });
@@ -520,6 +521,7 @@ describe('coverBlocker', () => {
     const body = new Fake('BODY', {}, [backdrop, dialog, target]);
 
     expect(mount(target, backdrop, body)).toEqual({
+      covered: true,
       message: 'The element is covered by <div> behind the dialog "Choose your location"',
       buttons: ['Done'],
     });
@@ -549,6 +551,38 @@ describe('coverBlocker', () => {
     expect(mount(target, option, new Fake('BODY', {}, [field, list, target]), field)?.message).toBe(
       'The element is covered by <li> the open list of suggestions of the focused field "Destination": choose an option from it, or press Escape to close it first',
     );
+  });
+
+  it('aims at an uncovered inner point when only the centre is covered', () => {
+    const badge = new Fake('SPAN', {}, [], 'New');
+    const target = new Fake('BUTTON', {}, [], 'Open');
+    expect(mount(target, (x, y) => (x === 5 && y === 5 ? badge : target), new Fake('BODY', {}, [badge, target]))).toEqual({
+      offset: { x: 2.5, y: 2.5 },
+    });
+  });
+
+  it('never names the dialog that holds the target', () => {
+    const heading = new Fake('DIV', {}, [], 'Filter by size');
+    const target = new Fake('SPAN', { role: 'checkbox' }, [], '38');
+    const dialog = new Fake('DIV', { role: 'dialog', 'aria-label': 'Filters' }, [heading, target], '', 'fixed');
+    const blocker = mount(target, heading, new Fake('BODY', {}, [dialog]))!;
+    expect(blocker.message).toBe('The element is covered by <div> "Filter by size"');
+    expect(blocker.clickThrough).toBeUndefined();
+  });
+
+  it('does not take the dialog that holds the target for the one behind an empty cover', () => {
+    const cover = new Fake('DIV');
+    const target = new Fake('SPAN', { role: 'checkbox' }, [], '38');
+    const dialog = new Fake('DIV', { role: 'dialog', 'aria-label': 'Filters' }, [cover, target], '', 'fixed');
+    expect(mount(target, cover, new Fake('BODY', {}, [dialog]))).toMatchObject({ covered: true, clickThrough: true });
+  });
+
+  it('clicks through an empty box that is no dialog or bar, but not an empty fixed one', () => {
+    const empty = new Fake('DIV');
+    const target = new Fake('BUTTON', {}, [], 'Next');
+    expect(mount(target, empty, new Fake('BODY', {}, [empty, target]))).toMatchObject({ covered: true, clickThrough: true });
+    const bar = new Fake('DIV', {}, [], '', 'sticky');
+    expect(mount(target, bar, new Fake('BODY', {}, [bar, target]))?.clickThrough).toBeUndefined();
   });
 
   it('does not refuse a target that is on top', () => {

@@ -231,22 +231,51 @@ export function pointerTarget(el: Element): Element {
   return Array.from(el.querySelectorAll('*')).find(hasBox) ?? el;
 }
 
+export interface CoverBlocker {
+  /** Why the pointer action is refused; absent when it can go ahead at `offset`. */
+  message?: string;
+  /** Labels of the covering layer's buttons, so the model can close it. */
+  buttons?: string[];
+  /** Something else is on top of the element (not set for a disabled one). */
+  covered?: boolean;
+  /** Covered only by an empty box that is no dialog or fixed/sticky bar: nothing for the model to close. */
+  clickThrough?: boolean;
+  /** A point inside the element, from its top-left corner, that is not covered (the centre is). */
+  offset?: { x: number; y: number };
+}
+
 /**
  * Why a pointer action on the element must not be sent, or null; runs in the page and must stay self-contained.
- * A covered target names what covers it: its own or the focused field's open list, else the covering layer (the
- * nearest dialog or fixed/sticky box, or the open dialog whose backdrop it is) by its accessible name, heading or
- * text, with that layer's buttons. A bare "<div>" did not tell the model what to close (9 of 57 real-site traces).
+ * A covered centre tries four inner points and aims at the first free one. A covered target names what covers it:
+ * its own or the focused field's open list, else the covering layer (the nearest dialog or fixed/sticky box, or the
+ * open dialog whose backdrop it is) by its accessible name, heading or text, with that layer's buttons. A bare "<div>"
+ * did not tell the model what to close (9 of 57 real-site traces). Nothing that holds the target is ever named: a
+ * live refusal told the model to close the very dialog its option sat in, and it closed and reopened it until the
+ * token cap.
  */
-export function coverBlocker(el: Element, isHover: boolean, checkCovered: boolean): { message: string; buttons?: string[] } | null {
+export function coverBlocker(el: Element, isHover: boolean, checkCovered: boolean): CoverBlocker | null {
   if (!isHover && ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true')) {
     return { message: 'The element is disabled' };
   }
   if (!checkCovered) return null;
   const rect = el.getBoundingClientRect();
   const root = el.getRootNode() as unknown as DocumentOrShadowRoot & ParentNode;
-  const hit = root.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-  if (!hit || hit === el || el.contains(hit) || hit.contains(el)) return null;
-  if ((hit.closest('label') as HTMLLabelElement | null)?.control === el) return null;
+  const coverAt = (fx: number, fy: number) => {
+    const hit = root.elementFromPoint(rect.left + rect.width * fx, rect.top + rect.height * fy);
+    if (!hit || hit === el || el.contains(hit) || hit.contains(el)) return null;
+    if ((hit.closest('label') as HTMLLabelElement | null)?.control === el) return null;
+    return hit;
+  };
+  const hit = coverAt(0.5, 0.5);
+  if (!hit) return null;
+  for (const [fx, fy] of [
+    [0.25, 0.25],
+    [0.75, 0.25],
+    [0.25, 0.75],
+    [0.75, 0.75],
+  ]) {
+    if (!coverAt(fx, fy)) return { offset: { x: rect.width * fx, y: rect.height * fy } };
+  }
 
   const tag = (node: Element) => node.tagName.toLowerCase();
   const role = (node: Element) => (node.getAttribute('role') ?? '').toLowerCase();
@@ -257,7 +286,7 @@ export function coverBlocker(el: Element, isHover: boolean, checkCovered: boolea
     return text.length > max ? `${text.slice(0, max - 1)}…` : text;
   };
   const chain: Element[] = [];
-  for (let node: Element | null = hit; node; node = node.parentElement) chain.push(node);
+  for (let node: Element | null = hit; node && !node.contains(el); node = node.parentElement) chain.push(node);
 
   // A list a field opened (suggestions, a menu): the target's own, or that of the field being typed into.
   const focused = root.activeElement;
@@ -274,12 +303,13 @@ export function coverBlocker(el: Element, isHover: boolean, checkCovered: boolea
 
   const isDialog = (node: Element) =>
     ['dialog', 'alertdialog'].includes(role(node)) || tag(node) === 'dialog' || node.getAttribute('aria-modal') === 'true';
-  const layer = chain.find(node => isDialog(node) || ['fixed', 'sticky'].includes(getComputedStyle(node).position)) ?? hit;
+  const bar = chain.find(node => isDialog(node) || ['fixed', 'sticky'].includes(getComputedStyle(node).position));
+  const layer = bar ?? hit;
   // A backdrop has no text of its own: the dialog it belongs to is what to close.
   const openDialog = textOf(layer).trim()
     ? null
     : (Array.from(root.querySelectorAll('dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]')).find(
-        node => node.getBoundingClientRect().width > 0 && textOf(node).trim(),
+        node => !node.contains(el) && node.getBoundingClientRect().width > 0 && textOf(node).trim(),
       ) ?? null);
   const named = openDialog ?? layer;
   const labelledBy = (named.getAttribute('aria-labelledby') ?? '')
@@ -303,7 +333,7 @@ export function coverBlocker(el: Element, isHover: boolean, checkCovered: boolea
   const message = openDialog
     ? `The element is covered by <${tag(layer)}> behind the ${what}`
     : `The element is covered by <${tag(layer)}>${what ? ` ${what}` : ''}`;
-  return { message, buttons };
+  return { covered: true, message, buttons, ...(!bar && !openDialog && !name && buttons.length === 0 && { clickThrough: true }) };
 }
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -1445,11 +1475,22 @@ export default class Page {
     await this._puppeteerPage
       ?.evaluate(() => document.getElementById('webgenie-agent-status-capsule')?.style.setProperty('pointer-events', 'none', 'important'))
       .catch(() => undefined);
-    const blocker = await target.evaluate(coverBlocker, kind === 'hover', checkCover);
-    if (blocker) {
+    let blocker = await target.evaluate(coverBlocker, kind === 'hover', checkCover);
+    if (blocker?.covered) {
+      // A sticky header or footer, a sliding panel or a list still settling can sit over the target right after the
+      // scroll (live runs: a site header, a page footer). Centre it again in every scroll container, let the page
+      // settle, and look once more before refusing.
+      await target.scrollIntoView();
+      await sleep(150);
+      blocker = await target.evaluate(coverBlocker, kind === 'hover', checkCover);
+    }
+    // Covered only by an empty, transparent box that is no dialog or bar (a live refusal named an unnamed <div> the
+    // model could do nothing about): nothing to close, so the element itself is clicked below.
+    const clickThrough = Boolean(blocker?.clickThrough && kind === 'click' && clickCount === 1);
+    if (blocker?.message && !clickThrough) {
       throw new Error(blocker.buttons ? `${blocker.message}${this._indexedButtons(blocker.buttons)}; close or move past it first` : blocker.message);
     }
-    const { x, y } = await target.clickablePoint().catch(() => {
+    const { x, y } = await target.clickablePoint(blocker?.offset).catch(() => {
       // "Off the page" in the old wording sent the model scrolling for it; the action has already scrolled to it.
       throw new Error(
         'The element has no visible area: it is hidden, or inside a collapsed section, menu or panel. Scrolling will not reveal it (actions already scroll to their element); open what contains it, click its visible label, or choose another element.',
@@ -1466,7 +1507,7 @@ export default class Page {
     const onTabCreated = (tab: chrome.tabs.Tab) => void createdTabs.push(tab);
     this._browserAdapter.addTabCreatedListener(onTabCreated);
     try {
-      const outcome = await this._sendMouseEvents(client, kind, button, x, y, clickCount);
+      const outcome = clickThrough ? await this._clickInPage(target) : await this._sendMouseEvents(client, kind, button, x, y, clickCount);
       if (kind !== 'hover' && !outcome.dialog && this._windowOpened) {
         for (const startedAt = Date.now(); createdTabs.length === 0 && Date.now() - startedAt < NEW_TAB_WAIT_MS; ) await sleep(50);
       }
@@ -1475,6 +1516,13 @@ export default class Page {
     } finally {
       this._browserAdapter.removeTabCreatedListener(onTabCreated);
     }
+  }
+
+  /** A DOM click, queued so that a dialog it opens cannot block the call; the dialog is still reported. */
+  private async _clickInPage(target: ElementHandle): Promise<MouseOutcome> {
+    await target.evaluate(el => void setTimeout(() => (el as HTMLElement).click(), 0));
+    await sleep(150);
+    return { dialog: this.pendingDialog ?? undefined, fileChooser: this._fileChooserOpened };
   }
 
   private async _sendMouseEvents(
