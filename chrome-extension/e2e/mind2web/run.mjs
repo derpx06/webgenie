@@ -59,6 +59,27 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 /** true once the promise settles successfully within ms, false on timeout or error. */
 const within = (promise, ms) => Promise.race([promise.then(() => true), sleep(ms).then(() => false)]).catch(() => false);
 
+/** Whether this machine reaches the internet at all: a tiny always-up endpoint, or the model provider's host. */
+async function online() {
+  for (const url of ['https://www.gstatic.com/generate_204', 'https://aiplatform.googleapis.com/']) {
+    try {
+      await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(10_000) });
+      return true;
+    } catch {
+      // try the next one
+    }
+  }
+  return false;
+}
+
+/** Waits before a task while the machine is offline (a laptop's network dropped for twenty minutes during a round). */
+async function waitForNetwork() {
+  for (let waited = 0; !(await online()); waited += 30) {
+    if (waited % 600 === 0) console.log('(waiting for the network before the next task)');
+    await sleep(30_000);
+  }
+}
+
 /** RAM available and swap free in MB, from /proc/meminfo; null where it does not exist. */
 function freeMemoryMb() {
   try {
@@ -298,6 +319,9 @@ async function runTask(harness, task, runId, runDir) {
   const down = nav instanceof Error ? (/net::ERR_/.test(nav.message) ? nav.message : null) : nav && nav.status() >= 500 ? `HTTP ${nav.status()}` : null;
   if (down) {
     await web.close().catch(() => {});
+    // Offline is this machine, not the site: round 1 recorded 61 tasks site_down with ERR_INTERNET_DISCONNECTED while the
+    // laptop's network was gone. Such a task is a harness error and runs again.
+    if (!(await online())) return writeResult(runDir, task, { outcome: 'harness_error', detail: `offline: ${down}` });
     return writeResult(runDir, task, { outcome: 'site_down', detail: down });
   }
   // A site that refuses this network on its own start page ("Access Denied", a country block, a bot check) cannot be
@@ -512,6 +536,7 @@ async function main() {
         inSession = 0;
       }
       await waitForMemory();
+      await waitForNetwork();
       process.stdout.write(`[${n + 1}/${todo.length}] ${task.task_id} [${task.level}] ${task.confirmed_task.slice(0, 70)} ... `);
       // A harness error usually means a wedged browser: start a new one and give the task one more try.
       let result;
