@@ -75,5 +75,11 @@ export default defineConfig(({ mode }) => {
 
   envDir: '../',
   envPrefix: 'VITE_',
+
+  // The content script's pure helpers (overlay geometry, easing, stage colours) are unit tested here:
+  // this is the only package with a test runner.
+  test: {
+    include: ['src/**/*.test.ts', '../pages/content/src/**/*.test.ts'],
+  },
   };
 });
