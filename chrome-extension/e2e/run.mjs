@@ -50,9 +50,34 @@ const git = (...args) => {
 };
 
 let project;
+let cachedToken = { value: '', at: 0 };
+/**
+ * An access token from gcloud, retried with backoff: it failed now and then when asked before a task (a round lost 11
+ * tasks to "Command failed: gcloud auth print-access-token" while the network was unreliable). Reused for five minutes
+ * only, since gcloud may hand out a token that already spent part of its hour.
+ */
+function accessToken() {
+  if (cachedToken.value && Date.now() - cachedToken.at < 5 * 60_000) return cachedToken.value;
+  let lastError;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const token = gcloud('auth', 'print-access-token');
+      if (token.startsWith('ya29.')) {
+        cachedToken = { value: token, at: Date.now() };
+        return token;
+      }
+      lastError = new Error('gcloud auth print-access-token did not return an access token');
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < 4) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5_000 * attempt);
+  }
+  throw lastError;
+}
+
 function vertexProvider() {
   project ??= process.env.E2E_PROJECT ?? gcloud('config', 'get-value', 'project');
-  const token = gcloud('auth', 'print-access-token');
+  const token = accessToken();
   if (!token.startsWith('ya29.')) throw new Error('gcloud auth print-access-token did not return an access token');
   return {
     type: 'vertex_ai',
