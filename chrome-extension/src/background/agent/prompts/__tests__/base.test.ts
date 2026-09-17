@@ -86,6 +86,34 @@ describe('browser prompt budgeting', () => {
     expect(content).not.toContain('target fingerprints');
   });
 
+  it('says a page that could not be read in time is not empty', async () => {
+    const root = new DOMElementNode({ tagName: 'body', xpath: '', attributes: {}, children: [], isVisible: true });
+    const browserState = {
+      elementTree: root,
+      selectorMap: new Map(),
+      unreadable: true,
+      tabId: 7,
+      url: 'https://example.com/',
+      title: 'Example',
+      screenshot: null,
+      scrollY: 0,
+      scrollHeight: 800,
+      visualViewportHeight: 800,
+      tabs: [{ id: 7, url: 'https://example.com/', title: 'Example' }],
+    };
+    const context = {
+      browserContext: { getCachedState: vi.fn().mockResolvedValue(browserState) },
+      options: { useVision: false, includeAttributes: [], logDOMSnapshot: false },
+      actionResults: [],
+      messageManager: { getWorkingMemory: vi.fn().mockReturnValue('') },
+    } as unknown as AgentContext;
+
+    const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);
+
+    expect(content).toContain('could not be read in time');
+    expect(content).not.toContain('empty page');
+  });
+
   it('shows an open JavaScript dialog and tells the navigator to answer it first', async () => {
     const root = new DOMElementNode({ tagName: 'body', xpath: '', attributes: {}, children: [], isVisible: true });
     const browserState = {

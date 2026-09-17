@@ -18,6 +18,8 @@ import { createLogger } from '@src/background/log';
 const logger = createLogger('AXTreeExtractor');
 
 const FRAME_TIMEOUT_MS = 3000;
+/** A second, longer try for a main document too large to read in FRAME_TIMEOUT_MS. */
+const LARGE_PAGE_TIMEOUT_MS = 12000;
 
 interface AXValue {
   type?: string;
@@ -510,15 +512,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /** Elements in the frame with pointer listeners of their own: one call for the whole subtree, shadow roots included. */
-async function readPointerListeners(frame: Frame): Promise<Set<number>> {
+async function readPointerListeners(frame: Frame, timeoutMs: number): Promise<Set<number>> {
   try {
-    const documentHandle = await withTimeout(frame.evaluateHandle(() => document), FRAME_TIMEOUT_MS);
+    const documentHandle = await withTimeout(frame.evaluateHandle(() => document), timeoutMs);
     try {
       const objectId = documentHandle.remoteObject().objectId;
       if (!objectId) return new Set();
       const { listeners } = await withTimeout(
         internals(frame).client.send('DOMDebugger.getEventListeners', { objectId, depth: -1, pierce: true }),
-        FRAME_TIMEOUT_MS,
+        timeoutMs,
       );
       return new Set(
         listeners
@@ -534,19 +536,19 @@ async function readPointerListeners(frame: Frame): Promise<Set<number>> {
   }
 }
 
-async function readFrame(frame: Frame): Promise<FrameTree | null> {
+async function readFrame(frame: Frame, timeoutMs = FRAME_TIMEOUT_MS): Promise<FrameTree | null> {
   const { client, _id: key } = internals(frame);
   const parent = frame.parentFrame();
   try {
     const [tree, hostBackendNodeId, pointerListeners] = await Promise.all([
-      withTimeout(client.send('Accessibility.getFullAXTree', { frameId: key }), FRAME_TIMEOUT_MS),
+      withTimeout(client.send('Accessibility.getFullAXTree', { frameId: key }), timeoutMs),
       parent
-        ? withTimeout(internals(parent).client.send('DOM.getFrameOwner', { frameId: key }), FRAME_TIMEOUT_MS).then(
+        ? withTimeout(internals(parent).client.send('DOM.getFrameOwner', { frameId: key }), timeoutMs).then(
           owner => owner.backendNodeId,
           () => undefined,
         )
         : undefined,
-      readPointerListeners(frame),
+      readPointerListeners(frame, timeoutMs),
     ]);
     return {
       key,
@@ -563,12 +565,12 @@ async function readFrame(frame: Frame): Promise<FrameTree | null> {
   }
 }
 
-async function readLayouts(sessions: CDPSession[], scale: number): Promise<Map<string, DocumentLayout>> {
+async function readLayouts(sessions: CDPSession[], scale: number, timeoutMs = FRAME_TIMEOUT_MS): Promise<Map<string, DocumentLayout>> {
   const layouts = new Map<string, DocumentLayout>();
   await Promise.all(
     sessions.map(async client => {
       try {
-        const snapshot = await withTimeout(client.send('DOMSnapshot.captureSnapshot', { computedStyles: [] }), FRAME_TIMEOUT_MS);
+        const snapshot = await withTimeout(client.send('DOMSnapshot.captureSnapshot', { computedStyles: [] }), timeoutMs);
         for (const doc of snapshot.documents) {
           layouts.set(snapshot.strings[doc.frameId], documentLayout(doc as unknown as SnapshotDocument, snapshot.strings, scale));
         }
@@ -590,12 +592,26 @@ export async function getAXTreeState(page: PuppeteerPage): Promise<DOMState> {
   const ratio = metrics ? metrics.visualViewport.clientWidth / metrics.cssVisualViewport.clientWidth : 1;
   const scale = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
   const [trees, layouts] = await Promise.all([
-    Promise.all(frames.map(readFrame)),
+    Promise.all(frames.map(frame => readFrame(frame))),
     readLayouts([...new Set(frames.map(frame => internals(frame).client))], scale),
   ]);
+  // A very large document can take longer than one frame's budget (a live read timed out on every step and the model,
+  // told the page was empty, kept leaving it). Give the main document one longer try before giving up on it.
+  const mainIndex = frames.indexOf(page.mainFrame());
+  if (mainIndex >= 0 && !trees[mainIndex]) {
+    logger.warning(`Main document not read in ${FRAME_TIMEOUT_MS}ms; retrying with ${LARGE_PAGE_TIMEOUT_MS}ms`);
+    const mainKey = internals(page.mainFrame())._id;
+    const [tree, retried] = await Promise.all([
+      readFrame(page.mainFrame(), LARGE_PAGE_TIMEOUT_MS),
+      layouts.has(mainKey) ? new Map<string, DocumentLayout>() : readLayouts([mainClient], scale, LARGE_PAGE_TIMEOUT_MS),
+    ]);
+    trees[mainIndex] = tree;
+    for (const [key, layout] of retried) layouts.set(key, layout);
+  }
   const available = trees.filter((tree): tree is FrameTree => tree !== null);
   for (const tree of available) tree.layout = layouts.get(tree.key);
   const state = buildDomState(available, viewport);
+  if (mainIndex >= 0 && !trees[mainIndex]) state.unreadable = true;
   logger.info(`${state.selectorMap.size} interactive elements from ${available.length}/${frames.length} frames`);
   return state;
 }

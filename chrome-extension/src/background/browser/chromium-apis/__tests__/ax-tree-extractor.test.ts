@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { buildDomState, documentLayout, isSkipLink, type AXNode, type FrameTree } from '../ax-tree-extractor';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { buildDomState, documentLayout, getAXTreeState, isSkipLink, type AXNode, type FrameTree } from '../ax-tree-extractor';
 import { pruneAXTree } from '../../dom/ax-tree-pruner';
 import type { DOMElementNode } from '../../dom/views';
 
@@ -343,5 +343,35 @@ describe('checked state of custom-styled checkboxes and radios', () => {
     const serialized = pruneAXTree(buildDomState(frames, { width: 1000, height: 800 })).elementTree.clickableElementsToString();
     expect(serialized).toMatch(/\[\d\]<label checked="true"[^>]*>4 stars & up \/>/);
     expect(serialized).toMatch(/\[\d\]<input role="checkbox" aria-label="Free shipping" aria-checked="false" \/>/);
+describe('getAXTreeState on a slow page', () => {
+  afterEach(() => vi.useRealTimers());
+
+  const pageWith = (treeReplies: Array<() => Promise<unknown>>) => {
+    const send = vi.fn((method: string) => {
+      if (method === 'Accessibility.getFullAXTree') return (treeReplies.shift() ?? (() => new Promise(() => undefined)))();
+      if (method === 'DOMSnapshot.captureSnapshot') return Promise.resolve({ documents: [], strings: [] });
+      return Promise.reject(new Error('unsupported'));
+    });
+    const frame = { client: { send }, _id: 'main', detached: false, url: () => 'https://example.com/', parentFrame: () => null, evaluateHandle: () => Promise.reject(new Error('no')) };
+    return { page: { frames: () => [frame], mainFrame: () => frame } as unknown as Parameters<typeof getAXTreeState>[0], send };
+  };
+  const nodes = [{ nodeId: '1', role: { value: 'RootWebArea' }, name: { value: 'Page' }, childIds: [] }];
+
+  it('gives the main document a longer second try', async () => {
+    vi.useFakeTimers();
+    const { page, send } = pageWith([() => new Promise(() => undefined), () => Promise.resolve({ nodes })]);
+    const read = getAXTreeState(page);
+    await vi.advanceTimersByTimeAsync(3000);
+    const state = await read;
+    expect(send.mock.calls.filter(([method]) => method === 'Accessibility.getFullAXTree')).toHaveLength(2);
+    expect(state.unreadable).toBeUndefined();
+  });
+
+  it('marks the page unreadable, not empty, when both tries time out', async () => {
+    vi.useFakeTimers();
+    const { page } = pageWith([]);
+    const read = getAXTreeState(page);
+    await vi.advanceTimersByTimeAsync(20000);
+    expect((await read).unreadable).toBe(true);
   });
 });

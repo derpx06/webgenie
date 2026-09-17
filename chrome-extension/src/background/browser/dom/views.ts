@@ -637,4 +637,6 @@ export class DOMElementNode extends DOMBaseNode {
 export interface DOMState {
   elementTree: DOMElementNode;
   selectorMap: Map<number, DOMElementNode>;
+  /** The main document could not be read in time: an unknown page, not an empty one. */
+  unreadable?: boolean;
 }

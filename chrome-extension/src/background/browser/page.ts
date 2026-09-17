@@ -1041,6 +1041,7 @@ export default class Page {
       this._state = {
         elementTree: content.elementTree,
         selectorMap: content.selectorMap,
+        unreadable: content.unreadable,
         tabId: this._tabId,
         url,
         title,
