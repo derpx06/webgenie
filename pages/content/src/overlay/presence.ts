@@ -50,61 +50,49 @@ const CSS = `
 }
 
 /* ── Ambient border ─────────────────────────────────────────────────────── */
+/* Light pooled along the edges, as inset shadow rather than a gradient: a gradient large enough to
+   reach the corners draws a visible arc across a wide viewport, and blurring it costs a full-screen
+   filter on every frame of the breath. */
 .border {
   position: absolute;
   inset: 0;
+  border-radius: 18px;
   opacity: 0;
   transition: opacity 700ms ${SOFT_EASING};
+  box-shadow:
+    inset 0 0 2px rgba(var(--wg-b), 0.35),
+    inset 0 0 34px rgba(var(--wg-a), 0.32),
+    inset 0 0 120px rgba(var(--wg-a), 0.14);
 }
-.border.on { opacity: 1; }
-.border::before {
-  content: "";
-  position: absolute;
-  inset: -30px;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(0, 0, 0, 0) 52%,
-    rgba(var(--wg-a), 0.035) 76%,
-    rgba(var(--wg-a), 0.17) 100%
-  );
-  filter: blur(36px);
+.border.on {
+  opacity: 1;
   animation: breathe var(--wg-speed, 4s) ease-in-out infinite;
 }
-.border::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 22px;
-  box-shadow: inset 0 0 70px rgba(var(--wg-b), 0.07);
-  animation: breathe-in var(--wg-speed, 4s) ease-in-out infinite;
-}
-@keyframes breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
-@keyframes breathe-in {
-  0%, 100% { box-shadow: inset 0 0 55px rgba(var(--wg-b), 0.04); }
-  50% { box-shadow: inset 0 0 95px rgba(var(--wg-b), 0.12); }
-}
+@keyframes breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 
 /* ── Target halo: the element's own shape, lit from behind ──────────────── */
 .halo {
   position: absolute;
   opacity: 0;
-  background: radial-gradient(ellipse at center, rgba(var(--wg-b), 0.14), rgba(var(--wg-a), 0.03) 70%);
+  background: radial-gradient(ellipse at center, rgba(var(--wg-b), 0.20), rgba(var(--wg-a), 0.05) 72%);
   box-shadow:
-    0 0 10px 2px rgba(var(--wg-a), 0.30),
-    0 0 26px 8px rgba(var(--wg-a), 0.28),
-    inset 0 0 18px rgba(var(--wg-b), 0.20);
+    0 0 6px 1px rgba(var(--wg-a), 0.70),
+    0 0 18px 5px rgba(var(--wg-a), 0.50),
+    0 0 44px 14px rgba(var(--wg-a), 0.28),
+    inset 0 0 14px rgba(var(--wg-b), 0.42);
 }
 
 /* ── Press ripple ───────────────────────────────────────────────────────── */
 .ripple {
   position: absolute;
-  width: 132px;
-  height: 132px;
-  margin: -66px 0 0 -66px;
+  width: 150px;
+  height: 150px;
+  margin: -75px 0 0 -75px;
   border-radius: 50%;
   opacity: 0;
-  border: 2px solid rgba(var(--wg-b), 0.85);
-  box-shadow: 0 0 18px rgba(var(--wg-a), 0.55), inset 0 0 18px rgba(var(--wg-a), 0.35);
+  border: 3px solid rgba(var(--wg-a), 0.95);
+  background: radial-gradient(circle, rgba(var(--wg-b), 0.34), rgba(var(--wg-a), 0) 68%);
+  box-shadow: 0 0 26px rgba(var(--wg-a), 0.6), inset 0 0 22px rgba(var(--wg-a), 0.4);
 }
 
 /* ── Typing caret ───────────────────────────────────────────────────────── */
@@ -123,7 +111,7 @@ const CSS = `
 .cursor {
   position: absolute;
   opacity: 0;
-  transition: transform 520ms ${TRAVEL_EASING}, opacity 320ms ${SOFT_EASING};
+  transition: transform 420ms ${TRAVEL_EASING}, opacity 300ms ${SOFT_EASING};
 }
 .cursor.on { opacity: 1; }
 .float { display: block; transform-origin: 2px 2px; }
@@ -136,12 +124,12 @@ const CSS = `
 .cursor.press .body { transform: scale(0.74); }
 .glow {
   position: absolute;
-  left: -27px;
-  top: -27px;
-  width: 54px;
-  height: 54px;
+  left: -21px;
+  top: -21px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(var(--wg-a), 0.42), rgba(var(--wg-a), 0) 68%);
+  background: radial-gradient(circle, rgba(var(--wg-a), 0.50), rgba(var(--wg-a), 0) 62%);
   transition: opacity 240ms ${SOFT_EASING};
 }
 .cursor.press .glow { opacity: 0.55; }
@@ -246,7 +234,7 @@ const CSS = `
 /* ── Less motion: everything still happens, nothing travels ─────────────── */
 @media (prefers-reduced-motion: reduce) {
   .cursor, .chip, .capsule { transition-property: opacity; }
-  .border::before, .border::after, .cursor.idle .float, .caret.on, .ring .pip { animation: none; }
+  .border.on, .cursor.idle .float, .caret.on, .ring .pip { animation: none; }
   .body { transition: none; }
 }
 `;
@@ -291,7 +279,8 @@ export class Presence {
   private capsuleTimer: ReturnType<typeof setTimeout> | null = null;
   private pressTimer: ReturnType<typeof setTimeout> | null = null;
   private running: Animation[] = [];
-  private stage: WorkflowStage = 'researching';
+  /** Null until the first paint, so the very first stage always writes its colours. */
+  private stage: WorkflowStage | null = null;
 
   constructor(parent: Element) {
     this.host = document.createElement('div');
@@ -463,20 +452,22 @@ export class Presence {
 
   private press(point: { x: number; y: number }): void {
     // The dip waits out the travel so the cursor presses where it lands, not on the way.
-    const delay = this.reduced ? 0 : 420;
+    const delay = this.reduced ? 0 : 300;
     setTimeout(() => {
       if (!this.host.isConnected) return;
       this.cursor.classList.add('press');
       setTimeout(() => this.cursor.classList.remove('press'), 210);
-      this.ripple.style.transform = `translate3d(${point.x}px, ${point.y}px, 0)`;
+      // Positioned with left/top, not a transform: the ripple's own keyframes own its transform.
+      this.ripple.style.left = `${point.x}px`;
+      this.ripple.style.top = `${point.y}px`;
       this.play(
         this.ripple,
         [
-          { opacity: 0.9, transform: 'scale(0.06)' },
-          { opacity: 0.55, transform: 'scale(0.45)', offset: 0.35 },
+          { opacity: 0.95, transform: 'scale(0.04)' },
+          { opacity: 0.7, transform: 'scale(0.4)', offset: 0.3 },
           { opacity: 0, transform: 'scale(1)' },
         ],
-        620,
+        700,
         'cubic-bezier(0.16, 0.9, 0.3, 1)',
       );
     }, delay);

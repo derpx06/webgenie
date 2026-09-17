@@ -11,8 +11,12 @@ import { Presence } from './overlay/presence';
 import type { ActionKind, Rect, WorkflowStage } from './overlay/core';
 
 let presence: Presence | null = null;
+let teardownTimer: ReturnType<typeof setTimeout> | null = null;
 
 function overlay(): Presence | null {
+  // A task that starts again inside the fade-out keeps the overlay it already has.
+  if (teardownTimer) clearTimeout(teardownTimer);
+  teardownTimer = null;
   if (presence) return presence;
   const parent = document.documentElement || document.body;
   if (!parent) return null;
@@ -21,6 +25,8 @@ function overlay(): Presence | null {
 }
 
 function teardown(): void {
+  if (teardownTimer) clearTimeout(teardownTimer);
+  teardownTimer = null;
   presence?.destroy();
   presence = null;
 }
@@ -44,9 +50,10 @@ chrome.runtime.onMessage.addListener(message => {
     const active = Boolean(message.active);
     if (!active && !presence) return;
     if (!active) {
-      // Let the border and capsule fade out, then take the host and its listeners off the page.
+      // Let the border and capsule fade out, then take the host and everything it runs off the page.
       presence?.setStatus({ active: false });
-      setTimeout(teardown, 900);
+      if (teardownTimer) clearTimeout(teardownTimer);
+      teardownTimer = setTimeout(teardown, 900);
       return;
     }
     overlay()?.setStatus({
