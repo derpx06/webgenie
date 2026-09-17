@@ -324,6 +324,13 @@ async function runTask(harness, task, runId, runDir) {
     if (!(await online())) return writeResult(runDir, task, { outcome: 'harness_error', detail: `offline: ${down}` });
     return writeResult(runDir, task, { outcome: 'site_down', detail: down });
   }
+  // The navigation "succeeded" into the browser's own error page (the site refused or reset the connection): there is no
+  // site to work on, and looking up the tab by that address failed as a harness error on every retry.
+  if (web.url().startsWith('chrome-error://')) {
+    await web.close().catch(() => {});
+    if (!(await online())) return writeResult(runDir, task, { outcome: 'harness_error', detail: 'offline: the start page showed the browser error page' });
+    return writeResult(runDir, task, { outcome: 'site_down', detail: 'the start page showed the browser error page (the site refused or reset the connection)' });
+  }
   // A site that refuses this network on its own start page ("Access Denied", a country block, a bot check) cannot be
   // measured from here: 7 of 23 judged "successes" were honest reports of such a block, scored as failures. A check that
   // clears by itself in a real browser gets a few seconds and a reload first.
