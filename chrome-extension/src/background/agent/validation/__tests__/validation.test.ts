@@ -411,6 +411,19 @@ describe('committing actions', () => {
     }
   });
 
+  it('does not gate by wording a link to another page or a control that opens a menu or dialog', () => {
+    const link = element(1, { tagName: 'a', attributes: { href: 'https://order.shop.test/' } });
+    link.getAllTextTillNextClickableElement = () => 'Order Now';
+    expect(click(link, { commits: 'none' }, noForm)).toBeNull();
+    expect(click(element(1, { tagName: 'button', attributes: { 'aria-label': 'Subscribe', 'aria-haspopup': 'dialog' } }), {}, noForm)).toBeNull();
+    // A script link and a plain button still gate by wording; a form submit and the model's flag gate whatever the element.
+    expect(click(element(1, { tagName: 'a', attributes: { href: '#', 'aria-label': 'Place order' } }), {}, noForm)?.label).toBe('Place order');
+    expect(click(element(1, { tagName: 'button', attributes: { 'aria-label': 'Subscribe' } }), {}, noForm)?.label).toBe('Subscribe');
+    const paymentForm: FormCommitInfo = { inForm: true, isSubmitter: true, paymentFields: true, submitLabels: ['Pay now'] };
+    expect(click(element(1, { tagName: 'button', attributes: { 'aria-label': 'Pay now', 'aria-expanded': 'false' } }), {}, paymentForm)?.label).toBe('Pay now');
+    expect(click(link, { commits: 'order' }, noForm)?.label).toBe('Order Now');
+  });
+
   it('keys a commit by page and label, so the same button needs the same approval', () => {
     const target = click(button('Place order'));
     expect(target).toEqual({ key: 'shop.test/checkout|place order', label: 'Place order', place: 'shop.test/checkout' });

@@ -33,6 +33,18 @@ function labelParts(node: DOMElementNode | undefined): string[] {
   return [...new Set(parts)];
 }
 
+/**
+ * A link to another address, or a control that opens a menu or dialog: activating it only shows a page or a form, so
+ * its wording alone does not gate it ("Order now" linking to a menu, "Subscribe" opening a sign-up dialog). The submit
+ * that follows is gated.
+ */
+function onlyOpens(node: DOMElementNode | undefined): boolean {
+  if (!node) return false;
+  const { href, 'aria-haspopup': popup, 'aria-expanded': expanded } = node.attributes;
+  const link = node.tagName?.toLowerCase() === 'a' && !!href && !/^\s*(#|javascript:)/i.test(href);
+  return link || (!!popup && popup !== 'false') || expanded !== undefined;
+}
+
 export interface CommitTarget {
   /** Identifies the confirmation: the same action on the same page needs the same approval. */
   key: string;
@@ -70,7 +82,7 @@ export function commitTarget(
   let label: string | undefined;
   if (actionName === 'click_element') {
     const parts = labelParts(node);
-    label = parts.find(isCommitLabel);
+    label = onlyOpens(node) ? undefined : parts.find(isCommitLabel);
     if (!label && ((form?.isSubmitter && commitsForm) || modelSaysCommit)) label = parts[0] ?? form?.submitLabels[0] ?? 'this button';
   } else if (actionName === 'send_keys' || actionName === 'input_text') {
     // Typing with submit presses Enter, so it is gated exactly like the key press.
