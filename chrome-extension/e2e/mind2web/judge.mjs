@@ -42,6 +42,10 @@ const { values: opts, positionals } = parseArgs({
     // The per-screenshot relevance scores are many small calls (one per screenshot); key points and the verdict stay on
     // --model. Set to a faster model when the judge model's quota cannot keep up.
     'image-model': { type: 'string', default: 'gemini-3-flash-preview' },
+    // Screenshots go as JPEG, at most this wide: Gemini reads images in 768 px tiles, so a 2108 px PNG carries no more
+    // for the judge than a 1280 px JPEG a third of the size (4 MB of upload per task on a slow line).
+    'image-width': { type: 'string', default: '1280' },
+    'image-quality': { type: 'string', default: '85' },
     out: { type: 'string' },
     merge: { type: 'boolean', default: false },
   },
@@ -151,6 +155,39 @@ function parseImage(response) {
 const parseOutcome = response => (response.toLowerCase().split('status:')[1] ?? '').includes('success');
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * The screenshot as it is sent: a JPEG of at most --image-width, cached beside the original. Without ImageMagick the
+ * original file goes as it is.
+ */
+let imageTool = null;
+function forUpload(file) {
+  const width = Number(opts['image-width']);
+  if (!width || DRY) return file;
+  if (imageTool === null) {
+    imageTool =
+      ['magick', 'convert'].find(name => {
+        try {
+          execFileSync(name, ['-version'], { stdio: 'ignore' });
+          return true;
+        } catch {
+          return false;
+        }
+      }) ?? '';
+    if (!imageTool) console.log('no ImageMagick: screenshots are sent as they are');
+  }
+  if (!imageTool) return file;
+  const cached = path.join(path.dirname(file), '.judge', `${path.basename(file).replace(/\.[^.]+$/, '')}.${width}.jpg`);
+  if (!fs.existsSync(cached)) {
+    fs.mkdirSync(path.dirname(cached), { recursive: true });
+    try {
+      execFileSync(imageTool, [file, '-resize', `${width}x>`, '-quality', String(Number(opts['image-quality'])), cached], { stdio: 'ignore' });
+    } catch {
+      return file;
+    }
+  }
+  return cached;
+}
 const gcloud = (...args) =>
   execFileSync('gcloud', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 
@@ -196,7 +233,8 @@ async function generate(stage, system, text, images = [], calls = []) {
     const callModel = stage !== 'outcome' && opts['image-model'] ? opts['image-model'] : model;
     const reply = await limited(async () => {
       const parts = [{ text }];
-      for (const file of images) {
+      for (const original of images) {
+        const file = forUpload(original);
         parts.push({
           inlineData: {
             mimeType: /\.png$/i.test(file) ? 'image/png' : 'image/jpeg',
@@ -474,6 +512,7 @@ async function main() {
           imageModel: opts['image-model'] ?? model,
           requestedModel: opts.model,
           threshold: THRESHOLD,
+          screenshots: `JPEG, at most ${opts['image-width']} px wide, quality ${opts['image-quality']}`,
           judgedAt: new Date().toISOString(),
           summary: summarize(tasks),
           tasks,
