@@ -69,6 +69,22 @@ describe('ContentHandler scroll', () => {
     expect(up.extractedContent).toBe('Scrolled up 0.5 pages.');
   });
 
+  it('checks for new content when the page stops a scrollbar short of its end', async () => {
+    const page = {
+      scrollByPages: vi.fn(),
+      getScrollInfo: vi
+        .fn()
+        .mockResolvedValueOnce([0, 800, 2000])
+        .mockResolvedValueOnce([1185, 800, 2000])
+        .mockResolvedValue([1185, 800, 2600]),
+    };
+    const { handler } = handlerFor(page);
+
+    const down = await handler.handleScroll({ direction: 'down', pages: 2 });
+
+    expect(down.extractedContent).toContain('The page grew from 2000 to 2600 px');
+  });
+
   it('reports an index that is not on the page instead of scrolling', async () => {
     const page = { getCurrentState: vi.fn(async () => ({ selectorMap: new Map() })), scrollByPages: vi.fn() };
     const { handler } = handlerFor(page);

@@ -10,6 +10,7 @@ import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
 import { wrapUntrustedContent } from '../../messages/utils';
+import { scrollEdgeSlack } from '../../validation/service';
 import type { DOMElementNode } from '@src/background/browser/dom/views';
 
 const MAX_READ_CHARS = 12000;
@@ -140,7 +141,7 @@ export class ContentHandler extends BaseHandler {
     if (!node && (direction === 'down' || direction === 'bottom')) {
       const [scrollY, viewportHeight, height] = await page.getScrollInfo();
       // Only a page scrolled to its end can load more.
-      if (scrollY + viewportHeight >= height - 2) growth = await this.pageGrowth(page, heightBefore);
+      if (scrollY + viewportHeight >= height - scrollEdgeSlack(viewportHeight)) growth = await this.pageGrowth(page, heightBefore);
     }
 
     const msg = t('act_scroll_ok', [what]);

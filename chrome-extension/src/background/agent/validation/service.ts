@@ -153,6 +153,14 @@ export function inventedPersonalData(actionText: string, knownText: string): str
   return [...new Set(invented)];
 }
 
+/**
+ * How far from an edge a page still counts as at that edge. Real pages stop short of scrollHeight - viewport by a
+ * scrollbar or sticky footer (15 px in live runs), so an edge is anything within 3% of the viewport (24 px at least).
+ */
+export function scrollEdgeSlack(viewportHeight: number): number {
+  return Math.max(24, viewportHeight * 0.03);
+}
+
 /** Host (without www.) and path (without a trailing slash), lowercased; query and fragment ignored. Empty when not an address. */
 export function urlKey(url: string, base?: string): string {
   try {
@@ -642,9 +650,7 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
     const maxScroll = Math.max(0, after.scrollHeight - after.visualViewportHeight);
     const towardsTop = args.direction === 'up' || args.direction === 'top';
     const towardsBottom = args.direction === 'down' || args.direction === 'bottom';
-    // Real pages stop short of scrollHeight - viewport by a scrollbar or sticky footer (15 px in live runs), so an
-    // edge is anything within 3% of the viewport (24 px at least).
-    const slack = Math.max(24, after.visualViewportHeight * 0.03);
+    const slack = scrollEdgeSlack(after.visualViewportHeight);
     const atTop = towardsTop && after.scrollY <= slack;
     const atBottom = towardsBottom && after.scrollY >= maxScroll - slack;
     const boundary = atTop || atBottom;
