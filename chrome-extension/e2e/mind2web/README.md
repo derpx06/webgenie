@@ -141,7 +141,8 @@ overall and per level. It is written after every task, and a re-run judges only 
 each task folder also gets `judgment.md` (key points, every screenshot's score and reason and whether it was sent, the
 verdict with its reasoning) and `judge-calls.jsonl` (every call: stage, model, prompt, screenshots, raw reply, retries).
 Key points and the verdict use `--model` (`gemini-3.1-pro-preview`, falling back to `gemini-2.5-pro` on 404); screenshot scores
-use `--image-model` (`gemini-3-flash-preview`), a separate per-minute quota. `--tasks` (3) tasks are judged at once
+use `--image-model` (`gemini-3-flash-preview`), a separate per-minute quota, `--image-batch` (6) screenshots per
+call, each still scored on its own (a batch whose answer cannot be read back per screenshot is scored one at a time). `--tasks` (3) tasks are judged at once
 with `--concurrency` (6) calls in flight; 429 and 5xx retry with jittered backoff for up to 30 minutes. `compare.mjs` refuses two folders judged with
 different models or thresholds. The access token comes from `gcloud auth print-access-token` and is kept in memory only.
 

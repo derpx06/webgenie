@@ -46,6 +46,9 @@ const { values: opts, positionals } = parseArgs({
     // for the judge than a 1280 px JPEG a third of the size (4 MB of upload per task on a slow line).
     'image-width': { type: 'string', default: '1280' },
     'image-quality': { type: 'string', default: '85' },
+    // Screenshots scored per call. Every screenshot still gets its own score and reason; sending them one per call made
+    // 19 rate-limited calls a task, and that model's quota, not the judging, set the pace.
+    'image-batch': { type: 'string', default: '6' },
     out: { type: 'string' },
     merge: { type: 'boolean', default: false },
   },
@@ -356,15 +359,37 @@ async function judgeTask(taskId) {
   }
 }
 
+/**
+ * Every screenshot's relevance score and reason, --image-batch of them per call: upstream sends one call per screenshot,
+ * which on a rate-limited model left the quota, not the judging, setting the pace. A batch whose answer cannot be read
+ * back for every screenshot in it is scored again one at a time.
+ */
+async function scoreShots(shots, imagePrompt, calls) {
+  const size = Math.max(1, Number(opts['image-batch']));
+  const scored = [];
+  const batches = [];
+  for (let start = 0; start < shots.length; start += size) batches.push(shots.slice(start, start + size));
+  const results = await Promise.all(
+    batches.map(async batch => {
+      if (batch.length === 1) {
+        return [{ file: batch[0], ...parseImage(await generate('image', IMAGE_SYSTEM, imagePrompt, batch, calls)) }];
+      }
+      const prompt = `${imagePrompt}\n\n${batch.length} snapshots of the webpage are attached, in order. Judge each one on its own and answer for every one of them, in order, in exactly this form:\n\nSnapshot 1\n**Reasoning**: [your explanation]\n**Score**: [1-5]\n\nSnapshot 2\n**Reasoning**: …\n**Score**: …`;
+      const reply = await generate('image', IMAGE_SYSTEM, prompt, batch, calls);
+      const parts = reply.split(/\n\s*(?:\*\*)?(?:Snapshot|Image)\s*\d+/i).slice(1);
+      if (parts.length === batch.length) return batch.map((file, n) => ({ file, ...parseImage(parts[n]) }));
+      // The answer did not come back one part per screenshot: score them the upstream way instead.
+      return Promise.all(batch.map(async file => ({ file, ...parseImage(await generate('image', IMAGE_SYSTEM, imagePrompt, [file], calls)) })));
+    }),
+  );
+  for (const batch of results) scored.push(...batch);
+  return scored;
+}
+
 async function judgeWith(result, dir, shots, calls) {
   const keyPoints = parseKeyPoints(await generate('key_points', KEY_POINTS_SYSTEM, `Task: ${result.task}`, [], calls));
   const imagePrompt = `**Task**: ${result.task}\n\n**Key Points for Task Completion**: ${keyPoints}\n\nThe snapshot of the web page is shown in the image.`;
-  const scored = await Promise.all(
-    shots.map(async file => ({
-      file,
-      ...parseImage(await generate('image', IMAGE_SYSTEM, imagePrompt, [file], calls)),
-    })),
-  );
+  const scored = await scoreShots(shots, imagePrompt, calls);
 
   const kept = scored.filter(image => image.score >= THRESHOLD).slice(0, MAX_IMAGE);
   // Not upstream: a request over the size budget would be rejected, so drop the lowest-scored (earliest on ties) first.
