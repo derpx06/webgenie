@@ -1174,6 +1174,8 @@ export default class Page {
     try {
       // First disable animations/transitions
       await this._puppeteerPage.evaluate(() => {
+        // The agent's own presence overlay hides itself while this is set, so the models see the page, not the cursor.
+        document.documentElement.setAttribute('data-webgenie-capture', '1');
         const styleId = 'puppeteer-disable-animations';
         if (!document.getElementById(styleId)) {
           const style = document.createElement('style');
@@ -1200,18 +1202,18 @@ export default class Page {
         ...(fullPage ? { fullPage: true } : { clip: { x: 0, y: 0, width: view.width, height: view.height, scale } }),
       });
 
-      // Clean up the style element
-      await this._puppeteerPage.evaluate(() => {
-        const style = document.getElementById('puppeteer-disable-animations');
-        if (style) {
-          style.remove();
-        }
-      });
-
       return screenshot as string;
     } catch (error) {
       logger.error('Failed to take screenshot:', error);
       throw error;
+    } finally {
+      // A capture that failed must still give the page its animations and its overlay back.
+      await this._puppeteerPage
+        ?.evaluate(() => {
+          document.documentElement.removeAttribute('data-webgenie-capture');
+          document.getElementById('puppeteer-disable-animations')?.remove();
+        })
+        .catch(() => undefined);
     }
   }
 
@@ -1468,13 +1470,8 @@ export default class Page {
     const sized = await handle.evaluateHandle(pointerTarget);
     const target = (sized.asElement() as ElementHandle | null) ?? handle;
     await target.scrollIntoView();
-    // The agent's own status capsule floats above the page and takes pointer events (hover, drag). On a real site it
-    // covered the very element being clicked (Online-Mind2Web, Trader Joe's): both the cover check below and the real
-    // click hit the capsule. Pointer actions pass through it from the first one on this page.
-    // ponytail: never restored on this page, so the capsule stops expanding on hover; restore after the action if that matters.
-    await this._puppeteerPage
-      ?.evaluate(() => document.getElementById('webgenie-agent-status-capsule')?.style.setProperty('pointer-events', 'none', 'important'))
-      .catch(() => undefined);
+    // The agent's own overlay is one fixed host with pointer-events: none, so it can no longer cover a target the
+    // way the old draggable capsule did (Online-Mind2Web, Trader Joe's); nothing has to be disarmed before a click.
     let blocker = await target.evaluate(coverBlocker, kind === 'hover', checkCover);
     if (blocker?.covered) {
       // A sticky header or footer, a sliding panel or a list still settling can sit over the target right after the

@@ -134,6 +134,27 @@ async function siteDown(url) {
   return reason;
 }
 
+/**
+ * A screenshot of the site as it renders, without the agent's own presence overlay: the content script
+ * hides the whole overlay while the root element carries data-webgenie-capture, with no transition, so
+ * a trajectory shot shows the page rather than the cursor, the halo and the capsule.
+ */
+export async function shootPage(page, options) {
+  const capture = on =>
+    page
+      .evaluate(value => {
+        if (value) document.documentElement.setAttribute('data-webgenie-capture', '1');
+        else document.documentElement.removeAttribute('data-webgenie-capture');
+      }, on)
+      .catch(() => {});
+  await capture(true);
+  try {
+    return await page.screenshot(options);
+  } finally {
+    await capture(false);
+  }
+}
+
 export class Harness {
   constructor(browser, extensionId, fixtures) {
     this.browser = browser;
@@ -717,7 +738,8 @@ export class Harness {
     for (const id of taskIds) records.push(...(await this.readTraces(id).catch(() => [])));
     const storage = await this.dumpStorage().catch(() => null);
     const pages = await this.webPages();
-    await withTimeout(pages.at(-1)?.screenshot({ path: path.join(outDir, `${attempt}.png`) }) ?? Promise.resolve(), 10_000, 'screenshot').catch(() => {});
+    const lastPage = pages.at(-1);
+    await withTimeout(lastPage ? shootPage(lastPage, { path: path.join(outDir, `${attempt}.png`) }) : Promise.resolve(), 10_000, 'screenshot').catch(() => {});
 
     const check = await this.check(task, run, answers, { records, storage, taskId, downloadsDir: this.downloadsDir, panel: run.panel });
     const metrics = taskMetrics(records, run.events, { secret: task.secret, taskText: typeof task.task === 'function' ? task.task(this.fixtures) : task.task, storage });

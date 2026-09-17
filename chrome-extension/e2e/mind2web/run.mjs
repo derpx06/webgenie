@@ -25,7 +25,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
-import { closeSession, launchSession } from '../run.mjs';
+import { closeSession, launchSession, shootPage } from '../run.mjs';
 import { taskMetrics, timeline } from '../metrics.mjs';
 
 const HERE = import.meta.dirname;
@@ -477,7 +477,7 @@ async function runTask(harness, task, runId, runDir) {
       5500,
     );
     await sleep(1000);
-    if ((await within(page.screenshot({ path: path.join(dir, 'trajectory', name) }), 10_000)) && !full)
+    if ((await within(shootPage(page, { path: path.join(dir, 'trajectory', name) }), 10_000)) && !full)
       screenshots.push(name);
   };
   const shooter = (async () => {
