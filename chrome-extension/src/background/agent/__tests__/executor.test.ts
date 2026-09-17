@@ -506,6 +506,20 @@ describe('Namesakes in a list and questions about the page', () => {
     expect(h.states()).not.toContain(ExecutionState.ACT_ASK_HUMAN);
     expect(h.browser.actions.map(action => [action.type, action.index])).toEqual([['click', 1]]);
   });
+
+  it('does not look again at a plan that is already done', async () => {
+    const h = createHarness({
+      task: 'Choose the green colour for my mug.',
+      pages: [{ url: 'https://mugs.test/', title: 'Mug', text: ['Sold out'] }],
+      planner: [plan({ done: true, macro_objective: 'ASK_HUMAN', final_answer: 'The mug is sold out.' })],
+      navigator: [],
+      extraArgs: { agentOptions: { useVision: true } },
+    });
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner']);
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The mug is sold out.' } });
+  });
 });
 
 describe('Personal details nobody gave', () => {

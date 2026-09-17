@@ -502,8 +502,9 @@ export class Executor {
           const findingsBefore = context.findings.length;
           latestPlanOutput = await this.runPlanner(getStepState);
           // Look before asking: with vision on, a question the planner means to put to the user is reconsidered once with a
-          // screenshot in front of it (V1 and V2 asked the user what the page showed).
-          if (latestPlanOutput?.result?.macro_objective === 'ASK_HUMAN' && context.options.useVision) {
+          // screenshot in front of it (V1 and V2 asked the user what the page showed). A finished plan asks nothing: looking
+          // would spend a planner call and could replace it with an unfinished one.
+          if (latestPlanOutput?.result?.macro_objective === 'ASK_HUMAN' && latestPlanOutput.result.done !== true && context.options.useVision) {
             const seen = await getStepState();
             const shot = typeof seen.content === 'string' ? (await context.browserContext.getCachedState(true)).screenshot : null;
             if (typeof seen.content === 'string' && shot) {
