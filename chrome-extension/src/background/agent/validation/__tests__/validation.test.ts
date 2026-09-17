@@ -235,24 +235,31 @@ describe('action outcome validation', () => {
     expect(result.validated).toBe('passed');
   });
 
-  it('passes a scroll that moved or is at the end it went towards, and fails one that did neither', () => {
+  it('passes a scroll that moved or is at the end it went towards, and never charges one that could not move', () => {
     const at = (scrollY: number) => state({ scrollY, scrollHeight: 1500, visualViewportHeight: 500 });
-    const scroll = (direction: string, before: number, after: number, index?: number) =>
+    const run = (direction: string, before: number, after: number, index?: number) =>
       validateActionOutcome({
         actionName: 'scroll',
         actionArgs: { direction, ...(index !== undefined ? { index } : {}) },
         before: at(before),
         after: at(after),
-        result: new ActionResult({ executed: true, executionStatus: 'executed' }),
-      }).validated;
+        result: new ActionResult({ executed: true, executionStatus: 'executed', extractedContent: 'Scrolled down 1 page.' }),
+      });
+    const scroll = (direction: string, before: number, after: number, index?: number) => run(direction, before, after, index).validated;
 
     expect(scroll('down', 0, 500)).toBe('passed');
     expect(scroll('up', 0, 0)).toBe('passed');
     expect(scroll('top', 1, 1)).toBe('passed');
     expect(scroll('bottom', 1000, 1000)).toBe('passed');
     expect(scroll('down', 1000, 1000)).toBe('passed');
-    expect(scroll('down', 400, 400)).toBe('failed');
-    expect(scroll('up', 400, 400)).toBe('failed');
+    // Pages stop short of the computed maximum by a scrollbar or sticky footer.
+    expect(scroll('down', 985, 985)).toBe('passed');
+    expect(run('down', 985, 985).extractedContent).toBe('The page is already at the bottom; scrolling down changed nothing.');
+    expect(run('up', 10, 10).extractedContent).toContain('already at the top');
+    // Stuck mid-page (a scroll-locked page behind a dialog) is unconfirmed, not a failure.
+    expect(scroll('down', 400, 400)).toBe('unknown');
+    expect(scroll('up', 400, 400)).toBe('unknown');
+    expect(run('down', 400, 400).failureReason).toContain('did not scroll');
     // Inside an element the window does not move; only a content change shows the scroll.
     expect(scroll('down', 0, 0, 1)).toBe('unknown');
   });

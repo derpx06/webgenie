@@ -619,17 +619,31 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
     const maxScroll = Math.max(0, after.scrollHeight - after.visualViewportHeight);
     const towardsTop = args.direction === 'up' || args.direction === 'top';
     const towardsBottom = args.direction === 'down' || args.direction === 'bottom';
-    const boundary = (towardsTop && after.scrollY <= 2) || (towardsBottom && after.scrollY >= maxScroll - 2);
-    const passed = delta !== 0 || boundary;
+    // Real pages stop short of scrollHeight - viewport by a scrollbar or sticky footer (15 px in live runs), so an
+    // edge is anything within 3% of the viewport (24 px at least).
+    const slack = Math.max(24, after.visualViewportHeight * 0.03);
+    const atTop = towardsTop && after.scrollY <= slack;
+    const atBottom = towardsBottom && after.scrollY >= maxScroll - slack;
+    const boundary = atTop || atBottom;
+    const scrollEvidence = [
+      evidence('scroll_delta', delta !== 0, delta !== 0 ? 'Scroll position changed.' : 'Scroll position did not change.', before.scrollY, after.scrollY),
+      evidence('scroll_boundary', boundary, boundary ? 'The page is at the requested scroll position.' : 'The requested scroll position was not reached.'),
+    ];
+    if (delta !== 0) return cloneWithValidation(result, 'passed', 'none', scrollEvidence);
+    // A scroll that cannot move changed nothing on the page, so it costs no failure budget; the model is told why.
+    if (boundary) {
+      const edge = atBottom ? 'bottom' : 'top';
+      return new ActionResult({
+        ...cloneWithValidation(result, 'passed', 'none', scrollEvidence),
+        extractedContent: `The page is already at the ${edge}; scrolling ${args.direction} changed nothing.`,
+      });
+    }
     return cloneWithValidation(
       result,
-      passed ? 'passed' : 'failed',
-      passed ? 'none' : 'retry_reobserve',
-      [
-        evidence('scroll_delta', delta !== 0, delta !== 0 ? 'Scroll position changed.' : 'Scroll position did not change.', before.scrollY, after.scrollY),
-        evidence('scroll_boundary', boundary, boundary ? 'The page is at the requested scroll position.' : 'The requested scroll position was not reached.'),
-      ],
-      passed ? null : 'Scroll produced no movement and the page is not at the requested position.',
+      'unknown',
+      'retry_reobserve',
+      scrollEvidence,
+      'The page did not scroll: it may be locked behind an open dialog or scroll only inside an element. Use the listed elements by index or scroll that element.',
     );
   }
 
