@@ -109,6 +109,8 @@ export function controlSummary(elements: Iterable<DOMElementNode>): string {
   ].filter(Boolean);
   if (controls.length > 0) lines.push(`Controls: ${controls.join(', ')}`);
   return lines.map(line => `${line}\n`).join('');
+}
+
 const TOOL_NAMES = Object.values(actionSchemas).flatMap(value =>
   typeof value === 'object' && value !== null && 'name' in value && 'schema' in value ? [String(value.name)] : [],
 );

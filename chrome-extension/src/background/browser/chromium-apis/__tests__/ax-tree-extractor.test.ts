@@ -343,6 +343,9 @@ describe('checked state of custom-styled checkboxes and radios', () => {
     const serialized = pruneAXTree(buildDomState(frames, { width: 1000, height: 800 })).elementTree.clickableElementsToString();
     expect(serialized).toMatch(/\[\d\]<label checked="true"[^>]*>4 stars & up \/>/);
     expect(serialized).toMatch(/\[\d\]<input role="checkbox" aria-label="Free shipping" aria-checked="false" \/>/);
+  });
+});
+
 describe('getAXTreeState on a slow page', () => {
   afterEach(() => vi.useRealTimers());
 
