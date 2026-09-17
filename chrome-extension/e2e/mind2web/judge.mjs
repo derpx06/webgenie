@@ -35,6 +35,9 @@ const { values: opts, positionals } = parseArgs({
     // Parallel judges on different locations: --shard i/n judges every n-th task into --out judgments.<i>.json, and
     // --merge folds judgments.json and every judgments.<i>.json back into judgments.json (a verdict beats an error).
     shard: { type: 'string' },
+    // The per-screenshot relevance scores are many small calls (one per screenshot); key points and the verdict stay on
+    // --model. Set to a faster model when the judge model's quota cannot keep up.
+    'image-model': { type: 'string' },
     out: { type: 'string' },
     merge: { type: 'boolean', default: false },
   },
@@ -172,62 +175,67 @@ async function limited(fn) {
   }
 }
 
-/** One generateContent call; the body is built inside the concurrency slot so pending calls hold no image data. */
-function generate(stage, system, text, images = []) {
-  return limited(async () => {
-    const parts = [{ text }];
-    for (const file of images) {
-      parts.push({ inlineData: { mimeType: /\.png$/i.test(file) ? 'image/png' : 'image/jpeg', data: fs.readFileSync(file).toString('base64') } });
-    }
-    const body = JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts }], generationConfig: { temperature: 0 } });
-    if (DRY) {
-      console.log(`  [dry-run] ${stage}: ${images.length} image(s), payload ${(Buffer.byteLength(body) / 1e6).toFixed(3)} MB`);
-      return CANNED[stage];
-    }
-    let refreshed = false;
-    for (let attempt = 0; ; attempt++) {
+/**
+ * One generateContent call. Each attempt takes a concurrency slot only while its request is in flight, and builds its
+ * body inside the slot so pending calls hold no image data; the wait before a retry is outside the slot (retries that
+ * slept inside it held every slot and a round's judging stalled). The per-screenshot stage uses --image-model when set.
+ */
+async function generate(stage, system, text, images = []) {
+  let refreshed = false;
+  for (let attempt = 0; ; attempt++) {
+    const callModel = stage === 'image' && opts['image-model'] ? opts['image-model'] : model;
+    const reply = await limited(async () => {
+      const parts = [{ text }];
+      for (const file of images) {
+        parts.push({ inlineData: { mimeType: /\.png$/i.test(file) ? 'image/png' : 'image/jpeg', data: fs.readFileSync(file).toString('base64') } });
+      }
+      const body = JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts }], generationConfig: { temperature: 0 } });
+      if (DRY) {
+        console.log(`  [dry-run] ${stage}: ${images.length} image(s), payload ${(Buffer.byteLength(body) / 1e6).toFixed(3)} MB`);
+        return { text: CANNED[stage] };
+      }
       const host = opts.location === 'global' ? 'aiplatform.googleapis.com' : `${opts.location}-aiplatform.googleapis.com`;
-      const url = `https://${host}/v1/projects/${project}/locations/${opts.location}/publishers/google/models/${model}:generateContent`;
-      let response;
+      const url = `https://${host}/v1/projects/${project}/locations/${opts.location}/publishers/google/models/${callModel}:generateContent`;
       try {
-        response = await fetch(url, {
+        const response = await fetch(url, {
           method: 'POST',
           headers: { authorization: `Bearer ${accessToken()}`, 'content-type': 'application/json' },
           body,
           signal: AbortSignal.timeout(300_000),
         });
+        if (response.ok) {
+          const json = await response.json();
+          return { text: (json.candidates?.[0]?.content?.parts ?? []).filter(part => !part.thought).map(part => part.text ?? '').join('') };
+        }
+        return { status: response.status, retryAfter: Number(response.headers.get('retry-after')) * 1000, detail: (await response.text()).slice(0, 300) };
       } catch (error) {
-        if (attempt >= 5) throw error;
-        await sleep(2000 * 2 ** attempt);
-        continue;
+        return { error };
       }
-      if (response.ok) {
-        const json = await response.json();
-        return (json.candidates?.[0]?.content?.parts ?? [])
-          .filter(part => !part.thought)
-          .map(part => part.text ?? '')
-          .join('');
-      }
-      const detail = (await response.text()).slice(0, 300);
-      if (response.status === 404 && model !== opts['fallback-model']) {
-        console.log(`judge model ${model} unavailable (404); falling back to ${opts['fallback-model']}`);
-        model = opts['fallback-model'];
-        continue;
-      }
-      if (response.status === 401 && !refreshed) {
-        refreshed = true;
-        accessToken(true);
-        continue;
-      }
-      if ((response.status === 429 || response.status >= 500) && attempt < 8) {
-        const wait = Number(response.headers.get('retry-after')) * 1000 || Math.min(60_000, 2000 * 2 ** attempt) * (0.5 + Math.random());
-        console.log(`  ${response.status} on ${stage}; retrying in ${(wait / 1000).toFixed(1)}s`);
-        await sleep(wait);
-        continue;
-      }
-      throw new Error(`Vertex AI ${response.status} on ${stage}: ${detail}`);
+    });
+    if (reply.text !== undefined) return reply.text;
+    if (reply.error) {
+      if (attempt >= 5) throw reply.error;
+      await sleep(2000 * 2 ** attempt);
+      continue;
     }
-  });
+    if (reply.status === 404 && callModel === model && model !== opts['fallback-model']) {
+      console.log(`judge model ${model} unavailable (404); falling back to ${opts['fallback-model']}`);
+      model = opts['fallback-model'];
+      continue;
+    }
+    if (reply.status === 401 && !refreshed) {
+      refreshed = true;
+      accessToken(true);
+      continue;
+    }
+    if ((reply.status === 429 || reply.status >= 500) && attempt < 8) {
+      const wait = reply.retryAfter || Math.min(60_000, 2000 * 2 ** attempt) * (0.5 + Math.random());
+      console.log(`  ${reply.status} on ${stage}; retrying in ${(wait / 1000).toFixed(1)}s`);
+      await sleep(wait);
+      continue;
+    }
+    throw new Error(`Vertex AI ${reply.status} on ${stage}: ${reply.detail}`);
+  }
 }
 
 async function judgeTask(taskId) {
@@ -342,6 +350,7 @@ async function main() {
           indicative: true,
           note: 'WebJudge re-implemented with a Gemini judge; Online-Mind2Web reports WebJudge with o4-mini, so these rates are not comparable to the leaderboard.',
           judgeModel: model,
+          imageModel: opts['image-model'] ?? model,
           requestedModel: opts.model,
           threshold: THRESHOLD,
           judgedAt: new Date().toISOString(),
