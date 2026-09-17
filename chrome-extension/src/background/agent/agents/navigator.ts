@@ -464,6 +464,26 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         if (indexArg !== null) {
           // Indexes refer to the page in the prompt; a read taken after an earlier action may number elements differently.
           const args = actionArgs as { index: number; target_index?: number };
+          // An index the read did not show (quoted by an earlier error, or remembered from another read) names whatever
+          // element has that number now: a live run clicked an unrelated link that way.
+          const unshown = [indexArg, args.target_index].find(index => typeof index === 'number' && this.context.promptIndexes && !this.context.promptIndexes.has(index));
+          if (unshown !== undefined) {
+            const msg = `Element index ${unshown} is not in the element list you were given (it may come from an earlier read or message); use an index from the current list.`;
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+            results.push(new ActionResult({
+              executed: false,
+              executionStatus: 'not_attempted',
+              validated: 'unknown',
+              retryability: 'retry_reobserve',
+              failureReason: msg,
+              extractedContent: msg,
+              includeInMemory: true,
+              contractId,
+              actionId,
+              validationId,
+            }));
+            break;
+          }
           const currentIndex = currentIndexFor(this.context.promptState, beforeState, indexArg);
           const targetIndex = typeof args.target_index === 'number'
             ? currentIndexFor(this.context.promptState, beforeState, args.target_index)

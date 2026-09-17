@@ -803,6 +803,26 @@ describe('A long run of scrolls', () => {
   });
 });
 
+describe('An element index the page read did not show', () => {
+  it('is refused, and an index from the list is clicked', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('Opened it') : plannerUntil('never')(request));
+    const listings = Array.from({ length: 700 }, (_, i) => ({ text: `Listing ${i}: a long descriptive title that fills the element list` }));
+    h = createHarness({
+      task: 'Open the first listing',
+      pages: [{ url: 'https://reviews.test/', title: 'Reviews', elements: listings }],
+      planner: Array(6).fill(planner),
+      navigator: [click(650), click(0), done('Opened it')],
+    });
+    await settle(h.executor.execute());
+
+    expect(textOf(h.llm.requestsFor('navigator')[0].messages)).not.toContain('[650]');
+    expect(h.browser.actions).toEqual([{ type: 'click', index: 0, label: 'Listing 0: a long descriptive title that fills the element list' }]);
+    expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain('Element index 650 is not in the element list you were given');
+  });
+});
+
 describe('An address the firewall blocks', () => {
   it('is refused as an action the model can recover from, not the end of the task', async () => {
     const { URLNotAllowedError } = await import('../../browser/views');

@@ -182,6 +182,7 @@ abstract class BasePrompt {
     const fresh = new Set(newElements(context.promptState, browserState));
     for (const node of browserState.selectorMap.values()) node.isNew = fresh.has(node);
     context.promptState = browserState;
+    context.promptIndexes = new Set();
 
     // A route saved from this task's start page, read once per task.
     if (context.routeNote === undefined) {
@@ -216,10 +217,9 @@ abstract class BasePrompt {
       // shaped text found in page content (e.g. Gmail To: field, WhatsApp chat).
       // The `nano_untrusted_content` wrapper + system prompt already tell the LLM
       // to ignore injections — strict pattern-matching here causes more harm than good.
-      const elementsText = wrapUntrustedContent(
-        controlSummary(browserState.selectorMap.values()) + windowAroundViewport(rawElementsText, MAX_INTERACTIVE_ELEMENTS_CHARS),
-        /* filterFirst= */ false,
-      );
+      const shownElements = controlSummary(browserState.selectorMap.values()) + windowAroundViewport(rawElementsText, MAX_INTERACTIVE_ELEMENTS_CHARS);
+      context.promptIndexes = new Set([...shownElements.matchAll(/\[(\d+)\]/g)].map(match => Number(match[1])));
+      const elementsText = wrapUntrustedContent(shownElements, /* filterFirst= */ false);
 
       formattedElementsText = `${scrollInfo}[Start of page]\n${elementsText}\n[End of page]\n`;
     } else if (browserState.unreadable) {

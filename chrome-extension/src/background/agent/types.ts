@@ -133,6 +133,8 @@ export class AgentContext {
   pageRead: { url: string; text: string } | null = null;
   /** The page read shown to the models this step; element indexes in their actions refer to it. */
   promptState?: BrowserState;
+  /** The element indexes that read showed the models (a long page's list is cut to a window around the viewport). */
+  promptIndexes?: Set<number>;
   currentContract?: NextStepContract | null;
   validatedProgress: ValidatedProgressRecord[];
   blockedState: BlockedState | null;
