@@ -167,8 +167,6 @@ function accessToken(refresh = false) {
   return token;
 }
 
-/** model -> { until, backoff }: the shared pause after a 429 on that model. */
-const pauses = new Map();
 let active = 0;
 const waiting = [];
 async function limited(fn) {
@@ -191,11 +189,11 @@ async function generate(stage, system, text, images = [], calls = []) {
   let refreshed = false;
   const started = Date.now();
   const retries = [];
-  for (let attempt = 0; ; attempt++) {
+  let networkErrors = 0;
+  let limited429 = 0;
+  for (;;) {
     // Only the verdict uses the judge model; key points and the many per-screenshot scores use --image-model when set.
     const callModel = stage !== 'outcome' && opts['image-model'] ? opts['image-model'] : model;
-    const pause = pauses.get(callModel);
-    if (pause && pause.until > Date.now()) await sleep(pause.until - Date.now() + Math.random() * 1000);
     const reply = await limited(async () => {
       const parts = [{ text }];
       for (const file of images) {
@@ -256,17 +254,17 @@ async function generate(stage, system, text, images = [], calls = []) {
         ...extra,
       });
     if (reply.text !== undefined) {
-      pauses.delete(callModel);
       callRecord({ response: reply.text });
       return reply.text;
     }
     if (reply.error) {
       retries.push(`network: ${reply.error.message}`);
-      if (attempt >= 5) {
+      networkErrors++;
+      if (networkErrors > 5) {
         callRecord({ error: reply.error.message });
         throw reply.error;
       }
-      await sleep(2000 * 2 ** attempt);
+      await sleep(2000 * 2 ** networkErrors);
       continue;
     }
     if (reply.status === 404 && callModel === model && model !== opts['fallback-model']) {
@@ -279,15 +277,9 @@ async function generate(stage, system, text, images = [], calls = []) {
       accessToken(true);
       continue;
     }
-    // A 429 is the model's per-minute quota: every call to that model waits out one shared pause (doubling while 429s
-    // continue, cleared by a success) instead of each retrying on its own and keeping the quota exhausted.
+    // 429 (the model's per-minute quota) and 5xx: jittered exponential backoff, up to a minute, for up to 30 minutes.
     if ((reply.status === 429 || reply.status >= 500) && Date.now() - started < 30 * 60_000) {
-      const current = pauses.get(callModel);
-      if (!current || current.until <= Date.now()) {
-        const backoff = Math.min(120_000, (current?.backoff ?? 5000) * 2);
-        pauses.set(callModel, { backoff, until: Date.now() + (reply.retryAfter || backoff) });
-      }
-      const wait = pauses.get(callModel).until - Date.now();
+      const wait = reply.retryAfter || Math.min(60_000, 2000 * 2 ** limited429++) * (0.5 + Math.random());
       console.log(`  ${reply.status} on ${stage}; retrying in ${(wait / 1000).toFixed(1)}s`);
       retries.push(`${reply.status} after ${((Date.now() - started) / 1000).toFixed(1)}s`);
       await sleep(wait);
