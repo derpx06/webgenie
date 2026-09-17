@@ -32,6 +32,11 @@ const { values: opts, positionals } = parseArgs({
     // Vertex AI rejects oversized requests; the outcome call drops its lowest-scored screenshots to stay under this.
     'max-request-mb': { type: 'string', default: '18' },
     'dry-run': { type: 'boolean', default: false },
+    // Parallel judges on different locations: --shard i/n judges every n-th task into --out judgments.<i>.json, and
+    // --merge folds judgments.json and every judgments.<i>.json back into judgments.json (a verdict beats an error).
+    shard: { type: 'string' },
+    out: { type: 'string' },
+    merge: { type: 'boolean', default: false },
   },
 });
 const runDir = positionals[0];
@@ -296,13 +301,27 @@ function summarize(tasks) {
 
 async function main() {
   if (!DRY) project ??= gcloud('config', 'get-value', 'project');
-  const outFile = path.join(runDir, DRY ? 'judgments.dry-run.json' : 'judgments.json');
-  const tasks = !DRY && fs.existsSync(outFile) ? JSON.parse(fs.readFileSync(outFile, 'utf8')).tasks : {};
+  const outFile = path.join(runDir, DRY ? 'judgments.dry-run.json' : (opts.out ?? 'judgments.json'));
+  const readTasks = file => (fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).tasks : {});
+  // A shard judge skips what judgments.json already holds; its own file adds what it judged since.
+  const tasks = DRY ? {} : { ...readTasks(path.join(runDir, 'judgments.json')), ...readTasks(outFile) };
+  if (opts.merge) {
+    const merged = {};
+    // Shard files sort before judgments.json, so a shard's verdict is kept over the main file's.
+    for (const file of fs.readdirSync(runDir).filter(name => /^judgments(\.\d+)?\.json$/.test(name)).sort()) {
+      for (const [id, entry] of Object.entries(readTasks(path.join(runDir, file)))) {
+        if (!merged[id] || (merged[id].error && !entry.error)) merged[id] = entry;
+      }
+    }
+    Object.assign(tasks, merged);
+  }
+  const [shardIndex, shardCount] = (opts.shard ?? '0/1').split('/').map(Number);
   const ids = fs
     .readdirSync(runDir, { withFileTypes: true })
     .filter(entry => entry.isDirectory() && fs.existsSync(path.join(runDir, entry.name, 'result.json')))
     .map(entry => entry.name)
-    .sort();
+    .sort()
+    .filter((_, n) => n % shardCount === shardIndex);
   // A task whose outcome changed since it was judged (run again, or reclassified) is judged again.
   const changed = id => {
     try {
@@ -333,6 +352,13 @@ async function main() {
         2,
       )}\n`,
     );
+
+  if (opts.merge) {
+    save();
+    const merged = summarize(tasks);
+    console.log(`merged into ${path.basename(outFile)}: ${merged.overall.n} judged (${merged.overall.success} success), ${merged.excluded.length} excluded, ${merged.errors.length} judge errors`);
+    return;
+  }
 
   await Promise.all(
     todo.map(async id => {
