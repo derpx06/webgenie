@@ -667,12 +667,18 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         const typedNode = actionName === 'input_text'
           ? beforeState.selectorMap.get((actionArgs as { index?: number }).index ?? -1)
           : undefined;
-        const isSearchField = typedNode?.attributes.type === 'search' || /^(searchbox|combobox)$/.test(typedNode?.attributes.role ?? '');
+        // A query is the agent's to reword, whatever the field's type (a live run's search box was type="text" with a
+        // "search" placeholder).
+        const a = typedNode?.attributes;
+        const isSearchField = a?.type === 'search' || /^(searchbox|combobox)$/.test(a?.role ?? '') || /search/i.test([a?.placeholder, a?.['aria-label'], a?.name, a?.title].join(' '));
         const typedField = typedNode?.backendNodeId !== undefined && !isSearchField ? `${typedNode.frameKey ?? ''}:${typedNode.backendNodeId}` : null;
         const typedText = String((actionArgs as { text?: unknown }).text ?? '');
         const previousValue = typedField ? this.context.typedValues.get(typedField) : undefined;
-        if (typedField && changesUserValue(previousValue, typedText, this.userText())) {
-          const msg = `This field held "${previousValue}", a value from the user. Do not replace it with a value of your own: if the page rejected it, report the page's message to the user or ask_human for a new value.`;
+        // Refused once per field: the same field typed again is a deliberate change.
+        const userValueKey = `user|${typedField}`;
+        if (typedField && !this.context.overwriteChecked.has(userValueKey) && changesUserValue(previousValue, typedText, this.userText())) {
+          this.context.overwriteChecked.add(userValueKey);
+          const msg = `This field held "${previousValue}", a value from the user. Do not replace it with a value of your own: if the page rejected it, report the page's message to the user or ask_human for a new value. Only if the user's request itself needs another value here, send the same input_text again.`;
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
           results.push(new ActionResult({
             executed: false,
@@ -699,7 +705,8 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           held &&
           held !== typedText.trim().toLowerCase() &&
           (typedNode?.attributes.value ?? '').trim().toLowerCase() === held &&
-          !this.context.overwriteChecked.has(overwriteKey)
+          !this.context.overwriteChecked.has(overwriteKey) &&
+          !this.context.overwriteChecked.has(userValueKey)
         ) {
           this.context.overwriteChecked.add(overwriteKey);
           const msg = `Not typed: this field already holds "${previousValue}", which you typed earlier in this task. Check which value the task wants here; if "${previousValue}" is really wrong, send the same input_text again to replace it.`;

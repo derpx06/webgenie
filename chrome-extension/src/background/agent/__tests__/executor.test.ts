@@ -443,6 +443,37 @@ describe('Overwriting a field this task filled', () => {
   });
 });
 
+describe('Replacing a value from the user', () => {
+  const run = async (attributes: Record<string, string>) => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Find the Vision Lab of Example Corp.',
+      pages: [{ url: 'https://corp.test/search', title: 'Search', elements: [{ tag: 'input', attributes: { ...attributes, value: 'Vision Lab' } }] }],
+      planner: Array(6).fill(planner),
+      navigator: [typeText(0, 'research labs'), typeText(0, 'computer vision'), done('Done')],
+    });
+    h.executor.getContext().typedValues.set(':100', 'Vision Lab');
+    await settle(h.executor.execute());
+    return h;
+  };
+
+  it('is refused once per field, and a later value goes through', async () => {
+    const h = await run({ type: 'text', 'aria-label': 'Lab name' });
+    expect(h.browser.actions).toEqual([{ type: 'input', index: 0, text: 'computer vision' }]);
+    expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain('a value from the user');
+  });
+
+  it('is not refused in a search box, whatever its type', async () => {
+    const h = await run({ type: 'text', placeholder: 'AI-powered search' });
+    expect(h.browser.actions).toEqual([
+      { type: 'input', index: 0, text: 'research labs' },
+      { type: 'input', index: 0, text: 'computer vision' },
+    ]);
+  });
+});
+
 describe('Values from a list in the task', () => {
   const task = 'Add these guests: 1. Katherine, Johnson, Oslo, white; 2. Ada, Lovelace, London, green; 3. Katherine, Backus, Oslo, blue.';
   const form = { url: 'https://party.test/guest/3', title: 'Guest 3', elements: [{ tag: 'input', attributes: { 'aria-label': 'Last name' } }, { tag: 'input', attributes: { 'aria-label': 'Colour' } }] };
