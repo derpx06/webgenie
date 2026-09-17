@@ -419,6 +419,25 @@ function findTargetNode(
   return Array.from(state.selectorMap.values()).find(node => fingerprintMatchesNode(node, targetFingerprint));
 }
 
+/**
+ * The href of a clicked link to another address when the page only gained a new fragment: the signature of an overlay
+ * (an ad interstitial) that took the click, which the content change alone would pass as a navigation.
+ */
+function interceptedLink(before: BrowserState, after: BrowserState, index: number, actionArgs: unknown): string | null {
+  const href = findTargetNode(before, index, actionTargetFingerprint(actionArgs))?.attributes?.href;
+  if (!href || !before.url || !after.url || before.url === after.url) return null;
+  try {
+    const page = (url: string) => {
+      const parsed = new URL(url, before.url);
+      parsed.hash = '';
+      return parsed.href;
+    };
+    return page(after.url) === page(before.url) && page(href) !== page(before.url) ? href : null;
+  } catch {
+    return null;
+  }
+}
+
 function actionTargetFingerprint(actionArgs: unknown): TargetFingerprint | null {
   if (!isObject(actionArgs)) return null;
   const target = actionArgs.targetFingerprint;
@@ -597,6 +616,10 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
 
   if (actionName === 'select_dropdown_option') {
     const selection = result.evidence.find(item => item.kind === 'selection');
+    // A select that switches views can navigate away, so the option cannot be read back; the new address confirms it.
+    if (!selection?.passed && changedUrl) {
+      return cloneWithValidation(result, 'passed', 'none', [evidence('url_change', true, 'The selection opened a new address.', before.url, after.url)]);
+    }
     return selection?.passed
       ? cloneWithValidation(result, 'passed', 'none', [])
       : cloneWithValidation(result, 'unknown', 'retry_reobserve', [], 'The selection could not be confirmed; check the dropdown.');
@@ -648,6 +671,16 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
   }
 
   if (POINTER_ACTIONS.includes(actionName)) {
+    const intercepted = actionName === 'click_element' && index !== undefined ? interceptedLink(before, after, index, actionArgs) : null;
+    if (intercepted) {
+      return cloneWithValidation(
+        result,
+        'unknown',
+        'retry_reobserve',
+        [evidence('url_change', false, 'The link did not open its address; only the fragment changed.', before.url, after.url)],
+        `The link points to ${intercepted}, but the page stayed at the same address: an overlay or interstitial probably intercepted the click. Close it, then check whether the link opened.`,
+      );
+    }
     if (index !== undefined) {
       const targetFingerprint = actionTargetFingerprint(actionArgs);
       const beforeTargetState = targetState(before, index, targetFingerprint);

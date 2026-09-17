@@ -264,6 +264,38 @@ describe('action outcome validation', () => {
     expect(scroll('down', 0, 0, 1)).toBe('unknown');
   });
 
+  it('does not pass a link click that an overlay intercepted, but passes an in-page anchor', () => {
+    const link = (href: string) => state({ selectorMap: new Map([[1, element(1, { tagName: 'a', attributes: { href } })]]) });
+    const click = (href: string, afterUrl: string) =>
+      validateActionOutcome({
+        actionName: 'click_element',
+        actionArgs: { index: 1 },
+        before: link(href),
+        after: state({ url: afterUrl, title: 'Advertisement', selectorMap: new Map([[1, element(1, { attributes: { 'aria-label': 'Close' } })]]) }),
+        result: new ActionResult({ executed: true, executionStatus: 'executed' }),
+      });
+
+    const intercepted = click('https://example.com/hourly', 'https://example.com/start#ad');
+    expect(intercepted.validated).toBe('unknown');
+    expect(intercepted.failureReason).toContain('https://example.com/hourly');
+    expect(click('https://example.com/start#details', 'https://example.com/start#details').validated).toBe('passed');
+    expect(click('https://example.com/hourly', 'https://example.com/hourly').validated).toBe('passed');
+  });
+
+  it('passes a selection that navigated away, where the option can no longer be read back', () => {
+    const select = (afterUrl: string) =>
+      validateActionOutcome({
+        actionName: 'select_dropdown_option',
+        actionArgs: { index: 1, text: '2023' },
+        before: state(),
+        after: state({ url: afterUrl }),
+        result: new ActionResult({ executed: true, executionStatus: 'executed', evidence: [{ kind: 'selection', passed: false, message: 'not confirmed' }] }),
+      }).validated;
+
+    expect(select('https://example.com/start/2023')).toBe('passed');
+    expect(select('https://example.com/start')).toBe('unknown');
+  });
+
   it('passes click validation when the selected target state changes', () => {
     const before = state({
       selectorMap: new Map([[1, element(1, { attributes: { 'aria-label': 'Follow @example' } })]]),
