@@ -315,6 +315,20 @@ describe('pointerTarget', () => {
     expect(pointerTarget(input)).toBe(label);
   });
 
+  it('aims at the visible wrapper of a hidden checkbox that has no label', () => {
+    const row = element(200, 30, { querySelectorAll: () => [{}], parentElement: null });
+    const box = element(0, 0, { querySelectorAll: () => [{}], parentElement: row });
+    const input = element(0, 0, { matches: () => true, parentElement: box });
+    expect(pointerTarget(input)).toBe(row);
+  });
+
+  it('stops at a wrapper that holds other controls and aims at a visible sibling instead', () => {
+    const list = element(400, 300, { querySelectorAll: () => [{}, {}], parentElement: null });
+    const text = element(60, 20);
+    const input = element(0, 0, { matches: () => true, parentElement: list, nextElementSibling: text });
+    expect(pointerTarget(input)).toBe(text);
+  });
+
   it('aims at the first visible descendant of an inline wrapper', () => {
     const image = element(50, 50);
     const link = element(0, 0, { querySelectorAll: () => [element(0, 0), image] });

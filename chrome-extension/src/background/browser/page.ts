@@ -217,7 +217,18 @@ export function pointerTarget(el: Element): Element {
   };
   if (hasBox(el)) return el;
   const label = Array.from((el as HTMLInputElement).labels ?? []).find(hasBox);
-  return label ?? Array.from(el.querySelectorAll('*')).find(hasBox) ?? el;
+  if (label) return label;
+  // A hidden checkbox or radio with no <label>: its drawn box and text sit in a wrapper (or next to it) that takes the
+  // click. Aim at the nearest visible ancestor that holds no other control, then a visible sibling.
+  if (el.matches?.('input[type="checkbox"], input[type="radio"]')) {
+    for (let node = el.parentElement, depth = 0; node && depth < 4; node = node.parentElement, depth++) {
+      if (node.querySelectorAll('input, select, textarea, button').length > 1) break;
+      if (hasBox(node)) return node;
+    }
+    const sibling = [el.nextElementSibling, el.previousElementSibling].find(candidate => candidate && hasBox(candidate));
+    if (sibling) return sibling;
+  }
+  return Array.from(el.querySelectorAll('*')).find(hasBox) ?? el;
 }
 
 /**
