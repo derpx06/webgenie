@@ -229,8 +229,9 @@ async function generate(stage, system, text, images = [], calls = []) {
   let networkErrors = 0;
   let limited429 = 0;
   for (;;) {
-    // Only the verdict uses the judge model; key points and the many per-screenshot scores use --image-model when set.
-    const callModel = stage !== 'outcome' && opts['image-model'] ? opts['image-model'] : model;
+    // The judge model answers key points and the verdict; the per-screenshot scores use --image-model when set, so the
+    // two stages draw on separate quotas.
+    const callModel = stage === 'image' && opts['image-model'] ? opts['image-model'] : model;
     const reply = await limited(async () => {
       const parts = [{ text }];
       for (const original of images) {
