@@ -184,6 +184,9 @@ export class ActivityEngine {
           showCapsule,
           workflowStage,
           taskName: this._taskName ?? undefined,
+          // The capsule's progress ring fills with the steps the task has spent.
+          step: event.data?.step,
+          stepLimit: event.data?.maxSteps,
         }).catch(() => { /* tab may not have content script */ });
       } else {
         chrome.tabs.sendMessage(tab.id, {

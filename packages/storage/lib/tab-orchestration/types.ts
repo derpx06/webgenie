@@ -220,4 +220,22 @@ export interface AgentStatusMessage {
   workflowStage?: WorkflowStage;
   /** New: task name for display in the capsule. */
   taskName?: string;
+  /** Steps used so far and the task's step limit, for the capsule's progress ring. */
+  step?: number;
+  stepLimit?: number;
+}
+
+/**
+ * What the agent is about to do on the page, for the on-page presence overlay (cursor, halo, caret).
+ * Decoration only: it carries no page text and no task data beyond the planner's short goal line.
+ */
+export type AgentActionKind = 'click' | 'type' | 'scroll' | 'read' | 'wait' | 'ask' | 'done' | 'error';
+
+export interface AgentActionMessage {
+  type: 'AGENT_ACTION';
+  kind: AgentActionKind;
+  /** The element's box in top-level viewport CSS pixels, with its corner radius; absent when no element is involved. */
+  rect?: { x: number; y: number; w: number; h: number; r: number };
+  /** The planner's current goal, a few words, already truncated. */
+  goal?: string;
 }

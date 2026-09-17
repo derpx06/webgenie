@@ -16,6 +16,7 @@ import { elementsWindowed } from '../prompts/base';
 import { NavigatorActionRegistry } from './navigator/registry';
 export { NavigatorActionRegistry };
 import { HistoryReplayer } from './navigator/replay';
+import { presenceMessage } from './navigator/presence';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
 import { appearedText, elementKey, ensureBrowserObservation, listElements, newElements, revealedControls } from '../validation/observation';
 import {
@@ -371,6 +372,23 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
       .filter(entry => (only ? entry.type === only : entry.type === 'task' || entry.type === 'human_answer'))
       .map(entry => String(entry.message.content))
       .join('\n');
+  }
+
+  /**
+   * Shows the action on the page itself: the cursor glides to the element, presses or types there, and
+   * the element glows in its own shape. Purely decorative, never awaited, and a tab without a content
+   * script (a settings page, a tab mid-navigation) simply ignores it.
+   */
+  private showOnPage(actionName: string, node: DOMElementNode | undefined): void {
+    try {
+      const browserContext = this.context.browserContext;
+      const tabId = browserContext.getCurrentTabId();
+      if (tabId === null) return;
+      const message = presenceMessage(actionName, node, this.context.currentContract?.goal);
+      void browserContext.browser.sendTabMessage(tabId, message).catch(() => undefined);
+    } catch {
+      // Decoration must never cost the agent an action.
+    }
   }
 
   private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
@@ -848,6 +866,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
         const actionStartedAt = Date.now();
         if (commit) this.context.approvedCommitKey = null;
+        this.showOnPage(actionName, indexedNode);
         let result = await actionInstance.call(callArgs);
         if (result && callArgs !== actionArgs) {
           // Whatever the handler reports back names the placeholder, never the password.
