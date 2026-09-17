@@ -106,6 +106,22 @@ describe('ContentHandler page text', () => {
     expect(missing.extractedContent).toContain('No match for "discount" in the page text (12018 characters).');
   });
 
+  it('says the whole page was read when start_char is at or past the end', async () => {
+    const { handler } = handlerFor({ getCompletePageContent: vi.fn(async () => text) });
+
+    const past = await handler.handleGetCompletePageContent({ start_char: 12018 });
+    expect(past.extractedContent).toContain('start_char 12018 is at or past the end of the page text (12018 characters): the whole page has been read');
+    expect(past.extractedContent).not.toContain('TAIL');
+  });
+
+  it('bounds the passages a find returns on a very large page', async () => {
+    const { handler, context } = handlerFor({ getCompletePageContent: vi.fn(async () => 'filler words '.repeat(5000) + 'match here '.repeat(40000)) });
+
+    const found = await handler.handleGetCompletePageContent({ find: 'match' });
+    expect(found.extractedContent!.length).toBeLessThan(12500);
+    expect(vi.mocked(context.emitEvent).mock.calls.at(-1)?.[2]).toContain('Searched 505000 characters of page text for "match"');
+  });
+
   it('merges matches that share their context', () => {
     expect(findPassages('Total: 3 items. Total due: $30.', 'total')).toBe('2 matches for "total":\n[at character 0] Total: 3 items. Total due: $30.');
   });

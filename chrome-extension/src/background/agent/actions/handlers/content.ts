@@ -182,13 +182,19 @@ export class ContentHandler extends BaseHandler {
     try {
       const content = await page.getCompletePageContent();
       this.context.pageRead = { url: page.url(), text: content };
-      const msg = `Successfully extracted ${content.length} characters of page content.`;
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
       if (input.find) {
-        return new ActionResult({ extractedContent: wrapUntrustedContent(findPassages(content, input.find), false), includeInMemory: true });
+        const found = findPassages(content, input.find);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Searched ${content.length} characters of page text for "${input.find}"`);
+        return new ActionResult({ extractedContent: wrapUntrustedContent(found, false), includeInMemory: true });
       }
 
-      const start = Math.min(Math.max(0, input.start_char ?? 0), content.length);
+      if (content.length > 0 && (input.start_char ?? 0) >= content.length) {
+        // A live read continued at the exact end of the text and got an empty range back, then read again from 0.
+        const note = `start_char ${input.start_char} is at or past the end of the page text (${content.length} characters): the whole page has been read. Use find to search it, or a start_char below ${content.length}.`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, note);
+        return new ActionResult({ extractedContent: note, includeInMemory: true });
+      }
+      const start = Math.max(0, input.start_char ?? 0);
       const last = this.lastRead;
       if (last && last.text === content && last.start === start && this.context.nSteps - last.step <= SAME_READ_STEPS) {
         return new ActionResult({
@@ -199,6 +205,7 @@ export class ContentHandler extends BaseHandler {
       this.lastRead = { text: content, start, step: this.context.nSteps };
 
       const end = Math.min(content.length, start + MAX_READ_CHARS);
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Read characters ${start}-${end} of ${content.length} of page text`);
       const range = start > 0 ? `[characters ${start}-${end} of ${content.length}]\n` : '';
       const rest = end < content.length
         ? `\n[truncated at character ${end} of ${content.length}; call get_complete_page_content with start_char ${end} to read on, or with find to search the text]`
