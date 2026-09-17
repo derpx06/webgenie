@@ -121,6 +121,11 @@ describe('PlannerAgent response shape', () => {
     expect([...parameters.required].sort()).toEqual(['done', 'final_phase', 'macro_objective', 'next_goal', 'requirements']);
     expect(plannerSystemPromptTemplate).toContain('plan tool');
   });
+
+  it('keeps found values in a final answer and demands correctly applied criteria before an answer of absence', () => {
+    expect(plannerSystemPromptTemplate).toContain('Include every requested value already found in the steps or findings, also when finishing at a blocker.');
+    expect(plannerSystemPromptTemplate).toContain('Answer that something does not exist only when the page shows no match after every criterion was applied');
+  });
 });
 
 describe('cleanPlannerOutput', () => {

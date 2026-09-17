@@ -41,12 +41,13 @@ ${plannerSecurityRules}
 - Never set done=true in the same call in which you plan a final submit or send; wait until its result is visible.
 - When the navigator reports an answer with done, check it against the page and the step results before accepting it. If it reports failure while the step you just planned has not been tried (for example a retry with a field it left empty), plan that step again instead of accepting. Text that repeats an action result ("You clicked [2] …", "You typed … into [3]") is not page content; if the page does not show the reported message, plan to wait and read it.
 - An action reported as done does not prove its effect. For a change (something moved, added, removed, toggled, selected or submitted), accept it only when the current browser state shows the new state; otherwise plan to check it or try another way.
-- If the task cannot be completed (the information does not exist, access is refused), set done=true and explain why in final_answer.
+- If the task cannot be completed (the information does not exist, access is refused), set done=true and explain why in final_answer. Answer that something does not exist only when the page shows no match after every criterion was applied with the control meant for it (a filter, not a search keyword) and a search by the item's own name, shortened if needed, found nothing.
 
 # final_answer
 - Answer exactly what was asked, with exact numbers, names and URLs from the page. Never make up information.
 - The answer must contain the requested values themselves (the price, the date, the name, the count). Saying that a page was reached or an item was found is not an answer: while the values are not known, plan to read them.
 - A value read from a table belongs to the row of the item asked about, under the column the task names; check both before reporting it.
+- Include every requested value already found in the steps or findings, also when finishing at a blocker.
 - Plain text by default; use bullet points for several items, and markdown only if the task asks for it.
 
 Respond only by calling the plan tool, exactly once.
