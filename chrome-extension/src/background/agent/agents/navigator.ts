@@ -41,6 +41,7 @@ import {
   urlKey,
   userPersonalData,
   inventedPersonalData,
+  personalDataSources,
   validateActionOutcome,
 } from '../validation/service';
 import { ProgressLedger } from '../contracts';
@@ -764,15 +765,10 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         }
 
         // Never type personal details nobody gave: an email, phone or card number typed into a field for one must appear in
-        // the user's messages, a tool result or the page (H6: a made-up "555-123-4567" was typed and the delivery booked).
+        // the user's messages or a page (H6: a made-up "555-123-4567" was typed and the delivery booked).
         const personalField = typedNode !== undefined && /\b(tel|email|e-mail|phone|mobile|card|cc-)/i.test(JSON.stringify(typedNode.attributes));
         if (personalField) {
-          const known = [
-            ...this.context.messageManager.getTranscript().filter(entry => entry.message.getType() !== 'ai').map(entry => String(entry.message.content)),
-            ...this.context.findings,
-            beforeState.elementTree.clickableElementsToString(this.context.options.includeAttributes),
-          ].join('\n');
-          const invented = inventedPersonalData(typedText, known);
+          const invented = inventedPersonalData(typedText, personalDataSources(this.context, beforeState));
           if (invented.length > 0) {
             const msg = `Not typed: ${invented.map(value => JSON.stringify(value)).join(', ')} appears nowhere in the user's messages or on the pages you read. Never make up personal details (phone numbers, email addresses, card numbers): ask_human for them.`;
             this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);

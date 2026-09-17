@@ -1,4 +1,5 @@
 import { ActionResult } from '../types';
+import type { AgentContext } from '../types';
 import type { DOMElementNode } from '../../browser/dom/views';
 import type { FormCommitInfo } from '../../browser/page';
 import type { BrowserState } from '../../browser/views';
@@ -139,8 +140,24 @@ export function userPersonalData(actionText: string, userText: string): string[]
 }
 
 /**
- * Email addresses and phone or card numbers (7+ digits) in an action's arguments that appear nowhere in `knownText` (the
- * user's messages, tool results and the page): values the model made up. Numbers are compared by their digits, so a
+ * Where a personal value may come from: the user's task and answers, the page read and the last full page-text read.
+ * Never the agent's own words (plans, findings, tool results): a refusal quoting a made-up email made that email known,
+ * and the next attempt typed it.
+ */
+export function personalDataSources(context: AgentContext, page: BrowserState | undefined): string {
+  return [
+    ...context.messageManager
+      .getTranscript()
+      .filter(entry => entry.type === 'task' || entry.type === 'human_answer')
+      .map(entry => String(entry.message.content)),
+    page?.elementTree.clickableElementsToString(context.options.includeAttributes) ?? '',
+    context.pageRead?.text ?? '',
+  ].join('\n');
+}
+
+/**
+ * Email addresses and phone or card numbers (7+ digits) in an action's arguments that appear nowhere in `knownText` (see
+ * personalDataSources): values the model made up. Numbers are compared by their digits, so a
  * reformatted value still counts as known. H6: after looking at the page the planner filled in "555-123-4567" itself.
  */
 export function inventedPersonalData(actionText: string, knownText: string): string[] {

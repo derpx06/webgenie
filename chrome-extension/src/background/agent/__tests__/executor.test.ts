@@ -536,6 +536,23 @@ describe('Personal details nobody gave', () => {
     expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain('Never make up personal details');
   });
 
+  it('stay refused when tried again after the refusal quoted them', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    const contact = { url: 'https://quotes.test/request', title: 'Request a quote', elements: [{ tag: 'input', attributes: { 'aria-label': 'Email', type: 'email' } }] };
+    h = createHarness({
+      task: 'Request a quote from the first listed company.',
+      pages: [contact],
+      planner: Array(8).fill(planner),
+      navigator: [typeText(0, 'proceed@example.com'), typeText(0, 'proceed@example.com'), done('Stopped')],
+    });
+    await settle(h.executor.execute());
+
+    expect(h.browser.actions).toEqual([]);
+    expect(textOf(h.llm.requestsFor('navigator')[2].messages)).toContain('"proceed@example.com" appears nowhere');
+  });
+
   it('keep a question the planner reconsidered after looking when the new plan invents one', async () => {
     const h = createHarness({
       task: 'Book a delivery for Web Genie to 1 Main Street.',

@@ -48,7 +48,7 @@ import {
   type TaskCheckpoint,
 } from './contracts';
 import { ensureBrowserObservation, viewportText } from './validation/observation';
-import { echoesActionResult, hostOf, inventedPersonalData, isApproval, isPageSideError, isStaleElementError } from './validation/service';
+import { echoesActionResult, hostOf, inventedPersonalData, isApproval, personalDataSources, isPageSideError, isStaleElementError } from './validation/service';
 import type { ValidationStatus } from './validation/types';
 
 const logger = createLogger('Executor');
@@ -521,11 +521,7 @@ export class Executor {
               const looked = await this.runPlanner(getStepState, { seeImage: true });
               // Looking may settle what the page shows, never supply what only the user has: a plan that answers the
               // question with personal details nobody gave keeps the question (H6: an invented phone number).
-              const known = [
-                ...context.messageManager.getTranscript().filter(entry => entry.message.getType() !== 'ai').map(entry => String(entry.message.content)),
-                ...context.findings,
-                seen.content,
-              ].join('\n');
+              const known = personalDataSources(context, context.promptState);
               const planText = looked?.result ? JSON.stringify([looked.result.next_goal, looked.result.final_answer, looked.result.matching_items]) : '';
               const madeUp = looked?.result?.macro_objective !== 'ASK_HUMAN' ? inventedPersonalData(planText, known) : [];
               if (madeUp.length > 0) record({ level: 'warning', kind: 'span', component: 'Executor', msg: 'look kept the question', data: { madeUp: madeUp.length } });
