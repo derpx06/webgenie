@@ -559,6 +559,12 @@ export class Presence {
     this.wake(this.capsule.classList.contains('on'));
     if (this.typeTimer) clearTimeout(this.typeTimer);
     this.typeTimer = null;
+    // The caret belongs to the field being typed: any other action takes it off the page, or it blinks on in a field
+    // the agent has already left (a click after typing left one behind).
+    if (kind !== 'type') {
+      this.caret.classList.remove('on');
+      this.caret.style.opacity = '0';
+    }
 
     this.cursor.classList.add('on');
     this.cursor.classList.remove('idle');
