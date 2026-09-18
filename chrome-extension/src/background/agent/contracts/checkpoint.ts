@@ -1,7 +1,8 @@
 import { IndexedDBStorageProvider } from '../../adapters/IndexedDBStorageProvider';
 import type { TaskCheckpoint } from './types';
 
-interface KeyValueStorage {
+/** The slice of `IStorageProvider` a checkpoint needs; the orchestration layer stores its run state the same way. */
+export interface KeyValueStorage {
   get<T>(key: string): Promise<T | null>;
   set<T>(key: string, value: T): Promise<void>;
   remove(key: string): Promise<void>;
