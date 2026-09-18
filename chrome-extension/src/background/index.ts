@@ -24,6 +24,15 @@ import { ChromeBrowserAdapter } from './adapters/ChromeBrowserAdapter';
 import { IndexedDBStorageProvider } from './adapters/IndexedDBStorageProvider';
 import { Executor } from './agent/executor';
 import { TaskCheckpointStore, isCheckpointResumable, type TaskCheckpoint } from './agent/contracts';
+import {
+  DEFAULT_RUN_BUDGET_TOKENS,
+  Orchestrator,
+  createWorkerRunner,
+  decomposeTask,
+  type ModelTier,
+  type RunOutcome,
+  type WorkerBrief,
+} from './agent/orchestration';
 import { keepAliveManager } from './services/keepAliveManager';
 import { createLogger } from './log';
 import { ExecutionState } from './agent/event/types';
@@ -44,6 +53,8 @@ const browserAdapter = new ChromeBrowserAdapter();
 const storageProvider = new IndexedDBStorageProvider();
 const browserContext = new BrowserContext({}, browserAdapter, storageProvider);
 let currentExecutor: Executor | null = null;
+/** The orchestrated run in flight, if any; `cancel_task` stops it and its checkpoint keeps what finished. */
+let currentOrchestrator: Orchestrator | null = null;
 let currentPort: chrome.runtime.Port | null = null;
 const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');
 const PENDING_OMNIBOX_KEY = 'pendingOmniboxPrompt';
@@ -188,6 +199,102 @@ async function resumeSavedTask(
     executor.setPendingAnswer(answer.response, answer.secrets);
   }
   await runExecutor(executor, tabId, () => executor.execute());
+}
+
+/**
+ * One text answer from the planner's model. It is what splits a task into parts and what re-checks the claims at the
+ * end — never a call a worker made, so no answer is ever confirmed by the conversation that produced it.
+ */
+async function createAsk() {
+  const providers = await llmProviderStore.getAllProviders();
+  const agentModels = await agentModelStore.getAllAgentModels();
+  const generalSettings = await generalSettingsStore.getSettings();
+  const model = agentModels[AgentNameEnum.Planner] ?? agentModels[AgentNameEnum.Navigator];
+  if (!model || !providers[model.provider]) throw new Error(t('bg_setup_noApiKeys'));
+  const llm = createChatModel(providers[model.provider], model, generalSettings);
+  return async (prompt: string, signal?: AbortSignal): Promise<string> => {
+    const reply = await llm.invoke(prompt, { signal });
+    return typeof reply.content === 'string' ? reply.content : JSON.stringify(reply.content);
+  };
+}
+
+/**
+ * Runs one task as a plan of parts: the planner splits it, each part gets a worker with its own tab, its own
+ * `<runId>:<nodeId>` storage namespace and a brief holding only what that part needs, and a separate call checks the
+ * claims against the run's blackboard at the end. A task that does not split runs as one worker, exactly as `new_task`
+ * runs it. Everything is in this one service worker: the isolation is per tab and per namespace, nothing more.
+ */
+async function makeOrchestrator(concurrency?: number) {
+  const ask = await createAsk();
+  const runner = createWorkerRunner({
+    openWorkspace: async (brief: WorkerBrief) => {
+      // A BrowserContext of its own: one current tab per worker, one debugger session per tab.
+      const workerBrowser = new BrowserContext({}, browserAdapter, storageProvider);
+      const page = await workerBrowser.openTab(brief.startUrl ?? 'about:blank');
+      return {
+        browserContext: workerBrowser,
+        tabId: page.tabId,
+        close: async () => {
+          await workerBrowser.closeTab(page.tabId).catch(() => {});
+          await workerBrowser.cleanup().catch(() => {});
+        },
+      };
+    },
+    createExecutor: ({ taskId, brief, workspace }) =>
+      setupExecutor(taskId, brief.task, workspace.browserContext, {
+        maxSteps: brief.maxSteps,
+        useVision: brief.useVision,
+        tier: brief.model,
+      }),
+  });
+
+  const orchestrator = new Orchestrator({
+    runner,
+    storage: storageProvider,
+    ask,
+    concurrency: concurrency ?? 3,
+    onEvent: event => currentPort?.postMessage({ type: 'orchestration_event', event }),
+  });
+  return { orchestrator, ask };
+}
+
+/** Runs an orchestrated run to its end with keep-alive on, and reports the outcome to the side panel. */
+async function driveRun(orchestrator: Orchestrator, start: () => Promise<RunOutcome>): Promise<void> {
+  currentOrchestrator = orchestrator;
+  await keepAliveManager.startKeepAlive();
+  try {
+    const outcome = await start();
+    currentPort?.postMessage({ type: 'orchestration_done', outcome });
+  } finally {
+    if (currentOrchestrator === orchestrator) currentOrchestrator = null;
+    await keepAliveManager.stopKeepAlive().catch(() => {});
+  }
+}
+
+async function runOrchestratedTask(
+  task: string,
+  runId: string,
+  tabId: number,
+  options: { concurrency?: number; budgetTokens?: number } = {},
+): Promise<void> {
+  const generalSettings = await generalSettingsStore.getSettings();
+  const { orchestrator, ask } = await makeOrchestrator(options.concurrency);
+  const startUrl = (await chrome.tabs.get(tabId).catch(() => null))?.url || undefined;
+  const dag = await decomposeTask({
+    runId,
+    task,
+    ask,
+    startUrl,
+    steps: generalSettings.maxSteps,
+    budgetTokens: options.budgetTokens ?? DEFAULT_RUN_BUDGET_TOKENS,
+  });
+  await driveRun(orchestrator, () => orchestrator.run(dag));
+}
+
+/** Picks a checkpointed run back up: the plan, the blackboard and every finished part come back, the rest runs again. */
+async function resumeOrchestratedRun(runId: string, concurrency?: number): Promise<void> {
+  const { orchestrator } = await makeOrchestrator(concurrency);
+  await driveRun(orchestrator, () => orchestrator.resume(runId));
 }
 
 logger.info('background loaded');
@@ -407,7 +514,33 @@ chrome.runtime.onConnect.addListener(port => {
             break;
           }
 
+          case 'parallel_task': {
+            if (!message.task) return port.postMessage({ type: 'error', error: t('bg_cmd_newTask_noTask') });
+            if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
+
+            logger.info('parallel_task', message.tabId, message.task);
+            await stopRunningTask();
+            await runOrchestratedTask(message.task, message.taskId ?? `run_${Date.now()}`, message.tabId, {
+              concurrency: message.concurrency,
+              budgetTokens: message.budgetTokens,
+            });
+            break;
+          }
+
+          case 'resume_parallel_task': {
+            if (!message.runId || currentOrchestrator) {
+              return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
+            }
+            await stopRunningTask();
+            await resumeOrchestratedRun(message.runId, message.concurrency);
+            break;
+          }
+
           case 'cancel_task': {
+            if (currentOrchestrator) {
+              currentOrchestrator.stop();
+              return port.postMessage({ type: 'success' });
+            }
             if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
             await currentExecutor.cancel();
             break;
@@ -698,7 +831,18 @@ chrome.omnibox.onInputEntered.addListener(text => {
     });
 });
 
-async function setupExecutor(taskId: string, task: string, browserContext: BrowserContext) {
+/**
+ * What a worker of an orchestrated run changes about its executor. `tier` is the cost governor's model choice, mapped
+ * onto the two models the user already configured: `strong` runs both roles on the planner's model, `cheap` runs both
+ * on the navigator's. Without it nothing changes and the ordinary task path is untouched.
+ */
+interface ExecutorTuning {
+  maxSteps?: number;
+  useVision?: boolean;
+  tier?: ModelTier;
+}
+
+async function setupExecutor(taskId: string, task: string, browserContext: BrowserContext, tune?: ExecutorTuning) {
   const providers = await llmProviderStore.getAllProviders();
   // if no providers, need to display the options page
   if (Object.keys(providers).length === 0) {
@@ -761,17 +905,22 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
 
   const toolModeOf = (model: typeof navigatorModel) =>
     getLlmCapabilities(providers[model.provider].type ?? model.provider, model.modelName);
-  const executor = new Executor(task, taskId, browserContext, navigatorLLM, {
-    plannerLLM: plannerLLM ?? navigatorLLM,
-    navigatorToolMode: toolModeOf(navigatorModel),
-    plannerToolMode: toolModeOf(plannerModel ?? navigatorModel),
+  // A downshifted or escalated worker runs both roles on one of the two configured models; every other run is unchanged.
+  const roleModel = tune?.tier === 'strong' ? (plannerModel ?? navigatorModel) : tune?.tier === 'cheap' ? navigatorModel : null;
+  const roleLLM = !roleModel ? null : roleModel === navigatorModel ? navigatorLLM : (plannerLLM ?? navigatorLLM);
+  const executor = new Executor(task, taskId, browserContext, roleLLM ?? navigatorLLM, {
+    plannerLLM: roleLLM ?? plannerLLM ?? navigatorLLM,
+    navigatorToolMode: toolModeOf(roleModel ?? navigatorModel),
+    plannerToolMode: toolModeOf(roleModel ?? plannerModel ?? navigatorModel),
     agentOptions: {
-      maxSteps: generalSettings.maxSteps,
+      maxSteps: tune?.maxSteps ?? generalSettings.maxSteps,
       maxFailures: generalSettings.maxFailures,
       maxActionsPerStep: generalSettings.maxActionsPerStep,
       // Screenshots go only to models that read images, and only on steps that need one (prompts/base.ts).
-      useVision: generalSettings.useVision && toolModeOf(navigatorModel).vision,
-      useVisionForPlanner: generalSettings.useVisionForPlanner && toolModeOf(plannerModel ?? navigatorModel).vision,
+      // A worker may only ever drop screenshots, never turn them on against the user's settings.
+      useVision: generalSettings.useVision && (tune?.useVision ?? true) && toolModeOf(roleModel ?? navigatorModel).vision,
+      useVisionForPlanner:
+        generalSettings.useVisionForPlanner && (tune?.useVision ?? true) && toolModeOf(roleModel ?? plannerModel ?? navigatorModel).vision,
       planningInterval: generalSettings.planningInterval,
       enableBrowserDataTools: generalSettings.enableBrowserDataTools,
       acceptEvidencedDone: generalSettings.acceptEvidencedDone,
