@@ -11,7 +11,7 @@ A description of the shipped agent, checked against the source. Paths are under 
 
 ## Commands
 
-The switch in `index.ts` handles: `heartbeat`, `new_task`, `follow_up_task`, `cancel_task`, `pause_task` / `resume_task` (in-memory pause), `human_response`, `reattach`, `resume_saved_task`, `discard_saved_task`, `screenshot`, `state`, `nohighlight`, `speech_to_text`, `replay`.
+The switch in `index.ts` handles: `heartbeat`, `new_task`, `follow_up_task`, `cancel_task`, `pause_task` / `resume_task` (in-memory pause), `human_response`, `reattach`, `resume_saved_task`, `discard_saved_task`, `screenshot`, `state`, `nohighlight`, `speech_to_text`, `replay`, and `parallel_task` / `resume_parallel_task` ([Orchestration](#orchestration)).
 
 ## Task lifecycle
 
@@ -133,6 +133,21 @@ What `NavigatorAgent` adds to action results, and what it refuses (`agent/agents
 - **Downloads.** `chrome.downloads` events during a task feed `AgentContext.downloads`, shown to both models as `[DOWNLOADS]` (file name, site, size, saved / failed / held by Chrome as dangerous). Only the user can keep a download Chrome holds; the agent cannot start downloads itself.
 - **Defanged delimiters.** Page and tool text is wrapped in `nano_untrusted_content` tags (`agent/messages/utils.ts`); any look-alike delimiter inside it (including zero-width tricks) is rewritten so it cannot close the wrapper. `services/guardrails` additionally strips fake instruction tags and system-prompt references where filtering is on.
 - The firewall (Options → Firewall) blocks disallowed URLs on every navigation; a blocked URL ends the task.
+
+## Orchestration
+
+`agent/orchestration/` runs one task as several workers when it splits into parts. `parallel_task` on the port starts a run; `resume_parallel_task` picks a checkpointed one back up. `new_task` does not go through this layer.
+
+- **Plan DAG** (`dag.ts`, `decompose.ts`). One model call (the planner's model, before any page is opened) splits the task into parts with explicit dependencies, each `parallel-safe` or `serial`, each with its own step and token budget and its own success criteria. Anything unusable — bad JSON, a cycle, an unknown dependency, more than eight parts — falls back to the single-node plan, which is the ordinary path: one worker, the user's task text unchanged, no blackboard context, no verification call.
+- **Workers** (`pool.ts`, `worker.ts`). Each part is an ordinary `Executor` with its own `BrowserContext`, its own tab and the task id `<runId>:<nodeId>`, which namespaces its transcript, its step checkpoint and its trace records. Concurrency is what the caller asks for, lowered by `navigator.deviceMemory` and `hardwareConcurrency`, capped at 8.
+- **Brief** (`brief.ts`). A worker is told its own part, its success criterion, what the parts it depends on answered, and which addresses other workers have already read — not the whole task, because the completion checks in `validation/done-evidence.ts` read the task text as what the answer must cover.
+- **Blackboard** (`blackboard.ts`). An append-only IndexedDB record of facts, addresses, artifacts and failures (`orchestration:blackboard:<runId>`). `claim()` gives an address to exactly one worker, so two workers never read the same page; the block a worker sees is rendered by `TaskLedger`.
+- **Supervisor** (`supervisor.ts`). A worker with no progress for `stuckMs`, the same progress signature `loopThreshold` times, or more than its node's token budget is killed. The node is retried with exponential backoff, escalated to the stronger model, then given up on; every decision is recorded on the node and in the checkpoint.
+- **Cost governor** (`governor.ts`). One budget of *uncached* input tokens across all workers. As it runs down: screenshots go, then concurrency drops to one, then both roles move to the cheaper of the two configured models. Only an exhausted budget stops dispatch; what is running finishes.
+- **Verifier** (`verifier.ts`). After the plan has run, a separate call re-checks every part's claim against the blackboard's evidence alone — never the call that produced the answer. A claim that does not hold re-dispatches its worker (two rounds at most). A claim from a failed part is refused without a call; a verification call that fails leaves the report `inconclusive` and re-dispatches nothing.
+- **Checkpoints** (`checkpoint.ts`, `orchestrator.ts`). The run is written to `orchestration:run:<runId>` after every node, beside each worker's own `agent:checkpoint:<runId>:<nodeId>`. `resume(runId)` restores the plan, the blackboard and every finished part; a node that was running when the service worker died is pending again and runs from scratch, so at most one node's steps are lost.
+
+**What MV3 does not allow, honestly.** Everything is one background service worker. There is no second process, no second browser context and no incognito split, so workers share cookies, site storage, the network and this extension's state: isolation is one tab per worker plus the storage namespace, and nothing more. Two workers signed into the same site are the same session. The trace context (`setTraceContext`) is global, so records from concurrent workers interleave under whichever task id was set last. Chrome can stop the service worker at any time, which is why the run checkpoint, not memory, is the source of truth.
 
 ## Memory
 
