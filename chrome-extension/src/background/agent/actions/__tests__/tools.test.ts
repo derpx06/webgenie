@@ -35,7 +35,7 @@ describe('model-facing tool definitions', () => {
 
   it('covers every action with unique, provider-valid names', () => {
     const names = tools.map(tool => tool.function.name);
-    expect(names).toHaveLength(44);
+    expect(names).toHaveLength(45);
     expect(names).toEqual(expect.arrayContaining(['handle_dialog', 'drag_element']));
     expect(new Set(names).size).toBe(names.length);
     for (const name of names) expect(name).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/);
@@ -70,6 +70,9 @@ describe('model-facing tool definitions', () => {
    * from N steps carrying N element lists into one: at 14,454 input tokens a step it pays for itself on the first form.
    * Raised again for sniff_api and fetch_json (+1,428 characters, ~357 tokens a call): a list paged over 25 pages costs
    * 25 page reads at 14,454 input tokens each, so one avoided read pays for ~40 calls of the two descriptions.
+   * Raised again for eval_js (+759 characters, ~190 tokens a call): the last resort for a shadow-DOM, canvas or custom
+   * widget the accessibility tree cannot see, which category 11 of the trace review (uninteractable custom control)
+   * killed four tasks over.
    * Capability outranks the budget; the budget still refuses growth that buys nothing.
    */
   it('stays inside its character budget, which is what the model pays for', () => {
@@ -79,12 +82,12 @@ describe('model-facing tool definitions', () => {
       'handle_dialog', 'select_dropdown_option', 'switch_tab', 'open_tab', 'close_tab',
       'get_complete_page_content', 'read_page', 'find_in_page', 'extract',
       'save_findings', 'notes', 'todo_list', 'assert', 'scroll', 'scroll_to_text', 'view_screenshot', 'send_keys',
-      'sniff_api', 'fetch_json',
+      'sniff_api', 'fetch_json', 'eval_js',
     ]);
     const defaultBlock = tools.filter(tool => defaults.has(tool.function.name));
     expect(defaultBlock).toHaveLength(defaults.size);
-    expect(JSON.stringify(defaultBlock).length).toBeLessThan(21_800);
-    expect(JSON.stringify(tools).length).toBeLessThan(28_700);
+    expect(JSON.stringify(defaultBlock).length).toBeLessThan(22_600);
+    expect(JSON.stringify(tools).length).toBeLessThan(29_500);
     // No description carries a worked example or a retention detail no call can act on.
     for (const tool of tools) expect(tool.function.description.length).toBeLessThan(260);
   });

@@ -406,6 +406,18 @@ export const fetchJsonActionSchema: ActionSchema = {
   }),
 };
 
+export const evalJsActionSchema: ActionSchema = {
+  name: 'eval_js',
+  description:
+    'Last resort, when no other tool can see it: read a value out of the page with one JavaScript expression (shadow DOM, canvas, an exotic widget). It only reads; navigating, clicking, typing and storage are refused.',
+  schema: z.object({
+    expression: z
+      .string()
+      .describe('one JavaScript expression evaluated in the page, e.g. document.querySelector("x").shadowRoot.textContent; await is allowed'),
+    max_chars: z.number().int().optional().describe('characters of the value to return, 200-8000; defaults to 2000'),
+  }),
+};
+
 export const manageBookmarksActionSchema: ActionSchema = {
   name: 'manage_bookmarks',
   description: 'Manage Chrome bookmarks: get flat lists, search by title/url, get recent bookmarks, or create new ones.',

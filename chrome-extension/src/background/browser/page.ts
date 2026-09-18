@@ -40,6 +40,69 @@ import { ChromeStorageProvider } from '../adapters/ChromeStorageProvider';
 
 const logger = createLogger('Page');
 
+/**
+ * Runs in the page: one JavaScript value as text a model can read. DOM nodes become their tag, identifying attributes
+ * and text instead of `{}`, lists and objects are walked to a fixed depth, cycles are named, and the whole thing is cut
+ * to `cap` characters, because an unbounded value is an unbounded prompt.
+ */
+export function serializeForModel(value: unknown, cap: number): string {
+  const seen = new WeakSet<object>();
+  const MAX_ITEMS = 100;
+  const flat = (text: string, chars: number) => text.replace(/\s+/g, ' ').trim().slice(0, chars);
+
+  const plain = (node: unknown, depth: number): unknown => {
+    if (node === undefined) return '(undefined)';
+    if (node === null || typeof node === 'boolean' || typeof node === 'number' || typeof node === 'string') return node;
+    if (typeof node === 'function') return `[function ${(node as { name?: string }).name ?? ''}]`;
+    if (typeof node === 'bigint' || typeof node === 'symbol') return String(node);
+    const object = node as object;
+    if (seen.has(object)) return '[circular]';
+    seen.add(object);
+    if (typeof Element !== 'undefined' && object instanceof Element) {
+      const attributes = ['id', 'name', 'type', 'role', 'aria-label', 'href', 'value', 'class']
+        .map(name => {
+          const value = object.getAttribute(name);
+          return value ? ` ${name}="${flat(value, 60)}"` : '';
+        })
+        .join('');
+      return `<${object.tagName.toLowerCase()}${attributes}>${flat(object.textContent ?? '', 150)}`;
+    }
+    if (typeof Node !== 'undefined' && object instanceof Node) return flat((object as Node).textContent ?? '', 200);
+    if (object instanceof Error) return `${object.name}: ${object.message}`;
+    if (depth >= 5) return '[…]';
+    const items =
+      Array.isArray(object) ? object
+        : object instanceof Set ? [...object]
+          : typeof (object as ArrayLike<unknown>).length === 'number' && typeof (object as { item?: unknown }).item === 'function'
+            ? Array.from(object as ArrayLike<unknown>)
+            : null;
+    if (items) {
+      const shaped: unknown[] = items.slice(0, MAX_ITEMS).map(item => plain(item, depth + 1));
+      if (items.length > MAX_ITEMS) shaped.push(`…${items.length - MAX_ITEMS} more`);
+      return shaped;
+    }
+    const entries = object instanceof Map ? [...object].slice(0, MAX_ITEMS) : Object.keys(object).slice(0, MAX_ITEMS).map(key => [key, (object as Record<string, unknown>)[key]] as const);
+    const shaped: Record<string, unknown> = {};
+    for (const [key, item] of entries) {
+      try {
+        shaped[String(key)] = plain(item, depth + 1);
+      } catch {
+        shaped[String(key)] = '[unreadable]';
+      }
+    }
+    return shaped;
+  };
+
+  let text: string;
+  try {
+    const shaped = plain(value, 0);
+    text = typeof shaped === 'string' ? shaped : (JSON.stringify(shaped) ?? String(shaped));
+  } catch (error) {
+    text = `[the value could not be read: ${error instanceof Error ? error.message : String(error)}]`;
+  }
+  return text.length > cap ? `${text.slice(0, cap)}…(cut at ${cap} characters)` : text;
+}
+
 /** Navigations wait for the document to be parsed; the next page read waits for the network to go idle. */
 const NAVIGATION_OPTIONS = { waitUntil: 'domcontentloaded' as const, timeout: 15000 };
 
@@ -769,6 +832,22 @@ export default class Page {
   /** Every request this tab made, newest last. */
   networkRecords(): NetRecord[] {
     return this._network.all();
+  }
+
+  /**
+   * Evaluates one JavaScript expression in the page and returns its value as text. The expression goes through
+   * Runtime.evaluate, so a page whose CSP forbids eval still runs it; the value is then shaped by a function called
+   * on the handle, so DOM nodes come back named rather than empty. The caller decides what may be evaluated.
+   */
+  async evaluateExpression(expression: string, maxChars: number): Promise<string> {
+    await this.ensurePuppeteerConnected();
+    if (!this._puppeteerPage) throw new Error('Puppeteer is not connected');
+    const handle = await this._puppeteerPage.evaluateHandle(expression);
+    try {
+      return await handle.evaluate(serializeForModel, maxChars);
+    } finally {
+      await handle.dispose().catch(() => undefined);
+    }
   }
 
   /**
