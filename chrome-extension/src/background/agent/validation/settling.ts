@@ -29,6 +29,8 @@ export async function waitForActionSettled<T>(
   options: ActionSettlingOptions & {
     /** Once settled, keep reading until two reads in a row are the same page (it stopped changing), within the timeout. */
     isSame?: (previous: T, next: T) => boolean;
+    /** Whether that quiet check is worth its extra read of this state; by default it always is. */
+    needsQuiet?: (state: T) => boolean;
   } = {},
 ): Promise<ActionSettlingResult<T>> {
   const timeoutMs = Math.max(0, options.timeoutMs ?? 2000);
@@ -40,7 +42,7 @@ export async function waitForActionSettled<T>(
 
   // A page that responded may still be loading the rest (results, a dialog's content): the next read should see it whole.
   const settledWhenQuiet = async (): Promise<ActionSettlingResult<T>> => {
-    while (options.isSame && !options.signal?.aborted && remaining() > 0) {
+    while (options.isSame && (options.needsQuiet?.(state) ?? true) && !options.signal?.aborted && remaining() > 0) {
       await sleep(Math.min(pollIntervalMs, remaining()), options.signal);
       if (options.signal?.aborted) break;
       const next = await readState();

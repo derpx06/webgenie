@@ -282,6 +282,13 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         isSame: actionName === 'input_text'
           ? undefined
           : (previous, next) => ensureBrowserObservation(previous).contentFingerprint === ensureBrowserObservation(next).contentFingerprint,
+        // A page scroll that moved the window has its evidence in that first read and changes nothing by itself, so it
+        // pays no second one (settling cost 29 s a task, most of it extra reads). A scroll that did not move, or one
+        // that made the page longer (a list loading more), still waits for the page to hold still — as does every
+        // click, navigation and key press, where reading too early costs an unknown validation and a re-plan.
+        needsQuiet: actionName === 'scroll' && (actionArgs as { index?: number } | null)?.index === undefined
+          ? after => after.scrollY === beforeState.scrollY || after.scrollHeight !== beforeState.scrollHeight
+          : undefined,
       },
     );
 
@@ -1001,8 +1008,6 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           observationId: result.observationId ?? beforeObservation.id,
           extractedContent: notes.length > 0 ? `${result.extractedContent ?? ''} ${notes.join(' ')}`.trim() : result.extractedContent,
         });
-        // Scrolling on and on for something already listed (Online-Mind2Web: 7 of 35 tasks scrolled 4+ times in a row, one
-        // 21 times, for a filter it could use by index) gets a note from the last scroll that is allowed.
         // What the action did to the page: a new address, new elements or text, or more of it than before. An action
         // that changed nothing is the one worth refusing when it comes again; a list that loads more is not.
         const changedPage = revealed.length > 0
@@ -1028,6 +1033,8 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         } else if (actionName !== 'scroll') {
           this.context.emptyScrolls = 0;
         }
+        // Scrolling on and on for something already listed (Online-Mind2Web: 7 of 35 tasks scrolled 4+ times in a row, one
+        // 21 times, for a filter it could use by index) gets a note on the last scroll that is allowed.
         if (this.context.scrollRun >= MAX_EMPTY_SCROLLS) {
           const empty = this.context.emptyScrolls;
           const escalation = empty >= MAX_EMPTY_SCROLLS

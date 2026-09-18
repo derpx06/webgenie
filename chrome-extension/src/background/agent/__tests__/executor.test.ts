@@ -782,6 +782,19 @@ describe('A long run of scrolls', () => {
     expect(texts.some(text => text.includes('Not scrolled'))).toBe(false);
   });
 
+  it('reads the page once after a page scroll that moved the window, twice after one that did not', async () => {
+    const moved = scrolls(Array(2).fill(null).map(down));
+    await settle(moved.executor.execute());
+    // The same run, with a page that does not move under the scroll: each one waits for the page to hold still.
+    const stuck = scrolls(Array(2).fill(null).map(down), harness => {
+      harness.browser.scrollY = 0;
+    });
+    await settle(stuck.executor.execute());
+
+    expect(moved.llm.requests.map(request => request.agent)).toEqual(stuck.llm.requests.map(request => request.agent));
+    expect(stuck.browser.reads - moved.browser.reads).toBe(2);
+  });
+
   it('never counts or refuses page scrolls on a page whose element list is cut to a window', async () => {
     // eslint-disable-next-line prefer-const
     let h: ReturnType<typeof createHarness>;

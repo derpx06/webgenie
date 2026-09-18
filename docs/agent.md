@@ -113,7 +113,7 @@ What `NavigatorAgent` adds to action results, and what it refuses (`agent/agents
 
 - `service.ts` — `validateActionOutcome` compares observations before and after each mutating action and sets `ActionResult.validated`; also the commit gate, personal-data detection, same-site checks, stale-index handling, `addressKey`, and the verification-challenge and question helpers. A `click_element` whose address changed only in its fragment, or whose document changed while the address (fragment aside, active tab included) and the visible content (`visibleContentKey`: title, elements' role, tag, label and state, page text) stayed the same, is `unknown` with `retry_reobserve` and a result saying the page did not change, not `passed`.
 - `observation.ts` — `BrowserObservation`, visible and viewport text, appeared text, new elements and `revealedControls` (options, dialog elements, new fields), target fingerprints.
-- `settling.ts` — `waitForActionSettled` polls until the page holds still.
+- `settling.ts` — `waitForActionSettled` polls until the page holds still, and then once more to see it quiet, which typing and a page scroll that moved the window without making the page longer skip (their own result is the evidence).
 - `done-evidence.ts` — the evidence check, `absenceUnread` and `staleRequirements` described above.
 
 ## Safety
