@@ -777,7 +777,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
             break;
           }
           const pageText = beforeState.elementTree.clickableElementsToString(this.context.options.includeAttributes);
-          const index = actionName === 'click_element' ? (actionArgs as { index?: number }).index : undefined;
+          const index = actionName === 'click_element' || actionName === 'download' ? (actionArgs as { index?: number }).index : undefined;
           const question = commitQuestion(commit, amountBefore(pageText, index));
           const asked = await this.actionRegistry.getAction('ask_human')?.call({ question, type: 'confirmation', options: ['Yes', 'No'] });
           if (asked?.isWaitingForHuman && this.context.pendingQuestion) {

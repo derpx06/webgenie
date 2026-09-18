@@ -883,6 +883,38 @@ export default class Page {
     );
   }
 
+  /**
+   * A file's bytes, requested from inside the page so the session that was allowed to download it is the one that
+   * asks. base64 because that is what survives the CDP round trip. The caller checks the address first.
+   */
+  async fetchBytesInPage(url: string, maxBytes: number): Promise<{ status: number; type: string; base64: string; bytes: number }> {
+    await this.ensurePuppeteerConnected();
+    if (!this._puppeteerPage) throw new Error('Puppeteer is not connected');
+    return this._puppeteerPage.evaluate(
+      async (address: string, cap: number) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 60_000);
+        try {
+          const response = await fetch(address, { credentials: 'include', signal: controller.signal });
+          const buffer = new Uint8Array(await response.arrayBuffer());
+          const kept = buffer.subarray(0, cap);
+          let binary = '';
+          for (let i = 0; i < kept.length; i += 8192) binary += String.fromCharCode(...kept.subarray(i, i + 8192));
+          return {
+            status: response.status,
+            type: (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase(),
+            base64: btoa(binary),
+            bytes: buffer.length,
+          };
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+      url,
+      maxBytes,
+    );
+  }
+
   async removeHighlight(): Promise<void> {
     // A script injected while a JavaScript dialog is open blocks until the dialog closes.
     if (this._validWebPage && !this._pendingDialog) {

@@ -406,6 +406,26 @@ export const fetchJsonActionSchema: ActionSchema = {
   }),
 };
 
+export const downloadActionSchema: ActionSchema = {
+  name: 'download',
+  description:
+    'Click a link or button that produces a file and wait for the browser to save it. read_file then reads it. For a file, not for a link that opens a page.',
+  schema: z.object({
+    index: elementIndex,
+    seconds: z.number().int().optional().describe('longest wait for the file, 5-120; defaults to 30'),
+  }),
+};
+
+export const readFileActionSchema: ActionSchema = {
+  name: 'read_file',
+  description:
+    'Read a file the task downloaded as text and tables: pdf, csv, xlsx, docx, txt. PDF text is marked [page n], so name the page a value came from.',
+  schema: z.object({
+    path: z.string().describe("the file's name as the state lists it, or the absolute URL it came from"),
+    find: z.string().optional().describe('return only the passages containing this text, with their surroundings'),
+  }),
+};
+
 export const evalJsActionSchema: ActionSchema = {
   name: 'eval_js',
   description:

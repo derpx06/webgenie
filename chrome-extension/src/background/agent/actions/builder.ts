@@ -34,6 +34,8 @@ import {
   sniffApiActionSchema,
   fetchJsonActionSchema,
   evalJsActionSchema,
+  downloadActionSchema,
+  readFileActionSchema,
   manageBookmarksActionSchema,
   manageReadingListActionSchema,
   manageHistoryActionSchema,
@@ -57,6 +59,7 @@ import { TabHandler } from './handlers/tabs';
 import { ContentHandler } from './handlers/content';
 import { NetworkHandler } from './handlers/network';
 import { ScriptHandler } from './handlers/script';
+import { FilesHandler } from './handlers/files';
 import { KeyboardHandler } from './handlers/keyboard';
 import { MemoryHandler } from './handlers/memory';
 import { ManageBookmarksHandler } from './handlers/manage-bookmarks';
@@ -186,6 +189,7 @@ export class ActionBuilder {
   private readonly contentHandler: ContentHandler;
   private readonly networkHandler: NetworkHandler;
   private readonly scriptHandler: ScriptHandler;
+  private readonly filesHandler: FilesHandler;
   private readonly keyboardHandler: KeyboardHandler;
   private readonly memoryHandler: MemoryHandler;
   private readonly manageBookmarksHandler: ManageBookmarksHandler;
@@ -207,6 +211,7 @@ export class ActionBuilder {
     this.contentHandler = new ContentHandler(context);
     this.networkHandler = new NetworkHandler(context);
     this.scriptHandler = new ScriptHandler(context);
+    this.filesHandler = new FilesHandler(context);
     this.keyboardHandler = new KeyboardHandler(context);
     this.memoryHandler = new MemoryHandler(context);
     this.manageBookmarksHandler = new ManageBookmarksHandler(context);
@@ -313,6 +318,9 @@ export class ActionBuilder {
       new Action((input) => this.networkHandler.handleFetchJson(input), fetchJsonActionSchema),
       // The escape hatch for what the accessibility tree cannot reach; read-only, and refused the moment it acts.
       new Action((input) => this.scriptHandler.handleEvalJs(input), evalJsActionSchema),
+      // A file the page produces, and its text: pdf, csv, xlsx and docx are parsed inside the extension.
+      new Action((input) => this.filesHandler.handleDownload(input), downloadActionSchema, true),
+      new Action((input) => this.filesHandler.handleReadFile(input), readFileActionSchema),
     ];
   }
 

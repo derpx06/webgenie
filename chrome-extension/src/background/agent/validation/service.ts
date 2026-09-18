@@ -61,9 +61,12 @@ function pressesEnter(actionName: string, args: Record<string, unknown>): boolea
   return (actionName === 'send_keys' && PRESSES_ENTER.test(String(args.keys ?? ''))) || ((actionName === 'input_text' || actionName === 'fill_form') && args.submit === true);
 }
 
+/** Tools that press an element: the commit gate treats them alike, so a purchase cannot slip through the one it forgot. */
+const CLICKING_TOOLS = new Set(['click_element', 'download']);
+
 /** Whether an action could submit a form, so its form must be inspected before the gate decides. */
 export function mayCommitThroughForm(actionName: string, args: Record<string, unknown>): boolean {
-  return actionName === 'click_element' || pressesEnter(actionName, args);
+  return CLICKING_TOOLS.has(actionName) || pressesEnter(actionName, args);
 }
 
 /**
@@ -81,7 +84,7 @@ export function commitTarget(
   const commitsForm = !!form?.inForm && (form.paymentFields || form.submitLabels.some(isCommitLabel));
   const modelSaysCommit = typeof args.commits === 'string' && args.commits !== 'none';
   let label: string | undefined;
-  if (actionName === 'click_element') {
+  if (CLICKING_TOOLS.has(actionName)) {
     const parts = labelParts(node);
     label = onlyOpens(node) ? undefined : parts.find(isCommitLabel);
     if (!label && ((form?.isSubmitter && commitsForm) || modelSaysCommit)) label = parts[0] ?? form?.submitLabels[0] ?? 'this button';

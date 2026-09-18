@@ -31,6 +31,7 @@
     "@langchain/openai": "0.6.16",
     "@langchain/xai": "^0.1.0",
     "dexie": "^4.4.4",
+    "fflate": "^0.8.2",
     "jsonrepair": "^3.13.1",
     "langsmith": "^0.6.3",
     "posthog-js": "^1.271.0",

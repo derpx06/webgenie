@@ -114,10 +114,10 @@ importers:
         version: 5.5.4
       vite:
         specifier: ^6.4.2
-        version: 6.4.2(@types/node@22.19.17)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)
+        version: 6.4.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)
       vite-plugin-node-polyfills:
         specifier: ^0.26.0
-        version: 0.26.0(rollup@4.60.3)(vite@6.4.2(@types/node@22.19.17)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4))
+        version: 0.26.0(rollup@4.60.3)(vite@6.4.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4))
 
   chrome-extension:
     dependencies:
@@ -163,6 +163,9 @@ importers:
       dexie:
         specifier: ^4.4.4
         version: 4.4.4
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
       jsonrepair:
         specifier: ^3.13.1
         version: 3.13.1
@@ -199,7 +202,7 @@ importers:
         version: link:../packages/vite-config
       '@laynezh/vite-plugin-lib-assets':
         specifier: ^0.6.1
-        version: 0.6.1(vite@6.4.2(@types/node@25.6.0)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4))
+        version: 0.6.1(vite@5.4.21(@types/node@25.6.0)(terser@5.46.2))
       '@types/ws':
         specifier: ^8.5.13
         version: 8.18.1
@@ -453,7 +456,7 @@ importers:
         version: 8.5.14
       postcss-load-config:
         specifier: ^6.0.1
-        version: 6.0.1(jiti@1.21.7)(postcss@8.5.14)(tsx@4.20.6)(yaml@2.8.4)
+        version: 6.0.1(jiti@2.7.0)(postcss@8.5.14)(tsx@4.20.6)(yaml@2.8.4)
       tailwindcss:
         specifier: ^3.4.0
         version: 3.4.19(tsx@4.20.6)(yaml@2.8.4)
@@ -5644,13 +5647,13 @@ snapshots:
     transitivePeerDependencies:
       - ws
 
-  '@laynezh/vite-plugin-lib-assets@0.6.1(vite@6.4.2(@types/node@25.6.0)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4))':
+  '@laynezh/vite-plugin-lib-assets@0.6.1(vite@5.4.21(@types/node@25.6.0)(terser@5.46.2))':
     dependencies:
       escape-string-regexp: 4.0.0
       loader-utils: 3.3.1
       mrmime: 1.0.1
       semver: 7.7.3
-      vite: 6.4.2(@types/node@25.6.0)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)
+      vite: 5.4.21(@types/node@25.6.0)(terser@5.46.2)
 
   '@nodable/entities@2.1.0': {}
 
@@ -10107,11 +10110,11 @@ snapshots:
       - supports-color
       - terser
 
-  vite-plugin-node-polyfills@0.26.0(rollup@4.60.3)(vite@6.4.2(@types/node@22.19.17)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)):
+  vite-plugin-node-polyfills@0.26.0(rollup@4.60.3)(vite@6.4.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)):
     dependencies:
       '@rollup/plugin-inject': 5.0.5(rollup@4.60.3)
       node-stdlib-browser: 1.3.1
-      vite: 6.4.2(@types/node@22.19.17)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)
+      vite: 6.4.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4)
     transitivePeerDependencies:
       - rollup
 
@@ -10125,7 +10128,7 @@ snapshots:
       fsevents: 2.3.3
       terser: 5.46.2
 
-  vite@6.4.2(@types/node@22.19.17)(jiti@2.7.0)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4):
+  vite@6.4.2(@types/node@22.19.17)(jiti@1.21.7)(terser@5.46.2)(tsx@4.20.6)(yaml@2.8.4):
     dependencies:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.4)
@@ -10136,7 +10139,7 @@ snapshots:
     optionalDependencies:
       '@types/node': 22.19.17
       fsevents: 2.3.3
-      jiti: 2.7.0
+      jiti: 1.21.7
       terser: 5.46.2
       tsx: 4.20.6
       yaml: 2.8.4

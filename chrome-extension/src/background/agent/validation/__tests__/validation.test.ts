@@ -450,6 +450,12 @@ describe('committing actions', () => {
     }
   });
 
+  it('gates a download the same way, so a purchase cannot slip through the tool the gate forgot', () => {
+    expect(commitTarget('download', { index: 1 }, 'https://shop.test/checkout', button('Place order'))?.label).toBe('Place order');
+    expect(commitTarget('download', { index: 1 }, 'https://shop.test/orders', button('Download invoice'), noForm)).toBeNull();
+    expect(mayCommitThroughForm('download', { index: 1 })).toBe(true);
+  });
+
   it('does not gate by wording a link to another page or a control that opens a menu or dialog', () => {
     const link = element(1, { tagName: 'a', attributes: { href: 'https://order.shop.test/' } });
     link.getAllTextTillNextClickableElement = () => 'Order Now';
