@@ -27,6 +27,48 @@ describe('DOM Views Serialization Refinements', () => {
     expect(serialized).toContain('offscreen="true"');
   });
 
+  it('marks a control the page says is disabled', () => {
+    const root = new DOMElementNode({ tagName: 'DIV', xpath: '/div', attributes: {}, children: [], isVisible: true });
+    const off = new DOMElementNode({
+      tagName: 'BUTTON',
+      xpath: '/div/button[1]',
+      attributes: { 'aria-disabled': 'true' },
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 1,
+      parent: root,
+    });
+    const native = new DOMElementNode({
+      tagName: 'BUTTON',
+      xpath: '/div/button[2]',
+      attributes: { disabled: '' },
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 2,
+      parent: root,
+    });
+    const on = new DOMElementNode({
+      tagName: 'BUTTON',
+      xpath: '/div/button[3]',
+      attributes: {},
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 3,
+      parent: root,
+    });
+    root.children.push(off, native, on);
+
+    const lines = root.clickableElementsToString().split('\n');
+
+    expect(lines[0]).toContain('disabled="true"');
+    expect(lines[0]).not.toContain('aria-disabled');
+    expect(lines[1]).toContain('disabled="true"');
+    expect(lines[2]).not.toContain('disabled');
+  });
+
   it('should omit redundant role for native tags but keep non-redundant roles', () => {
     const root = new DOMElementNode({
       tagName: 'DIV',

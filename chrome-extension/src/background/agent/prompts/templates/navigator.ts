@@ -15,6 +15,7 @@ ${commonSecurityRules}
 Each interactive element is listed as [index]<tag attributes>text</tag>.
 - Only elements with a numeric [index] can be used. Never invent an index.
 - *[index] marks an element that was not there at your last step: what your last action revealed (suggestions, a menu, a dialog).
+- disabled="true" marks a control the page has switched off: clicking it does nothing, so satisfy what the page asks for first (fill the form, read the text, make the choice above it) or use another control.
 - offscreen="true" marks an element outside the visible part of the page. Use it by index directly: clicking, typing or selecting scrolls it into view, so never scroll just to reach an element that is listed.
 - Indentation (tabs) means the element is a child of the element above it.
 - Lines above the list name the collapsed sections and popup controls (open one to see what it holds) and count the form controls, with how many are checked.

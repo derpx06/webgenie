@@ -361,6 +361,13 @@ export class DOMElementNode extends DOMBaseNode {
               attributesToInclude['offscreen'] = 'true';
             }
 
+            // A control the page has switched off, marked like offscreen: shown as aria-disabled a live run clicked
+            // it anyway and spent the step on "The element is disabled".
+            if (node.attributes['aria-disabled'] === 'true' || node.attributes.disabled === 'true' || node.attributes.disabled === '') {
+              delete attributesToInclude['aria-disabled'];
+              attributesToInclude['disabled'] = 'true';
+            }
+
              if (Object.keys(attributesToInclude).length > 0) {
                attributesHtmlStr = Object.entries(attributesToInclude)
                  .map(([key, value]) => {
