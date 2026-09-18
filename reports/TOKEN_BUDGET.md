@@ -291,3 +291,35 @@ and $3.27 across 247 reviewed tasks, and the live measurement in `reports/READIN
 one question answered in 2 steps and 536 tokens where the old path took 3 steps and 9,000.
 The budget is not a cap on capability; it refuses growth that buys nothing, which is why the
 same pass trimmed every new description before raising the number.
+
+## The planner's cache miss — likely cause found (2026-09-19, not yet fixed)
+
+Vertex documents a **minimum of 2,048 tokens for implicit caching on the Gemini 2 family**
+(which includes `gemini-2.5-flash`, the model both roles use). Measured prefixes:
+
+| Role | Prefix before the rewrite | After | Cache hit rate |
+| --- | ---: | ---: | ---: |
+| Navigator | 5,867 tok | 4,586 | 98% (44% of input) |
+| Planner | 3,177 tok | **1,913** | 1.6-3% |
+
+The planner's prefix now sits **below the documented 2,048-token minimum**, so it is very
+likely not cacheable at all. Two corroborating facts: the misses happen even when planner
+calls are less than 10 seconds apart, which refutes the TTL-expiry hypothesis (implicit
+caches hold an in-memory 24-hour TTL), and the navigator, above the threshold on the same
+code path, hits 98%.
+
+The irony is worth recording: **trimming the planner prompt by 39% is what pushed it under
+the threshold.** A token saving of 1,264 per call plausibly cost a 90% discount on the
+remaining 1,913 — the change may be net negative.
+
+Fix options, in order of preference:
+1. **Explicit `cachedContents`** for the planner's system instruction and tools (Vertex
+   allows both in the cache; TTL defaults to 60 minutes with no maximum; the discount is 90%).
+   Note the constraint: a request that references `cachedContent` **must not** also send
+   `systemInstruction`, `tools` or `toolConfig`.
+2. Restore enough stable content to the planner prefix to clear 2,048 tokens — but only if it
+   is content the planner actually needs, never padding.
+
+Undocumented and therefore to be verified by measurement: whether the threshold applies to the
+matched prefix or the whole request, and whether `tools`/`systemInstruction` participate in the
+*implicit* prefix at all.
