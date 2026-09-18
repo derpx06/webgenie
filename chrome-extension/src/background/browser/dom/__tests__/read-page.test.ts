@@ -4,6 +4,8 @@ import {
   coerce,
   extractFromLabels,
   extractFromTables,
+  extractReadBlocks,
+  findNextPageHref,
   findSection,
   hashText,
   outlineOf,
@@ -13,6 +15,85 @@ import {
   sliceRead,
   type ReadBlock,
 } from '../read-page';
+
+describe('the in-page functions are self-contained', () => {
+  // puppeteer stringifies them and runs them in the page, where nothing this module defines exists. A reference to a
+  // module-level constant only fails at runtime, on a live page, so it is checked here: rebuild each function from its
+  // own source and run it against the smallest DOM it touches.
+  const emptyDom = () => {
+    const element = {
+      tagName: 'BODY',
+      hidden: false,
+      childNodes: [] as unknown[],
+      children: [] as unknown[],
+      shadowRoot: null,
+      textContent: '',
+      parentElement: null,
+      getAttribute: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+    };
+    return {
+      document: { body: element, documentElement: element, querySelector: () => null, querySelectorAll: () => [] },
+      window: { getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1', position: 'static' }) },
+    };
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rebuild = (source: string, dom: { document: any; window: any }) =>
+    new Function('document', 'window', `return (${source});`)(dom.document, dom.window);
+
+  it('extractReadBlocks reads only the page, in both modes', () => {
+    const dom = emptyDom();
+    const extract = rebuild(extractReadBlocks.toString(), dom);
+    expect(extract('full')).toEqual([]);
+    expect(extract('main')).toEqual([]);
+  });
+
+  it('findNextPageHref reads only the page', () => {
+    const dom = emptyDom();
+    expect(rebuild(findNextPageHref.toString(), dom)()).toBe('');
+  });
+
+  it('keeps a link address where it is a destination and drops it where it is chrome', () => {
+    // A link address is worth its characters when the link names something in full, or is a block on its own; a short
+    // link inside a sentence (a tag, a citation) is in the element list already and can be clicked by index.
+    const text = (value: string) => ({ nodeType: 3, nodeValue: value, textContent: value });
+    const el = (tagName: string, children: unknown[], attrs: Record<string, string> = {}) => {
+      const node = {
+        nodeType: 1,
+        tagName,
+        hidden: false,
+        shadowRoot: null,
+        childNodes: children,
+        children: children.filter((child) => (child as { nodeType: number }).nodeType === 1),
+        href: attrs.href ?? '',
+        getAttribute: (name: string) => attrs[name] ?? null,
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        get textContent(): string {
+          return children.map((child) => (child as { textContent: string }).textContent).join('');
+        },
+      };
+      return node;
+    };
+    const link = (label: string, href: string) => el('A', [text(label)], { href });
+    const body = el('BODY', [
+      el('P', [text('Read '), link('the whole story of coffee', 'https://example.test/story'), text(' and see '), link('tag', 'https://example.test/tag/x')]),
+      el('P', [link('More', 'https://example.test/more')]),
+      el('P', [text('See note '), link('[1]', '#cite-1')]),
+    ]);
+    const dom = { window: emptyDom().window, document: { body, documentElement: body, querySelector: () => null, querySelectorAll: () => [] } };
+
+    const blocks = rebuild(extractReadBlocks.toString(), dom)('full') as ReadBlock[];
+
+    expect(blocks.map(block => block.text)).toEqual([
+      'Read [the whole story of coffee](https://example.test/story) and see tag',
+      '[More](https://example.test/more)',
+      'See note [1]',
+    ]);
+  });
+});
 
 describe('blocksToMarkdown', () => {
   it('writes headings, paragraphs, lists and links', () => {

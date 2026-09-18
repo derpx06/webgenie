@@ -23,9 +23,6 @@ export interface ReadBlock {
   rows?: string[][];
 }
 
-/** Longest extraction one frame may return; a runaway page cannot fill memory. */
-const MAX_EXTRACT_CHARS = 400_000;
-
 /**
  * The readable blocks of the current document. `main` keeps the article or result list and drops navigation, footers,
  * sticky banners and link menus; `full` keeps everything the page renders.
@@ -93,9 +90,18 @@ export function extractReadBlocks(mode: 'main' | 'full'): ReadBlock[] {
     return Array.prototype.slice.call(node.childNodes);
   };
 
-  /** Inline text of an element, with links as `[label](url)` and images as their alt text. */
+  /**
+   * Inline text of an element, with images as their alt text and links as `[label](url)` — but only where the address
+   * is worth its characters: a link that is a whole block (a heading, a list item, a table cell, a result title) is
+   * somewhere to go, while a short link inside a sentence (a tag, a citation, "about") is not. Every one of them is in
+   * the element list already and can be clicked by index, and on a link-dense page their addresses are most of the read.
+   */
   const inline = (el: Node): string => {
     let out = '';
+    // The first link's label and address, kept only while it is the one link in this block.
+    let onlyLabel = '';
+    let onlyUrl = '';
+    let links = 0;
     const walk = (node: Node) => {
       if (node.nodeType === 3) {
         out += node.nodeValue || '';
@@ -111,8 +117,22 @@ export function extractReadBlocks(mode: 'main' | 'full'): ReadBlock[] {
       }
       if (tag === 'A') {
         const label = textOf(element);
-        const href = (element as HTMLAnchorElement).href || '';
-        out += href && label && !/^javascript:/i.test(href) ? `[${label}](${href.slice(0, 200)})` : label;
+        const raw = element.getAttribute('href') || '';
+        const url = (element as HTMLAnchorElement).href || '';
+        // A link to a place on this same page (a citation, a contents entry) is not somewhere to go.
+        const address = /^(javascript:|#)/i.test(raw) ? '' : url.replace(/#.*$/, '');
+        links++;
+        const short = address.length > 100 ? `${address.slice(0, 100)}…` : address;
+        onlyLabel = links === 1 && label && address ? label : '';
+        onlyUrl = onlyLabel ? short : '';
+        // A link that names something in full is a destination; a one- or two-word one is chrome.
+        if (onlyUrl && (label.length >= 20 || label.split(' ').length >= 3)) {
+          out += `[${label}](${short})`;
+          onlyLabel = '';
+          onlyUrl = '';
+          return;
+        }
+        out += label;
         return;
       }
       if (tag === 'IMG') {
@@ -124,7 +144,9 @@ export function extractReadBlocks(mode: 'main' | 'full'): ReadBlock[] {
       for (let i = 0; i < kids.length; i++) walk(kids[i]);
     };
     walk(el);
-    return flat(out);
+    const text = flat(out);
+    // One link and nothing else: the block is that link, so it keeps its address however short its label.
+    return onlyUrl && text === onlyLabel ? `[${onlyLabel}](${onlyUrl})` : text;
   };
 
   /**
@@ -160,7 +182,9 @@ export function extractReadBlocks(mode: 'main' | 'full'): ReadBlock[] {
   };
 
   const blocks: ReadBlock[] = [];
-  let budget = MAX_EXTRACT_CHARS;
+  // Longest extraction one frame may return; a runaway page cannot fill memory. Declared here, not at module scope:
+  // this function is stringified and run in the page, where nothing outside it exists.
+  let budget = 400000;
   const push = (block: ReadBlock) => {
     const size = (block.text || '').length + (block.items || []).join('').length + (block.rows || []).flat().join('').length;
     if (size === 0 || budget <= 0) return;
@@ -244,14 +268,18 @@ export function extractReadBlocks(mode: 'main' | 'full'): ReadBlock[] {
 
 /** The address of a "next page" control, when the page offers one as a link. Shape only, never a site. */
 export function findNextPageHref(): string {
-  const NEXT = /^(next|next page|next »|older|older posts|»|›|→|>|>>)$/i;
+  // The label with its arrows and spacing stripped ("Next →", "Next page »", "→" alone all reach the same test).
+  const NEXT = /^(next|next page|older|older posts|more|)$/i;
   const rel = document.querySelector('link[rel="next"], a[rel="next"]') as HTMLAnchorElement | null;
   if (rel && rel.href) return rel.href;
   const links = document.querySelectorAll('a[href]');
   for (let i = 0; i < links.length; i++) {
     const link = links[i] as HTMLAnchorElement;
-    const label = (link.getAttribute('aria-label') || link.textContent || '').replace(/\s+/g, ' ').trim();
-    if (!NEXT.test(label) || !link.href || /^javascript:/i.test(link.href)) continue;
+    const shown = (link.getAttribute('aria-label') || link.textContent || '').replace(/\s+/g, ' ').trim();
+    const arrows = /[»›→>\u00bb\u203a\u2192]/.test(shown);
+    const label = shown.replace(/[»›→>\u00bb\u203a\u2192\s]+/g, ' ').trim();
+    if (!(NEXT.test(label) && (label || arrows))) continue;
+    if (!link.href || /^javascript:/i.test(link.href)) continue;
     if (link.getAttribute('aria-disabled') === 'true') continue;
     return link.href;
   }
