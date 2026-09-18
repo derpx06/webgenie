@@ -35,7 +35,7 @@ describe('model-facing tool definitions', () => {
 
   it('covers every action with unique, provider-valid names', () => {
     const names = tools.map(tool => tool.function.name);
-    expect(names).toHaveLength(39);
+    expect(names).toHaveLength(40);
     expect(names).toEqual(expect.arrayContaining(['handle_dialog', 'drag_element']));
     expect(new Set(names).size).toBe(names.length);
     for (const name of names) expect(name).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/);
@@ -76,12 +76,12 @@ describe('model-facing tool definitions', () => {
       'click_element', 'hover_element', 'right_click_element', 'input_text', 'fill_form', 'upload_file', 'drag_element',
       'handle_dialog', 'select_dropdown_option', 'switch_tab', 'open_tab', 'close_tab',
       'get_complete_page_content', 'read_page', 'find_in_page', 'extract',
-      'save_findings', 'scroll', 'scroll_to_text', 'view_screenshot', 'send_keys',
+      'save_findings', 'notes', 'scroll', 'scroll_to_text', 'view_screenshot', 'send_keys',
     ]);
     const defaultBlock = tools.filter(tool => defaults.has(tool.function.name));
     expect(defaultBlock).toHaveLength(defaults.size);
-    expect(JSON.stringify(defaultBlock).length).toBeLessThan(18_300);
-    expect(JSON.stringify(tools).length).toBeLessThan(25_200);
+    expect(JSON.stringify(defaultBlock).length).toBeLessThan(19_000);
+    expect(JSON.stringify(tools).length).toBeLessThan(26_000);
     // No description carries a worked example or a retention detail no call can act on.
     for (const tool of tools) expect(tool.function.description.length).toBeLessThan(260);
   });

@@ -14,6 +14,9 @@ const EARLIER_STEPS_CHARS = 1500;
 const PLANNER_STEPS_CHARS = 4000;
 const STEP_TEXT_CHARS = 200;
 const FINDINGS_CHARS = 1500;
+/** The agent's own notes, and how many of the latest are kept; it is a scratchpad, not the task's output. */
+const NOTES_CHARS = 1200;
+const NOTES_KEPT = 20;
 
 interface ToolTurn {
   kind: 'turn';
@@ -166,6 +169,8 @@ export class ContextBuilder {
       used += line.length + 1;
     }
     if (findings.length > 0) sections.push(`[FINDINGS]\n${findings.join('\n')}`);
+    // The agent's own notes: written to survive every later step, so they are rendered before anything can be dropped.
+    addList('YOUR NOTES', (context.notes ?? []).slice(-NOTES_KEPT).map(note => `- ${note}`), NOTES_CHARS);
     if (context.downloads?.size) sections.push(`[DOWNLOADS]\n${[...context.downloads.values()].map(line => `- ${line}`).join('\n')}`);
 
     if (context.blockedState) sections.push(`[BLOCKED]\n${JSON.stringify(context.blockedState).slice(0, 700)}`);

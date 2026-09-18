@@ -16,6 +16,7 @@ import {
   sendKeysActionSchema,
   scrollToTextActionSchema,
   saveFindingsActionSchema,
+  notesActionSchema,
   selectDropdownOptionActionSchema,
   closeTabActionSchema,
   waitActionSchema,
@@ -50,6 +51,7 @@ import { InteractionHandler } from './handlers/interaction';
 import { TabHandler } from './handlers/tabs';
 import { ContentHandler } from './handlers/content';
 import { KeyboardHandler } from './handlers/keyboard';
+import { MemoryHandler } from './handlers/memory';
 import { ManageBookmarksHandler } from './handlers/manage-bookmarks';
 import { ManageReadingListHandler } from './handlers/manage-reading-list';
 import { ManageHistoryHandler } from './handlers/manage-history';
@@ -176,6 +178,7 @@ export class ActionBuilder {
   private readonly tabHandler: TabHandler;
   private readonly contentHandler: ContentHandler;
   private readonly keyboardHandler: KeyboardHandler;
+  private readonly memoryHandler: MemoryHandler;
   private readonly manageBookmarksHandler: ManageBookmarksHandler;
   private readonly manageReadingListHandler: ManageReadingListHandler;
   private readonly manageHistoryHandler: ManageHistoryHandler;
@@ -194,6 +197,7 @@ export class ActionBuilder {
     this.tabHandler = new TabHandler(context);
     this.contentHandler = new ContentHandler(context);
     this.keyboardHandler = new KeyboardHandler(context);
+    this.memoryHandler = new MemoryHandler(context);
     this.manageBookmarksHandler = new ManageBookmarksHandler(context);
     this.manageReadingListHandler = new ManageReadingListHandler(context);
     this.manageHistoryHandler = new ManageHistoryHandler(context);
@@ -214,6 +218,7 @@ export class ActionBuilder {
       ...this.buildTabActions(),
       ...this.buildContentActions(),
       ...this.buildKeyboardActions(),
+      ...this.buildMemoryActions(),
       // They read or change the user's own browser data, which a page could try to talk the agent into: opt-in only.
       ...(this.context.options.enableBrowserDataTools ? this.buildChromeControlActions() : []),
     ];
@@ -287,6 +292,10 @@ export class ActionBuilder {
       // Only for a model that reads images, with vision on (index.ts decides both).
       ...(this.context.options.useVision ? [new Action(() => this.contentHandler.handleViewScreenshot(), viewScreenshotActionSchema)] : []),
     ];
+  }
+
+  private buildMemoryActions(): Action[] {
+    return [new Action((input) => this.memoryHandler.handleNotes(input), notesActionSchema)];
   }
 
   private buildKeyboardActions(): Action[] {

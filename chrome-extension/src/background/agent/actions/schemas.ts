@@ -200,6 +200,16 @@ export const saveFindingsActionSchema: ActionSchema = {
   }),
 };
 
+export const notesActionSchema: ActionSchema = {
+  name: 'notes',
+  description:
+    'Your own scratchpad for this task, shown in every later step and never summarized away: what you tried, what did not work, where things are, what to do next. Not the answer; that is save_findings.',
+  schema: z.object({
+    action: z.enum(['add', 'replace', 'clear']).describe('append a note, replace every note with this one, or drop them all'),
+    text: z.string().optional().describe('the note; not needed for clear'),
+  }),
+};
+
 export const scrollActionSchema: ActionSchema = {
   name: 'scroll',
   description:
