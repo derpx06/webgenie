@@ -210,3 +210,70 @@ tokens together, and the block is already below the audit's target without them.
 `actions/__tests__/tools.test.ts` gains a budget test that pins the default block under 14 500 characters, the
 full set under 21 700, and every description under 260 characters, so the block cannot silently re-inflate. The
 byte-stability assertion that protects prefix caching is untouched.
+
+---
+
+## 6. A stable prefix for caching — **raw ≈ 0; unlocks −12 685 tok/task billed-equivalent**
+
+`[TODAY]` was rendered with `localDateTime(new Date())` **into the last message on every call**, so a value that
+is constant for a whole task changed the volatile tail every minute, and `[TASK STARTED ON]` — constant by
+definition — sat beside it. Both now ride with the system prompt (`ContextBuilder.runStamp`, memoised per task
+and keyed on `taskStartUrl` so a follow-up task refreshes it). The prefix a provider can reuse is now
+`[system prompt + run stamp][task][answers]` and is byte-identical from one call of a task to the next;
+`memory/__tests__/context-builder.test.ts` asserts exactly that for two consecutive planner packets, and fails
+without the change because the stamp is no longer in the tail it compares.
+
+**Honest accounting.** This moves ~40 tokens between messages; it does not by itself bank the saving. §5.0
+measures the planner paying full price for its prefix on **331 of 339 calls**, and this change removes the one
+per-call mutation that would have blocked a cache — it does not explain the other 98.4%. The planner and
+navigator run the same model (`e2e/mind2web/run.mjs:330-331`, `gemini-2.5-flash` for both) and the planner's
+prefix clears that model's implicit-cache minimum both before (3 253 tok) and after this work (2 274 tok), so the
+remaining cause is not prefix length and is not visible without the traces. §7 item 5's **explicit**
+`CachedContent` for the planner prefix is what banks the **−12 685 tok/task billed-equivalent**; a byte-identical
+prefix is its precondition, and that is what this commit delivers.
+
+**Ceiling set:** nothing per-run may be added to the tail again. The stamp is the only per-task value in the
+prefix; everything that changes within a task (plan, requirements, findings, validated progress, step summary,
+page state) stays in the last message, where it belongs.
+
+---
+
+## Where the budget landed
+
+| block | before | after | delta/call |
+|---|---:|---:|---:|
+| planner system prompt | 2 513 | **1 534** | −979 |
+| `plan` tool schema | 740 | 740 | 0 |
+| **planner fixed cost / call** | **3 253** | **2 274** | **−979 (−30%)** |
+| navigator system prompt | 2 437 | **1 875** | −562 |
+| 24 default tools | 3 450 | **2 840** | −610 |
+| **navigator fixed cost / call** | **5 887** | **4 715** | **−1 172 (−20%)** |
+| **static prefix / task** (17.2 + 5.7 calls) | **119 798** | **94 060** | **−25 738** |
+
+| item | delta / task | of the 246 923 baseline |
+|---|---:|---:|
+| 1. unchanged page state | **0** (not bankable — see §1) | 0% |
+| 2. element line trim | **−10 515 to −11 615** | −4.3% to −4.7% |
+| 3. tab list | **−985 to −4 664** | −0.4% to −1.9% |
+| 4. prompt rewrite | **−15 246** | −6.2% |
+| 5. tool schemas | **−10 492** | −4.2% |
+| 6. stable prefix | 0 raw; −12 685 billed-equivalent once an explicit cache lands | (−5.1%) |
+| **total, raw input tokens** | **−37 238 to −41 997** | **−15.1% to −17.0%** |
+| **with §6's cache banked** | **−49 923 to −54 682** | **−20.2% to −22.1%** |
+
+Against the 500k per-task cap (`e2e/mind2web/run.mjs:43`), −1 172 tokens on every navigator call is about 25%
+more navigator calls inside the same budget — roughly 4 more steps for each of the 13 r2-cand tasks that died at
+26–43 steps with `limit_tokens`.
+
+### Reproducing the measurements
+
+Two throwaway files, deleted after the run rather than committed:
+
+- `chrome-extension/src/tokenbudget/dump.test.ts` — a vitest that renders `PlannerPrompt`, `NavigatorPrompt`,
+  `buildToolDefinitions` over the 24 tools `ActionBuilder.buildDefaultActions()` registers with
+  `enableBrowserDataTools: false`, and `planToolSchema`, writing each to `/tmp/tokenbudget/`.
+- `chrome-extension/src/tokenbudget/count.py` — `tiktoken.get_encoding("cl100k_base")` over those four files,
+  plus a per-tool breakdown and the per-task arithmetic.
+
+The tool block's size is now pinned by `actions/__tests__/tools.test.ts`, so the measurement does not need to be
+re-run to catch a regression.

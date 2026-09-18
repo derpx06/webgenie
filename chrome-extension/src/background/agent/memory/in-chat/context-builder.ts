@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage, ToolMessage, type BaseMessage, type SystemMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { AgentContext } from '../../types';
 import type { TranscriptEntry } from '../../messages/service';
 import { defangTags } from '../../messages/utils';
@@ -92,6 +92,21 @@ function withHeader(state: HumanMessage, header: string): HumanMessage {
 }
 
 export class ContextBuilder {
+  /**
+   * The date and the page the task started on: true for the whole task, so they belong in the prefix a provider can
+   * cache, not in the last message, which is rebuilt every call. Rendered once per task and reused byte for byte —
+   * `localDateTime(new Date())` in the tail changed the last message every minute for no gain, and the planner reads
+   * the date before any page date anyway (one called last year's dates "future").
+   */
+  private static runStamp(context: AgentContext): string {
+    if (context.runStamp?.url !== context.taskStartUrl) {
+      const today = `[TODAY]\n${localDateTime(new Date())}. Dates before it are in the past, whatever your own knowledge suggests.`;
+      const startedOn = context.taskStartUrl ? `\n\n[TASK STARTED ON]\n${context.taskStartUrl}` : '';
+      context.runStamp = { url: context.taskStartUrl, text: `${today}${startedOn}` };
+    }
+    return context.runStamp.text;
+  }
+
   private static formatLinesWithBudget(lines: string[], maxChars: number): string {
     let result = '';
     for (let i = 0; i < lines.length; i++) {
@@ -107,9 +122,7 @@ export class ContextBuilder {
 
   /** Non-empty blocks shown above the browser state. */
   private static stateSections(context: AgentContext, actor: 'planner' | 'navigator'): string[] {
-    // First, so a model that trusts its own sense of "now" reads it before any page date (a planner called last year's dates "future").
-    const sections: string[] = [`[TODAY]\n${localDateTime(new Date())}. Dates before it are in the past, whatever your own knowledge suggests.`];
-    if (context.taskStartUrl) sections.push(`[TASK STARTED ON]\n${context.taskStartUrl}`);
+    const sections: string[] = [];
     const addList = (title: string, lines: string[], maxChars: number) => {
       if (lines.length > 0) sections.push(`[${title}]\n${this.formatLinesWithBudget(lines, maxChars)}`);
     };
@@ -194,6 +207,8 @@ export class ContextBuilder {
     // Plans, progress, findings and step summaries are model-written and may quote page text.
     const header = defangTags(sections.join('\n\n'));
 
-    return [systemMessage, ...transcript, withHeader(currentStateMessage, header)];
+    // The per-task stamp rides with the system prompt so the prefix stays byte-identical from one call to the next.
+    const prefix = new SystemMessage(`${String(systemMessage.content)}\n\n${this.runStamp(context)}`);
+    return [prefix, ...transcript, withHeader(currentStateMessage, header)];
   }
 }

@@ -34,19 +34,19 @@ describe('ContextBuilder packets', () => {
 
     const packet = ContextBuilder.buildContextPacket(context, system, state(1), 'navigator');
 
-    expect(packet[0]).toBe(system);
+    expect(text(packet[0])).toMatch(/^navigator system\n\n\[TODAY\]\n\d{4}-\d\d-\d\d \d\d:\d\d\. Dates before it are in the past/);
     expect(text(packet[1])).toContain('<nano_user_request>');
     expect(text(packet[1])).toContain('Find the price of the book');
     expect(packet[2]).toBeInstanceOf(AIMessage);
     expect(packet[3]).toBeInstanceOf(ToolMessage);
     expect(text(packet[3])).toBe('Clicked');
-    expect(text(packet[packet.length - 1])).toMatch(/^\[TODAY\]\n\d{4}-\d\d-\d\d \d\d:\d\d\. Dates before it are in the past[^]*browser state 1$/);
+    expect(text(packet[packet.length - 1])).toBe('browser state 1');
   });
 
   it('formats today in the browser time zone for both agents', () => {
     expect(localDateTime(new Date(2026, 8, 7, 5, 3))).toBe('2026-09-07 05:03');
     const { context } = makeContext();
-    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner').at(-1)!)).toContain('[TODAY]');
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner')[0])).toContain('[TODAY]');
   });
 
   it('adds a task once on resume and keeps follow-up tasks and human answers in order', () => {
@@ -133,7 +133,7 @@ describe('ContextBuilder packets', () => {
     messageManager.addToolTurn([call('a', 'get_complete_page_content')], [new ActionResult({ extractedContent: 'Example Domain' })]);
     const second = ContextBuilder.buildContextPacket(context, system, state(2));
 
-    expect(second[0]).toBe(first[0]);
+    expect(text(second[0])).toBe(text(first[0]));
     expect(text(second[1])).toBe(text(first[1]));
   });
 
@@ -186,7 +186,11 @@ describe('ContextBuilder packets', () => {
 
     const packet = ContextBuilder.buildContextPacket(context, system, state(1));
 
-    expect(packet.map(text)).toEqual(['navigator system', expect.stringContaining('read the heading'), expect.stringMatching(/^\[TODAY\][^]*browser state 1$/)]);
+    expect(packet.map(text)).toEqual([
+      expect.stringMatching(/^navigator system\n\n\[TODAY\]/),
+      expect.stringContaining('read the heading'),
+      'browser state 1',
+    ]);
   });
 
   it('shows saved findings to both agents, newest kept within the budget, with delimiter tags defanged', () => {
@@ -219,5 +223,29 @@ describe('ContextBuilder packets', () => {
 
     expect(finalMessage).toContain('[CURRENT PLAN]\ngoal: open the Travel category\nphase: NAVIGATE');
     expect(finalMessage.endsWith('browser state 1')).toBe(true);
+  });
+
+  /**
+   * The planner paid full price for its 3 253-token prefix on 331 of 339 calls in the r2-cand run (1.6% cache
+   * reads, against the navigator's 43%). Nothing before the last message may differ between two calls of one task,
+   * or no provider can reuse it -- `[TODAY]` used to be rebuilt from `new Date()` in that tail on every call.
+   */
+  it('gives two consecutive planner calls a byte-identical prefix', () => {
+    const { context, messageManager } = makeContext();
+    context.taskStartUrl = 'https://example.com/start';
+    messageManager.addTask('find the cheapest kettle');
+    const plannerSystem = new PlannerPrompt(new Set(['done'])).getSystemMessage();
+
+    const first = ContextBuilder.buildContextPacket(context, plannerSystem, state(1), 'planner');
+    context.requirements = [{ requirement: 'cheapest', status: 'pending' }];
+    context.findings = ['kettle A costs 20'];
+    const second = ContextBuilder.buildContextPacket(context, plannerSystem, state(2), 'planner');
+
+    const prefix = (packet: BaseMessage[]) => JSON.stringify(packet.slice(0, -1).map(text));
+    expect(prefix(second)).toBe(prefix(first));
+    expect(text(second[0])).toContain('[TASK STARTED ON]\nhttps://example.com/start');
+    // Only the last message moved, and it is the one that carries what changed.
+    expect(text(second.at(-1)!)).not.toBe(text(first.at(-1)!));
+    expect(text(second.at(-1)!)).toContain('cheapest');
   });
 });

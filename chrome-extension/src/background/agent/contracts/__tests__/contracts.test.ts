@@ -300,7 +300,7 @@ describe('P1 context budget and routing', () => {
     );
     const finalMessage = String(packet[packet.length - 1].content);
 
-    expect(packet[0].content).toBe('system');
+    expect(packet[0].content).toMatch(/^system\n\n\[TODAY\]/);
     expect(finalMessage).toContain('[CURRENT PLAN]');
     expect(finalMessage).toContain('[VALIDATED PROGRESS]');
     expect(finalMessage).toContain('URL changed');
