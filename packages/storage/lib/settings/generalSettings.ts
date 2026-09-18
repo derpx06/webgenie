@@ -49,7 +49,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   planningInterval: 5,
   actionSettleTimeoutMs: 2000,
   actionDelayMs: 150,
-  displayHighlights: true,
+  displayHighlights: false,
   minWaitPageLoad: 250,
   showAmbientBorder: true,
   showStatusCapsule: true,

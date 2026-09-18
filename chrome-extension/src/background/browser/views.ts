@@ -110,7 +110,7 @@ export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   deniedUrls: [],
   includeDynamicAttributes: true,
   homePageUrl: 'about:blank',
-  displayHighlights: true,
+  displayHighlights: false,
   logDOMSnapshot: false,
 };
 

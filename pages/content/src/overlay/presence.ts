@@ -35,7 +35,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 /** How long the chip lingers after the cursor stops. */
 const CHIP_REST_MS = 2200;
 /** How long the capsule stays open after the last sign of life before it collapses to a dot. */
-const CAPSULE_IDLE_MS = 6000;
+const CAPSULE_IDLE_MS = 120_000;
 
 const CSS = `
 :host-context([${CAPTURE_ATTRIBUTE}="1"]) { display: none !important; }
@@ -367,7 +367,7 @@ export class Presence {
 
     const showCapsule = update.active && (update.showCapsule ?? true);
     this.capsule.classList.toggle('on', showCapsule);
-    if (update.status) this.label.textContent = truncateGoal(update.status, 64);
+    this.label.textContent = truncateGoal(update.status || this.stageWord(update.stage), 64);
     this.ringFill.setAttribute('stroke-dashoffset', String(ringOffset(update.step, update.stepLimit, RING_CIRCUMFERENCE)));
 
     if (!update.active) {
@@ -380,13 +380,32 @@ export class Presence {
     this.wake(showCapsule);
   }
 
-  /** Any sign of life opens the capsule; a quiet spell collapses it to a dot. */
+  /**
+   * The capsule always says what the agent is doing while a task runs: a bare dot with no word told the person nothing
+   * (a live run sat on a circle for a whole planning pause). It shrinks to a dot only after a long silence.
+   */
   private wake(showCapsule: boolean): void {
     if (this.capsuleTimer) clearTimeout(this.capsuleTimer);
     this.capsuleTimer = null;
     if (!showCapsule) return;
     this.capsule.classList.remove('tiny');
     this.capsuleTimer = setTimeout(() => this.capsule.classList.add('tiny'), CAPSULE_IDLE_MS);
+  }
+
+  /** The word the capsule falls back to, so it is never a label-less dot. */
+  private stageWord(stage: WorkflowStage | undefined): string {
+    const words: Partial<Record<WorkflowStage, string>> = {
+      researching: 'Reading the page',
+      typing: 'Typing',
+      clicking: 'Clicking',
+      waiting: 'Waiting for the page',
+      planning: 'Planning',
+      comparing: 'Comparing',
+      completed: 'Done',
+      error: 'Something went wrong',
+      idle: 'Idle',
+    };
+    return words[stage ?? 'researching'] ?? 'Working';
   }
 
   // -------------------------------------------------------------------------
