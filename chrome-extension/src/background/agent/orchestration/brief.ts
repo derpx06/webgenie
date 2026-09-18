@@ -31,16 +31,21 @@ export function briefFor(params: {
   };
   if (isSingleNode(dag)) return { ...common, task: dag.task };
 
-  const parts = [`Overall task (for context only): ${dag.task}`, `Your part: ${node.goal}`, `Done when: ${node.successCriteria}`];
-  const found = blackboard.facts(node.dependsOn);
+  // The worker's task text is its own part, never the whole job: the completion checks in `validation/done-evidence.ts`
+  // read the task text as what the answer must cover, so a worker holding the whole task would have every answer
+  // refused for leaving the other parts out. The other parts are also none of its business.
+  const lines = [node.goal, `Done when: ${node.successCriteria}`];
+  const found = [...blackboard.answers(node.dependsOn), ...blackboard.facts(node.dependsOn)];
   if (found.length > 0) {
-    parts.push(
-      'What the earlier parts already established (treat as given, do not re-check):',
+    lines.push(
+      'Already established by the earlier parts of this job (take as given, do not check it again):',
       ...found.map(entry => `- ${entry.subject}${entry.note ? ` — ${entry.note}` : ''}`),
     );
   }
   const taken = blackboard.render(800, node.id);
-  if (taken) parts.push('Pages another part of this task already read (do not read them again):', taken);
-  parts.push('Answer your part only. Do not do the other parts.');
-  return { ...common, task: parts.join('\n') };
+  if (taken) {
+    lines.push('Already covered by other parts of this job — pages read, and routes that led nowhere. Do not repeat these:', taken);
+  }
+  lines.push('This is one part of a larger job. Do this part only.');
+  return { ...common, task: lines.join('\n') };
 }

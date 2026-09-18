@@ -171,12 +171,13 @@ describe('worker brief', () => {
 
     const brief = briefFor({ dag, node: dag.nodes[2], blackboard: board, policy });
 
-    expect(brief.task).toContain('Your part: do c');
+    expect(brief.task.split('\n')[0]).toBe('do c');
     expect(brief.task).toContain('shop A charges 10');
     // b is not a dependency of c: its answer is none of c's business.
     expect(brief.task).not.toContain('shop B charges 12');
     expect(brief.task).toContain('https://b.test/prices');
-    expect(brief.task).toContain('compare two shops');
+    // Not the whole job: the executor's completion checks read the task text as what this answer must cover.
+    expect(brief.task).not.toContain('compare two shops');
   });
 
   it('follows the governor: no screenshots and the cheap model once the budget is low', async () => {

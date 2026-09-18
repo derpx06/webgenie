@@ -89,6 +89,11 @@ export class Blackboard {
     );
   }
 
+  /** What the given nodes reported when they finished; this is what a part that depends on them is told. */
+  answers(nodeIds: string[]): BlackboardEntry[] {
+    return this.records.filter(entry => entry.kind === 'artifact' && nodeIds.includes(entry.nodeId));
+  }
+
   failures(): BlackboardEntry[] {
     return this.records.filter(entry => entry.kind === 'failure');
   }
