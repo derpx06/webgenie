@@ -18,6 +18,7 @@ import {
   extractFromLabels,
   extractFromTables,
   findSection,
+  hashText,
   outlineOf,
   renderOutline,
   schemaFields,
@@ -214,6 +215,12 @@ export function elementForText(selectorMap: Map<number, DOMElementNode>, needle:
 export class ContentHandler extends BaseHandler {
   /** The last whole-page read of this task, to answer an unchanged re-read without resending it. */
   private lastRead: { text: string; start: number; step: number } | null = null;
+  /**
+   * The content cache, by address and mode: the hash of what was read, the step it first showed that content, and the
+   * answers already given for it. A read tool asked twice for the same thing on an unchanged page says so instead of
+   * sending the text again — a re-read was 20% of get_complete_page_content calls in the reviewed runs.
+   */
+  private reads = new Map<string, { hash: string; step: number; served: Set<string> }>();
 
   async handleViewScreenshot(): Promise<ActionResult> {
     this.context.screenshotWanted = true;
@@ -310,10 +317,38 @@ export class ContentHandler extends BaseHandler {
     }
   }
 
-  /** The page's readable markdown, and the address it was read at. */
-  private async readDocument(page: ReadablePage, mode: 'main' | 'full'): Promise<{ url: string; markdown: string }> {
+  /**
+   * The page's readable markdown, with what the content cache knows about it: `unchangedSince` is the step this exact
+   * content was first read at, so a read of a page that has not changed is answered with a marker instead of the text.
+   */
+  private async readDocument(page: ReadablePage, mode: 'main' | 'full'): Promise<{ url: string; markdown: string; unchangedSince: number | null }> {
+    const url = page.url();
     const markdown = await page.readPageMarkdown(mode);
-    return { url: page.url(), markdown };
+    const key = `${url}|${mode}`;
+    const hash = hashText(markdown);
+    const known = this.reads.get(key);
+    if (known?.hash === hash) return { url, markdown, unchangedSince: known.step };
+    this.reads.set(key, { hash, step: this.context.nSteps, served: new Set() });
+    return { url, markdown, unchangedSince: null };
+  }
+
+  /** The answer to a call that would repeat one already given for content that has not changed. */
+  private unchanged(step: number, what: string): ActionResult {
+    const msg = `[unchanged since step ${step}] ${what} has not changed since then, and you already have this result. Use it, or ask for something else: another section, cursor or query, or act on the page.`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Page unchanged since step ${step}`);
+    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+  }
+
+  /**
+   * Whether this exact answer was already given for content that has not changed since. The first call for a part of an
+   * unchanged page still answers: only asking for the same thing twice gets the marker.
+   */
+  private alreadyServed(url: string, mode: 'main' | 'full', answer: string): boolean {
+    const entry = this.reads.get(`${url}|${mode}`);
+    if (!entry) return false;
+    if (entry.served.has(answer)) return true;
+    entry.served.add(answer);
+    return false;
   }
 
   /**
@@ -399,8 +434,11 @@ export class ContentHandler extends BaseHandler {
     try {
       const page = (await this.context.browserContext.getCurrentPage()) as unknown as ReadablePage;
       // The whole page, navigation included: a find is as often for a control as for a value.
-      const { url, markdown } = await this.readDocument(page, 'full');
+      const { url, markdown, unchangedSince } = await this.readDocument(page, 'full');
       this.context.pageRead = { url, text: markdown };
+      // Recorded on every call, so the second identical search of unchanged content is the one that gets the marker.
+      const served = this.alreadyServed(url, 'full', `find|${input.regex ? 're:' : ''}${input.query}|${input.max_snippets ?? ''}`);
+      if (unchangedSince !== null && served) return this.unchanged(unchangedSince, `the same search of ${url}`);
 
       const ranges = matchRanges(markdown, input.query, input.regex ?? false);
       if (ranges.length === 0) {
@@ -444,7 +482,7 @@ export class ContentHandler extends BaseHandler {
         page = (await this.context.browserContext.getCurrentPage()) as unknown as ReadablePage;
       }
 
-      let { url, markdown } = await this.readDocument(page, extractMode);
+      let { url, markdown, unchangedSince } = await this.readDocument(page, extractMode);
       let pagesRead = 1;
       if (input.all_pages) {
         const limit = Math.min(Math.max(input.max_pages ?? 5, 1), 20);
@@ -454,8 +492,11 @@ export class ContentHandler extends BaseHandler {
           markdown = `${markdown}\n\n${added}`;
         }
         url = page.url();
+        unchangedSince = null;
       }
       this.context.pageRead = { url, text: markdown };
+      const served = this.alreadyServed(url, extractMode, `read|${mode}|${input.section ?? ''}|${input.cursor ?? 0}|${input.max_tokens ?? ''}`);
+      if (unchangedSince !== null && served) return this.unchanged(unchangedSince, url);
       return this.renderRead({ url, markdown, mode, pagesRead, input });
     } catch (error) {
       const msg = `Could not read the page: ${error instanceof Error ? error.message : String(error)}`;

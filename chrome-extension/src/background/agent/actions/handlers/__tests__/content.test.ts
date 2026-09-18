@@ -383,6 +383,59 @@ describe('ContentHandler find_in_page', () => {
   });
 });
 
+describe('ContentHandler content cache', () => {
+  function cachedPage(pages: string[]) {
+    let call = 0;
+    return {
+      url: () => 'https://example.test/live',
+      readPageMarkdown: vi.fn(async () => pages[Math.min(call++, pages.length - 1)]),
+      nextPageHref: vi.fn(async () => ''),
+      getCurrentState: vi.fn(async () => ({ selectorMap: new Map<number, DOMElementNode>() })),
+      getScrollInfo: vi.fn(async () => [0, 500, 1000]),
+      scrollToPercent: vi.fn(),
+    };
+  }
+
+  it('answers the same read of unchanged content with a marker instead of the text', async () => {
+    const { handler, context } = handlerFor(cachedPage(['# Live\n\nscore 1-0']), { nSteps: 4 });
+
+    const first = await handler.handleReadPage({});
+    expect(first.extractedContent).toContain('score 1-0');
+
+    context.nSteps = 6;
+    const again = await handler.handleReadPage({});
+    expect(again.extractedContent).toBe(
+      '[unchanged since step 4] https://example.test/live has not changed since then, and you already have this result. Use it, or ask for something else: another section, cursor or query, or act on the page.',
+    );
+  });
+
+  it('sends the text again once the content changes', async () => {
+    const { handler } = handlerFor(cachedPage(['# Live\n\nscore 1-0', '# Live\n\nscore 1-0', '# Live\n\nscore 2-0']));
+
+    await handler.handleReadPage({});
+    expect((await handler.handleReadPage({})).extractedContent).toContain('unchanged since step');
+    expect((await handler.handleReadPage({})).extractedContent).toContain('score 2-0');
+  });
+
+  it('still answers another part of an unchanged page', async () => {
+    const page = ['# One', 'a'.repeat(200), '## Two', 'b'.repeat(200)].join('\n\n');
+    const { handler } = handlerFor(cachedPage([page]));
+
+    await handler.handleReadPage({});
+    const section = await handler.handleReadPage({ section: 'Two' });
+
+    expect(section.extractedContent).toContain('b'.repeat(100));
+  });
+
+  it('is shared with find_in_page, which still answers a new query', async () => {
+    const { handler } = handlerFor(cachedPage(['# Live\n\nscore 1-0 at kickoff']));
+
+    expect((await handler.handleFindInPage({ query: 'score' })).extractedContent).toContain('1 match');
+    expect((await handler.handleFindInPage({ query: 'score' })).extractedContent).toContain('unchanged since step');
+    expect((await handler.handleFindInPage({ query: 'kickoff' })).extractedContent).toContain('1 match');
+  });
+});
+
 describe('ContentHandler extract', () => {
   const grid = [
     '# Catalogue',
