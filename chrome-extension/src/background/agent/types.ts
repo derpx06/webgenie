@@ -180,6 +180,10 @@ export class AgentContext {
   routeSteps: RouteStep[] = [];
   /** The saved route for this task's start page; undefined until read. */
   routeNote?: string;
+  /** The saved playbook for this task's domain (SiteSkills); undefined until read. */
+  siteSkillNote?: string;
+  /** Search addresses of this site the task passed through, with the query removed; kept as part of its skill. */
+  searchUrls = new Set<string>();
   /** What the navigator kept with save_findings, oldest first; both agents see the newest every step. */
   findings: string[] = [];
   /** The agent's own scratchpad (the `notes` tool): what it tried and what to do next, kept apart from the task's output. */

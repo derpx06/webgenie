@@ -1469,3 +1469,45 @@ describe('The planning interval', () => {
     expect(reading.llm.requests.map(request => request.agent)).toEqual(['planner', ...Array(5).fill('navigator'), 'planner', 'navigator', 'planner']);
   });
 });
+
+describe('The domain playbook a successful run writes', () => {
+  const page = { url: 'https://shop.test/search?q=linen', title: 'Shop', elements: [{ text: 'Linen shirt', tag: 'a' }] };
+
+  /** One task on the shop; a failing one runs out of navigator replies. */
+  const runTask = (succeed: boolean) =>
+    createHarness({
+      task: 'Find the linen shirt',
+      pages: [page, { url: 'https://shop.test/products/48213', title: 'Linen shirt' }],
+      planner: succeed ? [plan(), planDone('Linen shirt, on shop.test')] : Array(16).fill(plan()),
+      navigator: succeed ? [click(0), done('Linen shirt, on shop.test')] : [click(0)],
+    });
+
+  it('writes what worked and shows it to the next task on that domain', async () => {
+    const first = runTask(true);
+    await settle(first.executor.execute());
+    expect(first.has(ExecutionState.TASK_OK)).toBe(true);
+
+    const second = runTask(true);
+    await settle(second.executor.execute());
+    const shown = textOf(second.llm.requests[0].messages);
+    const note = shown.slice(shown.indexOf('[What worked on shop.test')).split('\n\n')[0];
+    expect(note).toContain('[What worked on shop.test');
+    expect(note).toContain('its search: https://shop.test/search?q={q}');
+    // The path keeps the kind of element and a path template; what was searched for and the item id are not in it.
+    expect(note).toContain('click_element');
+    expect(note).not.toContain('q=linen');
+    expect(note).not.toContain('48213');
+  });
+
+  it('stops showing it after one task on that domain fails', async () => {
+    await settle(runTask(true).executor.execute());
+
+    const failed = runTask(false);
+    await settle(failed.executor.execute());
+    expect(failed.has(ExecutionState.TASK_FAIL)).toBe(true);
+
+    const next = runTask(true);
+    await settle(next.executor.execute());
+    expect(textOf(next.llm.requests[0].messages)).not.toContain('What worked on shop.test');
+  });
+});

@@ -3,7 +3,7 @@ import type { AgentContext } from '@src/background/agent/types';
 import { defangTags, untrustedInline, wrapUntrustedContent } from '../messages/utils';
 import { createLogger } from '@src/background/log';
 import { record } from '@src/background/trace';
-import { RouteMemory } from '../memory';
+import { RouteMemory, SiteSkills } from '../memory';
 import { ensureBrowserObservation, inDialog, newElements } from '../validation/observation';
 import { OFFSCREEN_LINE, type DOMElementNode } from '../../browser/dom/views';
 import * as actionSchemas from '../actions/schemas';
@@ -233,6 +233,11 @@ abstract class BasePrompt {
       context.routeNote = context.taskStartUrl ? await RouteMemory.note(context.taskStartUrl) : '';
       if (context.routeNote) logger.info(`Route from an earlier task shown for ${context.taskStartUrl}`);
     }
+    // And what earlier successful tasks learned about this domain, read once per task.
+    if (context.siteSkillNote === undefined) {
+      context.siteSkillNote = context.taskStartUrl ? await SiteSkills.note(context.taskStartUrl) : '';
+      if (context.siteSkillNote) logger.info(`Site skill shown for ${context.taskStartUrl}`);
+    }
 
     const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
 
@@ -320,7 +325,7 @@ abstract class BasePrompt {
     if (allOtherTabs.length > MAX_OTHER_TABS) otherTabs.push(`- ...and ${allOtherTabs.length - MAX_OTHER_TABS} more tabs`);
 
     // Notes shown above the page: a route from an earlier task, the navigator's memory.
-    let reflectionPrefix = context.routeNote ?? '';
+    let reflectionPrefix = `${context.siteSkillNote ?? ''}${context.routeNote ?? ''}`;
     const durableMemory = context.messageManager.getWorkingMemory();
     if (durableMemory) {
       reflectionPrefix += `[Agent memory]: ${durableMemory}\n`;

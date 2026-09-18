@@ -15,7 +15,7 @@ import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
 import { EventManager } from './event/manager';
 import { Actors, type EventCallback, EventType, ExecutionState } from './event/types';
-import { RouteMemory } from './memory';
+import { RouteMemory, SiteSkills } from './memory';
 import {
   ChatModelAuthError,
   ChatModelBadRequestError,
@@ -373,6 +373,8 @@ export class Executor {
 
     this.context.routeSteps = [];
     this.context.routeNote = undefined;
+    this.context.siteSkillNote = undefined;
+    this.context.searchUrls.clear();
     // Findings belong to one task; a follow-up refers to earlier answers through the task archive.
     this.context.findings = [];
 
@@ -646,7 +648,11 @@ export class Executor {
         await this.showAnswerOnPage();
         context.taskArchive.addRecord({ taskId: context.taskId, goal: taskText, outcome: context.finalAnswer || 'Task completed successfully' });
         // Only the route is remembered across tasks: pages and kinds of elements, nothing the user wrote or the page said.
-        if (context.taskStartUrl) await RouteMemory.save(context.taskStartUrl, context.routeSteps);
+        if (context.taskStartUrl) {
+          await RouteMemory.save(context.taskStartUrl, context.routeSteps);
+          // And the domain's playbook, taken from this run's own trace: its search address, its path and its traps.
+          await SiteSkills.record(context.taskStartUrl, { steps: context.routeSteps, urls: context.searchUrls, ledger: context.ledger.all() });
+        }
 
         // Emit final answer if available, otherwise use task ID
         const finalMessage = this.context.finalAnswer || this.context.taskId;
@@ -657,6 +663,7 @@ export class Executor {
         void analytics.trackTaskComplete(this.context.taskId);
       } else if (step >= allowedMaxSteps) {
         logger.error('❌ Task failed: Max steps reached');
+        await this.demoteSiteSkill();
         await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_errors_maxStepsReached'));
         await this.saveCheckpoint(taskText, 'failed');
 
@@ -668,6 +675,7 @@ export class Executor {
         // The loop only stops early on the failure budget.
         const failureMessage = t('exec_errors_maxFailuresReached');
         logger.error(`❌ Task failed: ${failureMessage}`);
+        await this.demoteSiteSkill();
         await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, await this.withLastAnswer(t('exec_task_fail', [failureMessage]), failureMessage));
         await this.saveCheckpoint(taskText, 'failed');
         void analytics.trackTaskFailed(this.context.taskId, analytics.categorizeError(new MaxFailuresReachedError(failureMessage)));
@@ -723,6 +731,7 @@ export class Executor {
         void analytics.trackTaskCancelled(this.context.taskId);
       } else {
         await this.saveCheckpoint(this.tasks[this.tasks.length - 1], 'failed');
+        await this.demoteSiteSkill();
         const errorMessage = formatExecutionError(error);
         const failText = t('exec_task_fail', [errorMessage]);
         await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, error instanceof MaxFailuresReachedError ? await this.withLastAnswer(failText, errorMessage) : failText);
@@ -1097,6 +1106,14 @@ export class Executor {
   async interrupt(reason: string): Promise<void> {
     this.context.interruption = reason;
     this.context.stop();
+  }
+
+  /**
+   * A task on this domain failed, so its playbook is no longer shown: a site that moved the control a skill names
+   * must not keep sending later tasks to it. One failure is enough; a later success writes the skill again.
+   */
+  private async demoteSiteSkill(): Promise<void> {
+    if (this.context.taskStartUrl) await SiteSkills.demote(this.context.taskStartUrl).catch(() => undefined);
   }
 
   isRunning(): boolean {

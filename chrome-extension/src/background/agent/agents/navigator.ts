@@ -10,7 +10,7 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { buildToolDefinitions, buildToolValidators, type ToolDefinition } from '../actions/builder';
 import type { ActionSchema } from '../actions/schemas';
-import { ContextBuilder, routeStep } from '../memory';
+import { ContextBuilder, routeStep, searchPattern } from '../memory';
 import { elementsWindowed } from '../prompts/base';
 
 import { NavigatorActionRegistry } from './navigator/registry';
@@ -713,6 +713,9 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // The user's email, phone or card number goes only where the user's own request sends it. The check sees what the
         // user wrote and never the page, so text on a page cannot talk the agent into it.
         this.context.visitedUrls.add(urlKey(beforeState.url));
+        // The site's own search address, with what was searched for stripped off: part of this domain's skill.
+        const searched = searchPattern(beforeState.url);
+        if (searched) this.context.searchUrls.add(searched);
         if (DATA_CARRYING_ACTIONS.has(actionName)) {
           // A value the user gave in answer to the agent's question is theirs for this task; one that is only in the task
           // text is checked against what the task asks.
