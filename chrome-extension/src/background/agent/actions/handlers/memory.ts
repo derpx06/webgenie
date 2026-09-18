@@ -1,9 +1,10 @@
 import { ActionResult, renderTodos } from '@src/background/agent/types';
-import type { notesActionSchema, todoListActionSchema } from '../schemas';
+import type { assertActionSchema, notesActionSchema, todoListActionSchema } from '../schemas';
 import type { TodoItem } from '@src/background/agent/types';
 import type { z } from 'zod';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
+import { evidenceOnPage } from '../../validation/done-evidence';
 
 /** The agent's memory of its own work: the scratchpad it keeps for itself, apart from the findings it keeps for the user. */
 export class MemoryHandler extends BaseHandler {
@@ -72,6 +73,32 @@ export class MemoryHandler extends BaseHandler {
     }
 
     msg = `${msg} ${renderTodos(this.context.todos) || 'The list is empty.'}`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+  }
+
+  /**
+   * A claim checked against the page in front of the agent, right where the evidence is still readable. Answers that
+   * claimed what the page never showed were 6 of the 27 judged failures in the reviewed round: a claim whose evidence
+   * is not on this page is refused here, and a successful completion with no passing assertion is sent back once.
+   */
+  async handleAssert(input: z.infer<typeof assertActionSchema.schema>): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, 'Checking a claim against the page');
+    const claim = String(input.claim ?? '').trim();
+    const evidence = String(input.evidence ?? '').trim();
+    const url = this.context.promptState?.url ?? '';
+    const passed = !!claim && !!evidence && evidenceOnPage(this.context, evidence);
+    this.context.assertions.push({ claim, evidence, url, passed });
+
+    if (!passed) {
+      const msg = !claim || !evidence
+        ? 'Not asserted: a claim needs both the claim and the exact page text that shows it.'
+        : `Not asserted: "${evidence.slice(0, 120)}" is not on the page you are on (${url}). Quote the page word for word, read it first with read_page or find_in_page, or go to the page that shows it. Never report what no page showed.`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({ error: msg, includeInMemory: true });
+    }
+
+    const msg = `${url} shows it; the claim is backed and you may report it.`;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }

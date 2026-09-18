@@ -222,6 +222,16 @@ export const todoListActionSchema: ActionSchema = {
   }),
 };
 
+export const assertActionSchema: ActionSchema = {
+  name: 'assert',
+  description:
+    'Back a claim you are going to report with the page text that shows it, before you finish. The evidence is checked against the page you are on; a success is sent back without one.',
+  schema: z.object({
+    claim: z.string().describe('what you will report, in one sentence'),
+    evidence: z.string().describe('the exact words on the page that show it, copied from the page, not your own wording'),
+  }),
+};
+
 export const scrollActionSchema: ActionSchema = {
   name: 'scroll',
   description:

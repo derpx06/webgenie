@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnread, answerGaps, doneEvidence, givesUpUnseen, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements } from './validation/done-evidence';
+import { absenceUnread, answerGaps, doneEvidence, givesUpUnseen, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements, unbackedValues } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -108,6 +108,8 @@ export class Executor {
   private unseenGiveUpRefused = false;
   /** A done whose answer did not carry what the task asked for was sent back once; once per task. */
   private answerGapRefused = false;
+  /** A completion whose claims nothing in the task backed with page evidence was sent back once. */
+  private unevidencedRefused = false;
   constructor(
     task: string,
     taskId: string,
@@ -189,6 +191,8 @@ export class Executor {
     this.searchEvidenceRefused = false;
     this.unseenGiveUpRefused = false;
     this.answerGapRefused = false;
+    this.unevidencedRefused = false;
+    this.context.assertions = [];
     this.goalRepeats.progress();
     this.mustFinish = false;
 
@@ -247,6 +251,13 @@ export class Executor {
     if (gaps.length > 0) {
       this.answerGapRefused = true;
       return this.refuseCompletion(planOutput, `Not done: the answer does not carry what the task asks for: ${gaps.join('; and ')}. Answer with the values themselves as the page writes them (names, numbers, prices with their currency, dates, counts), every part of the task and as many items as it asks for, one per line when there are several; read them from the page if they are not known yet, and for anything the page does not give, say plainly that it does not.`);
+    }
+    // Values in the answer that no page has shown, with no claim of this task ever checked against one. Untrue answers
+    // were 6 of the 27 judged failures in the reviewed round: cheap in steps, fatal in judging.
+    const unbacked = this.unevidencedRefused ? [] : unbackedValues(context, answer, this.doneReportedFailure);
+    if (unbacked.length > 0) {
+      this.unevidencedRefused = true;
+      return this.refuseCompletion(planOutput, `Not done: the answer states ${unbacked.slice(0, 5).map(value => JSON.stringify(value)).join(', ')}, which the current page does not show, and no claim in this task was ever checked against a page. Go to the page that shows each value, read it (read_page or find_in_page) and call assert with the claim and the page's own words for it; report nothing an assert did not pass.`);
     }
     return this.acceptCompletion(answer, pending);
   }

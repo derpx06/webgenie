@@ -71,6 +71,14 @@ export interface TodoItem {
   done: boolean;
 }
 
+/** A claim the agent means to report, with the page text it rests on and whether that page showed it. */
+export interface Assertion {
+  claim: string;
+  evidence: string;
+  url: string;
+  passed: boolean;
+}
+
 /** The to-do list as one compact block: a numbered line per part, done marked with x. */
 export function renderTodos(todos: TodoItem[]): string {
   return todos.map((item, index) => `${index + 1}. [${item.done ? 'x' : ' '}] ${item.text}`).join('\n');
@@ -176,6 +184,8 @@ export class AgentContext {
   notes: string[] = [];
   /** The parts of the task (the `todo_list` tool), in order, so a task asking for several things answers all of them. */
   todos: TodoItem[] = [];
+  /** Claims the agent backed with a quote from a page (the `assert` tool), and whether that page really showed it. */
+  assertions: Assertion[] = [];
   /** Files the user attached in this conversation, by name, as base64; only upload_file reads them (never a prompt or storage). */
   files = new Map<string, { type: string; data: string }>();
   /** Downloads seen during the task, by download id, as both agents see them. */

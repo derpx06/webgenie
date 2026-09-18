@@ -18,6 +18,7 @@ import {
   saveFindingsActionSchema,
   notesActionSchema,
   todoListActionSchema,
+  assertActionSchema,
   selectDropdownOptionActionSchema,
   closeTabActionSchema,
   waitActionSchema,
@@ -299,6 +300,7 @@ export class ActionBuilder {
     return [
       new Action((input) => this.memoryHandler.handleNotes(input), notesActionSchema),
       new Action((input) => this.memoryHandler.handleTodoList(input), todoListActionSchema),
+      new Action((input) => this.memoryHandler.handleAssert(input), assertActionSchema),
     ];
   }
 

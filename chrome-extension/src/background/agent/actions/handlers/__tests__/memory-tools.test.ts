@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('webextension-polyfill', () => ({}));
 vi.mock('@extension/i18n', () => ({ t: (key: string) => key }));
 
-import { call, createHarness, done, plan, settle, stubChrome, textOf, until, type ToolCall } from '../../../__tests__/fakes';
+import { call, createHarness, done, plan, planDone, settle, stubChrome, textOf, until, type ToolCall } from '../../../__tests__/fakes';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -91,5 +91,56 @@ describe('todo_list', () => {
       call('todo_list', { action: 'reorder', items: ['2'] }),
     ]);
     expect(context.todos.map(item => item.text)).toEqual(['two', 'one']);
+  });
+});
+
+/** Runs a task to its end on one page and returns everything both agents were told, plus the answer accepted. */
+async function finishOn(text: string[], calls: ToolCall[], answer: string) {
+  const h = createHarness({
+    task: 'Say what the page shows',
+    pages: [{ url: 'https://shop.test/item', title: 'Item', text }],
+    planner: [...Array(calls.length + 1).fill(plan()), planDone(answer), planDone(answer), planDone(answer)],
+    navigator: [...calls.map(one => [one]), [done(answer)]],
+  });
+  await settle(h.executor.execute());
+  return {
+    context: h.executor.getContext(),
+    prompts: h.llm.requests.map(request => textOf(request.messages)).join('\n'),
+    answer: h.executor.getContext().finalAnswer,
+  };
+}
+
+describe('assert', () => {
+  it('passes a quote the page really shows and refuses one it does not', async () => {
+    const { context, prompts } = await finishOn(
+      ['The Blue Widget costs $42.00'],
+      [
+        call('assert', { claim: 'The widget costs $42.00', evidence: 'The Blue Widget costs $42.00' }),
+        call('assert', { claim: 'The widget costs $19.00', evidence: 'The Blue Widget costs $19.00' }),
+      ],
+      'The Blue Widget costs $42.00',
+    );
+    expect(context.assertions.map(item => item.passed)).toEqual([true, false]);
+    expect(prompts).toContain('is not on the page you are on');
+  });
+
+  it('sends back once a success stating a value no page showed and no assert passed', async () => {
+    const { prompts } = await finishOn(['The Blue Widget costs $42.00'], [], 'The Blue Widget costs $19.00');
+    expect(prompts).toContain('the answer states "19.00", which the current page does not show');
+  });
+
+  it('accepts the same answer once a claim is backed', async () => {
+    const { prompts, answer } = await finishOn(
+      ['The Blue Widget costs $42.00'],
+      [call('assert', { claim: 'The widget costs $42.00', evidence: 'The Blue Widget costs $42.00' })],
+      'The Blue Widget costs $42.00',
+    );
+    expect(prompts).not.toContain('which the current page does not show');
+    expect(answer).toBe('The Blue Widget costs $42.00');
+  });
+
+  it('does not ask an answer of absence for evidence it cannot have', async () => {
+    const { prompts } = await finishOn(['Nothing here'], [], 'No widget under 19 dollars was found on the site.');
+    expect(prompts).not.toContain('which the current page does not show');
   });
 });

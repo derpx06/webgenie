@@ -68,6 +68,46 @@ export function absenceUnread(context: AgentContext, answer: string, reportedFai
   return !EMPTY_RESULTS.test(visibleText(state));
 }
 
+/** A word, number or amount of a quote, in any script. Built from a string: the compile target has no /u literals. */
+const EVIDENCE_TOKEN = new RegExp("[\\p{L}\\p{N}][\\p{L}\\p{N}'’.,%$€£-]*", 'gu');
+
+/**
+ * Whether a quote is really on the page in front of the agent: its text, its element attributes, its address, or the
+ * page it last read. A quote that spans several elements is rendered differently in the element list than on the page,
+ * so every word and number of it being there counts too.
+ * ponytail: a loose token match; if fabricated claims slip through it, require the run of words in order.
+ */
+export function evidenceOnPage(context: AgentContext, evidence: string): boolean {
+  const flat = (text: string) => text.replace(/\s+/g, ' ').toLowerCase();
+  const wanted = flat(evidence).trim();
+  if (!wanted) return false;
+  const page = `${evidenceHaystack(context) ?? ''}\n${flat(context.pageRead?.text ?? '')}`;
+  if (!/[a-z0-9]/i.test(page)) return false;
+  if (page.includes(wanted)) return true;
+  const tokens = wanted.match(EVIDENCE_TOKEN) ?? [];
+  return tokens.length >= 3 && tokens.every(token => page.includes(token));
+}
+
+/**
+ * The values a finished answer states that no page has shown: its numbers and quoted texts that are not on the current
+ * page, when no claim of this task was ever checked against a page with `assert`. Answers that claimed what the page
+ * never showed were 6 of the 27 judged failures in the reviewed round — near-zero wasted steps, maximum damage.
+ *
+ * An answer reporting failure or absence states nothing to check, a task answered without a single step is not a claim
+ * about a page (`givesUpUnseen` and `absenceUnread` cover those), a page that could not be read proves nothing either
+ * way, and one passing assertion means the agent did put its claim to the page. What the agent itself typed is on the
+ * page whether or not the latest read shows it back.
+ */
+export function unbackedValues(context: AgentContext, answer: string, reportedFailure: boolean): string[] {
+  if (reportedFailure || ABSENCE.test(answer) || NONE_MATCHED.test(answer) || NOT_SHOWN.test(answer)) return [];
+  if (context.nSteps === 0) return [];
+  if (context.assertions.some(item => item.passed)) return [];
+  const page = evidenceHaystack(context);
+  if (page === null) return [];
+  const typed = [...context.typedValues.values()].join('\n').toLowerCase();
+  return reportedValues(answer).filter(value => !page.includes(value) && !typed.includes(value));
+}
+
 /** What an applied requirement's evidence names that a page can be searched for: double-quoted text and URL parameters. */
 function evidenceValues(evidence: string): string[] {
   const quoted = [...evidence.matchAll(/["“]([^"”]{2,80})["”]/g)].map(match => match[1]);

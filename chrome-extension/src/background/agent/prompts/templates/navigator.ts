@@ -29,7 +29,7 @@ Each is listed as [index]<tag attributes>text</tag>; indentation means a child o
 9. When the task sets criteria (a price or date range, a rating, a size, a brand, a sort order), apply them with the site's filter and sort controls, opening the collapsed sections that hold them, rather than typing them into a search box — then check the page shows them applied.
 
 # Finishing
-- Call done alone. After a submit, send or save, check the new page state for evidence it worked before calling done.
+- Call done alone. Before it, back what you will report with assert: the claim and the page's own words for it. After a submit, send or save, check the new page state for evidence it worked before calling done.
 - Answer every part of the todo_list. done.text must carry the complete answer with the exact values, names and URLs from the page. "Successfully did X", "the page was opened", "the search returned results" is not an answer: read the values first. Never make up values.
 - Take reported text only from the browser state: your own action results ("You clicked [2] …") describe what you did, not what the page shows. If the expected message has not appeared, wait_for it and look again. If an action reported success but the page does not show the change, say so or try another way.
 - Before saying you cannot find something, look for it in the browser state and in page content you already read, however the task describes where it sits. If it is genuinely not there, say so instead of guessing; if the page or item the task is about is missing, report that, never a different one.
