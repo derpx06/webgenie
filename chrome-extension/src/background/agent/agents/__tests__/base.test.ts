@@ -45,7 +45,7 @@ describe('BaseAgent tool calling', () => {
     const agent = new TestAgent({ chatLLM, context, prompt: {} as BasePrompt }, { id: 'test' });
 
     expect((await agent.execute()).result).toBe('ok');
-    expect(recordTokenUsage).toHaveBeenCalledWith(50, 5);
+    expect(recordTokenUsage).toHaveBeenCalledWith(50, 5, 0);
   });
 
   it('switches to prompt-rendered tools for the rest of the task when the provider rejects tools', async () => {
