@@ -1469,6 +1469,13 @@ export default class Page {
   ): Promise<MouseOutcome> {
     const sized = await handle.evaluateHandle(pointerTarget);
     const target = (sized.asElement() as ElementHandle | null) ?? handle;
+    // A refused gesture must leave the page where it found it: the scroll below moved an open consent dialog out of
+    // the element list's viewport window in a live run, and the model never saw its buttons again.
+    // ponytail: the frame's own scroll only; a scroll container the element sits in is not restored.
+    const scrolledFrom = await target.evaluate(() => [window.scrollX, window.scrollY] as [number, number]).catch(() => null);
+    const restoreScroll = async () => {
+      if (scrolledFrom) await target.evaluate((_el, x, y) => window.scrollTo(x, y), ...scrolledFrom).catch(() => {});
+    };
     await target.scrollIntoView();
     // The agent's own overlay is one fixed host with pointer-events: none, so it can no longer cover a target the
     // way the old draggable capsule did (Online-Mind2Web, Trader Joe's); nothing has to be disarmed before a click.
@@ -1485,9 +1492,11 @@ export default class Page {
     // model could do nothing about): nothing to close, so the element itself is clicked below.
     const clickThrough = Boolean(blocker?.clickThrough && kind === 'click' && clickCount === 1);
     if (blocker?.message && !clickThrough) {
+      await restoreScroll();
       throw new Error(blocker.buttons ? `${blocker.message}${this._indexedButtons(blocker.buttons)}; close or move past it first` : blocker.message);
     }
-    const { x, y } = await target.clickablePoint(blocker?.offset).catch(() => {
+    const { x, y } = await target.clickablePoint(blocker?.offset).catch(async () => {
+      await restoreScroll();
       // "Off the page" in the old wording sent the model scrolling for it; the action has already scrolled to it.
       throw new Error(
         'The element has no visible area: it is hidden, or inside a collapsed section, menu or panel. Scrolling will not reveal it (actions already scroll to their element); open what contains it, click its visible label, or choose another element.',

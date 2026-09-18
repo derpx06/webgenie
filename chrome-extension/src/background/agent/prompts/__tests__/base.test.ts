@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SystemMessage, type HumanMessage } from '@langchain/core/messages';
 import { ActionResult, type AgentContext } from '../../types';
 import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
-import { BasePrompt, capPromptSection, controlSummary, scrollViewportPercentage, windowAroundViewport } from '../base';
+import { BasePrompt, capPromptSection, controlSummary, dropUnshownIndexes, scrollViewportPercentage, windowAroundViewport } from '../base';
 
 class BrowserStatePrompt extends BasePrompt {
   getSystemMessage(): SystemMessage {
@@ -38,6 +38,26 @@ describe('browser prompt budgeting', () => {
     expect(windowed).toMatch(/\.\.\. \d+ lines below; scroll down to see them \.\.\.$/);
     expect(windowed.length).toBeLessThan(700);
     expect(windowAroundViewport('short', 600)).toBe('short');
+  });
+
+  it('keeps an open dialog in the window wherever its controls sit in the list', () => {
+    const page = Array.from({ length: 200 }, (_, i) => `[${i}]<a>page link ${i} with a long descriptive label />`);
+    const dialog = ['[500]<button>Do Not Consent />', '[501]<button>I Consent />'];
+    const text = [...page, ...dialog].join('\n');
+
+    const windowed = windowAroundViewport(text, 600, new Set([500, 501]));
+
+    expect(windowed).toContain('[500]<button>Do Not Consent />');
+    expect(windowed).toContain('[501]<button>I Consent />');
+    expect(windowed).toContain('[0]<a>page link 0');
+    expect(windowed.length).toBeLessThan(800);
+  });
+
+  it('drops an index the element list does not show, keeping what it was called', () => {
+    expect(dropUnshownIndexes('its buttons: [94] "Do Not Consent", [95] "I Consent"', new Set([95]))).toBe(
+      'its buttons: "Do Not Consent", [95] "I Consent"',
+    );
+    expect(dropUnshownIndexes('You clicked [3] "Next"', new Set([3]))).toBe('You clicked [3] "Next"');
   });
 
   it('does not emit Infinity or NaN for a non-scrollable page', () => {
@@ -84,6 +104,110 @@ describe('browser prompt budgeting', () => {
     expect(content).toContain('Bookmark created: Example');
     expect(content).not.toContain('observation id');
     expect(content).not.toContain('target fingerprints');
+  });
+
+  it('never hands the model an index the element list it was given does not show', async () => {
+    const root = new DOMElementNode({ tagName: 'body', xpath: '', attributes: {}, children: [], isVisible: true });
+    const button = new DOMElementNode({
+      tagName: 'button',
+      xpath: '/button',
+      attributes: {},
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 0,
+      parent: root,
+    });
+    button.children.push(new DOMTextNode('Search', true, button));
+    root.children.push(button);
+    const browserState = {
+      elementTree: root,
+      selectorMap: new Map([[0, button]]),
+      tabId: 7,
+      url: 'https://example.com/',
+      title: 'Example',
+      screenshot: null,
+      scrollY: 0,
+      scrollHeight: 800,
+      visualViewportHeight: 800,
+      tabs: [{ id: 7, url: 'https://example.com/', title: 'Example' }],
+    };
+    const actionResult = new ActionResult({
+      error: 'The element is covered by a dialog; its buttons: [94] "Do Not Consent", [95] "I Consent"; close or move past it first',
+      targetFingerprint: { index: 94, actionType: 'click_element' },
+      includeInMemory: true,
+    });
+    const context = {
+      browserContext: { getCachedState: vi.fn().mockResolvedValue(browserState) },
+      options: { useVision: false, includeAttributes: [], logDOMSnapshot: false },
+      actionResults: [actionResult],
+      messageManager: { getWorkingMemory: vi.fn().mockReturnValue('') },
+    } as unknown as AgentContext;
+
+    const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);
+
+    expect(content).not.toContain('[94]');
+    expect(content).not.toContain('[95]');
+    expect(content).toContain('"Do Not Consent"');
+    expect(content).toContain('"I Consent"');
+  });
+
+  it('shows an open dialog\'s buttons even when the page is long enough to be windowed', async () => {
+    const root = new DOMElementNode({ tagName: 'body', xpath: '', attributes: {}, children: [], isVisible: true });
+    const selectorMap = new Map<number, DOMElementNode>();
+    const add = (index: number, parent: DOMElementNode, label: string) => {
+      const node = new DOMElementNode({
+        tagName: 'button',
+        xpath: `/button[${index}]`,
+        attributes: {},
+        children: [],
+        isVisible: true,
+        isInViewport: true,
+        highlightIndex: index,
+        parent,
+      });
+      node.children.push(new DOMTextNode(label, true, node));
+      parent.children.push(node);
+      selectorMap.set(index, node);
+    };
+    // A list well past the window budget, with the dialog last: a late iframe's consent modal lands there.
+    for (let i = 0; i < 400; i++) add(i, root, `Result ${i} with a long descriptive label that fills the element list`);
+    const dialog = new DOMElementNode({
+      tagName: 'div',
+      xpath: '/dialog',
+      attributes: { role: 'dialog' },
+      children: [],
+      isVisible: true,
+      parent: root,
+    });
+    root.children.push(dialog);
+    add(400, dialog, 'Do Not Consent');
+    add(401, dialog, 'I Consent');
+
+    const browserState = {
+      elementTree: root,
+      selectorMap,
+      tabId: 7,
+      url: 'https://example.com/',
+      title: 'Example',
+      screenshot: null,
+      scrollY: 0,
+      scrollHeight: 8000,
+      visualViewportHeight: 800,
+      tabs: [{ id: 7, url: 'https://example.com/', title: 'Example' }],
+    };
+    const context = {
+      browserContext: { getCachedState: vi.fn().mockResolvedValue(browserState) },
+      options: { useVision: false, includeAttributes: [], logDOMSnapshot: false },
+      actionResults: [],
+      messageManager: { getWorkingMemory: vi.fn().mockReturnValue('') },
+    } as unknown as AgentContext;
+
+    const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);
+
+    expect(content).toContain('lines below; scroll down to see them');
+    expect(content).toContain('[400]');
+    expect(content).toContain('I Consent');
   });
 
   it('says a page that could not be read in time is not empty', async () => {

@@ -4,7 +4,7 @@ import { defangTags, untrustedInline, wrapUntrustedContent } from '../messages/u
 import { createLogger } from '@src/background/log';
 import { record } from '@src/background/trace';
 import { RouteMemory } from '../memory';
-import { ensureBrowserObservation, newElements } from '../validation/observation';
+import { ensureBrowserObservation, inDialog, newElements } from '../validation/observation';
 import type { DOMElementNode } from '../../browser/dom/views';
 import * as actionSchemas from '../actions/schemas';
 
@@ -30,18 +30,44 @@ export function capPromptSection(text: string, maxChars: number, label: string):
   return `${text.slice(0, headLength)}${marker}${tailLength > 0 ? text.slice(-tailLength) : ''}`;
 }
 
+const ELEMENT_LINE = /^\t*\*?\[(\d+)\]/;
+
+/**
+ * `[n]` dropped from a message when the element list the prompt shows has no such index: an index the model cannot
+ * see names whatever element carries that number now, and the navigator refuses it. A live run's covered-click
+ * refusal quoted the consent dialog's buttons at indexes the window had cut, and the guard then refused every one.
+ */
+export function dropUnshownIndexes(text: string, shown: ReadonlySet<number>): string {
+  return text.replace(/\[(\d+)\]\s?/g, (match, digits: string) => (shown.has(Number(digits)) ? match : ''));
+}
+
 /**
  * Cuts a long element list to the part around the viewport: from the first on-screen element, growing
- * downward and then upward, with a note of how many lines were left out on each side.
+ * downward and then upward, with a note of how many lines were left out on each side. Lines whose index is in
+ * `keepIndexes` (an open dialog's controls) stay in wherever they sit: a layer that blocks every click is the one
+ * thing the model must always see, even when it lives in a late iframe at the end of the list.
  */
-export function windowAroundViewport(text: string, maxChars: number): string {
+export function windowAroundViewport(text: string, maxChars: number, keepIndexes?: ReadonlySet<number>): string {
   if (text.length <= maxChars) return text;
   const lines = text.split('\n');
-  const firstOnScreen = lines.findIndex(line => /^\t*\*?\[\d+\]/.test(line) && !line.includes('offscreen="true"'));
+  const kept = new Set<number>();
+  let keptChars = 0;
+  if (keepIndexes?.size) {
+    for (let i = 0; i < lines.length; i++) {
+      const index = ELEMENT_LINE.exec(lines[i])?.[1];
+      // A dialog with more controls than half the budget would leave no room for the page itself.
+      if (index === undefined || !keepIndexes.has(Number(index))) continue;
+      if (keptChars + lines[i].length + 1 > maxChars / 2) break;
+      kept.add(i);
+      keptChars += lines[i].length + 1;
+    }
+  }
+  const firstOnScreen = lines.findIndex(line => ELEMENT_LINE.test(line) && !line.includes('offscreen="true"'));
   let start = Math.max(0, firstOnScreen);
   let end = start;
   let size = Math.min(lines[start].length, maxChars) + 1;
-  const fits = (index: number) => size + lines[index].length + 1 <= maxChars;
+  const budget = maxChars - keptChars;
+  const fits = (index: number) => size + lines[index].length + 1 <= budget;
   for (;;) {
     const down = end + 1 < lines.length && fits(end + 1);
     if (down) size += lines[++end].length + 1;
@@ -49,10 +75,18 @@ export function windowAroundViewport(text: string, maxChars: number): string {
     if (up) size += lines[--start].length + 1;
     if (!down && !up) break;
   }
-  const parts = lines.slice(start, end + 1);
-  parts[0] = parts[0].slice(0, maxChars);
-  if (start > 0) parts.unshift(`... ${start} lines above; scroll up to see them ...`);
-  if (end < lines.length - 1) parts.push(`... ${lines.length - 1 - end} lines below; scroll down to see them ...`);
+  for (let i = start; i <= end; i++) kept.add(i);
+  const parts: string[] = [];
+  let previous = -1;
+  for (const i of [...kept].sort((a, b) => a - b)) {
+    const gap = i - previous - 1;
+    if (gap > 0) {
+      parts.push(i <= start ? `... ${gap} lines above; scroll up to see them ...` : `... ${gap} lines below; scroll down to see them ...`);
+    }
+    parts.push(previous === -1 ? lines[i].slice(0, maxChars) : lines[i]);
+    previous = i;
+  }
+  if (previous < lines.length - 1) parts.push(`... ${lines.length - 1 - previous} lines below; scroll down to see them ...`);
   return parts.join('\n');
 }
 
@@ -217,7 +251,11 @@ abstract class BasePrompt {
       // shaped text found in page content (e.g. Gmail To: field, WhatsApp chat).
       // The `nano_untrusted_content` wrapper + system prompt already tell the LLM
       // to ignore injections — strict pattern-matching here causes more harm than good.
-      const shownElements = controlSummary(browserState.selectorMap.values()) + windowAroundViewport(rawElementsText, MAX_INTERACTIVE_ELEMENTS_CHARS);
+      // An open dialog's controls are always in the window, wherever they sit: a live run's consent modal lived in a
+      // late iframe, fell outside the viewport window from the first step on, and blocked every click for 12 steps.
+      const dialogIndexes = new Set([...browserState.selectorMap].filter(([, node]) => inDialog(node)).map(([index]) => index));
+      const shownElements =
+        controlSummary(browserState.selectorMap.values()) + windowAroundViewport(rawElementsText, MAX_INTERACTIVE_ELEMENTS_CHARS, dialogIndexes);
       context.promptIndexes = new Set([...shownElements.matchAll(/\[(\d+)\]/g)].map(match => Number(match[1])));
       const elementsText = wrapUntrustedContent(shownElements, /* filterFirst= */ false);
 
@@ -252,13 +290,16 @@ abstract class BasePrompt {
         if (result.retryability && result.retryability !== 'none') {
           actionResultsDescription += `\nAction retry policy ${i + 1}/${context.actionResults.length}: ${result.retryability}`;
         }
-        if (result.targetFingerprint?.index !== undefined) {
+        if (result.targetFingerprint?.index !== undefined && context.promptIndexes?.has(result.targetFingerprint.index)) {
           actionResultsDescription += `\nFailed/used target index ${i + 1}/${context.actionResults.length}: ${result.targetFingerprint.index}`;
         }
       }
     }
 
-    actionResultsDescription = defangTags(capPromptSection(actionResultsDescription, MAX_ACTION_RESULTS_CHARS, 'action results'));
+    // Indexes are only meaningful against the list above: what it does not show is dropped from these messages.
+    actionResultsDescription = defangTags(
+      capPromptSection(dropUnshownIndexes(actionResultsDescription, context.promptIndexes ?? new Set()), MAX_ACTION_RESULTS_CHARS, 'action results'),
+    );
 
     // Titles and addresses are written by sites: data, never instructions.
     const currentTab = `{id: ${browserState.tabId}, url: ${defangTags(browserState.url)}, title: ${untrustedInline(browserState.title)}}`;

@@ -504,7 +504,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           // element has that number now: a live run clicked an unrelated link that way.
           const unshown = [indexArg, args.target_index].find(index => typeof index === 'number' && this.context.promptIndexes && !this.context.promptIndexes.has(index));
           if (unshown !== undefined) {
-            const msg = `Element index ${unshown} is not in the element list you were given (it may come from an earlier read or message); use an index from the current list.`;
+            const msg = `Element index ${unshown} is not in the element list you were given (it may come from an earlier read or message); use an index from the current list. If what you want is not listed, bring it into the list first (open the section, menu or dialog that holds it, or scroll), then use the index the new list gives it.`;
             this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
             results.push(new ActionResult({
               executed: false,

@@ -287,6 +287,27 @@ describe('Page click that opens a tab', () => {
     expect(adapter.removeTabCreatedListener).toHaveBeenCalledWith(created);
   });
 
+  it('puts the scroll back when the gesture is refused, so an open layer stays where the model saw it', async () => {
+    const adapter = { addTabCreatedListener: vi.fn(), removeTabCreatedListener: vi.fn() };
+    const { page, handle } = clickable(() => undefined, adapter);
+    const target = (await handle.evaluateHandle()).asElement() as { evaluate: ReturnType<typeof vi.fn> };
+    const scrolledTo: number[][] = [];
+    target.evaluate = vi.fn(async (fn: unknown, ...args: unknown[]) => {
+      if (String(fn).includes('scrollX')) return [0, 1406];
+      if (String(fn).includes('scrollTo')) {
+        scrolledTo.push(args as number[]);
+        return undefined;
+      }
+      return { message: 'The element is covered by a dialog', buttons: ['I Consent'], covered: true };
+    });
+    Object.assign(page, { _requireHandle: vi.fn().mockResolvedValue(handle) });
+
+    await expect(
+      page.clickNode(new DOMElementNode({ tagName: 'button', xpath: null, attributes: {}, children: [], isVisible: true })),
+    ).rejects.toThrow('covered by a dialog');
+    expect(scrolledTo).toEqual([[0, 1406]]);
+  });
+
   it('does not wait after a click that opened nothing', async () => {
     const adapter = { addTabCreatedListener: vi.fn(), removeTabCreatedListener: vi.fn() };
     const { page, handle } = clickable(() => undefined, adapter);

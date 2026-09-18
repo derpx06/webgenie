@@ -82,9 +82,10 @@ export function elementLabel(node: DOMElementNode): string {
     .slice(0, 80);
 }
 
-function inDialog(node: DOMElementNode): boolean {
+/** Whether the element sits inside a dialog, alert or modal layer. */
+export function inDialog(node: DOMElementNode): boolean {
   for (let current: DOMElementNode | null = node; current; current = current.parent) {
-    if (/^(dialog|alertdialog)$/.test(current.attributes.role ?? '') || current.tagName === 'dialog') return true;
+    if (/^(dialog|alertdialog)$/.test(current.attributes.role ?? '') || current.tagName === 'dialog' || current.attributes['aria-modal'] === 'true') return true;
   }
   return false;
 }
