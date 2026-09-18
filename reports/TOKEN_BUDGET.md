@@ -60,3 +60,47 @@ plain-text lines when it checks a requirement against the current state), so it 
 with a pass-rate check, not in a token commit.
 
 **Measured delta: 0.** Recommended follow-up: give the planner a reduced page view; ceiling **−29 825 tok/task**.
+
+---
+
+## 2. Trim the element line — **−10 500 to −11 600 tok/task**
+
+Rationale per rule, against §4's measured attribute shares of the element block (r2-cand):
+
+| rule | share of block chars | shipped | delta |
+|---|---:|---|---:|
+| `href` capped at 60, path truncated, query kept | 4.0% | **already shipped** (`MAX_HREF_CHARS = 60`, `capHref`); verified by test | 0 (banked earlier) |
+| `offscreen="true"` → one character after the index (`[12]^`) | 9.2% | yes — ` offscreen="true"` (17 ch) → `^` (1 ch) | **−8.6% of block** |
+| drop `role` the tag implies | 3.5% (all remaining `role`) | extended from the 20 control tags to landmarks (`nav`, `main`, `header`, `footer`, `aside`, `section`, `form`, `dialog`, `article`, `menu`, `summary`, `progress`) | ≤ −0.5% |
+| drop an attribute whose value only repeats the element's own text | `aria-label` 12.0%, `type` 1.6%, rest small | generalised from the three hard-coded keys (`aria-label`, `placeholder`, `title`) to **every** included attribute | small, bounded by the non-`aria-label` shares |
+| drop `aria-haspopup` / `aria-expanded` | 1.2% | **kept** — see below | 0 |
+
+Element list = **122 263 tok/task** (navigator 92 442 + planner 29 825). A 8.6–9.5% cut of the block is
+**−10 515 to −11 615 tok/task (−4.3% to −4.7% of input)**.
+
+That is short of the audit's −19 684 because two of its four components are not new money: the `href` cap is
+already in the tree (so counting it again would double-book a saving already inside the 246 923 baseline), and
+`aria-haspopup`/`aria-expanded` is kept.
+
+**Kept against the audit: `aria-expanded` / `aria-haspopup` on the element line.** §5.1 P2 shows collapsed
+sections are the single most expensive failure in the benchmark (128 of 184 scrolls sit in the 13 `limit_tokens`
+tasks; ten `memory: Scrolled down to find the RAM filter.` entries in one task). The navigator's own scroll
+refusal tells the model to *"open a collapsed section (`aria-expanded="false"`) that may hold what you look
+for"* (`agents/navigator.ts:577`), and `controlSummary` names at most **15** collapsed sections
+(`MAX_COLLAPSED_LISTED`, `prompts/base.ts:98`). On a faceted page with more than fifteen, the attribute on the
+line is the only remaining signal, and it is the signal the failing tasks needed. 1.2% of the block is not worth
+that risk.
+
+**Ceiling set:** `MAX_HREF_CHARS = 60` and `MAX_COLLAPSED_LISTED = 15` unchanged — both are already at the point
+where the audit's own evidence (requirement evidence quoted from URL parameters; facet discovery) starts to
+suffer below them.
+
+### Prompt side-effects of this commit
+
+| block | before | after |
+|---|---:|---:|
+| planner system prompt | 2 513 | 2 515 |
+| navigator system prompt | 2 437 | 2 435 |
+
+The marker is documented where the model reads the format (`# Interactive elements` in the navigator prompt,
+`# Deciding` in the planner prompt), at a net cost of 0 tokens.

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { capHref, DOMElementNode, DOMTextNode } from '../views';
+import { capHref, DOMElementNode, DOMTextNode, OFFSCREEN_LINE } from '../views';
 
 describe('DOM Views Serialization Refinements', () => {
-  it('should serialize off-screen elements with offscreen="true"', () => {
+  it('marks an off-screen element with one character after its index, not an attribute', () => {
     const root = new DOMElementNode({
       tagName: 'DIV',
       xpath: '/div',
@@ -24,7 +24,60 @@ describe('DOM Views Serialization Refinements', () => {
     root.children.push(button);
 
     const serialized = root.clickableElementsToString();
-    expect(serialized).toContain('offscreen="true"');
+    expect(serialized).toContain('[1]^<BUTTON');
+    expect(serialized).not.toContain('offscreen');
+    expect(OFFSCREEN_LINE.test(serialized)).toBe(true);
+  });
+
+  it('drops an attribute whose value only repeats the element own text', () => {
+    const root = new DOMElementNode({ tagName: 'DIV', xpath: '/div', attributes: {}, children: [], isVisible: true });
+    const button = new DOMElementNode({
+      tagName: 'BUTTON',
+      xpath: '/div/button',
+      attributes: { 'aria-label': 'Add to basket', title: 'Add to basket', name: 'basket' },
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 1,
+      parent: root,
+    });
+    button.children.push(new DOMTextNode('Add to basket', true, button));
+    root.children.push(button);
+
+    const serialized = root.clickableElementsToString();
+    expect(serialized).not.toContain('aria-label');
+    expect(serialized).not.toContain('title=');
+    expect(serialized).toContain('name="basket"');
+    expect(serialized).toContain('>Add to basket');
+  });
+
+  it('drops a landmark role the tag already implies', () => {
+    const root = new DOMElementNode({ tagName: 'DIV', xpath: '/div', attributes: {}, children: [], isVisible: true });
+    const nav = new DOMElementNode({
+      tagName: 'nav',
+      xpath: '/div/nav',
+      attributes: { role: 'navigation' },
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 1,
+      parent: root,
+    });
+    const region = new DOMElementNode({
+      tagName: 'DIV',
+      xpath: '/div/div',
+      attributes: { role: 'navigation' },
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 2,
+      parent: root,
+    });
+    root.children.push(nav, region);
+
+    const lines = root.clickableElementsToString().split('\n');
+    expect(lines[0]).toBe('[1]<nav />');
+    expect(lines[1]).toContain('role="navigation"');
   });
 
   it('marks a control the page says is disabled', () => {

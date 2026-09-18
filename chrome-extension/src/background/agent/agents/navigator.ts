@@ -574,7 +574,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // The element list holds the whole page, offscreen elements included: after three page scrolls that listed nothing
         // new, another one will not either (a live run scrolled 8-21 times for filters already listed or in a collapsed section).
         if (actionName === 'scroll' && indexArg === null && this.context.emptyScrolls >= MAX_EMPTY_SCROLLS) {
-          refuse(`Not scrolled: the last ${this.context.emptyScrolls} page scrolls revealed nothing new, so every element of this page is already listed. Use an element marked offscreen by index, open a collapsed section (aria-expanded="false") that may hold what you look for, find a text with get_complete_page_content with find or scroll_to_text, or scroll a specific element by index.`);
+          refuse(`Not scrolled: the last ${this.context.emptyScrolls} page scrolls revealed nothing new, so every element of this page is already listed. Use an element marked ^ (offscreen) by index, open a collapsed section (aria-expanded="false") that may hold what you look for, find a text with get_complete_page_content with find or scroll_to_text, or scroll a specific element by index.`);
           break;
         }
 
@@ -1042,7 +1042,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
               ? `Scrolling revealed ${revealed.length} new element${revealed.length === 1 ? '' : 's'}.`
               : windowed
                 ? 'Scrolling moved the part of this long page that the element list shows.'
-                : 'Scrolling revealed nothing new: every element of this page was already listed; use elements marked offscreen by index, open a collapsed section, or use get_complete_page_content with find.'}`.trim(),
+                : 'Scrolling revealed nothing new: every element of this page was already listed; use elements marked ^ (offscreen) by index, open a collapsed section, or use get_complete_page_content with find.'}`.trim(),
           });
         } else if (actionName !== 'scroll') {
           this.context.emptyScrolls = 0;
@@ -1056,7 +1056,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
             : '';
           result = new ActionResult({
             ...result,
-            extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row.${escalation} Elements marked offscreen are on the page already: use them by index (the action scrolls to them). Options you look for (a price or rating filter) often sit inside a collapsed section, menu or filter panel: open the button with that name instead of scrolling. To find a text, use get_complete_page_content with find, or scroll_to_text.`.trim(),
+            extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row.${escalation} Elements marked ^ (offscreen) are on the page already: use them by index (the action scrolls to them). Options you look for (a price or rating filter) often sit inside a collapsed section, menu or filter panel: open the button with that name instead of scrolling. To find a text, use get_complete_page_content with find, or scroll_to_text.`.trim(),
           });
         }
         // The same action on the same page, over and over (live runs: go_back 11 times, switch_tab back and forth, the same

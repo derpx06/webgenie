@@ -26,9 +26,9 @@ describe('browser prompt budgeting', () => {
   });
 
   it('windows a long element list around the first on-screen element', () => {
-    const above = Array.from({ length: 50 }, (_, i) => `[${i}]<a offscreen="true">above ${i} />`);
+    const above = Array.from({ length: 50 }, (_, i) => `[${i}]^<a>above ${i} />`);
     const visible = ['Visible heading', '[50]<button>On screen />'];
-    const below = Array.from({ length: 50 }, (_, i) => `[${51 + i}]<a offscreen="true">below ${i} />`);
+    const below = Array.from({ length: 50 }, (_, i) => `[${51 + i}]^<a>below ${i} />`);
     const text = [...above, ...visible, ...below].join('\n');
 
     const windowed = windowAroundViewport(text, 600);
@@ -328,6 +328,6 @@ describe('control summary above the element list', () => {
 
     const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);
 
-    expect(content).toMatch(/Collapsed sections: \[1\] Price, \[3\] Sort by\nControls: [^\n]+\n\[0\]<input/);
+    expect(content).toMatch(/Collapsed sections: \[1\] Price, \[3\] Sort by\nControls: [^\n]+\n\[0\]\^?<input/);
   });
 });

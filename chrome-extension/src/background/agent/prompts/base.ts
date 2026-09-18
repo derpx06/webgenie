@@ -5,7 +5,7 @@ import { createLogger } from '@src/background/log';
 import { record } from '@src/background/trace';
 import { RouteMemory } from '../memory';
 import { ensureBrowserObservation, inDialog, newElements } from '../validation/observation';
-import type { DOMElementNode } from '../../browser/dom/views';
+import { OFFSCREEN_LINE, type DOMElementNode } from '../../browser/dom/views';
 import * as actionSchemas from '../actions/schemas';
 
 const logger = createLogger('BasePrompt');
@@ -62,7 +62,7 @@ export function windowAroundViewport(text: string, maxChars: number, keepIndexes
       keptChars += lines[i].length + 1;
     }
   }
-  const firstOnScreen = lines.findIndex(line => ELEMENT_LINE.test(line) && !line.includes('offscreen="true"'));
+  const firstOnScreen = lines.findIndex(line => ELEMENT_LINE.test(line) && !OFFSCREEN_LINE.test(line));
   let start = Math.max(0, firstOnScreen);
   let end = start;
   let size = Math.min(lines[start].length, maxChars) + 1;
