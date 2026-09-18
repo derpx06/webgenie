@@ -51,12 +51,6 @@ const FIND_CONTEXT_CHARS = 100;
 const MAX_FIND_PASSAGES = 30;
 /** Matches find_in_page returns unless the call asks for more. */
 const DEFAULT_SNIPPETS = 8;
-/**
- * An unchanged re-read is answered with a note only while the earlier read is still among the navigator's recent
- * tool turns (it sees five); after that the text is sent again.
- */
-const SAME_READ_STEPS = 3;
-
 /** A row of a table in page text: cells separated by tabs (how innerText renders table cells) or by pipes. */
 const isTableRow = (line: string) => line.includes('\t') || (line.match(/\|/g)?.length ?? 0) >= 2;
 const cells = (line: string) => line.split(line.includes('\t') ? '\t' : '|').map(cell => cell.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' | ');
@@ -139,22 +133,6 @@ function passageLine(text: string, { start, end, row, header }: Passage): string
     : text.slice(start, end).replace(/\s+/g, ' ').trim();
 }
 
-/**
- * Each case-insensitive match of `needle` with the text around it and its character offset.
- *
- * @deprecated the shape `get_complete_page_content` returns; `find_in_page` uses `passagesFor` directly.
- */
-export function findPassages(text: string, needle: string): string {
-  const ranges = matchRanges(text, needle);
-  const spans = passagesFor(text, ranges);
-  const matches = ranges.length;
-  if (matches === 0) return `No match for "${needle}" in the page text (${text.length} characters).`;
-  const passages = spans.slice(0, MAX_FIND_PASSAGES).map(span => `[at character ${span.start}] ${passageLine(text, span)}`);
-  const more = spans.length > MAX_FIND_PASSAGES ? `\n[${spans.length - MAX_FIND_PASSAGES} more passages not shown; search for a longer text]` : '';
-  const out = `${matches} ${matches === 1 ? 'match' : 'matches'} for "${needle}":\n${passages.join('\n')}${more}`;
-  return out.length > MAX_READ_CHARS ? `${out.slice(0, MAX_READ_CHARS)}\n[passages truncated; search for a longer text]` : out;
-}
-
 /** Page text sent with an extraction the parse could not finish; one model call, not the whole document. */
 const MODEL_EXTRACT_CHARS = 30000;
 
@@ -213,8 +191,6 @@ export function elementForText(selectorMap: Map<number, DOMElementNode>, needle:
 }
 
 export class ContentHandler extends BaseHandler {
-  /** The last whole-page read of this task, to answer an unchanged re-read without resending it. */
-  private lastRead: { text: string; start: number; step: number } | null = null;
   /**
    * The content cache, by address and mode: the hash of what was read, the step it first showed that content, and the
    * answers already given for it. A read tool asked twice for the same thing on an unchanged page says so instead of
@@ -561,53 +537,14 @@ export class ContentHandler extends BaseHandler {
     });
   }
 
+  /**
+   * The old whole-page read, kept for one release so saved histories and older prompts keep working: `find` is a
+   * find_in_page, everything else a full read_page continued at `start_char`.
+   *
+   * @deprecated use read_page and find_in_page.
+   */
   async handleGetCompletePageContent(input: z.infer<typeof getCompletePageContentActionSchema.schema>): Promise<ActionResult> {
-    this.context.emitEvent(
-      Actors.NAVIGATOR,
-      ExecutionState.ACT_START,
-      input.find ? `Searching the page text for "${input.find}"` : 'Extracting complete page content...',
-    );
-
-    const page = await this.context.browserContext.getCurrentPage();
-    try {
-      const content = await page.getCompletePageContent();
-      this.context.pageRead = { url: page.url(), text: content };
-      if (input.find) {
-        const found = findPassages(content, input.find);
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Searched ${content.length} characters of page text for "${input.find}"`);
-        return new ActionResult({ extractedContent: wrapUntrustedContent(found, false), includeInMemory: true });
-      }
-
-      if (content.length > 0 && (input.start_char ?? 0) >= content.length) {
-        // A live read continued at the exact end of the text and got an empty range back, then read again from 0.
-        const note = `start_char ${input.start_char} is at or past the end of the page text (${content.length} characters): the whole page has been read. Use find to search it, or a start_char below ${content.length}.`;
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, note);
-        return new ActionResult({ extractedContent: note, includeInMemory: true });
-      }
-      const start = Math.max(0, input.start_char ?? 0);
-      const last = this.lastRead;
-      if (last && last.text === content && last.start === start && this.context.nSteps - last.step <= SAME_READ_STEPS) {
-        return new ActionResult({
-          extractedContent: `The page text is the same as your previous read (${content.length} characters); use that read, or find / start_char for another part.`,
-          includeInMemory: true,
-        });
-      }
-      this.lastRead = { text: content, start, step: this.context.nSteps };
-
-      const end = Math.min(content.length, start + MAX_READ_CHARS);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Read characters ${start}-${end} of ${content.length} of page text`);
-      const range = start > 0 ? `[characters ${start}-${end} of ${content.length}]\n` : '';
-      const rest = end < content.length
-        ? `\n[truncated at character ${end} of ${content.length}; call get_complete_page_content with start_char ${end} to read on, or with find to search the text]`
-        : '';
-      return new ActionResult({
-        extractedContent: wrapUntrustedContent(`${range}${content.slice(start, end)}${rest}`, false),
-        includeInMemory: true,
-      });
-    } catch (error) {
-      const msg = `Failed to extract page content: ${error instanceof Error ? error.message : String(error)}`;
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
-      return new ActionResult({ error: msg, includeInMemory: true });
-    }
+    if (input.find) return this.handleFindInPage({ query: input.find });
+    return this.handleReadPage({ mode: 'full', cursor: input.start_char });
   }
 }

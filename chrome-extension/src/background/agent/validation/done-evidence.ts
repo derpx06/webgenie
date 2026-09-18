@@ -58,7 +58,7 @@ const EMPTY_RESULTS = /\b(no (results?|matches|matching)|0 (results?|matches|ite
 
 /**
  * Whether an answer of absence ("no results", "not found", or a reported failure) rests on a page that was never read:
- * no get_complete_page_content on the current address and no empty-result message in the page state.
+ * no page read on the current address and no empty-result message in the page state.
  */
 export function absenceUnread(context: AgentContext, answer: string, reportedFailure: boolean): boolean {
   const state = context.promptState;

@@ -240,7 +240,7 @@ export class Executor {
     // "Not found" said about a results page nobody read.
     if (!context.absenceChecked && absenceUnread(context, answer, this.doneReportedFailure)) {
       context.absenceChecked = true;
-      return this.refuseCompletion(planOutput, 'The answer says something is missing, but the current page was not read. Before concluding, read it: get_complete_page_content with find set to the key term of the task, then decide from what it returns.');
+      return this.refuseCompletion(planOutput, 'The answer says something is missing, but the current page was not read. Before concluding, read it: find_in_page with the key term of the task, or read_page, then decide from what it returns.');
     }
     // An answer that reports the search instead of what it found, or that leaves the value the task asks for unsaid.
     const gaps = this.answerGapRefused ? [] : answerGaps(this.tasks[this.tasks.length - 1] ?? '', answer);

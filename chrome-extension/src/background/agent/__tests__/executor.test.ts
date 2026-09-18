@@ -1232,7 +1232,7 @@ describe('An answer that something is missing', () => {
     await settle(h.executor.execute());
 
     expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'navigator', 'planner', 'planner', 'navigator', 'navigator', 'planner']);
-    expect(textOf(h.llm.requestsFor('planner')[2].messages)).toContain('get_complete_page_content with find set to the key term');
+    expect(textOf(h.llm.requestsFor('planner')[2].messages)).toContain('find_in_page with the key term of the task');
     expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'No brass lamp is for sale.' } });
   });
 

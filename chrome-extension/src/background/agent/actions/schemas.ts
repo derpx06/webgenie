@@ -270,8 +270,7 @@ export const askHumanActionSchema: ActionSchema = {
 
 export const getCompletePageContentActionSchema: ActionSchema = {
   name: 'get_complete_page_content',
-  description:
-    'Read the whole page text, frames included, up to 12,000 characters a call. Use it for articles, tables and long pages instead of scrolling.',
+  description: 'Deprecated, use read_page (or find_in_page for find); this calls them.',
   schema: z.object({
     find: z.string().optional().describe('return only the passages containing this text, with their surroundings'),
     start_char: z.number().int().optional().describe('offset to continue a truncated read from; defaults to 0'),

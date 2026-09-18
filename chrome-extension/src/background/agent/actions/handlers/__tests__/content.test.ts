@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DOMElementNode } from '../../../../browser/dom/views';
 import type { AgentContext } from '../../../types';
-import { ContentHandler, findPassages } from '../content';
+import { ContentHandler } from '../content';
 
 vi.mock('@extension/i18n', () => ({
   t: (key: string) => key,
@@ -96,71 +96,50 @@ describe('ContentHandler scroll', () => {
   });
 });
 
-describe('ContentHandler page text', () => {
-  const text = `${'a'.repeat(12000)}TAIL price $42 end`;
+describe('ContentHandler get_complete_page_content (deprecated alias)', () => {
+  const long = `# Report\n\n${'a'.repeat(12000)}\n\nTAIL price $42 end`;
 
-  it('reads 12,000 characters at a time and names start_char to continue', async () => {
-    const { handler } = handlerFor({ getCompletePageContent: vi.fn(async () => text) });
+  function page(markdown = long) {
+    return {
+      url: () => 'https://example.test/report',
+      readPageMarkdown: vi.fn(async () => markdown),
+      nextPageHref: vi.fn(async () => ''),
+      getCurrentState: vi.fn(async () => ({ selectorMap: new Map<number, DOMElementNode>() })),
+      getScrollInfo: vi.fn(async () => [0, 500, 1000]),
+      scrollToPercent: vi.fn(),
+    };
+  }
+
+  it('reads the whole page through read_page and continues at start_char', async () => {
+    const reader = page();
+    const { handler } = handlerFor(reader);
 
     const first = await handler.handleGetCompletePageContent({});
-    expect(first.extractedContent).toContain('truncated at character 12000 of 12018; call get_complete_page_content with start_char 12000');
+    expect(reader.readPageMarkdown).toHaveBeenCalledWith('full');
+    expect(first.extractedContent).toContain('full content');
     expect(first.extractedContent).not.toContain('TAIL');
 
-    const rest = await handler.handleGetCompletePageContent({ start_char: 12000 });
-    expect(rest.extractedContent).toContain('[characters 12000-12018 of 12018]\nTAIL price $42 end');
-    expect(rest.extractedContent).not.toContain('truncated');
+    const rest = await handler.handleGetCompletePageContent({ start_char: 12010 });
+    expect(rest.extractedContent).toContain('TAIL price $42 end');
   });
 
-  it('returns only the passages that contain the text, with their offsets', async () => {
-    const { handler } = handlerFor({ getCompletePageContent: vi.fn(async () => text) });
+  it('searches through find_in_page when find is given', async () => {
+    const { handler } = handlerFor(page());
 
     const found = await handler.handleGetCompletePageContent({ find: 'PRICE' });
-    expect(found.extractedContent).toContain('1 match for "PRICE":\n[at character 11905]');
+    expect(found.extractedContent).toContain('1 match for "PRICE"');
     expect(found.extractedContent).toContain('TAIL price $42 end');
 
     const missing = await handler.handleGetCompletePageContent({ find: 'discount' });
-    expect(missing.extractedContent).toContain('No match for "discount" in the page text (12018 characters).');
+    expect(missing.extractedContent).toContain('No match for "discount"');
   });
 
-  it('says the whole page was read when start_char is at or past the end', async () => {
-    const { handler } = handlerFor({ getCompletePageContent: vi.fn(async () => text) });
+  it('says the whole page was read when start_char is past the end', async () => {
+    const { handler } = handlerFor(page());
 
-    const past = await handler.handleGetCompletePageContent({ start_char: 12018 });
-    expect(past.extractedContent).toContain('start_char 12018 is at or past the end of the page text (12018 characters): the whole page has been read');
-    expect(past.extractedContent).not.toContain('TAIL');
-  });
+    const past = await handler.handleGetCompletePageContent({ start_char: long.length + 100 });
 
-  it('bounds the passages a find returns on a very large page', async () => {
-    const { handler, context } = handlerFor({ getCompletePageContent: vi.fn(async () => 'filler words '.repeat(5000) + 'match here '.repeat(40000)) });
-
-    const found = await handler.handleGetCompletePageContent({ find: 'match' });
-    expect(found.extractedContent!.length).toBeLessThan(12500);
-    expect(vi.mocked(context.emitEvent).mock.calls.at(-1)?.[2]).toContain('Searched 505000 characters of page text for "match"');
-  });
-
-  it('merges matches that share their context', () => {
-    expect(findPassages('Total: 3 items. Total due: $30.', 'total')).toBe('2 matches for "total":\n[at character 0] Total: 3 items. Total due: $30.');
-  });
-
-  it('returns a matched table row whole, with the table header, instead of a window into the next row', () => {
-    const page = 'Results\nName\tWins\tLosses\nAmber\t12\t3\nBirch\t7\t9\nFooter text';
-    expect(findPassages(page, 'birch')).toBe('1 match for "birch":\n[at character 36] table header: Name | Wins | Losses\n  row: Birch | 7 | 9');
-    // Pipe-separated rows count as a table; two matches in one row give the row once.
-    expect(findPassages('| Item | Price |\n| Pen 2 | Pen $3 |', 'pen')).toBe('2 matches for "pen":\n[at character 17] table header: Item | Price\n  row: Pen 2 | Pen $3');
-    // Text outside a table keeps the passage around the match.
-    expect(findPassages(page, 'footer')).toContain('[at character 0] Results Name Wins Losses Amber 12 3 Birch 7 9 Footer text');
-  });
-
-  it('answers an unchanged re-read with a note while the earlier read is recent, and resends it later', async () => {
-    const { handler, context } = handlerFor({ getCompletePageContent: vi.fn(async () => 'Short page') });
-
-    await handler.handleGetCompletePageContent({});
-    const again = await handler.handleGetCompletePageContent({});
-    expect(again.extractedContent).toContain('same as your previous read (10 characters)');
-
-    context.nSteps = 10;
-    const later = await handler.handleGetCompletePageContent({});
-    expect(later.extractedContent).toContain('Short page');
+    expect(past.extractedContent).toContain('at or past the end of the text');
   });
 });
 

@@ -262,6 +262,9 @@ export class FakeBrowserContext {
     formCommitInfo: async (node?: DOMElementNode) => this.formFor(node),
     navigateTo: async (url: string) => this.act({ type: 'navigate', url }),
     getCompletePageContent: async () => this.current.content ?? [...(this.current.text ?? []), ...(this.current.offscreenText ?? [])].join('\n'),
+    /** The read tools extract in the page; the fake has no DOM, so it returns the same text as markdown would be. */
+    readPageMarkdown: async () => this.current.content ?? [...(this.current.text ?? []), ...(this.current.offscreenText ?? [])].join('\n\n'),
+    nextPageHref: async () => '',
     /** Scrolling does not change the page served. */
     scrollToText: async (text: string) => {
       this.actions.push({ type: 'scroll_to_text', text });
