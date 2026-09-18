@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SystemMessage, type HumanMessage } from '@langchain/core/messages';
 import { ActionResult, type AgentContext } from '../../types';
 import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
-import { BasePrompt, capPromptSection, controlSummary, dropUnshownIndexes, scrollViewportPercentage, windowAroundViewport } from '../base';
+import { BasePrompt, capPromptSection, controlSummary, deadTab, dropUnshownIndexes, scrollViewportPercentage, windowAroundViewport } from '../base';
 
 class BrowserStatePrompt extends BasePrompt {
   getSystemMessage(): SystemMessage {
@@ -329,5 +329,60 @@ describe('control summary above the element list', () => {
     const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);
 
     expect(content).toMatch(/Collapsed sections: \[1\] Price, \[3\] Sort by\nControls: [^\n]+\n\[0\]\^?<input/);
+  });
+});
+
+describe('the tab list', () => {
+  it('leaves out the empty tab and the agent own pages, and keeps real ones', () => {
+    expect(deadTab('about:blank')).toBe(true);
+    expect(deadTab('')).toBe(true);
+    expect(deadTab(undefined)).toBe(true);
+    expect(deadTab('chrome-extension://abcdefghijklmnop/side-panel/index.html')).toBe(true);
+    expect(deadTab('https://example.com/')).toBe(false);
+    expect(deadTab('chrome://extensions')).toBe(false);
+  });
+
+  it('is not shown for a window whose other tabs are all dead', async () => {
+    const root = new DOMElementNode({ tagName: 'body', xpath: '', attributes: {}, children: [], isVisible: true });
+    const link = new DOMElementNode({
+      tagName: 'a',
+      xpath: '/a',
+      attributes: { href: '/next' },
+      children: [],
+      isVisible: true,
+      isInViewport: true,
+      highlightIndex: 0,
+      parent: root,
+    });
+    root.children.push(link);
+    const browserState = {
+      elementTree: root,
+      selectorMap: new Map([[0, link]]),
+      tabId: 7,
+      url: 'https://example.com/',
+      title: 'Example',
+      screenshot: null,
+      scrollY: 0,
+      scrollHeight: 800,
+      visualViewportHeight: 800,
+      tabs: [
+        { id: 7, url: 'https://example.com/', title: 'Example' },
+        { id: 8, url: 'about:blank', title: 'New Tab' },
+        { id: 9, url: 'chrome-extension://abcdefghijklmnop/side-panel/index.html', title: 'WebGenie' },
+        { id: 10, url: 'https://other.test/', title: 'Other' },
+      ],
+    };
+    const context = {
+      browserContext: { getCachedState: vi.fn().mockResolvedValue(browserState) },
+      options: { useVision: false, includeAttributes: null, logDOMSnapshot: false },
+      actionResults: [],
+      messageManager: { getWorkingMemory: vi.fn().mockReturnValue('') },
+    } as unknown as AgentContext;
+
+    const content = String((await new BrowserStatePrompt().getUserMessage(context)).content);
+
+    expect(content).not.toContain('about:blank');
+    expect(content).not.toContain('chrome-extension://');
+    expect(content).toContain('https://other.test/');
   });
 });

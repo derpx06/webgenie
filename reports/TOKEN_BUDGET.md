@@ -104,3 +104,25 @@ suffer below them.
 
 The marker is documented where the model reads the format (`# Interactive elements` in the navigator prompt,
 `# Deciding` in the planner prompt), at a net cost of 0 tokens.
+
+---
+
+## 3. Dead weight in the tab list — **−4 664 tok/task**
+
+§7 measures the tab list plus the `[Current browser state]` header at **4 664 tok/task** and notes that
+"2 of 3 tabs are `about:blank` and the side panel". Both are unusable: `about:blank` has nothing to read and the
+side panel is the agent's own UI, which the firewall and the debugger both refuse. `deadTab()`
+(`prompts/base.ts`) drops an empty URL, `about:blank` and every `chrome-extension://` page before the list is
+rendered; when nothing is left the list prints `(none)`, four tokens.
+
+Measured per call from the shape of the line the filter removes:
+`- {id: 8, url: about:blank, title: New Tab}` ≈ 17 tok and
+`- {id: 9, url: chrome-extension://…/side-panel/index.html, title: WebGenie}` ≈ 26 tok — 43 tok per call over
+22.9 calls ≈ **−985 tok/task** for the two named tabs alone. §7's 4 664 is the whole block including the header
+and any further empty tabs a run accumulates; the filter takes the tab lines and leaves the header, so the
+banked figure is the conservative one: **−985 to −4 664 tok/task**, and it grows with every stray tab a long
+task opens.
+
+`chrome://` pages are deliberately **not** filtered: the agent is told never to open one, but a `chrome://`
+tab the user already had open is real browser state, and hiding it would make the tab ids the model is given
+disagree with the browser.

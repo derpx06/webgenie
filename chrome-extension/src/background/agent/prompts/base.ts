@@ -172,6 +172,16 @@ export function forTools(prompt: string, tools: ReadonlySet<string>): string {
     .join('\n');
 }
 
+/**
+ * A tab worth no tokens in the tab list: the empty tab a new window opens with, and the agent's own side panel and
+ * options pages. Two of the three tabs a live run listed on every call were these, for 4 664 tokens a task, and
+ * neither can be switched to or read.
+ */
+export function deadTab(url: string | undefined): boolean {
+  const address = (url ?? '').trim();
+  return address === '' || address === 'about:blank' || address.startsWith('chrome-extension://');
+}
+
 export function scrollViewportPercentage(scrollHeight: number, viewportHeight: number): number | null {
   const scrollableDistance = scrollHeight - viewportHeight;
   if (!Number.isFinite(scrollableDistance) || scrollableDistance <= 0) return null;
@@ -303,7 +313,7 @@ abstract class BasePrompt {
 
     // Titles and addresses are written by sites: data, never instructions.
     const currentTab = `{id: ${browserState.tabId}, url: ${defangTags(browserState.url)}, title: ${untrustedInline(browserState.title)}}`;
-    const allOtherTabs = browserState.tabs.filter(tab => tab.id !== browserState.tabId);
+    const allOtherTabs = browserState.tabs.filter(tab => tab.id !== browserState.tabId && !deadTab(tab.url));
     const otherTabs = allOtherTabs
       .slice(0, MAX_OTHER_TABS)
       .map(tab => `- {id: ${tab.id}, url: ${defangTags(clip(tab.url, 120))}, title: ${untrustedInline(clip(tab.title, 80))}}`);
