@@ -204,6 +204,7 @@ export class AgentContext {
       usage: {
         inputTokens: this.messageManager.cumulativeInputTokens,
         outputTokens: this.messageManager.cumulativeOutputTokens,
+        cachedTokens: this.messageManager.cumulativeCachedTokens,
       },
     }, Date.now(), undefined, screenshot);
     await this.eventManager.emit(event);

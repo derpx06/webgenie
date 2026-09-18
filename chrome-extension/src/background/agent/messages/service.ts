@@ -139,6 +139,10 @@ export default class MessageManager {
 
   // ── Transcript ────────────────────────────────────────────────────────────
 
+  get cumulativeCachedTokens(): number {
+    return this.history.cumulativeCachedTokens;
+  }
+
   get cumulativeInputTokens(): number {
     return this.history.cumulativeInputTokens;
   }
@@ -260,9 +264,9 @@ export default class MessageManager {
 
   // ── Token usage ───────────────────────────────────────────────────────────
 
-  /** Records the actual token usage reported by the LLM. */
-  public recordTokenUsage(input: number, output: number): void {
-    this.history.updateCumulativeTokens(input, output);
+  /** Records the actual token usage reported by the LLM, cache reads kept apart from fresh input. */
+  public recordTokenUsage(input: number, output: number, cached = 0): void {
+    this.history.updateCumulativeTokens(input, output, cached);
     void this.saveToSession();
 
     // Accumulate for batching to prevent Chrome Storage I/O stalls

@@ -44,10 +44,13 @@ export class MessageHistory {
   totalTokens = 0;
   cumulativeInputTokens = 0;
   cumulativeOutputTokens = 0;
+  /** Of the input tokens, the ones the provider served from its prompt cache. */
+  cumulativeCachedTokens = 0;
 
-  updateCumulativeTokens(input: number, output: number): void {
+  updateCumulativeTokens(input: number, output: number, cached = 0): void {
     this.cumulativeInputTokens += input;
     this.cumulativeOutputTokens += output;
+    this.cumulativeCachedTokens += cached;
   }
 
   addMessage(message: BaseMessage, metadata: MessageMetadata, position?: number): void {
@@ -106,6 +109,7 @@ export interface SerializedHistoryData {
   totalTokens: number;
   cumulativeInputTokens: number;
   cumulativeOutputTokens: number;
+  cumulativeCachedTokens?: number;
 }
 
 export function serializeHistory(history: MessageHistory): SerializedHistoryData {
@@ -140,6 +144,7 @@ export function serializeHistory(history: MessageHistory): SerializedHistoryData
     totalTokens: history.totalTokens,
     cumulativeInputTokens: history.cumulativeInputTokens,
     cumulativeOutputTokens: history.cumulativeOutputTokens,
+    cumulativeCachedTokens: history.cumulativeCachedTokens,
   };
 }
 

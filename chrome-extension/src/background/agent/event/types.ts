@@ -62,6 +62,8 @@ export interface EventData {
   usage?: {
     inputTokens: number;
     outputTokens: number;
+    /** Of inputTokens, the ones the provider served from its prompt cache: re-read prefix, not new context. */
+    cachedTokens?: number;
   };
 }
 

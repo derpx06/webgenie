@@ -464,6 +464,9 @@ export class Harness {
     let answer = '';
     let maxStep = 0;
     let inputTokens = 0;
+    // Cache reads are the same prefix served again, not context the task grew: the budget counts fresh input only.
+    // Counting them ended 13 of 60 tasks of one round that were inside budget on fresh tokens (346k average).
+    let cachedTokens = 0;
     let stopReason = null;
     let stopAt = 0;
     // Every question the agent asks; scripted answers are given in order, anything else stops the task.
@@ -553,6 +556,7 @@ export class Harness {
         }
         maxStep = Math.max(maxStep, e.data?.step ?? 0);
         inputTokens = Math.max(inputTokens, e.data?.usage?.inputTokens ?? 0);
+        cachedTokens = Math.max(cachedTokens, e.data?.usage?.cachedTokens ?? 0);
         if (e.state === 'act.ask_human' && !stopReason) {
           let question = String(e.data?.details ?? '');
           try {
@@ -595,7 +599,7 @@ export class Harness {
       if (!outcome && !stopReason) {
         if (Date.now() - started > maxMs) await stop('limit_time');
         else if (maxStep >= maxSteps) await stop('limit_steps');
-        else if (inputTokens > maxInputTokens) await stop('limit_tokens');
+        else if (inputTokens - cachedTokens > maxInputTokens) await stop('limit_tokens');
       }
       if (!outcome && stopReason && Date.now() - stopAt > 15_000) outcome = stopReason;
     }

@@ -79,7 +79,7 @@ export abstract class BaseAgent<M = unknown> {
         signal: this.context.controller.signal,
         callbacks: this.context.traceCallbacks,
         callOptions: this.callOptions,
-        onUsage: usage => this.context.messageManager.recordTokenUsage(usage.inputTokens, usage.outputTokens),
+        onUsage: usage => this.context.messageManager.recordTokenUsage(usage.inputTokens, usage.outputTokens, usage.cacheReadTokens),
       });
     try {
       return this.recordSession(messages, await run());
