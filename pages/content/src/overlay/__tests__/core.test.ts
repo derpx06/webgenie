@@ -11,7 +11,10 @@ import {
   stageColors,
   stageForAction,
   targetPoint,
+  travelMotion,
   truncateGoal,
+  typingCursorPoint,
+  typingSweep,
 } from '../core';
 import type { ActionKind, Rect } from '../core';
 
@@ -96,6 +99,36 @@ describe('chipPlacement', () => {
   it('never places the chip off the left edge', () => {
     expect(chipPlacement({ x: 4, y: 790 }, size, VIEWPORT).x).toBeGreaterThanOrEqual(8);
   });
+
+  const overlaps = (place: { x: number; y: number }, box: Rect) =>
+    place.x < box.x + box.w && place.x + size.width > box.x && place.y < box.y + box.h && place.y + size.height > box.y;
+
+  it('clears the element the agent is about to touch', () => {
+    const field = rect({ x: 200, y: 260, w: 600, h: 52 });
+    // The cursor is inside the field, so trailing it would put the chip straight on top of the field.
+    const place = chipPlacement({ x: 400, y: 286 }, size, VIEWPORT, 18, field);
+    expect(overlaps(place, field)).toBe(false);
+    expect(place.y).toBeGreaterThanOrEqual(field.y + field.h);
+  });
+
+  it('goes above the element when there is no room under it', () => {
+    const footer = rect({ x: 200, y: 700, w: 600, h: 90 });
+    const place = chipPlacement({ x: 400, y: 745 }, size, VIEWPORT, 18, footer);
+    expect(overlaps(place, footer)).toBe(false);
+    expect(place.flipY).toBe(true);
+  });
+
+  it('hugs a viewport edge rather than covering an element that fills the page', () => {
+    const huge = rect({ x: 0, y: 0, w: VIEWPORT.width, h: VIEWPORT.height });
+    const place = chipPlacement({ x: 600, y: 400 }, size, VIEWPORT, 18, huge);
+    expect(place.x).toBeGreaterThanOrEqual(8);
+    expect(place.x + size.width).toBeLessThanOrEqual(VIEWPORT.width);
+    expect(place.y + size.height).toBeLessThanOrEqual(VIEWPORT.height);
+  });
+
+  it('still just trails the cursor when there is no element to clear', () => {
+    expect(chipPlacement({ x: 100, y: 100 }, size, VIEWPORT)).toMatchObject({ x: 118, y: 118, flipY: false });
+  });
 });
 
 describe('haloBox', () => {
@@ -161,5 +194,105 @@ describe('motion', () => {
     expect(motion(false, 620)).toBe(620);
     expect(motion(true, 620)).toBe(140);
     expect(motion(true, 80)).toBe(80);
+  });
+});
+
+describe('travelMotion', () => {
+  it('leans into the direction it is travelling and unwinds the sign on the way back', () => {
+    const right = travelMotion({ x: 0, y: 0 }, { x: 400, y: 0 });
+    const left = travelMotion({ x: 400, y: 0 }, { x: 0, y: 0 });
+    expect(right.tilt).toBeGreaterThan(0);
+    expect(left.tilt).toBe(-right.tilt);
+    expect(right.distance).toBe(400);
+  });
+
+  it('never leans further than the cap, however far it travels', () => {
+    expect(travelMotion({ x: 0, y: 0 }, { x: 5000, y: 0 }).tilt).toBe(11);
+    expect(travelMotion({ x: 0, y: 0 }, { x: 5000, y: 0 }, 6).tilt).toBe(6);
+  });
+
+  it('barely leans on a short hop, and not at all on a straight drop', () => {
+    expect(travelMotion({ x: 0, y: 0 }, { x: 20, y: 0 }).tilt).toBeLessThan(1.5);
+    expect(travelMotion({ x: 0, y: 0 }, { x: 0, y: 300 }).tilt).toBe(0);
+  });
+
+  it('points the smear back the way it came', () => {
+    // Travelling right means the trail lies to the left: 180 degrees.
+    expect(Math.abs(travelMotion({ x: 0, y: 0 }, { x: 100, y: 0 }).trail)).toBe(180);
+    expect(travelMotion({ x: 100, y: 0 }, { x: 0, y: 0 }).trail).toBe(0);
+    // CSS rotates clockwise, so travelling down leaves the trail pointing up: -90 degrees.
+    expect(travelMotion({ x: 0, y: 0 }, { x: 0, y: 100 }).trail).toBe(-90);
+    expect(travelMotion({ x: 0, y: 100 }, { x: 0, y: 0 }).trail).toBe(90);
+  });
+
+  it('has nothing to say about a cursor that did not move', () => {
+    expect(travelMotion({ x: 7, y: 7 }, { x: 7, y: 7 })).toEqual({ distance: 0, tilt: 0, trail: 0 });
+  });
+});
+
+describe('typingSweep', () => {
+  it('starts at the left edge, ends at the far end, and only ever moves forward', () => {
+    const sweep = typingSweep(200);
+    expect(sweep[0]).toEqual({ offset: 0, x: 0 });
+    expect(sweep[sweep.length - 1]).toEqual({ offset: 1, x: 200 });
+    for (let i = 1; i < sweep.length; i += 1) {
+      expect(sweep[i].offset).toBeGreaterThanOrEqual(sweep[i - 1].offset);
+      expect(sweep[i].x).toBeGreaterThanOrEqual(sweep[i - 1].x);
+    }
+  });
+
+  it('types in bursts with a pause between them, rather than sliding at a constant speed', () => {
+    const sweep = typingSweep(200, 4);
+    // Each burst contributes a move and a hold at the same x: that repeated x is the thinking pause.
+    const holds = sweep.filter((frame, i) => i > 0 && frame.x === sweep[i - 1].x);
+    expect(holds).toHaveLength(4);
+    // Halfway through the animation the caret is nowhere near exactly halfway across the field.
+    const midway = sweep.find(frame => frame.offset === 0.5);
+    expect(midway?.x).toBe(100);
+  });
+
+  it('degrades to a straight line for an empty or nonsensical field', () => {
+    expect(typingSweep(0)).toEqual([
+      { offset: 0, x: 0 },
+      { offset: 1, x: 0 },
+    ]);
+    expect(typingSweep(-40)).toEqual([
+      { offset: 0, x: 0 },
+      { offset: 1, x: 0 },
+    ]);
+    expect(typingSweep(100, 0)).toEqual([
+      { offset: 0, x: 0 },
+      { offset: 1, x: 100 },
+    ]);
+  });
+
+  it('stays inside the animation for any number of bursts', () => {
+    for (const bursts of [1, 2, 7, 20]) {
+      const sweep = typingSweep(300, bursts);
+      expect(sweep.every(frame => frame.offset >= 0 && frame.offset <= 1)).toBe(true);
+      expect(sweep[sweep.length - 1].x).toBe(300);
+    }
+  });
+});
+
+describe('typingCursorPoint', () => {
+  const track = caretTrack(rect(), VIEWPORT);
+
+  it('puts the tip just past the caret so the arrow does not sit on the text', () => {
+    const point = typingCursorPoint(track);
+    expect(point.x).toBeGreaterThan(track.x);
+    expect(point.y).toBeGreaterThan(track.y);
+    expect(point.y).toBeLessThan(track.y + track.height / 2);
+  });
+
+  it('walks right with the text and holds the same line', () => {
+    const start = typingCursorPoint(track, 0);
+    const end = typingCursorPoint(track, track.travel);
+    expect(end.x - start.x).toBe(track.travel);
+    expect(end.y).toBe(start.y);
+  });
+
+  it('never walks backwards past the start of the field', () => {
+    expect(typingCursorPoint(track, -50)).toEqual(typingCursorPoint(track, 0));
   });
 });

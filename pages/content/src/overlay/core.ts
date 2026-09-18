@@ -101,19 +101,59 @@ export function clampPoint(point: Point, viewport: Viewport, margin = 16): Point
 }
 
 /**
- * Where the goal chip sits relative to the cursor. It trails the cursor to the lower right, flips to the
- * other side near an edge, and never hangs off the viewport.
+ * Where the goal chip sits.
+ *
+ * The chip labels what the agent is about to do, so the one place it must never be is on top of the
+ * thing it is labelling — or on the pointer that is reaching for it. Sides are tried in order of how
+ * naturally they read (trailing the cursor first, then under the element, then the mirrored sides);
+ * the first one that fits the viewport and clears the target wins. When the target is big enough that
+ * no side is free, the chip goes against the nearest viewport edge on whichever side of the target has
+ * more room — a chip half off the page is still readable, a chip over the target is not.
  */
-export function chipPlacement(point: Point, size: { width: number; height: number }, viewport: Viewport, gap = 18) {
-  const flipX = point.x + gap + size.width > viewport.width - 8;
-  const flipY = point.y + gap + size.height > viewport.height - 8;
-  const x = flipX ? point.x - gap - size.width : point.x + gap;
-  const y = flipY ? point.y - gap - size.height : point.y + gap;
-  return {
-    x: Math.min(Math.max(x, 8), Math.max(8, viewport.width - size.width - 8)),
-    y: Math.min(Math.max(y, 8), Math.max(8, viewport.height - size.height - 8)),
-    flipX,
-  };
+export function chipPlacement(
+  point: Point,
+  size: { width: number; height: number },
+  viewport: Viewport,
+  gap = 18,
+  avoid?: Rect,
+) {
+  const edge = 8;
+  const maxX = Math.max(edge, viewport.width - size.width - edge);
+  const maxY = Math.max(edge, viewport.height - size.height - edge);
+  const blocked = avoid
+    ? { left: avoid.x - gap, top: avoid.y - gap, right: avoid.x + avoid.w + gap, bottom: avoid.y + avoid.h + gap }
+    : null;
+  const hits = (x: number, y: number) =>
+    !!blocked &&
+    x < blocked.right &&
+    x + size.width > blocked.left &&
+    y < blocked.bottom &&
+    y + size.height > blocked.top;
+
+  const right = point.x + gap;
+  const left = point.x - gap - size.width;
+  const under = (avoid ? avoid.y + avoid.h : point.y) + gap;
+  const over = (avoid ? avoid.y : point.y) - gap - size.height;
+  const candidates = [
+    { x: right, y: point.y + gap },
+    { x: right, y: under },
+    { x: left, y: point.y + gap },
+    { x: left, y: under },
+    { x: right, y: over },
+    { x: left, y: over },
+  ];
+  for (const spot of candidates) {
+    if (spot.x < edge || spot.x > maxX || spot.y < edge || spot.y > maxY) continue;
+    if (hits(spot.x, spot.y)) continue;
+    return { x: spot.x, y: spot.y, flipX: spot.x < point.x, flipY: spot.y < point.y };
+  }
+
+  // Nothing clears it: take the gap above or below the target, whichever is deeper, and hug that edge.
+  const roomBelow = avoid ? viewport.height - (avoid.y + avoid.h) : viewport.height;
+  const roomAbove = avoid ? avoid.y : 0;
+  const y = Math.min(Math.max(roomBelow >= roomAbove ? maxY : edge, edge), maxY);
+  const x = Math.min(Math.max(point.x + gap > maxX ? left : right, edge), maxX);
+  return { x, y, flipX: x < point.x, flipY: y < point.y };
 }
 
 /**
@@ -168,3 +208,61 @@ export function motion(reduced: boolean, ms: number): number {
 export const TRAVEL_EASING = 'cubic-bezier(0.34, 1.24, 0.42, 1)';
 /** Everything that is not travel — fades, dips, glows. */
 export const SOFT_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
+
+/**
+ * The physics of one glide, from the two points alone.
+ *
+ * `tilt` leans the pointer into the direction it is travelling — a hand swinging sideways tips the
+ * pen — and is capped so a long sweep never looks like a cartwheel. `trail` is the compass bearing
+ * of where the cursor came *from*, which is where the motion smear has to point. `distance` scales
+ * how much of either effect is worth drawing.
+ */
+export function travelMotion(from: Point, to: Point, maxTilt = 11): { distance: number; tilt: number; trail: number } {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const distance = Math.hypot(dx, dy);
+  // Lean comes from sideways motion only: a straight drop should not tip the pointer over.
+  const lean = distance > 0 ? (dx / distance) * Math.min(1, distance / 260) : 0;
+  return {
+    distance,
+    tilt: Math.round(lean * maxTilt * 10) / 10,
+    // `|| 0` folds a negative zero (a purely horizontal glide) back to plain 0.
+    trail: distance > 0 ? (Math.atan2(-dy, -dx) * 180) / Math.PI || 0 : 0,
+  };
+}
+
+/**
+ * How far the caret — and the cursor with it — has moved at each moment of a typed word.
+ *
+ * Real typing is bursts and thinking pauses, not a constant slide, so each burst covers its share of
+ * the field and then holds while the next one is "thought of". The offsets are fractions of the
+ * typing animation, so the caret and the cursor can be driven from the same list and stay in step.
+ */
+export function typingSweep(travel: number, bursts = 4): Array<{ offset: number; x: number }> {
+  const width = Math.max(0, travel);
+  if (!(width > 0) || bursts < 1) {
+    return [
+      { offset: 0, x: 0 },
+      { offset: 1, x: width },
+    ];
+  }
+  const slot = 1 / bursts;
+  const round = (n: number) => Math.min(1, Math.round(n * 1e4) / 1e4);
+  const frames = [{ offset: 0, x: 0 }];
+  for (let i = 1; i <= bursts; i += 1) {
+    const x = (width * i) / bursts;
+    // The burst lands a quarter of a slot early, then the same x is held again: that gap is the pause.
+    frames.push({ offset: round(slot * (i - 0.25)), x });
+    frames.push({ offset: round(slot * i), x });
+  }
+  frames[frames.length - 1] = { offset: 1, x: width };
+  return frames;
+}
+
+/**
+ * Where the pointer's tip sits while it writes: just past the caret and a hair above the text
+ * baseline, so the arrow's body hangs below the line it is writing instead of covering it.
+ */
+export function typingCursorPoint(track: { x: number; y: number; height: number }, travelled = 0): Point {
+  return { x: track.x + Math.max(0, travelled) + 2, y: track.y + track.height / 2 - 2 };
+}
