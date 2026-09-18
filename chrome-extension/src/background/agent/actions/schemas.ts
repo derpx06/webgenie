@@ -286,14 +286,14 @@ export const readPageActionSchema: ActionSchema = {
     mode: z
       .enum(['main', 'full', 'structured'])
       .optional()
-      .describe("'main' article or result list without navigation (default), 'full' every text on the page, 'structured' the heading outline only"),
-    max_tokens: z.number().int().optional().describe('size of this part, 200-8000 tokens; defaults to 3000'),
-    section: z.string().optional().describe('read only this section, by its outline id (s3) or heading text'),
-    cursor: z.number().int().optional().describe('character offset from a previous read, to read on from there'),
+      .describe("'main' content without navigation (default), 'full' all text, 'structured' outline only"),
+    max_tokens: z.number().int().optional().describe('size of this part, 200-8000; default 3000'),
+    section: z.string().optional().describe('one section, by outline id (s3) or heading'),
+    cursor: z.number().int().optional().describe('offset from a previous read, to continue'),
     all_pages: z
       .boolean()
       .optional()
-      .describe("true to follow the list's next-page links, or load more by scrolling, and read every page"),
+      .describe('true to follow next-page links or load more, reading every page'),
     max_pages: z.number().int().optional().describe('pages to read with all_pages, 1-20; defaults to 5'),
   }),
 };
@@ -301,7 +301,7 @@ export const readPageActionSchema: ActionSchema = {
 export const extractActionSchema: ActionSchema = {
   name: 'extract',
   description:
-    'Pull typed data off the page against a JSON Schema you give: lists, tables and grids. The result says which fields were parsed from the page and which a model filled in, with a confidence for each.',
+    'Pull typed data off the page against a JSON Schema you give: lists, tables, grids. Says per field whether it was parsed or inferred.',
   schema: z.object({
     schema: z
       .string()
@@ -313,7 +313,7 @@ export const extractActionSchema: ActionSchema = {
 export const findInPageActionSchema: ActionSchema = {
   name: 'find_in_page',
   description:
-    'Find a text anywhere on the page without reading it all: every match comes back with the text around it and, where there is one, the element index to act on.',
+    'Find text anywhere on the page without reading it all: each match with its surroundings and, where there is one, the element index.',
   schema: z.object({
     query: z.string().describe('the text to find, or a regular expression when regex is true'),
     regex: z.boolean().optional().describe('true to read query as a JavaScript regular expression; defaults to false'),

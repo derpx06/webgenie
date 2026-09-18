@@ -64,18 +64,22 @@ describe('model-facing tool definitions', () => {
    * The tool block is uploaded on every navigator call (17.2 a task in the r2-cand run) and was 15.6% of that
    * run's whole input bill, so a description that grows costs more than it reads. The ceilings are the measured
    * size after `reports/TOKEN_BUDGET.md` §5 plus ~5% headroom; raise one only with a measurement that earns it.
+   * Raised once, deliberately: read_page, find_in_page and extract added ~2,400 characters (~600 tokens a call) and
+   * removed the scroll loop that cost 710 wasted steps across 247 reviewed tasks, so the block buys back far more
+   * than it costs. Capability outranks the budget; the budget still refuses growth that buys nothing.
    */
   it('stays inside its character budget, which is what the model pays for', () => {
     const defaults = new Set([
       'done', 'ask_human', 'search_web', 'go_to_url', 'go_back', 'go_forward', 'wait',
       'click_element', 'hover_element', 'right_click_element', 'input_text', 'upload_file', 'drag_element',
       'handle_dialog', 'select_dropdown_option', 'switch_tab', 'open_tab', 'close_tab',
-      'get_complete_page_content', 'save_findings', 'scroll', 'scroll_to_text', 'view_screenshot', 'send_keys',
+      'get_complete_page_content', 'read_page', 'find_in_page', 'extract',
+      'save_findings', 'scroll', 'scroll_to_text', 'view_screenshot', 'send_keys',
     ]);
     const defaultBlock = tools.filter(tool => defaults.has(tool.function.name));
     expect(defaultBlock).toHaveLength(defaults.size);
-    expect(JSON.stringify(defaultBlock).length).toBeLessThan(14_500);
-    expect(JSON.stringify(tools).length).toBeLessThan(21_700);
+    expect(JSON.stringify(defaultBlock).length).toBeLessThan(17_000);
+    expect(JSON.stringify(tools).length).toBeLessThan(24_200);
     // No description carries a worked example or a retention detail no call can act on.
     for (const tool of tools) expect(tool.function.description.length).toBeLessThan(260);
   });

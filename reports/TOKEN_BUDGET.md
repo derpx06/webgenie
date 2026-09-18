@@ -277,3 +277,17 @@ Two throwaway files, deleted after the run rather than committed:
 
 The tool block's size is now pinned by `actions/__tests__/tools.test.ts`, so the measurement does not need to be
 re-run to catch a regression.
+
+
+## Ceiling raised once, for capability (2026-09-18)
+
+`read_page`, `find_in_page` and `extract` added about 2,400 characters to the tool block —
+roughly 600 tokens on every navigator call, ~13k tokens a task — so the block's test ceiling
+went from 21,700 to 24,200 characters (default block 14,500 → 17,000).
+
+It is worth it, and the ordering matters: **accuracy and task performance come before token
+efficiency** (`DECISIONS.md` D4). The scroll loop those tools replace cost 710 wasted steps
+and $3.27 across 247 reviewed tasks, and the live measurement in `reports/READING.md` shows
+one question answered in 2 steps and 536 tokens where the old path took 3 steps and 9,000.
+The budget is not a cap on capability; it refuses growth that buys nothing, which is why the
+same pass trimmed every new description before raising the number.
