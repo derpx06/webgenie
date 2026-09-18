@@ -7,7 +7,7 @@ import type MessageManager from './messages/service';
 import type { EventManager } from './event/manager';
 import { type Actors, type ExecutionState, AgentEvent } from './event/types';
 import { AgentStepHistory } from './history';
-import { TaskArchive } from './memory';
+import { TaskArchive, TaskLedger } from './memory';
 import type { RouteStep } from './memory';
 import type { RunTree } from 'langsmith';
 import type { Callbacks } from '@langchain/core/callbacks/manager';
@@ -174,6 +174,8 @@ export class AgentContext {
   traceCallbacks?: Callbacks;
   /** Finished tasks of this conversation, for follow-ups. */
   taskArchive = new TaskArchive();
+  /** Where this task has been, what was refused and which pages were dead ends; written by the harness, not the model. */
+  ledger = new TaskLedger();
   /** Where this task's successful actions happened, saved as a route once the planner confirms the task. */
   routeSteps: RouteStep[] = [];
   /** The saved route for this task's start page; undefined until read. */

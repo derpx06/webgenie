@@ -18,6 +18,8 @@ const FINDINGS_CHARS = 1500;
 /** The agent's own notes, and how many of the latest are kept; it is a scratchpad, not the task's output. */
 const NOTES_CHARS = 1200;
 const NOTES_KEPT = 20;
+/** The visited-and-dead-end ledger; about 400 tokens, the budget P3 sets for it. */
+const LEDGER_CHARS = 1600;
 
 interface ToolTurn {
   kind: 'turn';
@@ -176,6 +178,10 @@ export class ContextBuilder {
     const todos = renderTodos(context.todos ?? []);
     if (todos) sections.push(`[TASK PARTS]\n${todos}`);
     if (context.downloads?.size) sections.push(`[DOWNLOADS]\n${[...context.downloads.values()].map(line => `- ${line}`).join('\n')}`);
+
+    // Where this task has already been and what it was refused: the block that stops it going round again.
+    const ledger = context.ledger?.render(LEDGER_CHARS) ?? '';
+    if (ledger) sections.push(`[ALREADY TRIED]\n${ledger}`);
 
     if (context.blockedState) sections.push(`[BLOCKED]\n${JSON.stringify(context.blockedState).slice(0, 700)}`);
     return sections;

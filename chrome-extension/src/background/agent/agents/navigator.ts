@@ -543,6 +543,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           const unshown = [indexArg, args.target_index].find(index => typeof index === 'number' && this.context.promptIndexes && !this.context.promptIndexes.has(index));
           if (unshown !== undefined) {
             const msg = `Element index ${unshown} is not in the element list you were given (it may come from an earlier read or message); use an index from the current list. If what you want is not listed, bring it into the list first (open the section, menu or dialog that holds it, or scroll), then use the index the new list gives it.`;
+            this.context.ledger.refused(actionName, `element index ${unshown} was not in the list you were given`);
             this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
             results.push(new ActionResult({
               executed: false,
@@ -609,6 +610,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           const refusalKey = `${actionName} ${JSON.stringify(refusedArgs)}`;
           const times = (this.context.refusedActions.get(refusalKey) ?? 0) + 1;
           this.context.refusedActions.set(refusalKey, times);
+          this.context.ledger.refused(actionName, reason);
           const msg = times > 1
             ? `${reason} You have tried this exact action ${times} times and it is refused every time. Do something different; if the task cannot go on without it, finish with done (success: false) and explain what blocks it.`
             : reason;
@@ -959,6 +961,8 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           break;
         }
 
+        // Backing out of a page says it led nowhere; going there again costs the same steps it cost the first time.
+        if (actionName === 'go_back') this.context.ledger.deadEnd(addressKey(beforeState.url), 'you went back from it');
         const actionStartedAt = Date.now();
         if (commit) this.context.approvedCommitKey = null;
         this.showOnPage(actionName, indexedNode);
@@ -1085,6 +1089,10 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           || appeared.length > 0
           || addressKey(postActionState.url) !== addressKey(beforeState.url)
           || postActionState.scrollHeight !== beforeState.scrollHeight;
+        this.context.ledger.visited(
+          addressKey(postActionState.url),
+          changedPage ? postActionState.title : `${postActionState.title || 'no title'} (${actionName} changed nothing here)`,
+        );
         this.context.scrollRun = actionName === 'scroll' ? this.context.scrollRun + 1 : 0;
         // A page scroll says whether it listed anything new; one that did (a page that loads more) starts the count again.
         if (actionName === 'scroll' && indexArg === null && !result.error) {
