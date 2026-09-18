@@ -29,6 +29,7 @@ import {
 import { createLogger } from '@src/background/log';
 import { record } from '@src/background/trace';
 import { isUrlAllowed, isNewTabPage } from './util';
+import { NetworkLog, type NetRecord } from './network-log';
 import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
 import { pruneAXTree } from './dom/ax-tree-pruner';
 import type { IBrowserAdapter } from '../adapters/IBrowserAdapter';
@@ -538,6 +539,8 @@ export default class Page {
   private _windowOpened = false;
   /** The file input of the last chooser the page opened (intercepted), for uploadFile. */
   private _fileChooserNode: number | null = null;
+  /** What this tab asked the network for, so sniff_api can show the site's own data endpoints. */
+  private readonly _network = new NetworkLog();
   private _browserAdapter: IBrowserAdapter;
   private _storageProvider: IStorageProvider;
 
@@ -680,6 +683,7 @@ export default class Page {
         this._fileChooserOpened = true;
         this._fileChooserNode = event.backendNodeId ?? null;
       });
+      this._recordNetwork(client);
     } catch (error) {
       logger.warning('Could not configure the page session:', error);
     }
@@ -736,6 +740,68 @@ export default class Page {
     this._browser = null;
     this.markDetached();
     this._state = build_initial_state(this._tabId, this._state.url, this._state.title);
+  }
+
+  /**
+   * Records every request of this tab from the session that is already attached. Bodies are pulled only for JSON
+   * responses and only while the per-tab budget lasts, because each one is a CDP round trip.
+   */
+  private _recordNetwork(client: CDPSession): void {
+    void client.send('Network.enable', { maxTotalBufferSize: 10_000_000, maxResourceBufferSize: 5_000_000 }).catch(() => undefined);
+    client.on('Network.requestWillBeSent', event =>
+      this._network.started(event.requestId, event.request?.method ?? 'GET', event.request?.url ?? ''),
+    );
+    client.on('Network.responseReceived', event =>
+      this._network.responded(event.requestId, event.response?.status ?? 0, event.response?.mimeType ?? ''),
+    );
+    client.on('Network.loadingFailed', event => this._network.failed(event.requestId));
+    client.on('Network.loadingFinished', event => {
+      const done = this._network.finished(event.requestId, event.encodedDataLength ?? 0);
+      if (!done?.wantsBody) return;
+      void client
+        .send('Network.getResponseBody', { requestId: event.requestId })
+        .then(({ body, base64Encoded }) => this._network.sampled(done.record, base64Encoded ? atob(body) : body))
+        // The buffer evicts a body as soon as the page is busy; a record without a sample is still an endpoint.
+        .catch(() => undefined);
+    });
+  }
+
+  /** Every request this tab made, newest last. */
+  networkRecords(): NetRecord[] {
+    return this._network.all();
+  }
+
+  /**
+   * Requests an address from inside the page, so the site's own cookies, origin and headers apply — an endpoint the
+   * page itself called answers this exactly as it answered the page. The caller checks the address first.
+   */
+  async fetchInPage(url: string, maxChars: number): Promise<{ status: number; type: string; body: string; truncated: boolean }> {
+    await this.ensurePuppeteerConnected();
+    if (!this._puppeteerPage) throw new Error('Puppeteer is not connected');
+    return this._puppeteerPage.evaluate(
+      async (address: string, cap: number) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 20_000);
+        try {
+          const response = await fetch(address, {
+            credentials: 'include',
+            headers: { accept: 'application/json, text/plain, */*' },
+            signal: controller.signal,
+          });
+          const text = await response.text();
+          return {
+            status: response.status,
+            type: (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase(),
+            body: text.slice(0, cap),
+            truncated: text.length > cap,
+          };
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+      url,
+      maxChars,
+    );
   }
 
   async removeHighlight(): Promise<void> {

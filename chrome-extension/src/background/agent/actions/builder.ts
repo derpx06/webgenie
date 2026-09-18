@@ -31,6 +31,8 @@ import {
   readPageActionSchema,
   findInPageActionSchema,
   extractActionSchema,
+  sniffApiActionSchema,
+  fetchJsonActionSchema,
   manageBookmarksActionSchema,
   manageReadingListActionSchema,
   manageHistoryActionSchema,
@@ -52,6 +54,7 @@ import { NavigationHandler } from './handlers/navigation';
 import { InteractionHandler } from './handlers/interaction';
 import { TabHandler } from './handlers/tabs';
 import { ContentHandler } from './handlers/content';
+import { NetworkHandler } from './handlers/network';
 import { KeyboardHandler } from './handlers/keyboard';
 import { MemoryHandler } from './handlers/memory';
 import { ManageBookmarksHandler } from './handlers/manage-bookmarks';
@@ -179,6 +182,7 @@ export class ActionBuilder {
   private readonly interactionHandler: InteractionHandler;
   private readonly tabHandler: TabHandler;
   private readonly contentHandler: ContentHandler;
+  private readonly networkHandler: NetworkHandler;
   private readonly keyboardHandler: KeyboardHandler;
   private readonly memoryHandler: MemoryHandler;
   private readonly manageBookmarksHandler: ManageBookmarksHandler;
@@ -198,6 +202,7 @@ export class ActionBuilder {
     this.interactionHandler = new InteractionHandler(context);
     this.tabHandler = new TabHandler(context);
     this.contentHandler = new ContentHandler(context);
+    this.networkHandler = new NetworkHandler(context);
     this.keyboardHandler = new KeyboardHandler(context);
     this.memoryHandler = new MemoryHandler(context);
     this.manageBookmarksHandler = new ManageBookmarksHandler(context);
@@ -219,6 +224,7 @@ export class ActionBuilder {
       ...this.buildInteractionActions(),
       ...this.buildTabActions(),
       ...this.buildContentActions(),
+      ...this.buildNetworkActions(),
       ...this.buildKeyboardActions(),
       ...this.buildMemoryActions(),
       // They read or change the user's own browser data, which a page could try to talk the agent into: opt-in only.
@@ -293,6 +299,14 @@ export class ActionBuilder {
       new Action((input) => this.contentHandler.handleGetCompletePageContent(input), getCompletePageContentActionSchema),
       // Only for a model that reads images, with vision on (index.ts decides both).
       ...(this.context.options.useVision ? [new Action(() => this.contentHandler.handleViewScreenshot(), viewScreenshotActionSchema)] : []),
+    ];
+  }
+
+  /** Reading the site's own JSON instead of its pages; both only read, and only on the site the agent is on. */
+  private buildNetworkActions(): Action[] {
+    return [
+      new Action((input) => this.networkHandler.handleSniffApi(input), sniffApiActionSchema),
+      new Action((input) => this.networkHandler.handleFetchJson(input), fetchJsonActionSchema),
     ];
   }
 

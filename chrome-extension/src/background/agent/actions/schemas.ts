@@ -385,6 +385,27 @@ export const findInPageActionSchema: ActionSchema = {
   }),
 };
 
+export const sniffApiActionSchema: ActionSchema = {
+  name: 'sniff_api',
+  description:
+    "The JSON endpoints this site called while you browsed, with a sample of each. A list or table paged over many pages usually comes from one of them; fetch_json reads it in one call instead.",
+  schema: z.object({
+    filter: z.string().optional().describe('only endpoints whose address or sample contains this text'),
+    limit: z.number().int().optional().describe('endpoints to return, 1-30; defaults to 10'),
+  }),
+};
+
+export const fetchJsonActionSchema: ActionSchema = {
+  name: 'fetch_json',
+  description:
+    "Request a JSON address of the site you are on, in the page's own session, and read the reply. For an endpoint sniff_api showed; change its query to page or filter. It loads no page and clicks nothing.",
+  schema: z.object({
+    url: z.string().describe('absolute URL on the current site, as sniff_api gave it, with any query you want'),
+    max_chars: z.number().int().optional().describe('characters of the reply to return, 500-40000; defaults to 8000'),
+    path: z.string().optional().describe('return only this part of the reply, by dotted path, e.g. data.items'),
+  }),
+};
+
 export const manageBookmarksActionSchema: ActionSchema = {
   name: 'manage_bookmarks',
   description: 'Manage Chrome bookmarks: get flat lists, search by title/url, get recent bookmarks, or create new ones.',
