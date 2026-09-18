@@ -210,6 +210,18 @@ export const notesActionSchema: ActionSchema = {
   }),
 };
 
+export const todoListActionSchema: ActionSchema = {
+  name: 'todo_list',
+  description:
+    'The parts of the task, numbered and shown in every step, so a task asking for several things loses none of them. Add them once, complete each as its answer is in hand.',
+  schema: z.object({
+    action: z.enum(['add', 'complete', 'reorder']).describe('append items, mark items done, or put them in this order'),
+    items: z
+      .array(z.string())
+      .describe('the items: their text to add, their text or number to complete, or every item by number in the order wanted'),
+  }),
+};
+
 export const scrollActionSchema: ActionSchema = {
   name: 'scroll',
   description:

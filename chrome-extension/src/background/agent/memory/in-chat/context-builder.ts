@@ -2,6 +2,7 @@ import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage }
 import type { AgentContext } from '../../types';
 import type { TranscriptEntry } from '../../messages/service';
 import { defangTags } from '../../messages/utils';
+import { renderTodos } from '../../types';
 
 /**
  * Navigator tool turns sent as real messages: at least MIN_RECENT_TURNS, from a boundary that moves only every TURN_BLOCK
@@ -171,6 +172,9 @@ export class ContextBuilder {
     if (findings.length > 0) sections.push(`[FINDINGS]\n${findings.join('\n')}`);
     // The agent's own notes: written to survive every later step, so they are rendered before anything can be dropped.
     addList('YOUR NOTES', (context.notes ?? []).slice(-NOTES_KEPT).map(note => `- ${note}`), NOTES_CHARS);
+    // Every part of the task, done and not done: an answer that drops one is the failure this block exists to stop.
+    const todos = renderTodos(context.todos ?? []);
+    if (todos) sections.push(`[TASK PARTS]\n${todos}`);
     if (context.downloads?.size) sections.push(`[DOWNLOADS]\n${[...context.downloads.values()].map(line => `- ${line}`).join('\n')}`);
 
     if (context.blockedState) sections.push(`[BLOCKED]\n${JSON.stringify(context.blockedState).slice(0, 700)}`);

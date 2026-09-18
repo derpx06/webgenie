@@ -65,6 +65,17 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   acceptEvidencedDone: false,
 };
 
+/** One part of the task on the agent's to-do list. */
+export interface TodoItem {
+  text: string;
+  done: boolean;
+}
+
+/** The to-do list as one compact block: a numbered line per part, done marked with x. */
+export function renderTodos(todos: TodoItem[]): string {
+  return todos.map((item, index) => `${index + 1}. [${item.done ? 'x' : ' '}] ${item.text}`).join('\n');
+}
+
 export class AgentContext {
   controller: AbortController;
   taskId: string;
@@ -163,6 +174,8 @@ export class AgentContext {
   findings: string[] = [];
   /** The agent's own scratchpad (the `notes` tool): what it tried and what to do next, kept apart from the task's output. */
   notes: string[] = [];
+  /** The parts of the task (the `todo_list` tool), in order, so a task asking for several things answers all of them. */
+  todos: TodoItem[] = [];
   /** Files the user attached in this conversation, by name, as base64; only upload_file reads them (never a prompt or storage). */
   files = new Map<string, { type: string; data: string }>();
   /** Downloads seen during the task, by download id, as both agents see them. */

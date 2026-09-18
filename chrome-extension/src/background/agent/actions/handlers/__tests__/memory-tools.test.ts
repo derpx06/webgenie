@@ -66,3 +66,30 @@ describe('notes', () => {
     expect(prompts.join('\n')).toContain('Nothing written: notes add needs the text of the note.');
   });
 });
+
+describe('todo_list', () => {
+  it('shows every part of the task, done and not done, in a later step', async () => {
+    const { last } = await run([
+      call('todo_list', { action: 'add', items: ['Find the opening hours', 'Find the phone number'] }),
+      call('todo_list', { action: 'complete', items: ['Find the opening hours'] }),
+    ]);
+    expect(last).toContain('[TASK PARTS]\n1. [x] Find the opening hours\n2. [ ] Find the phone number');
+  });
+
+  it('completes by number as well as by text, and says what it could not find', async () => {
+    const { context, prompts } = await run([
+      call('todo_list', { action: 'add', items: ['one', 'two'] }),
+      call('todo_list', { action: 'complete', items: ['2', 'three'] }),
+    ]);
+    expect(context.todos).toEqual([{ text: 'one', done: false }, { text: 'two', done: true }]);
+    expect(prompts.join('\n')).toContain('Not on the list: "three".');
+  });
+
+  it('adds an item once and reorders by number', async () => {
+    const { context } = await run([
+      call('todo_list', { action: 'add', items: ['one', 'two', 'one'] }),
+      call('todo_list', { action: 'reorder', items: ['2'] }),
+    ]);
+    expect(context.todos.map(item => item.text)).toEqual(['two', 'one']);
+  });
+});

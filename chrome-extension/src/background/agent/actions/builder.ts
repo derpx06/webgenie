@@ -17,6 +17,7 @@ import {
   scrollToTextActionSchema,
   saveFindingsActionSchema,
   notesActionSchema,
+  todoListActionSchema,
   selectDropdownOptionActionSchema,
   closeTabActionSchema,
   waitActionSchema,
@@ -295,7 +296,10 @@ export class ActionBuilder {
   }
 
   private buildMemoryActions(): Action[] {
-    return [new Action((input) => this.memoryHandler.handleNotes(input), notesActionSchema)];
+    return [
+      new Action((input) => this.memoryHandler.handleNotes(input), notesActionSchema),
+      new Action((input) => this.memoryHandler.handleTodoList(input), todoListActionSchema),
+    ];
   }
 
   private buildKeyboardActions(): Action[] {
