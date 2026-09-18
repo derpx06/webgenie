@@ -129,6 +129,8 @@ export class AgentContext {
   requirementRefusals = 0;
   /** Requirements a later plan moved from applied back to pending; each may be reopened once. */
   requirementReopens: Set<string> = new Set();
+  /** A go_back off a page showing applied requirements was refused once; the same go_back again goes through. */
+  leavingAppliedChecked = false;
   /** A completion reporting absence was sent back once to read the page first; once per task. */
   absenceChecked = false;
   /** The last get_complete_page_content text and the address it was read on. */

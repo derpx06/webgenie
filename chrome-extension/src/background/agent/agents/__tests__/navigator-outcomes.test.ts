@@ -147,6 +147,56 @@ describe('Actions repeated on a page that does not change', () => {
   });
 });
 
+describe('Going back off a page that shows an applied filter or sort', () => {
+  const url = 'https://dir.test/search';
+  const sorted = {
+    url,
+    title: 'Results',
+    elements: [{ text: 'Sort: Experience, high to low' }, { tag: 'a', text: 'Top result' }],
+  };
+  const filtered: Script[] = Array(12).fill(
+    plan({
+      macro_objective: 'FORM_FILL',
+      next_goal: 'Carry on with the task',
+      requirements: [{ requirement: 'most experienced', status: 'applied', evidence: 'sort label "Sort: Experience, high to low"' }],
+    }),
+  );
+  const back = call('go_back', {});
+  const runSorted = async (navigator: Script[]) => {
+    const h = createHarness({ task: 'Find the most experienced agent', pages: [sorted], planner: filtered, navigator });
+    const execution = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0);
+    await h.executor.cancel();
+    await settle(execution);
+    return { h, sent: h.llm.requestsFor('navigator').map(request => textOf(request.messages)).join('\n') };
+  };
+
+  it('is refused once, naming what the page shows applied', async () => {
+    const { h, sent } = await runSorted([back, done('Reported')]);
+
+    expect(h.browser.actions.filter(action => action.type === 'go_back')).toHaveLength(0);
+    expect(sent).toContain('going back removes it');
+    expect(sent).toContain('Never leave a page to check what is applied on it');
+  });
+
+  it('goes through when the navigator sends it again', async () => {
+    const { h } = await runSorted([back, back, done('Reported')]);
+
+    expect(h.browser.actions.filter(action => action.type === 'go_back')).toHaveLength(1);
+  });
+
+  it('is not refused on a page that does not show the applied evidence', async () => {
+    const profile = { url: 'https://dir.test/agent/one', title: 'Agent', elements: [{ text: '54 years in the business' }] };
+    const h = createHarness({ task: 'Find the most experienced agent', pages: [profile], planner: filtered, navigator: [back, done('Reported')] });
+    const execution = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0);
+    await h.executor.cancel();
+    await settle(execution);
+
+    expect(h.browser.actions.filter(action => action.type === 'go_back')).toHaveLength(1);
+  });
+});
+
 describe('Verification challenges', () => {
   const blocked = {
     url: 'https://site.test/search',

@@ -181,6 +181,7 @@ export class Executor {
     this.context.requirements = [];
     this.context.requirementRefusals = 0;
     this.context.requirementReopens.clear();
+    this.context.leavingAppliedChecked = false;
     this.context.absenceChecked = false;
     this.evidenceRechecked = false;
     this.searchEvidenceRefused = false;

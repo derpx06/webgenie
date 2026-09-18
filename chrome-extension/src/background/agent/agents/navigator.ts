@@ -46,6 +46,7 @@ import {
   validateActionOutcome,
 } from '../validation/service';
 import { ProgressLedger } from '../contracts';
+import { appliedOnPage } from '../validation/done-evidence';
 import type { TargetFingerprint } from '../validation/types';
 import { waitForActionSettled } from '../validation/settling';
 import type { DOMElementNode } from '@src/background/browser/dom/views';
@@ -582,6 +583,19 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           && (this.context.actionRepeats.get(this.repeatKey(actionName, actionArgs, beforeState.url)) ?? 0) >= MAX_IDENTICAL_ACTIONS) {
           refuse(`Not done: you have already done exactly this ${MAX_IDENTICAL_ACTIONS} times on this page and nothing on it changed, so this one is refused. Do something else: another element, a collapsed section or menu that may hold what you look for, get_complete_page_content with find, another route, or finish with done (success: false) and say what blocks you.`);
           break;
+        }
+
+        // Going back off a page that shows an applied filter or sort removes it (two live runs went back "to verify the
+        // applied filters" and lost the sort each time, then applied it again). What is applied is read on the page in
+        // front of you: the selected option, the checked control, the sort label, the URL parameter. Refused once; the
+        // same go_back again is a deliberate move.
+        if (actionName === 'go_back' && !this.context.leavingAppliedChecked) {
+          const leaving = appliedOnPage(this.context, this.context.requirements);
+          if (leaving.length > 0) {
+            this.context.leavingAppliedChecked = true;
+            refuse(`Not done: this page shows ${leaving.map(item => `${item.requirement} (${item.evidence})`).join('; ')} applied, and going back removes it. Never leave a page to check what is applied on it, and never leave one that already holds what the task asks: read the current page state here, or get_complete_page_content. Send go_back again only if you really need the previous page.`);
+            break;
+          }
         }
 
         // Whether to retry or try another way is the agent's call, not the user's (live runs asked "Would you like me to search
