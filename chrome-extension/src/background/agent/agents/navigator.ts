@@ -8,7 +8,7 @@ import { HistoryTreeProcessor } from '@src/background/browser/dom/history/servic
 import { AgentStepRecord } from '../history';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
-import { buildToolDefinitions, buildToolValidators } from '../actions/builder';
+import { buildToolDefinitions, buildToolValidators, type ToolDefinition } from '../actions/builder';
 import type { ActionSchema } from '../actions/schemas';
 import { ContextBuilder, routeStep } from '../memory';
 import { elementsWindowed } from '../prompts/base';
@@ -162,6 +162,37 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
     super(options, { ...extraOptions, id: 'navigator' });
     this.actionRegistry = actionRegistry;
     this.historyReplayer = new HistoryReplayer(this.context, actionRegistry, this.doMultiAction.bind(this));
+    this.context.extractWithModel = (schema, text) => this.extractWithModel(schema, text);
+  }
+
+  /**
+   * The one model call `extract` makes, for the fields parsing the page could not resolve: the caller's own schema is
+   * the tool, so the answer comes back in their shape. A failed call leaves those fields unfilled rather than guessed.
+   */
+  private async extractWithModel(schema: Record<string, unknown>, text: string): Promise<unknown> {
+    // A tool's parameters must be an object; a schema for a list becomes one field holding it.
+    const parameters = schema.type === 'array' ? { type: 'object', properties: { items: schema }, required: ['items'] } : schema;
+    const tool: ToolDefinition = {
+      type: 'function',
+      function: { name: 'extracted', description: 'Return the fields asked for, copied from the page.', parameters },
+    };
+    try {
+      const { calls } = await this.invokeWithTools(
+        [
+          new SystemMessage(
+            'You read the text of a web page and return the fields asked for. Copy each value exactly as the page writes it. Leave a field out when the page does not give it; never invent one.',
+          ),
+          new HumanMessage(text),
+        ],
+        [tool],
+        { extracted: z.object({}).passthrough() },
+      );
+      return calls[0]?.args ?? null;
+    } catch (error) {
+      if (isFatalAgentError(error)) throw error;
+      logger.warning(`Extraction call failed: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   }
 
   async execute(state: HumanMessage): Promise<AgentOutput<NavigatorResult>> {

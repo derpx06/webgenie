@@ -1,5 +1,6 @@
 import { ActionResult } from '@src/background/agent/types';
 import type {
+  extractActionSchema,
   findInPageActionSchema,
   getCompletePageContentActionSchema,
   readPageActionSchema,
@@ -13,7 +14,18 @@ import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
 import { wrapUntrustedContent } from '../../messages/utils';
 import { scrollEdgeSlack } from '../../validation/service';
-import { findSection, outlineOf, renderOutline, sliceRead } from '@src/background/browser/dom/read-page';
+import {
+  extractFromLabels,
+  extractFromTables,
+  findSection,
+  outlineOf,
+  renderOutline,
+  schemaFields,
+  schemaProblems,
+  sliceRead,
+  type FieldSpec,
+  type FieldValue,
+} from '@src/background/browser/dom/read-page';
 import type { DOMElementNode } from '@src/background/browser/dom/views';
 
 const MAX_READ_CHARS = 12000;
@@ -141,6 +153,42 @@ export function findPassages(text: string, needle: string): string {
   const out = `${matches} ${matches === 1 ? 'match' : 'matches'} for "${needle}":\n${passages.join('\n')}${more}`;
   return out.length > MAX_READ_CHARS ? `${out.slice(0, MAX_READ_CHARS)}\n[passages truncated; search for a longer text]` : out;
 }
+
+/** Page text sent with an extraction the parse could not finish; one model call, not the whole document. */
+const MODEL_EXTRACT_CHARS = 30000;
+
+/** The part of the page an `extract` scope names: a section of the outline, else the text around the first mention. */
+export function scopeOf(markdown: string, scope?: string): string {
+  if (!scope?.trim()) return markdown;
+  const section = findSection(outlineOf(markdown), scope);
+  if (section) return markdown.slice(section.start, section.end);
+  const at = markdown.toLowerCase().indexOf(scope.trim().toLowerCase());
+  return at < 0 ? markdown : markdown.slice(at, at + MODEL_EXTRACT_CHARS);
+}
+
+/** The model's answer fills only the fields the parse could not, and is marked as the model's. */
+export function mergeModelValues(
+  parsed: Array<Record<string, FieldValue>>,
+  answer: unknown,
+  missing: FieldSpec[],
+  many: boolean,
+): void {
+  const items = many ? (Array.isArray(answer) ? answer : ((answer as Record<string, unknown>)?.items as unknown[]) ?? []) : [answer];
+  items.forEach((item, index) => {
+    if (!item || typeof item !== 'object') return;
+    const row = parsed[index] ?? (parsed[index] = {});
+    for (const field of missing) {
+      const value = (item as Record<string, unknown>)[field.name];
+      if (row[field.name] === undefined && value !== undefined && value !== null && value !== '') {
+        row[field.name] = { value, source: 'model', confidence: 0.5 };
+      }
+    }
+  });
+}
+
+/** The values alone, as the schema check and the answer want them. */
+const plainValues = (row: Record<string, FieldValue> = {}) =>
+  Object.fromEntries(Object.entries(row).map(([name, found]) => [name, found.value]));
 
 /** Attributes that carry an element's own words, for matching a found text to something the model can act on. */
 const LABEL_ATTRIBUTES = ['aria-label', 'title', 'placeholder', 'value', 'alt', 'name'];
@@ -286,6 +334,64 @@ export class ContentHandler extends BaseHandler {
     // A page that loads more in place returns the whole document again; only what grew is new.
     const added = markdown.startsWith(soFar) ? markdown.slice(soFar.length) : markdown;
     return added.trim() ? added : null;
+  }
+
+  async handleExtract(input: z.infer<typeof extractActionSchema.schema>): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, 'Extracting the requested fields');
+    let schema: Record<string, unknown>;
+    try {
+      schema = JSON.parse(input.schema) as Record<string, unknown>;
+    } catch (error) {
+      const msg = `schema is not valid JSON (${error instanceof Error ? error.message : String(error)}). Send a JSON Schema, for example {"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"price":{"type":"number"}}}}.`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({ error: msg, includeInMemory: true });
+    }
+
+    const { many, fields, required } = schemaFields(schema);
+    if (fields.length === 0) {
+      const msg = 'schema names no fields: give an object schema with properties, or an array of such objects.';
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({ error: msg, includeInMemory: true });
+    }
+
+    try {
+      const page = (await this.context.browserContext.getCurrentPage()) as unknown as ReadablePage;
+      const { url, markdown } = await this.readDocument(page, 'main');
+      this.context.pageRead = { url, text: markdown };
+      const scoped = scopeOf(markdown, input.scope);
+
+      // What the page states plainly is parsed, not guessed: tables first (a grid, a list, a data table), then labels.
+      const rows = extractFromTables(scoped, fields);
+      const parsed: Array<Record<string, FieldValue>> = many ? rows : [rows[0] ?? {}];
+      if (!many) parsed[0] = { ...extractFromLabels(scoped, fields), ...parsed[0] };
+
+      const missing = fields.filter(field => parsed.some(row => row[field.name] === undefined));
+      if (missing.length > 0 && this.context.extractWithModel) {
+        const asked = await this.context.extractWithModel(schema, scoped.slice(0, MODEL_EXTRACT_CHARS));
+        mergeModelValues(parsed, asked, missing, many);
+      }
+
+      const value = many ? parsed.map(plainValues) : plainValues(parsed[0]);
+      const problems = schemaProblems(value, schema);
+      const sources = fields
+        .map(field => {
+          const found = parsed.find(row => row[field.name])?.[field.name];
+          return `${field.name}=${found ? `${found.source}(${found.confidence.toFixed(2)})` : 'not found'}`;
+        })
+        .join(', ');
+      const body = [
+        `Extracted from ${url}${input.scope ? ` (scope: ${input.scope})` : ''}${many ? `, ${parsed.length} items` : ''}`,
+        JSON.stringify(value).slice(0, MAX_READ_CHARS),
+        `per field: ${sources}`,
+        problems.length ? `does not match the schema: ${problems.slice(0, 10).join('; ')}` : `matches the schema${required.length ? ' with every required field' : ''}`,
+      ].join('\n');
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Extracted ${many ? `${parsed.length} items` : 'the fields'} from the page`);
+      return new ActionResult({ extractedContent: wrapUntrustedContent(body, false), includeInMemory: true });
+    } catch (error) {
+      const msg = `Could not extract from the page: ${error instanceof Error ? error.message : String(error)}`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({ error: msg, includeInMemory: true });
+    }
   }
 
   async handleFindInPage(input: z.infer<typeof findInPageActionSchema.schema>): Promise<ActionResult> {

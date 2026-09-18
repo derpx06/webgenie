@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   blocksToMarkdown,
+  coerce,
+  extractFromLabels,
+  extractFromTables,
   findSection,
   hashText,
   outlineOf,
   renderOutline,
+  schemaFields,
+  schemaProblems,
   sliceRead,
   type ReadBlock,
 } from '../read-page';
@@ -111,6 +116,85 @@ describe('sliceRead', () => {
     expect(sliceRead(text, -5, 1000).body).toBe(text);
     expect(sliceRead(text, 1000, 1000).body).toBe('');
     expect(sliceRead('y'.repeat(500), 0, 1).body).toHaveLength(1);
+  });
+});
+
+describe('typed extraction', () => {
+  const productSchema = {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'product name' },
+        price: { type: 'number' },
+        in_stock: { type: 'boolean' },
+      },
+      required: ['name'],
+    },
+  };
+
+  it('reads the fields a schema asks for, for one object and for a list', () => {
+    expect(schemaFields(productSchema)).toEqual({
+      many: true,
+      required: ['name'],
+      fields: [
+        { name: 'name', type: 'string', description: 'product name' },
+        { name: 'price', type: 'number', description: undefined },
+        { name: 'in_stock', type: 'boolean', description: undefined },
+      ],
+    });
+    expect(schemaFields({ type: 'object', properties: { title: { type: 'string' } } }).many).toBe(false);
+    expect(schemaFields({}).fields).toEqual([]);
+  });
+
+  it('parses the markdown table whose headers answer most of the fields', () => {
+    const markdown = [
+      '| Colour | Note |',
+      '| --- | --- |',
+      '| red | none |',
+      '',
+      '| Product name | Price | In stock |',
+      '| --- | --- | --- |',
+      '| Widget | $4.50 | yes |',
+      '| Gadget | $12 | no |',
+    ].join('\n');
+
+    const rows = extractFromTables(markdown, schemaFields(productSchema).fields);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0].name.value).toBe('Widget');
+    expect(rows[0].price.value).toBe(4.5);
+    expect(rows[0].in_stock.value).toBe(true);
+    expect(rows[1].in_stock.value).toBe(false);
+    // An exactly matching header is surer than one that only contains the field's name.
+    expect(rows[0].price.confidence).toBeGreaterThan(rows[0].name.confidence);
+    expect(rows[0].price.source).toBe('table');
+  });
+
+  it('falls back to Label: value lines for a single object', () => {
+    const markdown = ['# Widget', '**Price:** $4.50', 'In stock: yes', 'Unrelated line'].join('\n');
+
+    const found = extractFromLabels(markdown, schemaFields(productSchema).fields);
+
+    expect(found.price).toEqual({ value: 4.5, source: 'labels', confidence: 0.8 });
+    expect(found.in_stock.value).toBe(true);
+    expect(found.name).toBeUndefined();
+  });
+
+  it('reads values as the type the schema asks for', () => {
+    expect(coerce('$1,299.99', 'number')).toBe(1299.99);
+    expect(coerce('$1,299.99', 'integer')).toBe(1299);
+    expect(coerce('out of stock', 'boolean')).toBe(false);
+    expect(coerce('maybe', 'boolean')).toBeUndefined();
+    expect(coerce('  n/a  ', 'string')).toBe('n/a');
+    expect(coerce('   ', 'string')).toBeUndefined();
+  });
+
+  it('names what does not match the schema', () => {
+    expect(schemaProblems([{ name: 'Widget' }], productSchema)).toEqual([]);
+    expect(schemaProblems([{ price: 4 }], productSchema)).toEqual(['result[0].name: missing']);
+    expect(schemaProblems([{ name: 'Widget', price: 'free' }], productSchema)).toEqual(['result[0].price: expected a number']);
+    expect(schemaProblems({ name: 'Widget' }, productSchema)).toEqual(['result: expected a list']);
   });
 });
 

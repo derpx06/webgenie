@@ -354,3 +354,160 @@ export function hashText(text: string): string {
 
 /** Rough token count; the models bill about four characters a token. */
 export const estimateTokens = (text: string): number => Math.ceil(text.length / 4);
+
+// --- typed extraction: what the markdown itself can answer, before any model call ---
+
+/** One field a caller's JSON Schema asks for. */
+export interface FieldSpec {
+  name: string;
+  type: string;
+  description?: string;
+}
+
+/** Where a value came from and how sure the parse is; `extract` reports both per field. */
+export interface FieldValue {
+  value: unknown;
+  source: 'table' | 'labels' | 'model';
+  confidence: number;
+}
+
+type JsonSchema = Record<string, unknown>;
+
+const properties = (schema: JsonSchema): Record<string, JsonSchema> => (schema.properties as Record<string, JsonSchema>) ?? {};
+
+/** The fields a JSON Schema asks for, whether it describes one object or a list of them. */
+export function schemaFields(schema: JsonSchema): { many: boolean; fields: FieldSpec[]; required: string[] } {
+  const many = schema.type === 'array';
+  const item = (many ? ((schema.items as JsonSchema) ?? {}) : schema) as JsonSchema;
+  const fields = Object.entries(properties(item)).map(([name, spec]) => ({
+    name,
+    type: String(spec.type ?? 'string'),
+    description: typeof spec.description === 'string' ? spec.description : undefined,
+  }));
+  return { many, fields, required: Array.isArray(item.required) ? (item.required as string[]) : [] };
+}
+
+const normalize = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+/** How well a column header answers a field: 1 for the same word, 0.75 for one containing the other, 0 otherwise. */
+function headerScore(field: FieldSpec, header: string): number {
+  const wanted = normalize(field.name);
+  const got = normalize(header);
+  if (!wanted || !got) return 0;
+  if (wanted === got) return 1;
+  if (got.includes(wanted) || wanted.includes(got)) return 0.75;
+  const words = normalize(field.description ?? '');
+  return words && (words.includes(got) || got.includes(words)) ? 0.5 : 0;
+}
+
+/** A value written as the page writes it, read as the type the schema asks for. */
+export function coerce(value: string, type: string): unknown {
+  const text = value.trim();
+  if (type === 'number' || type === 'integer') {
+    const number = Number(text.replace(/[^0-9.\-]/g, ''));
+    return Number.isFinite(number) ? (type === 'integer' ? Math.trunc(number) : number) : undefined;
+  }
+  if (type === 'boolean') {
+    if (/^(yes|true|available|in stock)$/i.test(text)) return true;
+    if (/^(no|false|unavailable|out of stock)$/i.test(text)) return false;
+    return undefined;
+  }
+  return text || undefined;
+}
+
+/** The markdown tables in a text, each as its rows of cells (the `---` separator row dropped). */
+export function markdownTables(markdown: string): string[][][] {
+  const tables: string[][][] = [];
+  let current: string[][] = [];
+  for (const line of markdown.split('\n')) {
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      if (!/^\s*\|[\s|:-]*\|\s*$/.test(line)) {
+        current.push(line.trim().replace(/^\||\|$/g, '').split('|').map(cell => cell.trim()));
+      }
+      continue;
+    }
+    if (current.length) tables.push(current);
+    current = [];
+  }
+  if (current.length) tables.push(current);
+  return tables.filter(table => table.length >= 2);
+}
+
+/**
+ * Rows parsed out of the markdown table whose headers answer most of the schema's fields. A product grid, a results list
+ * and a data table all reach the models as tables, so this is what parses them without a model call.
+ */
+export function extractFromTables(markdown: string, fields: FieldSpec[]): Array<Record<string, FieldValue>> {
+  let best: { rows: Array<Record<string, FieldValue>>; matched: number } = { rows: [], matched: 0 };
+  for (const table of markdownTables(markdown)) {
+    const [headers, ...rows] = table;
+    const columns = fields
+      .map(field => {
+        let column = -1;
+        let score = 0;
+        headers.forEach((header, index) => {
+          const value = headerScore(field, header);
+          if (value > score) {
+            score = value;
+            column = index;
+          }
+        });
+        return { field, column, score };
+      })
+      .filter(match => match.score > 0);
+    if (columns.length <= best.matched) continue;
+    best = {
+      matched: columns.length,
+      rows: rows.map(row =>
+        Object.fromEntries(
+          columns
+            .map(({ field, column, score }) => [field.name, { value: coerce(row[column] ?? '', field.type), source: 'table' as const, confidence: score * 0.9 }] as const)
+            .filter(([, found]) => found.value !== undefined),
+        ),
+      ),
+    };
+  }
+  return best.rows.filter(row => Object.keys(row).length > 0);
+}
+
+/** `Label: value` lines, for the fields no table answered. */
+export function extractFromLabels(markdown: string, fields: FieldSpec[]): Record<string, FieldValue> {
+  const found: Record<string, FieldValue> = {};
+  const lines = markdown.split('\n');
+  for (const field of fields) {
+    const label = field.name.replace(/[_-]+/g, '[ _-]?');
+    const pattern = new RegExp(`(?:^|[*\\s])${label}\\s*[:\\u2013-]\\s*(.+)$`, 'i');
+    for (const line of lines) {
+      const match = pattern.exec(line.replace(/\*\*/g, ''));
+      const value = match && coerce(match[1], field.type);
+      if (value !== undefined && value !== null) {
+        found[field.name] = { value, source: 'labels', confidence: 0.8 };
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/** What a value breaks in the schema: its type, a missing required field, or an item of the wrong shape. */
+export function schemaProblems(value: unknown, schema: JsonSchema, path = 'result'): string[] {
+  const type = String(schema.type ?? '');
+  if (type === 'array') {
+    if (!Array.isArray(value)) return [`${path}: expected a list`];
+    return value.flatMap((item, i) => schemaProblems(item, (schema.items as JsonSchema) ?? {}, `${path}[${i}]`));
+  }
+  if (type === 'object' || schema.properties) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [`${path}: expected an object`];
+    const record = value as Record<string, unknown>;
+    const missing = (Array.isArray(schema.required) ? (schema.required as string[]) : []).filter(name => record[name] === undefined);
+    return [
+      ...missing.map(name => `${path}.${name}: missing`),
+      ...Object.entries(properties(schema)).flatMap(([name, spec]) => (record[name] === undefined ? [] : schemaProblems(record[name], spec, `${path}.${name}`))),
+    ];
+  }
+  if (value === undefined || value === null) return [];
+  if (type === 'string' && typeof value !== 'string') return [`${path}: expected text`];
+  if ((type === 'number' || type === 'integer') && typeof value !== 'number') return [`${path}: expected a number`];
+  if (type === 'boolean' && typeof value !== 'boolean') return [`${path}: expected true or false`];
+  return [];
+}

@@ -383,6 +383,79 @@ describe('ContentHandler find_in_page', () => {
   });
 });
 
+describe('ContentHandler extract', () => {
+  const grid = [
+    '# Catalogue',
+    ['| Product | Price |', '| --- | --- |', '| Widget | $4.50 |', '| Gadget | $12 |'].join('\n'),
+    '## Shipping',
+    ['| Product | Price |', '| --- | --- |', '| Courier | $9 |'].join('\n'),
+  ].join('\n\n');
+
+  const listSchema = JSON.stringify({
+    type: 'array',
+    items: { type: 'object', properties: { product: { type: 'string' }, price: { type: 'number' } }, required: ['product'] },
+  });
+
+  function cataloguePage(markdown = grid) {
+    return { url: () => 'https://example.test/shop', readPageMarkdown: vi.fn(async () => markdown) };
+  }
+
+  it('parses a list straight off the page and says where each field came from', async () => {
+    const { handler, context } = handlerFor(cataloguePage(), { extractWithModel: vi.fn() });
+
+    const result = await handler.handleExtract({ schema: listSchema });
+
+    expect(result.extractedContent).toContain('[{"product":"Widget","price":4.5},{"product":"Gadget","price":12}]');
+    expect(result.extractedContent).toContain('product=table(0.90), price=table(0.90)');
+    expect(result.extractedContent).toContain('matches the schema');
+    // Nothing was missing, so no model call was made.
+    expect(context.extractWithModel).not.toHaveBeenCalled();
+  });
+
+  it('limits the extraction to a scope', async () => {
+    const { handler } = handlerFor(cataloguePage());
+
+    const shipping = await handler.handleExtract({ schema: listSchema, scope: 'Shipping' });
+
+    expect(shipping.extractedContent).toContain('Courier');
+    expect(shipping.extractedContent).not.toContain('Widget');
+  });
+
+  it('asks a model only for the fields parsing could not resolve, and marks them as the model\'s', async () => {
+    const schema = JSON.stringify({
+      type: 'object',
+      properties: { product: { type: 'string' }, rating: { type: 'number' } },
+    });
+    const extractWithModel = vi.fn(async () => ({ product: 'Ignored', rating: 4.7 }));
+    const { handler } = handlerFor(cataloguePage(), { extractWithModel });
+
+    const result = await handler.handleExtract({ schema });
+
+    expect(extractWithModel).toHaveBeenCalledTimes(1);
+    // The parsed value wins; the model only fills the gap.
+    expect(result.extractedContent).toContain('"product":"Widget"');
+    expect(result.extractedContent).toContain('"rating":4.7');
+    expect(result.extractedContent).toContain('product=table(0.90), rating=model(0.50)');
+  });
+
+  it('reports a field nothing could resolve instead of inventing it', async () => {
+    const schema = JSON.stringify({ type: 'object', properties: { sku: { type: 'string' } }, required: ['sku'] });
+    const { handler } = handlerFor(cataloguePage(), { extractWithModel: vi.fn(async () => null) });
+
+    const result = await handler.handleExtract({ schema });
+
+    expect(result.extractedContent).toContain('sku=not found');
+    expect(result.extractedContent).toContain('does not match the schema: result.sku: missing');
+  });
+
+  it('refuses a schema that is not JSON or names no fields', async () => {
+    const { handler } = handlerFor(cataloguePage());
+
+    expect((await handler.handleExtract({ schema: '{not json' })).error).toContain('schema is not valid JSON');
+    expect((await handler.handleExtract({ schema: '{"type":"object"}' })).error).toContain('schema names no fields');
+  });
+});
+
 describe('ContentHandler save_findings', () => {
   it('keeps findings on the task context', async () => {
     const { handler, context } = handlerFor({});

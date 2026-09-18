@@ -299,6 +299,18 @@ export const readPageActionSchema: ActionSchema = {
   }),
 };
 
+export const extractActionSchema: ActionSchema = {
+  name: 'extract',
+  description:
+    'Pull typed data off the page against a JSON Schema you give: lists, tables and grids. The result says which fields were parsed from the page and which a model filled in, with a confidence for each.',
+  schema: z.object({
+    schema: z
+      .string()
+      .describe('JSON Schema as text: an object with properties, or {"type":"array","items":{...}} for a list of them'),
+    scope: z.string().optional().describe('limit it to one part of the page, by section id, heading or a text on it'),
+  }),
+};
+
 export const findInPageActionSchema: ActionSchema = {
   name: 'find_in_page',
   description:
