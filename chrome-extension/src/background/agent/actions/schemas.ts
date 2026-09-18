@@ -278,6 +278,27 @@ export const getCompletePageContentActionSchema: ActionSchema = {
   }),
 };
 
+export const readPageActionSchema: ActionSchema = {
+  name: 'read_page',
+  description:
+    "Read the page as markdown instead of scrolling it. A long page returns its first part with a section outline and a cursor; section or cursor reads the rest.",
+  schema: z.object({
+    target: z.string().optional().describe("'current' (default) or an absolute URL to open and read"),
+    mode: z
+      .enum(['main', 'full', 'structured'])
+      .optional()
+      .describe("'main' article or result list without navigation (default), 'full' every text on the page, 'structured' the heading outline only"),
+    max_tokens: z.number().int().optional().describe('size of this part, 200-8000 tokens; defaults to 3000'),
+    section: z.string().optional().describe('read only this section, by its outline id (s3) or heading text'),
+    cursor: z.number().int().optional().describe('character offset from a previous read, to read on from there'),
+    all_pages: z
+      .boolean()
+      .optional()
+      .describe("true to follow the list's next-page links, or load more by scrolling, and read every page"),
+    max_pages: z.number().int().optional().describe('pages to read with all_pages, 1-20; defaults to 5'),
+  }),
+};
+
 export const manageBookmarksActionSchema: ActionSchema = {
   name: 'manage_bookmarks',
   description: 'Manage Chrome bookmarks: get flat lists, search by title/url, get recent bookmarks, or create new ones.',

@@ -18,6 +18,7 @@ import {
   drawHighlightOverlaysViaCoordinates,
 } from './dom/service';
 import { DOMElementNode, type DOMState } from './dom/views';
+import { blocksToMarkdown, extractReadBlocks, findNextPageHref, type ReadBlock } from './dom/read-page';
 import {
   type BrowserContextConfig,
   DEFAULT_BROWSER_CONTEXT_CONFIG,
@@ -2132,6 +2133,40 @@ export default class Page {
         }),
     );
     return parts.filter(Boolean).join('\n\n');
+  }
+
+  /**
+   * The page's readable content as markdown: headings, paragraphs, lists, tables and links, extracted in the page
+   * itself. `main` drops navigation, footers and banners; `full` keeps everything the page renders. Frames are appended
+   * under their address, as `getCompletePageContent` does. An extraction that fails or comes back empty falls back to
+   * the raw page text, so a read never returns nothing where the old path returned something.
+   */
+  async readPageMarkdown(mode: 'main' | 'full'): Promise<string> {
+    await this.ensurePuppeteerConnected();
+    if (!this._puppeteerPage) {
+      throw new Error('Puppeteer page is not connected');
+    }
+    const main = this._puppeteerPage.mainFrame();
+    const parts = await Promise.all(
+      this._puppeteerPage
+        .frames()
+        .filter(frame => !frame.detached)
+        .map(async frame => {
+          const blocks = await withTimeout(frame.evaluate(extractReadBlocks, mode), 5000, 'read page').catch(() => [] as ReadBlock[]);
+          const markdown = blocksToMarkdown(blocks).trim();
+          if (!markdown) return '';
+          return frame === main ? markdown : `## [Frame ${frame.url()}]\n\n${markdown}`;
+        }),
+    );
+    const markdown = parts.filter(Boolean).join('\n\n');
+    return markdown || (await this.getCompletePageContent());
+  }
+
+  /** The address of the page's "next page" link, when it offers one; empty when it does not. */
+  async nextPageHref(): Promise<string> {
+    await this.ensurePuppeteerConnected();
+    if (!this._puppeteerPage) return '';
+    return withTimeout(this._puppeteerPage.evaluate(findNextPageHref), 2000, 'next page link').catch(() => '');
   }
 
   /**

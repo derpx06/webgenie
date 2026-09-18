@@ -57,10 +57,17 @@ const logger = createLogger('NavigatorAgent');
 const SECRET_PLACEHOLDER = /\{\{secret_\d+\}\}/g;
 
 /** Actions that can carry the user's data to a site: typed text, addresses, queries. */
-const DATA_CARRYING_ACTIONS = new Set(['input_text', 'go_to_url', 'open_tab', 'search_web']);
+const DATA_CARRYING_ACTIONS = new Set(['input_text', 'go_to_url', 'open_tab', 'search_web', 'read_page']);
 
 /** Actions that open an address the model wrote. */
-const NAVIGATING_ACTIONS = new Set(['go_to_url', 'open_tab']);
+const NAVIGATING_ACTIONS = new Set(['go_to_url', 'open_tab', 'read_page']);
+
+/** The address an action opens, if any: read_page opens one only when its target is not the current page. */
+function navigatedUrl(actionName: string, args: unknown): string {
+  const field = actionName === 'read_page' ? 'target' : 'url';
+  const url = String((args as Record<string, unknown> | null)?.[field] ?? '');
+  return /^https?:\/\//i.test(url) ? url : '';
+}
 
 /** Page scrolls in a row that may reveal nothing new before the next page scroll is refused. */
 const MAX_EMPTY_SCROLLS = 3;
@@ -660,7 +667,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           // text is checked against what the task asks.
           const answered = new Set(userPersonalData(JSON.stringify(actionArgs), this.userText('human_answer')));
           const personal = userPersonalData(JSON.stringify(actionArgs), this.userText('task')).filter(value => !answered.has(value));
-          const target = actionName === 'input_text' ? beforeState.url : String((actionArgs as { url?: unknown }).url ?? beforeState.url);
+          const target = actionName === 'input_text' ? beforeState.url : navigatedUrl(actionName, actionArgs) || beforeState.url;
           const host = hostOf(target) || target;
           const question = `The agent is about to enter ${personal.map(value => JSON.stringify(value)).join(', ')} on ${host}. Did the user ask for that, or is it a necessary part of what they asked? Only mentioning a value is not asking to enter it on a site.`;
           if (personal.length > 0 && !(await this.userAsked(`share|${host}|${personal.join(',').toLowerCase()}`, question))) {
@@ -683,7 +690,8 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         }
 
         // Opening the same address again and again lands on the same page (a live run opened one 14 times).
-        const address = NAVIGATING_ACTIONS.has(actionName) ? addressKey(String((actionArgs as { url?: unknown }).url ?? '')) : '';
+        const opening = NAVIGATING_ACTIONS.has(actionName) ? navigatedUrl(actionName, actionArgs) : '';
+        const address = opening ? addressKey(opening) : '';
         const opened = address ? this.context.openedAddresses.get(address) ?? 0 : 0;
         if (opened >= MAX_OPENS_PER_ADDRESS) {
           refuse(`Not opened: you already opened this address ${opened} times in this task, and it gives the same page each time. Take another route: a link, menu or search on the page, go_back, or report what blocks you.`);
@@ -692,8 +700,8 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
         // An address the model typed must come from somewhere trustworthy: the user's messages, a link on the page, a page
         // already visited, or, failing those, a page-blind check that the request needs it. Addresses in page text are not.
-        if (NAVIGATING_ACTIONS.has(actionName)) {
-          const url = String((actionArgs as { url?: unknown }).url ?? '');
+        if (opening) {
+          const url = opening;
           // Another page of the site the agent is on (a live run was refused its /standings/ page) gets a looser question,
           // unless the address carries another address that could send the browser off the site.
           const onSite = sameSite(hostOf(url), hostOf(beforeState.url)) && !/https?:|\/\/|%2f%2f/i.test(url.replace(/^\s*https?:\/\//i, ''));

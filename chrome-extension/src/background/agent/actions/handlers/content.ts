@@ -1,6 +1,7 @@
 import { ActionResult } from '@src/background/agent/types';
 import type {
   getCompletePageContentActionSchema,
+  readPageActionSchema,
   saveFindingsActionSchema,
   scrollActionSchema,
   scrollToTextActionSchema,
@@ -11,9 +12,25 @@ import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
 import { wrapUntrustedContent } from '../../messages/utils';
 import { scrollEdgeSlack } from '../../validation/service';
+import { findSection, outlineOf, renderOutline, sliceRead } from '@src/background/browser/dom/read-page';
 import type { DOMElementNode } from '@src/background/browser/dom/views';
 
 const MAX_READ_CHARS = 12000;
+/** Characters a token is worth, for the read tools' `max_tokens` budget. */
+const CHARS_PER_TOKEN = 4;
+/** Default and largest chunk a single read returns; the default matches the 12,000 characters the old read returned. */
+const DEFAULT_READ_TOKENS = 3000;
+const MAX_READ_TOKENS = 8000;
+
+/** What the read tools need of a page; a handler test supplies these five and nothing else. */
+interface ReadablePage {
+  url(): string;
+  readPageMarkdown(mode: 'main' | 'full'): Promise<string>;
+  nextPageHref(): Promise<string>;
+  navigateTo(url: string): Promise<void>;
+  getScrollInfo(): Promise<[number, number, number]>;
+  scrollToPercent(percent: number): Promise<void>;
+}
 /** Characters shown on each side of a `find` match. */
 const FIND_CONTEXT_CHARS = 100;
 const MAX_FIND_PASSAGES = 30;
@@ -170,6 +187,121 @@ export class ContentHandler extends BaseHandler {
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
       return new ActionResult({ error: msg, includeInMemory: true });
     }
+  }
+
+  /** The page's readable markdown, and the address it was read at. */
+  private async readDocument(page: ReadablePage, mode: 'main' | 'full'): Promise<{ url: string; markdown: string }> {
+    const markdown = await page.readPageMarkdown(mode);
+    return { url: page.url(), markdown };
+  }
+
+  /**
+   * One more page of a list: the site's own "next page" link, else a scroll to the bottom of a page that loads more as
+   * it is scrolled. Returns the content that was not there before, or null when there is no further page.
+   */
+  private async nextPageContent(page: ReadablePage, mode: 'main' | 'full', soFar: string): Promise<string | null> {
+    const href = await page.nextPageHref();
+    if (href) {
+      await page.navigateTo(href);
+    } else {
+      const [, , heightBefore] = await page.getScrollInfo();
+      await page.scrollToPercent(100);
+      if ((await this.pageGrowth(page, heightBefore)).includes('did not change')) return null;
+    }
+    const { markdown } = await this.readDocument(page, mode);
+    if (!markdown) return null;
+    // A page that loads more in place returns the whole document again; only what grew is new.
+    const added = markdown.startsWith(soFar) ? markdown.slice(soFar.length) : markdown;
+    return added.trim() ? added : null;
+  }
+
+  async handleReadPage(input: z.infer<typeof readPageActionSchema.schema>): Promise<ActionResult> {
+    const mode = input.mode ?? 'main';
+    // The outline is built from the main content: 'structured' reads the same text and returns only its headings.
+    const extractMode = mode === 'full' ? 'full' : 'main';
+    const target = (input.target ?? 'current').trim();
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, target && target !== 'current' ? `Reading ${target}` : 'Reading the page');
+    try {
+      let page = (await this.context.browserContext.getCurrentPage()) as unknown as ReadablePage;
+      if (target && target !== 'current' && /^https?:\/\//i.test(target) && target !== page.url()) {
+        await page.navigateTo(target);
+        page = (await this.context.browserContext.getCurrentPage()) as unknown as ReadablePage;
+      }
+
+      let { url, markdown } = await this.readDocument(page, extractMode);
+      let pagesRead = 1;
+      if (input.all_pages) {
+        const limit = Math.min(Math.max(input.max_pages ?? 5, 1), 20);
+        for (; pagesRead < limit; pagesRead++) {
+          const added = await this.nextPageContent(page, extractMode, markdown);
+          if (added === null) break;
+          markdown = `${markdown}\n\n${added}`;
+        }
+        url = page.url();
+      }
+      this.context.pageRead = { url, text: markdown };
+      return this.renderRead({ url, markdown, mode, pagesRead, input });
+    } catch (error) {
+      const msg = `Could not read the page: ${error instanceof Error ? error.message : String(error)}`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({ error: msg, includeInMemory: true });
+    }
+  }
+
+  /** The chunk, outline and cursor the model gets back from a read. */
+  private renderRead(read: {
+    url: string;
+    markdown: string;
+    mode: 'main' | 'full' | 'structured';
+    pagesRead: number;
+    input: z.infer<typeof readPageActionSchema.schema>;
+  }): ActionResult {
+    const { url, markdown, mode, pagesRead, input } = read;
+    const sections = outlineOf(markdown);
+    const pages = pagesRead > 1 ? `, ${pagesRead} pages` : '';
+
+    if (mode === 'structured') {
+      const outline = renderOutline(sections) || '[no headings]';
+      const msg = `${url} — outline only, ${markdown.length} characters${pages}\n${outline}\n[read a section with read_page section "<id or title>"]`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Outlined ${markdown.length} characters of page text`);
+      return new ActionResult({ extractedContent: wrapUntrustedContent(msg, false), includeInMemory: true });
+    }
+
+    let text = markdown;
+    let offset = 0;
+    let scope = '';
+    if (input.section) {
+      const section = findSection(sections, input.section);
+      if (!section) {
+        const msg = `No section "${input.section}" on this page. Its sections are:\n${renderOutline(sections) || '[no headings]'}`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg.slice(0, 200));
+        return new ActionResult({ extractedContent: msg, includeInMemory: true });
+      }
+      text = markdown.slice(section.start, section.end);
+      offset = section.start;
+      scope = ` section ${section.id} "${section.title}"`;
+    }
+
+    const maxChars = Math.min(Math.max(input.max_tokens ?? DEFAULT_READ_TOKENS, 200), MAX_READ_TOKENS) * CHARS_PER_TOKEN;
+    const cursor = Math.max(0, (input.cursor ?? 0) - offset);
+    if (cursor >= text.length && text.length > 0) {
+      const msg = `cursor ${input.cursor} is at or past the end of the text (${markdown.length} characters): it has all been read. Use find_in_page to search it, or read_page with a section.`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+      return new ActionResult({ extractedContent: msg, includeInMemory: true });
+    }
+    const { body, next } = sliceRead(text, cursor, maxChars);
+
+    const header = `${url} — ${mode} content, ${markdown.length} characters${pages}${scope}${cursor > 0 ? `, from character ${cursor + offset}` : ''}`;
+    // The outline goes with the first chunk only: it is what makes reading on unnecessary.
+    const outline = cursor === 0 && !input.section && sections.length > 1 && next !== null ? `\nSections:\n${renderOutline(sections)}\n` : '';
+    const more = next === null
+      ? ''
+      : `\n[${text.length - next} characters left; read on with read_page cursor ${next + offset}, jump with section "<id>", or search with find_in_page]`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Read ${body.length} of ${markdown.length} characters of page text`);
+    return new ActionResult({
+      extractedContent: wrapUntrustedContent(`${header}\n${outline}\n${body}${more}`, false),
+      includeInMemory: true,
+    });
   }
 
   async handleGetCompletePageContent(input: z.infer<typeof getCompletePageContentActionSchema.schema>): Promise<ActionResult> {

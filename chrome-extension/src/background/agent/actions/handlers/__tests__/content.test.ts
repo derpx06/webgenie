@@ -164,6 +164,141 @@ describe('ContentHandler page text', () => {
   });
 });
 
+describe('ContentHandler read_page', () => {
+  const article = [
+    '# Coffee',
+    'Intro about coffee, roughly forty characters long.',
+    '## Roasting',
+    'r'.repeat(5000),
+    '## Brewing',
+    'b'.repeat(5000),
+  ].join('\n\n');
+
+  function readablePage(markdown: string, extra: Record<string, unknown> = {}) {
+    return {
+      url: () => 'https://example.test/coffee',
+      readPageMarkdown: vi.fn(async () => markdown),
+      nextPageHref: vi.fn(async () => ''),
+      navigateTo: vi.fn(),
+      getScrollInfo: vi.fn(async () => [0, 500, 1000]),
+      scrollToPercent: vi.fn(),
+      ...extra,
+    };
+  }
+
+  it('returns the first chunk with the outline and a cursor, and keeps the read on the context', async () => {
+    const page = readablePage(article);
+    const { handler, context } = handlerFor(page);
+
+    const first = await handler.handleReadPage({ max_tokens: 500 });
+
+    expect(page.readPageMarkdown).toHaveBeenCalledWith('main');
+    expect(first.extractedContent).toContain('https://example.test/coffee — main content');
+    expect(first.extractedContent).toContain('s2 ## Roasting [');
+    expect(first.extractedContent).toContain('read on with read_page cursor');
+    expect(context.pageRead).toEqual({ url: 'https://example.test/coffee', text: article });
+  });
+
+  it('jumps to a section instead of reading up to it, and lists the sections when there is no such one', async () => {
+    const { handler } = handlerFor(readablePage(article));
+
+    const brewing = await handler.handleReadPage({ section: 'Brewing' });
+    expect(brewing.extractedContent).toContain('section s3 "Brewing"');
+    expect(brewing.extractedContent).toContain('b'.repeat(100));
+    expect(brewing.extractedContent).not.toContain('r'.repeat(100));
+
+    const missing = await handler.handleReadPage({ section: 'Grinding' });
+    expect(missing.extractedContent).toContain('No section "Grinding" on this page');
+    expect(missing.extractedContent).toContain('s3 ## Brewing [');
+  });
+
+  it('continues from a cursor and says when the whole page has been read', async () => {
+    const { handler } = handlerFor(readablePage(article));
+
+    const first = await handler.handleReadPage({ max_tokens: 500 });
+    const cursor = Number(/read_page cursor (\d+)/.exec(first.extractedContent ?? '')?.[1]);
+    expect(cursor).toBeGreaterThan(0);
+
+    const next = await handler.handleReadPage({ max_tokens: 500, cursor });
+    expect(next.extractedContent).toContain(`from character ${cursor}`);
+
+    const past = await handler.handleReadPage({ cursor: article.length + 5 });
+    expect(past.extractedContent).toContain('at or past the end of the text');
+  });
+
+  it('returns the outline alone in structured mode', async () => {
+    const { handler } = handlerFor(readablePage(article));
+
+    const outline = await handler.handleReadPage({ mode: 'structured' });
+
+    expect(outline.extractedContent).toContain('outline only, ');
+    expect(outline.extractedContent).toContain('s1 # Coffee [');
+    expect(outline.extractedContent).not.toContain('r'.repeat(100));
+  });
+
+  it('opens a target address before reading it', async () => {
+    const page = readablePage(article);
+    const { handler } = handlerFor(page);
+
+    await handler.handleReadPage({ target: 'https://example.test/other' });
+
+    expect(page.navigateTo).toHaveBeenCalledWith('https://example.test/other');
+  });
+
+  it('follows next-page links up to max_pages and says how many pages it read', async () => {
+    let pageNumber = 1;
+    const page = readablePage('', {
+      readPageMarkdown: vi.fn(async () => `# Page ${pageNumber}\n\nrow ${pageNumber}`),
+      nextPageHref: vi.fn(async () => (pageNumber < 9 ? `https://example.test/p${pageNumber + 1}` : '')),
+      navigateTo: vi.fn(async () => {
+        pageNumber++;
+      }),
+    });
+    const { handler } = handlerFor(page);
+
+    const all = await handler.handleReadPage({ all_pages: true, max_pages: 3 });
+
+    expect(page.navigateTo).toHaveBeenCalledTimes(2);
+    expect(all.extractedContent).toContain('3 pages');
+    expect(all.extractedContent).toContain('# Page 3');
+  });
+
+  it('loads more by scrolling when the list has no next link, and stops when nothing grows', async () => {
+    let height = 1000;
+    let markdown = '# List\n\nitem 1';
+    const page = readablePage('', {
+      readPageMarkdown: vi.fn(async () => markdown),
+      getScrollInfo: vi.fn(async () => [0, 500, height]),
+      scrollToPercent: vi.fn(async () => {
+        if (height === 1000) {
+          height = 2000;
+          markdown += '\n\nitem 2';
+        }
+      }),
+    });
+    const { handler } = handlerFor(page);
+
+    const all = await handler.handleReadPage({ all_pages: true, max_pages: 4 });
+
+    expect(all.extractedContent).toContain('item 2');
+    expect(all.extractedContent).toContain('2 pages');
+  });
+
+  it('reports a failed read instead of throwing', async () => {
+    const { handler } = handlerFor(
+      readablePage('', {
+        readPageMarkdown: vi.fn(async () => {
+          throw new Error('debugger detached');
+        }),
+      }),
+    );
+
+    const failed = await handler.handleReadPage({});
+
+    expect(failed.error).toContain('Could not read the page: debugger detached');
+  });
+});
+
 describe('ContentHandler save_findings', () => {
   it('keeps findings on the task context', async () => {
     const { handler, context } = handlerFor({});
