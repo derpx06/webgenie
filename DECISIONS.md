@@ -60,3 +60,28 @@ mode (`quick`/`standard`/`deep`) is a parameter for the same reason.
 
 **Rejected:** *A standalone research pipeline.* Faster to write in isolation, but it would
 fork the perception code and double the maintenance and the evaluation surface.
+
+## D4 — Accuracy and task performance outrank token efficiency
+
+**Date:** 2026-09-18
+**Decision:** Every efficiency change must be shown accuracy-neutral or better on the gate
+set before it ships. The ≥60% token target is a target for reaching the *same or a better*
+result more cheaply, never a licence to remove context the agent needs, skip a verification
+step, or answer with less evidence.
+
+**Why:** The user set the priority order explicitly while the token work was running. It is
+also the right engineering order for this project: the benchmark exists to prove capability,
+and a cheaper agent that solves fewer tasks is a worse agent, not a better one.
+
+**Consequences:**
+- The Phase C gate is now two-sided: tokens per successful task must fall **and** judged
+  success must not fall. A token win with a success drop is reverted, not argued.
+- Cuts that cannot be proven neutral stay behind a gate run. The planner's private copy of
+  the element list (29,825 tokens a task) is the current example: plausibly wasteful,
+  plausibly load-bearing for planning, so it is an experiment rather than a change.
+- Where a trade-off is genuinely unavoidable, it goes to the user with both numbers rather
+  than being settled quietly in favour of the cheaper side.
+
+**Rejected:** *Shipping the measured cuts and checking the score afterwards.* Faster, but it
+is how a silent regression gets baked in — this project has already had two harness bugs
+misread as agent regressions.
