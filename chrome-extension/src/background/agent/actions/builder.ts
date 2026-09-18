@@ -141,7 +141,7 @@ export interface ToolDefinition {
 
 /** Extra field every navigator tool carries so the model's working memory rides along with each action. */
 export const NAVIGATOR_TOOL_FIELDS = {
-  memory: z.string().describe('Working memory for the next step, as described in the instructions.'),
+  memory: z.string().describe('Working memory, as the instructions describe.'),
 };
 
 /** Model-facing tool definitions, one per action. Deterministic, so the output is byte-stable for prompt caching. */

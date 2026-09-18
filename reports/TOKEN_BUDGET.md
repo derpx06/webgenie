@@ -169,3 +169,44 @@ against a spurious refusal is not something to delete on silence; it costs ~30 t
 `# final_answer` and `# Finishing` keep the answer-content rule in the sharper form §5.1 P1 recommends, quoting
 the shapes `answerGaps` rejects ("successfully did X", "the page was opened", "the search returned results"), so
 prompt and guard now say the same thing.
+
+---
+
+## 5. Tool-description economy — **3 450 → 2 840 tok/call = −10 492 tok/task**
+
+| | before | after | delta |
+|---|---:|---:|---:|
+| 24 default tools, full JSON | **3 450** | **2 840** | **−610 (−18%)** |
+| all 34 (browser-data tools on, off by default) | 4 856 | 4 155 | −701 |
+
+Per task: 610 × 17.2 = **−10 492 tok/task (−4.2% of input)**, beating the audit's no-tool-removed target of
+2 989 without dropping a single tool.
+
+Where it came from:
+
+- **`COMMITS_DESCRIPTION`, 115 tok inlined in three tools = 345 tok/turn.** It re-enumerated five values that
+  `common.ts` already teaches ("Set `commits` … whenever it places an order, pays, subscribes or changes an
+  account, **in any language or with an icon**"), so the enum names plus the consequence are enough: 115 → 37 tok,
+  **−234/turn**. The safety content is unchanged — the "any language or icon" judgement stays in the system
+  prompt, which is where it was already stated.
+- **`memory`, on all 24 tools.** "Working memory for the next step, as described in the instructions." →
+  "Working memory, as the instructions describe." — **−72/turn** for the same pointer.
+- **`ask_human` 444 → 390.** `placeholder` (cosmetic, never set in 60 tasks) removed from the `fields`
+  sub-schema; the rest shortened.
+- **Mis-described tools corrected, not just shortened** (§5.3): `done` now says what it is — *"Propose the
+  finished answer … the planner checks it against the page"* — instead of claiming to finish the task, which is
+  the planner's call and the thing five tasks reworded a `done` two or three times over; `scroll` now states the
+  refusal it will actually meet (*"refused after a few scrolls that revealed nothing new"*), which is the
+  cheapest place to put the rule P2 shows prose alone never enforced; `save_findings` drops the 1 500-character
+  retention detail no call can act on.
+- Every other description reduced to one clause, with no worked examples in field descriptions.
+
+**Kept against the audit: `drag_element` and `upload_file` stay in the default set** (audit: delete / register
+conditionally, −242 tok). Both had 0 calls in 60 Mind2Web tasks, but 0 calls in one sample of one benchmark is
+evidence about that sample, not about the capability: a drag-to-reorder or an upload task simply cannot be done
+without them, and the agent is meant to solve arbitrary tasks on any domain. Their two descriptions now cost 271
+tokens together, and the block is already below the audit's target without them.
+
+`actions/__tests__/tools.test.ts` gains a budget test that pins the default block under 14 500 characters, the
+full set under 21 700, and every description under 260 characters, so the block cannot silently re-inflate. The
+byte-stability assertion that protects prefix caching is untouched.

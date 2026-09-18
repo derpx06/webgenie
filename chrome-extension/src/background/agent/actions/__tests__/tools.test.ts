@@ -60,6 +60,26 @@ describe('model-facing tool definitions', () => {
     expect(JSON.stringify(buildToolDefinitions(actionSchemas, NAVIGATOR_TOOL_FIELDS))).toBe(JSON.stringify(tools));
   });
 
+  /**
+   * The tool block is uploaded on every navigator call (17.2 a task in the r2-cand run) and was 15.6% of that
+   * run's whole input bill, so a description that grows costs more than it reads. The ceilings are the measured
+   * size after `reports/TOKEN_BUDGET.md` §5 plus ~5% headroom; raise one only with a measurement that earns it.
+   */
+  it('stays inside its character budget, which is what the model pays for', () => {
+    const defaults = new Set([
+      'done', 'ask_human', 'search_web', 'go_to_url', 'go_back', 'go_forward', 'wait',
+      'click_element', 'hover_element', 'right_click_element', 'input_text', 'upload_file', 'drag_element',
+      'handle_dialog', 'select_dropdown_option', 'switch_tab', 'open_tab', 'close_tab',
+      'get_complete_page_content', 'save_findings', 'scroll', 'scroll_to_text', 'view_screenshot', 'send_keys',
+    ]);
+    const defaultBlock = tools.filter(tool => defaults.has(tool.function.name));
+    expect(defaultBlock).toHaveLength(defaults.size);
+    expect(JSON.stringify(defaultBlock).length).toBeLessThan(14_500);
+    expect(JSON.stringify(tools).length).toBeLessThan(21_700);
+    // No description carries a worked example or a retention detail no call can act on.
+    for (const tool of tools) expect(tool.function.description.length).toBeLessThan(260);
+  });
+
   it('binds to the Google and OpenAI LangChain adapters without schema errors', () => {
     expect(() => new ChatGoogle({ apiKey: 'test-key', model: 'gemini-2.5-flash' }).bindTools(tools, { tool_choice: 'any' })).not.toThrow();
     expect(() => new ChatOpenAI({ apiKey: 'test-key', model: 'gpt-4.1' }).bindTools(tools, { tool_choice: 'any' })).not.toThrow();
