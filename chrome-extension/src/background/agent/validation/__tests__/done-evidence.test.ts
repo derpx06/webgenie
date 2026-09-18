@@ -119,6 +119,30 @@ describe('staleRequirements', () => {
   });
 });
 
+describe('staleRequirements on a page that could not be read', () => {
+  const applied = { requirement: 'most experienced', status: 'applied' as const, evidence: 'sort label "Sort: Experience, high to low"' };
+
+  it('does not call the evidence gone when the read came back empty while the page re-rendered', () => {
+    const context = contextOnPage([]);
+    (context.promptState as BrowserState).url = 'https://dir.test/search?city=springfield';
+    expect(staleRequirements(context, [applied])).toEqual([]);
+    expect(appliedOnPage(context, [applied])).toEqual([]);
+  });
+
+  it('does not call it gone when the page could not be read in time', () => {
+    const context = contextOnPage(['Results', 'Sort: Relevance']);
+    (context.promptState as BrowserState).url = 'https://dir.test/search?city=springfield';
+    (context.promptState as BrowserState).unreadable = true;
+    expect(staleRequirements(context, [applied])).toEqual([]);
+  });
+
+  it('still calls it gone on a page that was read and shows something else', () => {
+    const context = contextOnPage(['Results', 'Sort: Relevance']);
+    (context.promptState as BrowserState).url = 'https://dir.test/search?city=springfield';
+    expect(staleRequirements(context, [applied])).toEqual([applied]);
+  });
+});
+
 describe('mergeRequirements', () => {
   const applied = (requirement: string, evidence: string) => ({ requirement, status: 'applied' as const, evidence });
   const pending = (requirement: string) => ({ requirement, status: 'pending' as const });

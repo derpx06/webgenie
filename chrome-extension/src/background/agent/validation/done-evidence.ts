@@ -90,16 +90,16 @@ export function staleRequirements(context: AgentContext, requirements: PlannerRe
   });
 }
 
-/** Everything on the page an applied requirement's evidence may be found in: its text, its addresses and its attributes. */
+/**
+ * Everything on the page an applied requirement's evidence may be found in: its text, its addresses and its attributes.
+ * Null when the page holds nothing to search: it could not be read in time, or it was read while re-rendering and came
+ * back with no content at all. Such a read is not evidence that a filter or sort is gone (a live run read the page while
+ * it re-rendered after sorting, was told the sort had vanished, and undid the sort that had in fact been applied).
+ */
 function evidenceHaystack(context: AgentContext): string | null {
   const state = context.promptState;
-  if (!state) return null;
-  const parts = [visibleText(state), state.url ?? ''];
-  try {
-    parts.push(decodeURIComponent((state.url ?? '').replace(/\+/g, ' ')));
-  } catch {
-    // A malformed address is searched as it is.
-  }
+  if (!state || state.unreadable) return null;
+  const parts = [visibleText(state)];
   const stack: unknown[] = state.elementTree ? [state.elementTree] : [];
   while (stack.length > 0) {
     const node = stack.pop();
@@ -107,6 +107,13 @@ function evidenceHaystack(context: AgentContext): string | null {
       parts.push(...Object.values(node.attributes ?? {}));
       stack.push(...node.children);
     }
+  }
+  if (!/[a-z0-9]/i.test(parts.join(''))) return null;
+  parts.push(state.url ?? '');
+  try {
+    parts.push(decodeURIComponent((state.url ?? '').replace(/\+/g, ' ')));
+  } catch {
+    // A malformed address is searched as it is.
   }
   return parts.join('\n').replace(/\s+/g, ' ').toLowerCase();
 }
