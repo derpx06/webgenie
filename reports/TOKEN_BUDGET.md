@@ -126,3 +126,46 @@ task opens.
 `chrome://` pages are deliberately **not** filtered: the agent is told never to open one, but a `chrome://`
 tab the user already had open is real browser state, and hiding it would make the tab ids the model is given
 disagree with the browser.
+
+---
+
+## 4. Prompt rewrite — **−979 planner / −562 navigator per call = −15 246 tok/task**
+
+| block | before | after | delta | audit's target |
+|---|---:|---:|---:|---:|
+| `plannerSystemPromptTemplate` (+ vision rules) | 2 513 | **1 534** | **−979 (−39%)** | 1 399 |
+| `navigatorSystemPromptTemplate` (+ vision rules) | 2 437 | **1 875** | **−562 (−23%)** | 1 839 |
+
+Per task: 979 × 5.7 + 562 × 17.2 = **−15 246 tok/task (−6.2% of input)**. The planner's share (−5 580) is saved
+at **full price**: §5.0 measures its `cacheReadTokens` at 1.6% against the navigator's 43%.
+
+Deleted, each with the audit's evidence:
+
+- **`# Deciding` 6, source authority** ("Prefer authoritative primary sources…"). 22 tok/turn, and no plan in
+  any of the 60 r2-cand sessions cites a source-quality choice.
+- **The duplicated offscreen sentence.** The contract was stated in both prompts; it now appears once, in
+  `# Interactive elements`, where the line format is defined.
+- **"or you are on the last step"** (`# Finishing`). The navigator is told `Current step: N/100` while
+  `e2e/mind2web/run.mjs:60` sets `maxSteps: 50`, and no task in r2-cand reached either; the binding limit is the
+  500k token cap, which the model is never told. The rule cannot fire and its number is wrong.
+- **The `send_keys` repeat guidance.** 2 calls in 60 tasks.
+- **Navigator rule 9, `handle_dialog`.** `prompts/base.ts::dialogNotice` already ends with
+  "— call handle_dialog before anything else." and it is injected exactly when a dialog is open, which is the
+  only moment the rule could matter; `DIALOG_SAFE_ACTIONS` refuses everything else meanwhile.
+- **`# Routes that fail`** as its own heading, merged into `# Deciding` 4.
+- **`# What you receive`** (planner), and every rule restated in both `# Deciding` and `# Completion`.
+
+Merged rather than deleted: the four `# Requirements` sub-rules on superlatives and range filters (into one
+line), the two `# How to act` rules on repeated actions and re-checking the page (`7`), and the `ask_human`
+never-list (one sentence instead of five bullets).
+
+**Kept against the audit's rewrite: "if the task names an app or service, plan its web version, and never
+refuse because sign-in might be needed"** (old `# Deciding` 2, folded into rule 5). The audit drops it silently —
+it is in neither its "deleted with evidence" list nor its "kept" list, so no trace evidence was offered either
+way. It is a refusal guard, and §5.2 shows this agent's other refusal guard (the page-blind intent check)
+destroying a whole task with 7 identical refusals and ranking as the #1 failed action of the r1 run. A guard
+against a spurious refusal is not something to delete on silence; it costs ~30 tokens.
+
+`# final_answer` and `# Finishing` keep the answer-content rule in the sharper form §5.1 P1 recommends, quoting
+the shapes `answerGaps` rejects ("successfully did X", "the page was opened", "the search returned results"), so
+prompt and guard now say the same thing.

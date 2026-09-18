@@ -123,8 +123,8 @@ describe('PlannerAgent response shape', () => {
   });
 
   it('keeps found values in a final answer and demands correctly applied criteria before an answer of absence', () => {
-    expect(plannerSystemPromptTemplate).toContain('Include every requested value already found in the steps or findings, also when finishing at a blocker.');
-    expect(plannerSystemPromptTemplate).toContain('Answer that something does not exist only when the page shows no match after every criterion was applied');
+    expect(plannerSystemPromptTemplate).toContain('Include values already found in the steps or findings, also when finishing at a blocker.');
+    expect(plannerSystemPromptTemplate).toContain('Answer that something does not exist only after every criterion was applied with the control meant for it');
   });
 });
 
