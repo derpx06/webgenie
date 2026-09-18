@@ -639,7 +639,7 @@ export class Harness {
       this.fixtures.resetHits();
       const page = await this.browser.newPage();
       await page.goto(url, { waitUntil: 'domcontentloaded' });
-      await page.bringToFront();
+      await page.bringToFront().catch(() => {});
       const run = { outcome: 'task.ok', answer: '', answers: [''], questions: [], questionTimes: [] };
       if (mode === 'oracle') {
         const ask = question => {
@@ -678,7 +678,7 @@ export class Harness {
 
     const web = await this.browser.newPage();
     await web.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
-    await web.bringToFront();
+    await web.bringToFront().catch(() => {});
     const tabId = await this.ctl.evaluate(async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id, web.url());
     if (!tabId) throw new Error(`no tab found for ${web.url()}`);
 
@@ -729,7 +729,7 @@ export class Harness {
       await this.configure(seqId, task.title, task.settings);
       const seqPage = await this.browser.newPage();
       await seqPage.goto(seqUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
-      await seqPage.bringToFront();
+      await seqPage.bringToFront().catch(() => {});
       const seqTab = await this.ctl.evaluate(async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id, seqPage.url());
       const out = await this.drive({ ...limits, taskId: seqId, tabId: seqTab, task: next.task, page: seqPage });
       run = { ...out, events: [...run.events, ...out.events], questions: [...run.questions, ...out.questions], questionTimes: [...run.questionTimes, ...out.questionTimes], seconds: +(run.seconds + out.seconds).toFixed(1) };

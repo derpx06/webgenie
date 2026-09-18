@@ -455,7 +455,8 @@ async function runTask(harness, task, runId, runDir) {
       });
     }
   }
-  await web.bringToFront();
+  // Cosmetic: a closed or detached session must not end a task (two rounds lost tasks to exactly this).
+  await web.bringToFront().catch(() => {});
   const tabId = await harness.ctl.evaluate(
     async href => (await chrome.tabs.query({})).filter(t => t.url === href).at(-1)?.id,
     web.url(),
@@ -480,8 +481,12 @@ async function runTask(harness, task, runId, runDir) {
     if ((await within(shootPage(page, { path: path.join(dir, 'trajectory', name) }), 10_000)) && !full)
       screenshots.push(name);
   };
+  // A site that starts refusing mid-task used to be found only when the task ended: one round spent 8,074 s and
+  // 3.29M tokens on sites that had already shut the door. Two consecutive refusal reads stop the task there.
+  let blockedDuring = null;
   const shooter = (async () => {
     let seen = 0;
+    let refusals = 0;
     for (;;) {
       await sleep(500);
       const stopping = !driving;
@@ -489,6 +494,13 @@ async function runTask(harness, task, runId, runDir) {
       if (acts > seen) {
         seen = acts;
         await shoot();
+        const page = await agentPage(harness);
+        const refusal = page ? await refusalPage(page, host).catch(() => null) : null;
+        refusals = refusal ? refusals + 1 : 0;
+        if (refusal && refusals >= 2 && !blockedDuring) {
+          blockedDuring = refusal;
+          await harness.post({ type: 'cancel_task', taskId, tabId }).catch(() => {});
+        }
       }
       if (stopping) break;
     }
@@ -521,7 +533,7 @@ async function runTask(harness, task, runId, runDir) {
   // A task that ends on a refusal page of its own site was refused on the way (a car site served "Access Denied" after its
   // start page had loaded): not measurable from this network either.
   const lastPage = await agentPage(harness);
-  const refusedAtEnd = lastPage ? await refusalPage(lastPage, host) : null;
+  const refusedAtEnd = blockedDuring ?? (lastPage ? await refusalPage(lastPage, host) : null);
   for (const page of await harness.webPages()) await page.close().catch(() => {});
 
   const provider = providerStats(records);
