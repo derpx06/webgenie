@@ -1,5 +1,52 @@
 import { describe, it, expect } from 'vitest';
-import { capHref, DOMElementNode, DOMTextNode, OFFSCREEN_LINE } from '../views';
+import { capHref, DOMElementNode, DOMTextNode, OFFSCREEN_LINE, resolveByIdentity } from '../views';
+
+describe('element identity across reads', () => {
+  const node = (index: number, backendNodeId: number | undefined, attributes: Record<string, string>, frameKey = 'main') =>
+    new DOMElementNode({ tagName: 'button', xpath: null, attributes, children: [], isVisible: true, isInteractive: true, highlightIndex: index, backendNodeId, frameKey });
+
+  it('names the element by its node and frame, not by the index the read gave it', () => {
+    expect(node(3, 42, {}).durableId).toBe('main#42');
+    expect(node(9, 42, {}, 'frame-2').durableId).toBe('frame-2#42');
+    // The same node keeps its name however it is renumbered; an unadoptable node has none.
+    expect(node(0, 42, {}).durableId).toBe(node(7, 42, {}).durableId);
+    expect(node(0, undefined, {}).durableId).toBeNull();
+  });
+
+  it('follows the element to its new handle after a re-render renumbers the read', () => {
+    const chosen = node(3, 42, { role: 'combobox', 'aria-label': 'Breed' });
+    const map = new Map([
+      [0, node(0, 11, { role: 'link', 'aria-label': 'Home' })],
+      [1, node(1, 42, { role: 'combobox', 'aria-label': 'Breed' })],
+    ]);
+
+    expect(resolveByIdentity(chosen, map)).toBe(1);
+  });
+
+  it('follows it by role and name when the re-render also replaced the node', () => {
+    const chosen = node(3, 42, { role: 'combobox', 'aria-label': 'Breed' });
+    const map = new Map([[2, node(2, 77, { role: 'combobox', 'aria-label': 'Breed' })]]);
+
+    expect(resolveByIdentity(chosen, map)).toBe(2);
+  });
+
+  it('refuses a name match that two elements would fit, and one with nothing to match on', () => {
+    const named = node(3, 42, { role: 'combobox', 'aria-label': 'Breed' });
+    const twice = new Map([
+      [0, node(0, 77, { role: 'combobox', 'aria-label': 'Breed' })],
+      [1, node(1, 78, { role: 'combobox', 'aria-label': 'Breed' })],
+    ]);
+    expect(resolveByIdentity(named, twice)).toBeNull();
+
+    const nameless = node(3, 42, {});
+    expect(resolveByIdentity(nameless, new Map([[0, node(0, 77, {})]]))).toBeNull();
+  });
+
+  it('does not follow it into another frame', () => {
+    const chosen = node(3, 42, { role: 'button', 'aria-label': 'Apply' });
+    expect(resolveByIdentity(chosen, new Map([[0, node(0, 77, { role: 'button', 'aria-label': 'Apply' }, 'frame-2')]]))).toBeNull();
+  });
+});
 
 describe('DOM Views Serialization Refinements', () => {
   it('marks an off-screen element with one character after its index, not an attribute', () => {

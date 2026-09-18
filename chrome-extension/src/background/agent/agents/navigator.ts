@@ -501,8 +501,8 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         if (!actionInstance) throw new Error(`Action ${actionName} not exists`);
 
         const indexArg = actionInstance.getIndexArg(actionArgs);
-        const beforeState = await browserContext.getCachedState();
-        const beforeObservation = ensureBrowserObservation(beforeState);
+        let beforeState = await browserContext.getCachedState();
+        let beforeObservation = ensureBrowserObservation(beforeState);
         this.context.activeObservation = beforeObservation;
         if (this.context.traceStore) {
           void this.context.traceStore.append({
@@ -558,11 +558,29 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
             }));
             break;
           }
-          const currentIndex = currentIndexFor(this.context.promptState, beforeState, indexArg);
-          const targetIndex = typeof args.target_index === 'number'
-            ? currentIndexFor(this.context.promptState, beforeState, args.target_index)
-            : undefined;
-          const staleIndex = currentIndex === null ? indexArg : targetIndex === null ? args.target_index : undefined;
+          const resolve = (state: BrowserState) => {
+            const index = currentIndexFor(this.context.promptState, state, indexArg);
+            const target = typeof args.target_index === 'number'
+              ? currentIndexFor(this.context.promptState, state, args.target_index)
+              : undefined;
+            return { index, target, stale: index === null ? indexArg : target === null ? args.target_index : undefined };
+          };
+          let resolved = resolve(beforeState);
+          if (resolved.stale !== undefined) {
+            // The cached read can predate a re-render, and the model is then refused an element that is still there:
+            // 135 wasted steps in the benchmark. Take one fresh read and follow the element by identity before
+            // refusing. The element chosen is still the one the model picked — it is matched by node, not by number —
+            // so this cannot redirect the action at something else.
+            const fresh = await browserContext.getState().catch(() => null);
+            const again = fresh && resolve(fresh);
+            if (again && again.stale === undefined) {
+              beforeState = fresh;
+              beforeObservation = ensureBrowserObservation(beforeState);
+              this.context.activeObservation = beforeObservation;
+              resolved = again;
+            }
+          }
+          const { index: currentIndex, target: targetIndex, stale: staleIndex } = resolved;
           if (currentIndex !== null) args.index = currentIndex;
           if (typeof targetIndex === 'number') args.target_index = targetIndex;
           const normalized = staleIndex !== undefined

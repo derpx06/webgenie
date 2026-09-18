@@ -1,6 +1,6 @@
 import { ActionResult } from '../types';
 import type { AgentContext } from '../types';
-import type { DOMElementNode } from '../../browser/dom/views';
+import { resolveByIdentity, type DOMElementNode } from '../../browser/dom/views';
 import type { FormCommitInfo } from '../../browser/page';
 import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
@@ -305,8 +305,10 @@ export function staleIndexResult(index: number, observationId: string): ActionRe
     executionStatus: 'not_attempted',
     validated: 'unknown',
     retryability: 'retry_reobserve',
-    failureReason: `Element index ${index} is not on the current page; re-observe before acting.`,
-    extractedContent: `Element index ${index} is stale; re-observe before acting.`,
+    // The page has been read again since this was chosen and the element is gone from it, so there is nothing to
+    // retry: say what to do instead rather than only that the index is stale.
+    failureReason: `Element index ${index} is no longer on the page, which has been read again since you chose it. Use an index from the new element list; if what you want is not in it, open the section, menu or dialog that holds it first.`,
+    extractedContent: `Element index ${index} is no longer on the page; use an index from the new element list.`,
     includeInMemory: true,
     observationId,
   });
@@ -314,26 +316,15 @@ export function staleIndexResult(index: number, observationId: string): ActionRe
 
 /**
  * The index, in the current read, of the element the model chose from the page in its prompt. Reads after an
- * action can number elements differently; the element is matched by frame and backendNodeId. Null when gone.
+ * action can number elements differently, so the element is followed by identity (`resolveByIdentity`), not by its
+ * number. Null when it is gone from the read, or when two elements would fit it equally well.
  */
 export function currentIndexFor(promptState: BrowserState | undefined, current: BrowserState, index: number): number | null {
   if (!promptState || promptState.selectorMap === current.selectorMap) {
     return current.selectorMap.has(index) ? index : null;
   }
   const chosen = promptState.selectorMap.get(index);
-  if (!chosen) return null;
-  for (const [candidateIndex, node] of current.selectorMap) {
-    if (node === chosen) return candidateIndex;
-    if (
-      chosen.backendNodeId !== undefined &&
-      node.backendNodeId === chosen.backendNodeId &&
-      node.frameKey === chosen.frameKey &&
-      node.tagName === chosen.tagName
-    ) {
-      return candidateIndex;
-    }
-  }
-  return null;
+  return chosen ? resolveByIdentity(chosen, current.selectorMap) : null;
 }
 
 /** Stamps an indexed action with the observation it was chosen from. An index missing from that observation is stale. */

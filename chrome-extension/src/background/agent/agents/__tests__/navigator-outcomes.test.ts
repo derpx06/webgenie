@@ -239,3 +239,32 @@ describe('Questions to the user', () => {
     expect(sent()).toContain('Not asked: the user already answered this: blue');
   });
 });
+
+describe('An element the cached read has lost', () => {
+  it('is looked up once in a fresh read and acted on, instead of being refused as stale', async () => {
+    const url = 'https://filters.test/';
+    const pages: PageSpec[] = [{ url, title: 'Filters', elements: [{ tag: 'button', text: 'Apply', attributes: { 'aria-label': 'Apply' } }] }];
+    const h = createHarness({ task: 'Apply the filter', pages, planner: keepPlanning, navigator: [[click(0)], done('Applied')] });
+    // The model is shown the button, then the read cached for the action loop catches the page mid-re-render and has
+    // lost it; a read taken now has it again. Without the retry the model is told its index is gone and has to
+    // re-observe, which is what cost 135 steps in the benchmark.
+    const cached = h.browser.getCachedState;
+    let shown = false;
+    h.browser.getCachedState = async (useVision = false) => {
+      const state = await cached(useVision);
+      if (!shown) {
+        shown = true;
+        return state;
+      }
+      return { ...state, selectorMap: new Map() };
+    };
+
+    const execution = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0);
+    await h.executor.cancel();
+    await settle(execution);
+
+    expect(h.browser.actions.map(action => action.type)).toContain('click');
+    expect(h.llm.requestsFor('navigator').map(request => textOf(request.messages)).join('\n')).not.toContain('is no longer on the page');
+  });
+});

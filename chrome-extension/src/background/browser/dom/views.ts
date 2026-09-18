@@ -138,6 +138,14 @@ export class DOMElementNode extends DOMBaseNode {
   /** Not on the page the model saw at its last step; serialized as *[index]. */
   isNew = false;
 
+  /**
+   * What the element *is*, as opposed to the number it was given. Every read renumbers interactive nodes 0..n-1
+   * (`pruneAXTree`), so the index the model holds is a handle that is only valid for one step; this is the node
+   * behind that handle — its backendNodeId in the frame it was read from — and it survives a re-read.
+   */
+  get durableId(): string | null {
+    return this.backendNodeId === undefined ? null : `${this.frameKey ?? ''}#${this.backendNodeId}`;
+  }
 
   constructor(params: {
     tagName: string | null;
@@ -667,4 +675,33 @@ export interface DOMState {
   selectorMap: Map<number, DOMElementNode>;
   /** The main document could not be read in time: an unknown page, not an empty one. */
   unreadable?: boolean;
+}
+
+/** What an element is called, for matching it across reads: the same frame, tag, role and accessible name. */
+function identityKey(node: DOMElementNode): string {
+  return `${node.frameKey ?? ''}|${node.tagName ?? ''}|${node.attributes.role ?? ''}|${node.attributes['aria-label'] ?? ''}`;
+}
+
+/**
+ * The handle a later read gives the element chosen from an earlier one, or null when it is gone.
+ *
+ * The handle itself cannot be carried over — indexes are renumbered on every read — so the element is followed by
+ * identity: the same node (`durableId`), then, once a re-render has replaced the node, the one element of the read
+ * with the same frame, tag, role and name. A named candidate only counts when it is the *only* one that fits: two
+ * matches mean the wrong element could be acted on, and a refusal is cheaper than a wrong click.
+ */
+export function resolveByIdentity(chosen: DOMElementNode, selectorMap: Map<number, DOMElementNode>): number | null {
+  const wanted = identityKey(chosen);
+  // An element with neither role nor name would match every other nameless one; only its own node identifies it.
+  const named = Boolean(chosen.attributes.role || chosen.attributes['aria-label']);
+  let sameName: number | null = null;
+  let ambiguous = false;
+  for (const [index, node] of selectorMap) {
+    if (node === chosen) return index;
+    if (chosen.durableId !== null && node.durableId === chosen.durableId && node.tagName === chosen.tagName) return index;
+    if (!named || identityKey(node) !== wanted) continue;
+    if (sameName !== null) ambiguous = true;
+    else sameName = index;
+  }
+  return ambiguous ? null : sameName;
 }

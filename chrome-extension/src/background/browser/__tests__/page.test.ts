@@ -56,6 +56,45 @@ describe('Page locateElement', () => {
 
     await expect(page.locateElement(node)).resolves.toBeNull();
   });
+
+  it('takes one fresh read and follows the element by identity when a re-render detached its node', async () => {
+    const handle = {};
+    // The node the read gave out is gone; the same control is back under a new backendNodeId.
+    const adopt = vi.fn(async (id: number) => {
+      if (id === 7) throw new Error('Node is detached from document');
+      return handle;
+    });
+    const page = new Page(1, 'https://example.com/', 'Example', {}, {} as IBrowserAdapter);
+    const attributes = { role: 'combobox', 'aria-label': 'Breed' };
+    const replacement = new DOMElementNode({ tagName: 'div', xpath: null, attributes, children: [], isVisible: true, backendNodeId: 99, frameKey: 'main' });
+    const getState = vi.fn().mockResolvedValue({ selectorMap: new Map([[0, replacement]]) });
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _validWebPage: true,
+      _puppeteerPage: { mainFrame: () => ({ mainRealm: () => ({ adoptBackendNode: adopt }) }) },
+      ensurePuppeteerConnected: vi.fn().mockResolvedValue(undefined),
+      getState,
+    });
+    const node = new DOMElementNode({ tagName: 'div', xpath: null, attributes, children: [], isVisible: true, highlightIndex: 4, backendNodeId: 7, frameKey: 'main' });
+
+    await expect(page.locateElement(node)).resolves.toBe(handle);
+    expect(getState).toHaveBeenCalledTimes(1);
+    expect(adopt).toHaveBeenLastCalledWith(99);
+  });
+
+  it('refuses without naming an index the model was not shown when the fresh read has no match either', async () => {
+    const page = new Page(1, 'https://example.com/', 'Example', {}, {} as IBrowserAdapter);
+    const getState = vi.fn().mockResolvedValue({ selectorMap: new Map() });
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _validWebPage: true,
+      _puppeteerPage: { mainFrame: () => ({ mainRealm: () => ({ adoptBackendNode: vi.fn().mockRejectedValue(new Error('Node is detached from document')) }) }) },
+      ensurePuppeteerConnected: vi.fn().mockResolvedValue(undefined),
+      getState,
+    });
+    const node = new DOMElementNode({ tagName: 'a', xpath: null, attributes: { role: 'link', 'aria-label': 'Next' }, children: [], isVisible: true, highlightIndex: 12, backendNodeId: 7 });
+
+    await expect(page.clickNode(node)).rejects.toThrow(/no longer available[\s\S]*Read the page again/);
+    await expect(page.clickNode(node)).rejects.not.toThrow(/\b12\b/);
+  });
 });
 
 describe('Page DOM retry timing', () => {
@@ -322,38 +361,110 @@ describe('Page click that opens a tab', () => {
 });
 
 describe('pointerTarget', () => {
-  const element = (width: number, height: number, extra: Record<string, unknown> = {}) =>
-    ({ getBoundingClientRect: () => ({ width, height }), querySelectorAll: () => [], labels: null, ...extra }) as unknown as Element;
+  /** A node of the fake tree below: a box, whether it is a control of its own, and its children. */
+  interface Spec {
+    name: string;
+    w?: number;
+    h?: number;
+    control?: boolean;
+    kids?: Spec[];
+  }
+
+  interface Fake extends Element {
+    _kids: Fake[];
+    _control: boolean;
+  }
+
+  /**
+   * Builds a tree of fake elements with the parts `pointerTarget` uses: boxes, parents, siblings, `contains` and a
+   * `querySelectorAll` that answers `*` with every descendant and the control selector with the flagged ones.
+   */
+  const tree = (spec: Spec): Record<string, Fake> => {
+    const byName: Record<string, Fake> = {};
+    const make = (node: Spec, parent: Fake | null): Fake => {
+      const kids: Fake[] = [];
+      const el = {
+        _kids: kids,
+        _control: node.control ?? false,
+        labels: null,
+        parentElement: parent,
+        nextElementSibling: null,
+        previousElementSibling: null,
+        getBoundingClientRect: () => ({ width: node.w ?? 0, height: node.h ?? 0 }),
+        contains: (other: unknown) => other === el || kids.some(kid => kid.contains(other as Node)),
+        querySelectorAll: (selector: string) => {
+          const found: Fake[] = [];
+          const walk = (from: Fake) => {
+            for (const kid of from._kids) {
+              if (selector === '*' || kid._control) found.push(kid);
+              walk(kid);
+            }
+          };
+          walk(el);
+          return found;
+        },
+      } as unknown as Fake;
+      for (const kid of node.kids ?? []) kids.push(make(kid, el));
+      kids.forEach((kid, i) => {
+        Object.assign(kid, { previousElementSibling: kids[i - 1] ?? null, nextElementSibling: kids[i + 1] ?? null });
+      });
+      byName[node.name] = el;
+      return el;
+    };
+    make(spec, null);
+    return byName;
+  };
+
+  beforeEach(() => vi.stubGlobal('window', { innerWidth: 1000, innerHeight: 800 }));
+  afterEach(() => vi.unstubAllGlobals());
 
   it('aims at an element that has a box', () => {
-    const el = element(20, 20);
-    expect(pointerTarget(el)).toBe(el);
+    const { button } = tree({ name: 'button', w: 20, h: 20 });
+    expect(pointerTarget(button)).toBe(button);
   });
 
   it('aims at the visible label of a hidden checkbox', () => {
-    const label = element(80, 20);
-    const input = element(0, 0, { labels: [element(0, 0), label] });
+    const { label, input } = tree({ name: 'page', w: 600, h: 400, kids: [{ name: 'input' }, { name: 'label', w: 80, h: 20 }] });
+    Object.assign(input, { labels: [tree({ name: 'other' }).other, label] });
     expect(pointerTarget(input)).toBe(label);
   });
 
-  it('aims at the visible wrapper of a hidden checkbox that has no label', () => {
-    const row = element(200, 30, { querySelectorAll: () => [{}], parentElement: null });
-    const box = element(0, 0, { querySelectorAll: () => [{}], parentElement: row });
-    const input = element(0, 0, { matches: () => true, parentElement: box });
-    expect(pointerTarget(input)).toBe(row);
-  });
-
-  it('stops at a wrapper that holds other controls and aims at a visible sibling instead', () => {
-    const list = element(400, 300, { querySelectorAll: () => [{}, {}], parentElement: null });
-    const text = element(60, 20);
-    const input = element(0, 0, { matches: () => true, parentElement: list, nextElementSibling: text });
-    expect(pointerTarget(input)).toBe(text);
-  });
-
   it('aims at the first visible descendant of an inline wrapper', () => {
-    const image = element(50, 50);
-    const link = element(0, 0, { querySelectorAll: () => [element(0, 0), image] });
+    const { link, image } = tree({ name: 'link', kids: [{ name: 'empty' }, { name: 'image', w: 50, h: 50 }] });
     expect(pointerTarget(link)).toBe(image);
+  });
+
+  it('aims at the rendered wrapper of a zero-box custom control', () => {
+    // A combobox, tile or checkbox the page draws in a wrapper: the element itself has no box at all.
+    const { control, wrapper } = tree({
+      name: 'page',
+      w: 900,
+      h: 700,
+      kids: [{ name: 'wrapper', w: 200, h: 40, kids: [{ name: 'control', control: true }] }],
+    });
+    expect(pointerTarget(control)).toBe(wrapper);
+  });
+
+  it('stops at a wrapper that holds another control and aims at a visible sibling instead', () => {
+    const { control, text } = tree({
+      name: 'list',
+      w: 400,
+      h: 300,
+      kids: [{ name: 'control', control: true }, { name: 'text', w: 60, h: 20 }, { name: 'sibling-control', w: 40, h: 20, control: true }],
+    });
+    expect(pointerTarget(control)).toBe(text);
+  });
+
+  it('never aims at an ancestor that covers most of the screen', () => {
+    const { control, page } = tree({ name: 'page', w: 1000, h: 800, kids: [{ name: 'wrapper', kids: [{ name: 'control', control: true }] }] });
+    expect(pointerTarget(control)).not.toBe(page);
+    expect(pointerTarget(control)).toBe(control);
+  });
+
+  it('refuses to aim elsewhere when nothing in the chain is clickable', () => {
+    const { control } = tree({ name: 'page', kids: [{ name: 'wrapper', kids: [{ name: 'control', control: true }] }] });
+    // Returned unchanged: the caller then reports that the element has no visible area.
+    expect(pointerTarget(control)).toBe(control);
   });
 });
 

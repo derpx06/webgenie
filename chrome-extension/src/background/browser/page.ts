@@ -17,7 +17,7 @@ import {
   getScrollInfo as _getScrollInfo,
   drawHighlightOverlaysViaCoordinates,
 } from './dom/service';
-import { DOMElementNode, type DOMState } from './dom/views';
+import { DOMElementNode, resolveByIdentity, type DOMState } from './dom/views';
 import { blocksToMarkdown, extractReadBlocks, findNextPageHref, type ReadBlock } from './dom/read-page';
 import {
   type BrowserContextConfig,
@@ -205,31 +205,65 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 /**
- * Where a pointer action on an element aims; runs in the page. An element with a box is its own target. An inline element
- * around positioned content (a link wrapping an absolutely placed image) aims at its first visible descendant. A
- * custom-styled checkbox or radio hides the real input and draws its label instead: the visible label is what a person
- * clicks, and clicking it toggles the input (Online-Mind2Web: 5 of 35 tasks had such a click refused, then scrolled
- * looking for the input until the step limit).
+ * Where a pointer action on an element aims; runs in the page and must stay self-contained.
+ *
+ * An element with a box of its own is its own target. When it has none the page is drawing the control somewhere
+ * else — a wrapping label, the div a custom combobox, tile or checkbox renders into, a sibling drawn next to a
+ * hidden input — and that surface is what a person clicks. Aiming only at the element's own box made every such
+ * control permanently unclickable while still being listed, so the model kept choosing it: four benchmark tasks
+ * died that way, one after 38 refused clicks.
+ *
+ * The chain runs from the most certain surface to the least: the element's own `<label>` (the page states the
+ * relation), then a descendant (inside it, so a click there can only mean this control), then the nearest ancestor,
+ * then a sibling. Outside surfaces are only taken while they hold no *other* control — a click on them could not
+ * mean anything else — and while they are not so large that their centre could be anywhere. Nothing in the chain
+ * qualifies: the element is returned unchanged and the caller refuses, which is the honest answer for a control
+ * that really is hidden.
  */
 export function pointerTarget(el: Element): Element {
+  const boxOf = (candidate: Element) => candidate.getBoundingClientRect();
   const hasBox = (candidate: Element) => {
-    const rect = candidate.getBoundingClientRect();
+    const rect = boxOf(candidate);
     return rect.width > 0 && rect.height > 0;
   };
   if (hasBox(el)) return el;
+
   const label = Array.from((el as HTMLInputElement).labels ?? []).find(hasBox);
   if (label) return label;
-  // A hidden checkbox or radio with no <label>: its drawn box and text sit in a wrapper (or next to it) that takes the
-  // click. Aim at the nearest visible ancestor that holds no other control, then a visible sibling.
-  if (el.matches?.('input[type="checkbox"], input[type="radio"]')) {
-    for (let node = el.parentElement, depth = 0; node && depth < 4; node = node.parentElement, depth++) {
-      if (node.querySelectorAll('input, select, textarea, button').length > 1) break;
-      if (hasBox(node)) return node;
-    }
-    const sibling = [el.nextElementSibling, el.previousElementSibling].find(candidate => candidate && hasBox(candidate));
-    if (sibling) return sibling;
+
+  // Inside the element: an inline wrapper around positioned content (a link wrapping an absolutely placed image).
+  const descendant = Array.from(el.querySelectorAll('*')).find(hasBox);
+  if (descendant) return descendant;
+
+  const viewArea = typeof window === 'undefined' ? 0 : (window.innerWidth || 0) * (window.innerHeight || 0);
+  const tooLarge = (candidate: Element) => {
+    const rect = boxOf(candidate);
+    return viewArea > 0 && rect.width * rect.height > viewArea / 2;
+  };
+  // A surface that contains some other control is that control's, not this element's; ancestors of `el` on the way
+  // up are not "other", and the walk stops at them anyway because the nearest one is reached first. The selector is
+  // inline because this function is serialized into the page, where module constants do not exist.
+  const holdsOtherControl = (candidate: Element) =>
+    Array.from(
+      candidate.querySelectorAll(
+        'a[href],button,input,select,textarea,summary,[onclick],[contenteditable=""],[contenteditable="true"],' +
+          '[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="option"],' +
+          '[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"],[role="combobox"],[role="listbox"],' +
+          '[role="textbox"],[role="searchbox"],[role="spinbutton"],[role="slider"],[role="treeitem"]',
+      ),
+    ).some(other => other !== el && !other.contains(el) && !el.contains(other));
+
+  // ponytail: nearest qualifying ancestor, not the one the page gave a click listener — a listener cannot be read
+  // from inside the page. The two guards below keep a wrong aim from being actionable; if traces show clicks landing
+  // on inert wrappers, prefer an ancestor whose computed `cursor` is `pointer`.
+  for (let node = el.parentElement, depth = 0; node && depth < 5; node = node.parentElement, depth++) {
+    if (holdsOtherControl(node) || tooLarge(node)) break;
+    if (hasBox(node)) return node;
   }
-  return Array.from(el.querySelectorAll('*')).find(hasBox) ?? el;
+  const sibling = [el.nextElementSibling, el.previousElementSibling].find(
+    candidate => candidate && hasBox(candidate) && !tooLarge(candidate) && !holdsOtherControl(candidate),
+  );
+  return sibling ?? el;
 }
 
 export interface CoverBlocker {
@@ -1428,25 +1462,57 @@ export default class Page {
     return false;
   }
 
-  /** The live element for a node of the last read, adopted by backendNodeId in the frame it came from. */
+  /**
+   * The live element for a node of the last read, adopted by backendNodeId in the frame it came from.
+   *
+   * A re-render between the read and the action replaces the node, and the adoption fails with "Node is detached
+   * from document" even though the same control is still on the page under a new node. One fresh read is taken and
+   * the element followed by identity before giving up; the traces show that retry usually succeeding, and each
+   * failure the model has to recover from instead costs a replan.
+   */
   async locateElement(element: DOMElementNode): Promise<ElementHandle | null> {
     await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage || element.backendNodeId == null) {
       return null;
     }
-    const frame = element.frame ?? this._puppeteerPage.mainFrame();
+    const adopt = async (node: DOMElementNode): Promise<ElementHandle> => {
+      const frame = node.frame ?? this._puppeteerPage!.mainFrame();
+      return (await frame.mainRealm().adoptBackendNode(node.backendNodeId!)) as unknown as ElementHandle;
+    };
     try {
-      return (await frame.mainRealm().adoptBackendNode(element.backendNodeId)) as unknown as ElementHandle;
+      return await adopt(element);
     } catch (error) {
+      const replacement = await this._afterFreshRead(element);
+      if (replacement) {
+        try {
+          return await adopt(replacement);
+        } catch {
+          // Gone in the fresh read too; fall through to the warning below.
+        }
+      }
       logger.warning(`${element} is no longer in the page: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
 
+  /** The same element in a read taken now, or null when the page no longer has it (or has two that would fit). */
+  private async _afterFreshRead(element: DOMElementNode): Promise<DOMElementNode | null> {
+    this.invalidateCache();
+    const state = await this.getState().catch(() => null);
+    if (!state) return null;
+    const index = resolveByIdentity(element, state.selectorMap);
+    const found = index === null ? null : (state.selectorMap.get(index) ?? null);
+    return found && found.backendNodeId != null ? found : null;
+  }
+
   private async _requireHandle(node: DOMElementNode): Promise<ElementHandle> {
     const handle = await this.locateElement(node);
     if (!handle) {
-      throw new Error(`Element with index ${node.highlightIndex} is no longer available`);
+      // No index: the number the model was shown is not the number this node carries after a re-read, and naming
+      // one it never saw sent it clicking an unrelated element in a live run.
+      throw new Error(
+        'That element is no longer available: the page replaced or removed it. Read the page again and use the index the new list gives it.',
+      );
     }
     return handle;
   }
