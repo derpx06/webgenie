@@ -35,7 +35,7 @@ describe('model-facing tool definitions', () => {
 
   it('covers every action with unique, provider-valid names', () => {
     const names = tools.map(tool => tool.function.name);
-    expect(names).toHaveLength(37);
+    expect(names).toHaveLength(38);
     expect(names).toEqual(expect.arrayContaining(['handle_dialog', 'drag_element']));
     expect(new Set(names).size).toBe(names.length);
     for (const name of names) expect(name).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/);
@@ -66,20 +66,22 @@ describe('model-facing tool definitions', () => {
    * size after `reports/TOKEN_BUDGET.md` §5 plus ~5% headroom; raise one only with a measurement that earns it.
    * Raised once, deliberately: read_page, find_in_page and extract added ~2,400 characters (~600 tokens a call) and
    * removed the scroll loop that cost 710 wasted steps across 247 reviewed tasks, so the block buys back far more
-   * than it costs. Capability outranks the budget; the budget still refuses growth that buys nothing.
+   * than it costs. Raised again for fill_form (+1,161 characters, ~290 tokens a call), which turns a form of N fields
+   * from N steps carrying N element lists into one: at 14,454 input tokens a step it pays for itself on the first form.
+   * Capability outranks the budget; the budget still refuses growth that buys nothing.
    */
   it('stays inside its character budget, which is what the model pays for', () => {
     const defaults = new Set([
       'done', 'ask_human', 'search_web', 'go_to_url', 'go_back', 'go_forward', 'wait',
-      'click_element', 'hover_element', 'right_click_element', 'input_text', 'upload_file', 'drag_element',
+      'click_element', 'hover_element', 'right_click_element', 'input_text', 'fill_form', 'upload_file', 'drag_element',
       'handle_dialog', 'select_dropdown_option', 'switch_tab', 'open_tab', 'close_tab',
       'get_complete_page_content', 'read_page', 'find_in_page', 'extract',
       'save_findings', 'scroll', 'scroll_to_text', 'view_screenshot', 'send_keys',
     ]);
     const defaultBlock = tools.filter(tool => defaults.has(tool.function.name));
     expect(defaultBlock).toHaveLength(defaults.size);
-    expect(JSON.stringify(defaultBlock).length).toBeLessThan(17_000);
-    expect(JSON.stringify(tools).length).toBeLessThan(24_200);
+    expect(JSON.stringify(defaultBlock).length).toBeLessThan(18_300);
+    expect(JSON.stringify(tools).length).toBeLessThan(25_200);
     // No description carries a worked example or a retention detail no call can act on.
     for (const tool of tools) expect(tool.function.description.length).toBeLessThan(260);
   });

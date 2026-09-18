@@ -2,6 +2,7 @@ import { ActionResult } from '@src/background/agent/types';
 import type {
   clickElementActionSchema,
   dragElementActionSchema,
+  fillFormActionSchema,
   handleDialogActionSchema,
   hoverElementActionSchema,
   inputTextActionSchema,
@@ -9,6 +10,7 @@ import type {
   selectDropdownOptionActionSchema,
   uploadFileActionSchema,
 } from '../schemas';
+import { currentIndexFor } from '../../validation/service';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
@@ -166,6 +168,74 @@ export class InteractionHandler extends BaseHandler {
           after: outcome.secret
             ? { actualLength: outcome.actualLength }
             : { actualLength: outcome.actualLength, actual: outcome.actual?.slice(0, 80) },
+        },
+      ],
+    });
+  }
+
+  /**
+   * A whole form in one call and one page read. Each field of a form was a step of its own, with the element list re-sent
+   * for every one of them; the values are known before the first is typed, so they cost one observation together.
+   * Every index is resolved before anything is typed: a form half filled from a stale index is worse than one not filled.
+   */
+  async handleFillForm(input: z.infer<typeof fillFormActionSchema.schema>): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Filling ${input.fields.length} fields`);
+    const page = await this.context.browserContext.getCurrentPage();
+    const state = await this.context.browserContext.getCachedState();
+    const shown = this.context.promptIndexes;
+
+    const targets: Array<{ index: number; value: string; node: DOMElementNode }> = [];
+    const problems: string[] = [];
+    for (const field of input.fields) {
+      if (shown && !shown.has(field.index)) {
+        problems.push(`[${field.index}] is not in the element list you were given`);
+        continue;
+      }
+      const current = currentIndexFor(this.context.promptState, state, field.index);
+      const node = current === null ? undefined : state.selectorMap.get(current);
+      if (!node) problems.push(`[${field.index}] is not on the current page`);
+      else targets.push({ index: field.index, value: field.value, node });
+    }
+    if (problems.length > 0) {
+      const msg = `Nothing was typed: ${problems.join('; ')}. Re-read the page and fill the form with indexes from the current element list.`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({ error: msg, includeInMemory: true });
+    }
+
+    const filled: string[] = [];
+    let allMatched = true;
+    let left = '';
+    for (const [position, target] of targets.entries()) {
+      const before = page.url();
+      const outcome = await page.inputTextNode(target.node, target.value);
+      if (outcome.secret) registerSecret(target.value);
+      const shownValue = outcome.secret ? '•'.repeat(target.value.length) : target.value;
+      allMatched &&= outcome.matched;
+      filled.push(
+        outcome.matched
+          ? `[${target.index}] "${shownValue}"`
+          : `[${target.index}] shows "${outcome.secret ? '•'.repeat(outcome.actualLength ?? 0) : (outcome.actual ?? '').slice(0, 60)}" instead of "${shownValue}"`,
+      );
+      // Pressing Enter in the last field is the form's own submit; it is gated like input_text with submit.
+      if (position === targets.length - 1 && input.submit) await page.sendKeys('Enter', target.node);
+      if (page.url() !== before) {
+        const rest = targets.slice(position + 1);
+        if (rest.length > 0) left = ` The page left ${before}, so ${rest.map(field => `[${field.index}]`).join(', ')} ${rest.length === 1 ? 'was' : 'were'} not filled; re-read the page before filling the rest.`;
+        break;
+      }
+    }
+
+    const msg = `Filled ${filled.join(', ')}${input.submit ? ' and pressed Enter' : ''}.${left}`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    return new ActionResult({
+      extractedContent: ownAction(`You filled ${filled.join(', ')}${input.submit ? ' and pressed Enter' : ''}`) + left,
+      includeInMemory: true,
+      evidence: [
+        {
+          kind: 'target_value',
+          passed: allMatched && !left,
+          message: allMatched ? 'Every field contains the typed text.' : 'A field shows a different value than the typed text.',
+          after: { actual: filled.join(', ').slice(0, 200) },
         },
       ],
     });

@@ -58,7 +58,7 @@ const PRESSES_ENTER = /enter|return/i;
 
 /** Whether an action presses Enter: a key press of Enter or Return, or typing with submit. */
 function pressesEnter(actionName: string, args: Record<string, unknown>): boolean {
-  return (actionName === 'send_keys' && PRESSES_ENTER.test(String(args.keys ?? ''))) || (actionName === 'input_text' && args.submit === true);
+  return (actionName === 'send_keys' && PRESSES_ENTER.test(String(args.keys ?? ''))) || ((actionName === 'input_text' || actionName === 'fill_form') && args.submit === true);
 }
 
 /** Whether an action could submit a form, so its form must be inspected before the gate decides. */
@@ -85,7 +85,7 @@ export function commitTarget(
     const parts = labelParts(node);
     label = onlyOpens(node) ? undefined : parts.find(isCommitLabel);
     if (!label && ((form?.isSubmitter && commitsForm) || modelSaysCommit)) label = parts[0] ?? form?.submitLabels[0] ?? 'this button';
-  } else if (actionName === 'send_keys' || actionName === 'input_text') {
+  } else if (actionName === 'send_keys' || actionName === 'input_text' || actionName === 'fill_form') {
     // Typing with submit presses Enter, so it is gated exactly like the key press.
     if (commitsForm && pressesEnter(actionName, args)) label = `Enter, which submits "${form?.submitLabels[0] ?? 'the form'}"`;
     else if (modelSaysCommit && actionName === 'send_keys') label = String(args.keys);
@@ -487,6 +487,7 @@ const MUTATING_ACTIONS = new Set([
   'switch_tab',
   'close_tab',
   'input_text',
+  'fill_form',
   'select_dropdown_option',
   'handle_dialog',
 ]);
@@ -606,7 +607,7 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
 
   // Typing and selecting are verified by the handler on the live element; the accessibility tree masks passwords
   // and lags behind framework-controlled inputs.
-  if (actionName === 'input_text') {
+  if (actionName === 'input_text' || actionName === 'fill_form') {
     const readBack = result.evidence.find(item => item.kind === 'target_value');
     if (!readBack) {
       return cloneWithValidation(result, 'unknown', 'retry_reobserve', [], 'The field value was not read back; check the page before typing again.');

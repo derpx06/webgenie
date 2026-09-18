@@ -57,7 +57,7 @@ const logger = createLogger('NavigatorAgent');
 const SECRET_PLACEHOLDER = /\{\{secret_\d+\}\}/g;
 
 /** Actions that can carry the user's data to a site: typed text, addresses, queries. */
-const DATA_CARRYING_ACTIONS = new Set(['input_text', 'go_to_url', 'open_tab', 'search_web', 'read_page']);
+const DATA_CARRYING_ACTIONS = new Set(['input_text', 'fill_form', 'go_to_url', 'open_tab', 'search_web', 'read_page']);
 
 /** Actions that open an address the model wrote. */
 const NAVIGATING_ACTIONS = new Set(['go_to_url', 'open_tab', 'read_page']);

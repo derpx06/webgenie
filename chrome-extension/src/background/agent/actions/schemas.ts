@@ -129,6 +129,26 @@ export const inputTextActionSchema: ActionSchema = {
   }),
 };
 
+export const fillFormActionSchema: ActionSchema = {
+  name: 'fill_form',
+  description:
+    'Fill a whole form in one call: every field by index with its value, in order. All indexes are checked before anything is typed, and it stops at the first field whose typing leaves the page.',
+  schema: z.object({
+    fields: z
+      .array(
+        z.object({
+          index: elementIndex,
+          value: z
+            .string()
+            .describe("text to type: only values from the task, the user's answers or the page; never invented personal details"),
+        }),
+      )
+      .describe('the fields to fill, in the order they should be filled'),
+    submit: z.boolean().optional().describe('true to press Enter in the last field afterwards; defaults to false'),
+    commits: z.enum(COMMIT_KINDS).optional().describe('with submit: what submitting commits, as for click_element'),
+  }),
+};
+
 export const viewScreenshotActionSchema: ActionSchema = {
   name: 'view_screenshot',
   description:
