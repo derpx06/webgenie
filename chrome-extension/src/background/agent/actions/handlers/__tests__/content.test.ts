@@ -299,6 +299,90 @@ describe('ContentHandler read_page', () => {
   });
 });
 
+describe('ContentHandler find_in_page', () => {
+  // Paragraphs far enough apart that the context windows around two matches do not merge into one passage.
+  const page = [
+    '# Store',
+    `Widget costs $42 today.${' filler'.repeat(40)}`,
+    ['| Item | Price |', '| --- | --- |', '| Gadget | $17 |'].join('\n'),
+  ].join('\n\n');
+
+  function searchablePage(markdown: string, selectorMap = new Map<number, DOMElementNode>()) {
+    return {
+      url: () => 'https://example.test/store',
+      readPageMarkdown: vi.fn(async () => markdown),
+      getCurrentState: vi.fn(async () => ({ selectorMap })),
+    };
+  }
+
+  function labelled(index: number, text: string): DOMElementNode {
+    const node = new DOMElementNode({
+      tagName: 'A',
+      xpath: `/a[${index}]`,
+      attributes: {},
+      children: [],
+      isVisible: true,
+      highlightIndex: index,
+    });
+    node.getAllTextTillNextClickableElement = () => text;
+    return node;
+  }
+
+  it('returns each match with its context without reading the whole page', async () => {
+    const { handler } = handlerFor(searchablePage(page));
+
+    const found = await handler.handleFindInPage({ query: 'widget' });
+
+    expect(found.extractedContent).toContain('1 match for "widget" on https://example.test/store');
+    expect(found.extractedContent).toContain('Widget costs $42 today.');
+    expect(found.extractedContent).not.toContain('Gadget');
+  });
+
+  it('names the element to act on for a match that belongs to one', async () => {
+    const selectorMap = new Map([
+      [3, labelled(3, 'Widget costs $42 today.')],
+      [4, labelled(4, 'Widget')],
+      [5, labelled(5, 'Something else entirely')],
+    ]);
+    const { handler } = handlerFor(searchablePage(page, selectorMap));
+
+    const found = await handler.handleFindInPage({ query: 'Widget' });
+
+    // The shortest element carrying the text is the specific one.
+    expect(found.extractedContent).toContain('element [4]');
+  });
+
+  it('returns a matched table row whole, with its header', async () => {
+    const { handler } = handlerFor(searchablePage(page));
+
+    const found = await handler.handleFindInPage({ query: 'Gadget' });
+
+    expect(found.extractedContent).toContain('table header: Item | Price');
+    expect(found.extractedContent).toContain('row: Gadget | $17');
+  });
+
+  it('matches a regular expression and caps the snippets', async () => {
+    const gap = ' word'.repeat(60);
+    const { handler } = handlerFor(searchablePage([`x $1 y${gap}`, `x $22 y${gap}`, 'x $333 y'].join('\n\n')));
+
+    const prices = await handler.handleFindInPage({ query: '\\$\\d+', regex: true });
+    expect(prices.extractedContent).toContain('3 matches');
+
+    const capped = await handler.handleFindInPage({ query: '\\$\\d+', regex: true, max_snippets: 1 });
+    expect(capped.extractedContent).toContain('[2 more matches');
+  });
+
+  it('says so for a query that matches nothing and for an expression that does not compile', async () => {
+    const { handler } = handlerFor(searchablePage(page));
+
+    const none = await handler.handleFindInPage({ query: 'sprocket' });
+    expect(none.extractedContent).toContain(`No match for "sprocket" in the ${page.length} characters of this page.`);
+
+    const broken = await handler.handleFindInPage({ query: '[unclosed', regex: true });
+    expect(broken.extractedContent).toContain('Check the expression');
+  });
+});
+
 describe('ContentHandler save_findings', () => {
   it('keeps findings on the task context', async () => {
     const { handler, context } = handlerFor({});

@@ -299,6 +299,17 @@ export const readPageActionSchema: ActionSchema = {
   }),
 };
 
+export const findInPageActionSchema: ActionSchema = {
+  name: 'find_in_page',
+  description:
+    'Find a text anywhere on the page without reading it all: every match comes back with the text around it and, where there is one, the element index to act on.',
+  schema: z.object({
+    query: z.string().describe('the text to find, or a regular expression when regex is true'),
+    regex: z.boolean().optional().describe('true to read query as a JavaScript regular expression; defaults to false'),
+    max_snippets: z.number().int().optional().describe('matches to return, 1-30; defaults to 8'),
+  }),
+};
+
 export const manageBookmarksActionSchema: ActionSchema = {
   name: 'manage_bookmarks',
   description: 'Manage Chrome bookmarks: get flat lists, search by title/url, get recent bookmarks, or create new ones.',

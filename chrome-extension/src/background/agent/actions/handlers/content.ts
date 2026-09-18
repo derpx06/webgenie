@@ -1,5 +1,6 @@
 import { ActionResult } from '@src/background/agent/types';
 import type {
+  findInPageActionSchema,
   getCompletePageContentActionSchema,
   readPageActionSchema,
   saveFindingsActionSchema,
@@ -28,12 +29,15 @@ interface ReadablePage {
   readPageMarkdown(mode: 'main' | 'full'): Promise<string>;
   nextPageHref(): Promise<string>;
   navigateTo(url: string): Promise<void>;
+  getCurrentState?(): Promise<{ selectorMap: Map<number, DOMElementNode> }>;
   getScrollInfo(): Promise<[number, number, number]>;
   scrollToPercent(percent: number): Promise<void>;
 }
 /** Characters shown on each side of a `find` match. */
 const FIND_CONTEXT_CHARS = 100;
 const MAX_FIND_PASSAGES = 30;
+/** Matches find_in_page returns unless the call asks for more. */
+const DEFAULT_SNIPPETS = 8;
 /**
  * An unchanged re-read is answered with a note only while the earlier read is still among the navigator's recent
  * tool turns (it sees five); after that the text is sent again.
@@ -45,22 +49,57 @@ const isTableRow = (line: string) => line.includes('\t') || (line.match(/\|/g)?.
 const cells = (line: string) => line.split(line.includes('\t') ? '\t' : '|').map(cell => cell.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' | ');
 const MAX_ROW_CHARS = 1000;
 
-/**
- * Each case-insensitive match of `needle` with the text around it and its character offset; overlapping passages merge.
- * A match inside a table row returns that whole row with the table's first row (its header): a fixed window around the
- * match ran into the neighbouring row and lost the column names, and the neighbour's value was reported.
- */
-export function findPassages(text: string, needle: string): string {
-  const wanted = needle.trim().toLowerCase();
+/** Where a query matches: `[start, end]` character ranges. A regex that does not compile matches nothing. */
+export function matchRanges(text: string, query: string, regex = false): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const wanted = query.trim();
+  if (!wanted) return ranges;
+  if (regex) {
+    let pattern: RegExp;
+    try {
+      pattern = new RegExp(wanted, 'gi');
+    } catch {
+      return ranges;
+    }
+    for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+      if (match[0].length === 0) {
+        pattern.lastIndex++;
+        continue;
+      }
+      ranges.push([match.index, match.index + match[0].length]);
+      if (ranges.length >= 1000) break;
+    }
+    return ranges;
+  }
   const lower = text.toLowerCase();
-  const spans: Array<{ start: number; end: number; row?: boolean; header?: string }> = [];
-  let matches = 0;
-  for (let at = wanted ? lower.indexOf(wanted) : -1; at >= 0; at = lower.indexOf(wanted, at + wanted.length)) {
-    matches++;
+  const needle = wanted.toLowerCase();
+  for (let at = lower.indexOf(needle); at >= 0; at = lower.indexOf(needle, at + needle.length)) {
+    ranges.push([at, at + needle.length]);
+    if (ranges.length >= 1000) break;
+  }
+  return ranges;
+}
+
+/** One passage to show for a match: a table row with its header, else a window of text around the match. */
+export interface Passage {
+  start: number;
+  end: number;
+  row?: boolean;
+  header?: string;
+}
+
+/**
+ * The passage to show for each match; overlapping windows merge. A match inside a table row returns that whole row with
+ * the table's first row (its header): a fixed window around the match ran into the neighbouring row and lost the column
+ * names, and the neighbour's value was reported.
+ */
+export function passagesFor(text: string, ranges: Array<[number, number]>): Passage[] {
+  const spans: Passage[] = [];
+  for (const [at, matchEnd] of ranges) {
     const lineStart = text.lastIndexOf('\n', at) + 1;
     const lineEnd = text.indexOf('\n', at) < 0 ? text.length : text.indexOf('\n', at);
-    let span: (typeof spans)[number];
-    if (isTableRow(text.slice(lineStart, lineEnd)) && at + wanted.length <= lineEnd) {
+    let span: Passage;
+    if (isTableRow(text.slice(lineStart, lineEnd)) && matchEnd <= lineEnd) {
       // The table's first row: walk up while the lines above are rows too.
       let headerStart = lineStart;
       while (headerStart > 0) {
@@ -71,23 +110,57 @@ export function findPassages(text: string, needle: string): string {
       const header = headerStart < lineStart ? text.slice(headerStart, text.indexOf('\n', headerStart)) : undefined;
       span = { start: lineStart, end: lineEnd, row: true, header };
     } else {
-      span = { start: Math.max(0, at - FIND_CONTEXT_CHARS), end: Math.min(text.length, at + wanted.length + FIND_CONTEXT_CHARS) };
+      span = { start: Math.max(0, at - FIND_CONTEXT_CHARS), end: Math.min(text.length, matchEnd + FIND_CONTEXT_CHARS) };
     }
     const last = spans[spans.length - 1];
     if (last && span.start <= last.end && !last.row && !span.row) last.end = Math.max(last.end, span.end);
     else if (!(last?.row && last.start === span.start)) spans.push(span);
   }
+  return spans;
+}
+
+/** One passage as a line: a table row keeps its header, other text is flattened. */
+function passageLine(text: string, { start, end, row, header }: Passage): string {
+  return row
+    ? `${header ? `table header: ${cells(header).slice(0, MAX_ROW_CHARS)}\n  row: ` : 'table row: '}${cells(text.slice(start, end)).slice(0, MAX_ROW_CHARS)}`
+    : text.slice(start, end).replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Each case-insensitive match of `needle` with the text around it and its character offset.
+ *
+ * @deprecated the shape `get_complete_page_content` returns; `find_in_page` uses `passagesFor` directly.
+ */
+export function findPassages(text: string, needle: string): string {
+  const ranges = matchRanges(text, needle);
+  const spans = passagesFor(text, ranges);
+  const matches = ranges.length;
   if (matches === 0) return `No match for "${needle}" in the page text (${text.length} characters).`;
-  const passages = spans
-    .slice(0, MAX_FIND_PASSAGES)
-    .map(({ start, end, row, header }) =>
-      row
-        ? `[at character ${start}] ${header ? `table header: ${cells(header).slice(0, MAX_ROW_CHARS)}\n  row: ` : 'table row: '}${cells(text.slice(start, end)).slice(0, MAX_ROW_CHARS)}`
-        : `[at character ${start}] ${text.slice(start, end).replace(/\s+/g, ' ').trim()}`,
-    );
+  const passages = spans.slice(0, MAX_FIND_PASSAGES).map(span => `[at character ${span.start}] ${passageLine(text, span)}`);
   const more = spans.length > MAX_FIND_PASSAGES ? `\n[${spans.length - MAX_FIND_PASSAGES} more passages not shown; search for a longer text]` : '';
   const out = `${matches} ${matches === 1 ? 'match' : 'matches'} for "${needle}":\n${passages.join('\n')}${more}`;
   return out.length > MAX_READ_CHARS ? `${out.slice(0, MAX_READ_CHARS)}\n[passages truncated; search for a longer text]` : out;
+}
+
+/** Attributes that carry an element's own words, for matching a found text to something the model can act on. */
+const LABEL_ATTRIBUTES = ['aria-label', 'title', 'placeholder', 'value', 'alt', 'name'];
+
+/**
+ * The listed element a matched text belongs to: the one whose own text or labels hold it, the most specific winning, so
+ * a hit can be acted on without reading the page again. Null when no listed element carries the text.
+ */
+export function elementForText(selectorMap: Map<number, DOMElementNode>, needle: string): number | null {
+  const wanted = needle.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (wanted.length < 2) return null;
+  let best: { index: number; length: number } | null = null;
+  for (const [index, node] of selectorMap) {
+    const own = node.getAllTextTillNextClickableElement().replace(/\s+/g, ' ').trim();
+    const labels = LABEL_ATTRIBUTES.map(name => node.attributes[name] ?? '').join(' ');
+    const text = `${own} ${labels}`.toLowerCase();
+    if (!text.includes(wanted)) continue;
+    if (!best || text.length < best.length) best = { index, length: text.length };
+  }
+  return best?.index ?? null;
 }
 
 export class ContentHandler extends BaseHandler {
@@ -213,6 +286,43 @@ export class ContentHandler extends BaseHandler {
     // A page that loads more in place returns the whole document again; only what grew is new.
     const added = markdown.startsWith(soFar) ? markdown.slice(soFar.length) : markdown;
     return added.trim() ? added : null;
+  }
+
+  async handleFindInPage(input: z.infer<typeof findInPageActionSchema.schema>): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Looking for "${input.query}" on the page`);
+    try {
+      const page = (await this.context.browserContext.getCurrentPage()) as unknown as ReadablePage;
+      // The whole page, navigation included: a find is as often for a control as for a value.
+      const { url, markdown } = await this.readDocument(page, 'full');
+      this.context.pageRead = { url, text: markdown };
+
+      const ranges = matchRanges(markdown, input.query, input.regex ?? false);
+      if (ranges.length === 0) {
+        const msg = `No match for "${input.query}" in the ${markdown.length} characters of this page.${input.regex ? ' Check the expression, or search for plain text.' : ''}`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+        return new ActionResult({ extractedContent: msg, includeInMemory: true });
+      }
+
+      const limit = Math.min(Math.max(input.max_snippets ?? DEFAULT_SNIPPETS, 1), MAX_FIND_PASSAGES);
+      const spans = passagesFor(markdown, ranges);
+      const selectorMap = (await page.getCurrentState?.())?.selectorMap ?? new Map<number, DOMElementNode>();
+      const lines = spans.slice(0, limit).map(span => {
+        const range = ranges.find(([at]) => at >= span.start && at <= span.end) ?? ranges[0];
+        const index = elementForText(selectorMap, markdown.slice(range[0], range[1]));
+        return `[at character ${span.start}]${index === null ? '' : ` element [${index}]`} ${passageLine(markdown, span)}`;
+      });
+      const more = spans.length > limit ? `\n[${spans.length - limit} more matches; narrow the query or raise max_snippets]` : '';
+      const body = `${ranges.length} ${ranges.length === 1 ? 'match' : 'matches'} for "${input.query}" on ${url}:\n${lines.join('\n')}${more}`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `${ranges.length} matches for "${input.query}"`);
+      return new ActionResult({
+        extractedContent: wrapUntrustedContent(body.length > MAX_READ_CHARS ? `${body.slice(0, MAX_READ_CHARS)}\n[truncated]` : body, false),
+        includeInMemory: true,
+      });
+    } catch (error) {
+      const msg = `Could not search the page: ${error instanceof Error ? error.message : String(error)}`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({ error: msg, includeInMemory: true });
+    }
   }
 
   async handleReadPage(input: z.infer<typeof readPageActionSchema.schema>): Promise<ActionResult> {
