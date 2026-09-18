@@ -228,23 +228,57 @@ const NOT_SHOWN =
 const NONE_MATCHED = /\bno\b[^.]{0,160}\b(?:found|match(?:es|ing)?|available|results?|listed|shown|displayed|posted|present|exists?)\b/i;
 
 /**
- * What a done answer leaves out of what the task asked for, read from the two texts alone. Two gaps: an answer that says
- * what was asked for is on the page without naming any of it (live runs finished with "cars are displayed for sale near
- * Kentwood, MI" and "the search returned 67,163 results"), and a task asking for a value answered without one (the
- * groomer named, its prices left out). An answer that says plainly the page does not give it has neither gap.
+ * A conjunction that starts another thing the task asks for, rather than joining two words of one: it is followed by a
+ * question word or by a verb asking for something. "cold and flu forecast" is one ask; "and how to claim" is another.
+ * The relative pronouns (which, who, whose) are left out: they continue a description of one thing ("a girl whose
+ * current height is 4 feet and whose weight is 55 lbs"), they do not ask for a second.
+ */
+const NEXT_ASK =
+  /[,;]?\s+(?:and|also|then|plus)\s+(?=(?:what|when|where|how|why|find|show|tell|list|get|check|look|see|give|report|browse|search|open|add|compare|display|view|read|include|note)\b)/gi;
+
+/** The word a part opens with to ask for something. It says how to answer, not what about, so it is not part of what. */
+const ASK_OPENER =
+  /^(?:what|when|where|how|why|find|show|tell|list|get|check|look|see|give|report|browse|search|open|add|compare|display|view|read|include|note)\b\s*/i;
+
+/** The things a task asks for separately; one part when nothing in it joins two asks. */
+export function askedParts(task: string): string[] {
+  return task
+    .split(NEXT_ASK)
+    .map(part => part.trim().replace(/^[,;\s]+|[.,;\s]+$/g, ''))
+    .filter(Boolean);
+}
+
+/**
+ * What a done answer leaves out of what the task asked for, read from the two texts alone. Three gaps: an answer that
+ * says what was asked for is on the page without naming any of it (live runs finished with "cars are displayed for sale
+ * near Kentwood, MI" and "the search returned 67,163 results"), a task asking for a value answered without one (the
+ * groomer named, its prices left out), and a task asking for several things of which one is never mentioned ("the
+ * Eligibility ... and How it works and how to claim", answered with the eligibility alone). An answer that says plainly
+ * the page does not give something has neither of the first two: saying so is the answer.
  */
 export function answerGaps(task: string, answer: string): string[] {
-  if (!answer.trim() || ABSENCE.test(answer) || NOT_SHOWN.test(answer) || NONE_MATCHED.test(answer)) return [];
-  const taskWords = informationWords(task);
-  const addedWords = [...informationWords(answer)].filter(word => !taskWords.has(word));
-  const taskNumbers = numbersIn(task);
-  const addedNumbers = [...numbersIn(answer)].filter(number => !taskNumbers.has(number));
+  if (!answer.trim()) return [];
+  const answerWords = informationWords(answer);
   const gaps: string[] = [];
-  // Only the task's own words back: a count of results is not the results, and "the filters are applied" is not an answer.
-  if (addedWords.length === 0 && CLAIMS_FOUND.test(answer)) {
-    gaps.push('it says what was asked for is on the page without naming any of it');
+  if (!ABSENCE.test(answer) && !NOT_SHOWN.test(answer) && !NONE_MATCHED.test(answer)) {
+    const taskWords = informationWords(task);
+    const addedWords = [...answerWords].filter(word => !taskWords.has(word));
+    const addedNumbers = [...numbersIn(answer)].filter(number => !numbersIn(task).has(number));
+    // Only the task's own words back: a count of results is not the results, and "the filters are applied" is no answer.
+    if (addedWords.length === 0 && CLAIMS_FOUND.test(answer)) {
+      gaps.push('it says what was asked for is on the page without naming any of it');
+    }
+    const asked = addedNumbers.length === 0 ? task.match(ASKS_VALUE)?.[0] : undefined;
+    if (asked) gaps.push(`the task asks for ${asked.toLowerCase()} and the answer states no value for it`);
   }
-  const asked = addedNumbers.length === 0 ? task.match(ASKS_VALUE)?.[0] : undefined;
-  if (asked) gaps.push(`the task asks for ${asked.toLowerCase()} and the answer states no value for it`);
+  // A part of the task the answer does not touch at all, not even to say the page does not give it.
+  const parts = askedParts(task);
+  if (parts.length > 1) {
+    const untouched = parts.find(part => {
+      const words = [...informationWords(part.replace(ASK_OPENER, ''))];
+      return words.length > 0 && !words.some(word => answerWords.has(word));
+    });
+    if (untouched) gaps.push(`it says nothing about this part of the task: "${untouched}"`);
+  }
   return gaps;
 }

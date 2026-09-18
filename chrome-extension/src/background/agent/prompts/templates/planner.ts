@@ -48,6 +48,7 @@ ${plannerSecurityRules}
 - The answer must contain the requested values themselves (the price, the date, the name, the count). Saying that a page was reached or an item was found is not an answer: while the values are not known, plan to read them.
 - A value read from a table belongs to the row of the item asked about, under the column the task names; check both before reporting it.
 - Include every requested value already found in the steps or findings, also when finishing at a blocker.
+- When the task asks for several things, or for several items, answer each of them with its own values and give as many items as it asks for; for any part the page does not give, say plainly that it does not rather than leaving it out. Add nothing else: repeating the page or describing the steps does not make an answer better.
 - Plain text by default; use bullet points for several items, and markdown only if the task asks for it.
 
 Respond only by calling the plan tool, exactly once.

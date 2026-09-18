@@ -233,4 +233,18 @@ describe('answerGaps', () => {
     expect(answerGaps('Add a Bose speaker to the cart.', 'The Bose speaker has been added to the cart.')).toEqual([]);
     expect(answerGaps('', 'Anything at all.')).toEqual([]);
   });
+
+  it('flags a part of a several-part task the answer says nothing about', () => {
+    const task = 'Find the eligibility for child benefit and how to claim it';
+    expect(answerGaps(task, 'You qualify if you are responsible for a child under 16 and live in the UK.')[0]).toMatch(/says nothing about this part.*how to claim/);
+    expect(answerGaps(task, 'You qualify for a child under 16. To claim, fill in form CH2 and post it.')).toEqual([]);
+    // Said even when nothing was found, so the answer covers the whole task.
+    expect(answerGaps('Add Elevate at Chicago to favorites and show a virtual tour.', 'Elevate at Chicago was not found in the search results.')[0]).toMatch(/virtual tour/);
+  });
+
+  it('reads a conjunction inside one description as one thing asked for', () => {
+    // "whose ..." goes on describing the child; it does not ask for a second thing.
+    expect(answerGaps("See the prediction about the girl's height, whose height at seven years is 4 feet and whose weight is 55 lbs.", "The girl's predicted height at age 18 is 5 ft. 4 in.")).toEqual([]);
+    expect(answerGaps('Find out the cold and flu forecast for Champaign', 'The cold and flu forecast for Champaign is low this week.')).toEqual([]);
+  });
 });
