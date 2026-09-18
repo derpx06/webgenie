@@ -113,8 +113,10 @@ export async function drawHighlightOverlaysViaCoordinates(
             borderRadius: '3px',
             fontSize: `${fontSize}px`,
             lineHeight: `${fontSize + 2}px`,
-            left: `${Math.max(0, rect.x - rect.w / 2)}px`,
-            top: `${Math.max(0, rect.y - rect.h / 2 - fontSize - 3)}px`,
+            // Inside the box's own top-left corner: a label above the box sat on the label of the element above it and
+            // on the page's own text (a live run stacked three of them over a form's field names).
+            left: `${Math.max(0, rect.x - rect.w / 2) + 1}px`,
+            top: `${Math.max(0, rect.y - rect.h / 2) + 1}px`,
             zIndex: '2147483647',
             pointerEvents: 'none',
           });
