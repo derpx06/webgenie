@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnread, doneEvidence, givesUpUnseen, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements } from './validation/done-evidence';
+import { absenceUnread, answerGaps, doneEvidence, givesUpUnseen, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -106,6 +106,8 @@ export class Executor {
   /** Whether a done was already sent back for requirements "applied" only through the search text. */
   private searchEvidenceRefused = false;
   private unseenGiveUpRefused = false;
+  /** A done whose answer did not carry what the task asked for was sent back once; once per task. */
+  private answerGapRefused = false;
   constructor(
     task: string,
     taskId: string,
@@ -186,6 +188,7 @@ export class Executor {
     this.evidenceRechecked = false;
     this.searchEvidenceRefused = false;
     this.unseenGiveUpRefused = false;
+    this.answerGapRefused = false;
     this.goalRepeats.progress();
     this.mustFinish = false;
 
@@ -238,6 +241,12 @@ export class Executor {
     if (!context.absenceChecked && absenceUnread(context, answer, this.doneReportedFailure)) {
       context.absenceChecked = true;
       return this.refuseCompletion(planOutput, 'The answer says something is missing, but the current page was not read. Before concluding, read it: get_complete_page_content with find set to the key term of the task, then decide from what it returns.');
+    }
+    // An answer that reports the search instead of what it found, or that leaves the value the task asks for unsaid.
+    const gaps = this.answerGapRefused ? [] : answerGaps(this.tasks[this.tasks.length - 1] ?? '', answer);
+    if (gaps.length > 0) {
+      this.answerGapRefused = true;
+      return this.refuseCompletion(planOutput, `Not done: the answer does not carry what the task asks for: ${gaps.join('; and ')}. Answer with the values themselves as the page writes them (names, numbers, prices with their currency, dates, counts), every part of the task and as many items as it asks for, one per line when there are several; read them from the page if they are not known yet, and for anything the page does not give, say plainly that it does not.`);
     }
     return this.acceptCompletion(answer, pending);
   }

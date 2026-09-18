@@ -9,7 +9,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import type { NextStepContract } from '../../contracts';
-import { absenceUnread, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, staleRequirements } from '../done-evidence';
+import { absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, staleRequirements } from '../done-evidence';
 import { titleFromTask } from '../../../core/task-groups/manager';
 
 function contextOnPage(lines: string[]) {
@@ -204,5 +204,33 @@ describe('appliedOnPage', () => {
 
     context.promptState = undefined;
     expect(appliedOnPage(context, [sort])).toEqual([]);
+  });
+});
+
+describe('answerGaps', () => {
+  it('flags an answer that says the results are on the page without naming any of them', () => {
+    expect(answerGaps('See Nissan and Honda cars for sale near Kentwood, MI 49512 on CarMax.', 'Nissan and Honda cars are displayed for sale near Kentwood, MI 49512 on CarMax.')[0]).toMatch(/without naming/);
+    expect(answerGaps('Find a large van for sale from the year 2024 or newer with up to 10,000 miles.', 'Successfully found large vans for sale from 2024 or newer with up to 10,000 miles. The filters have been applied and the results are displayed on the page.')[0]).toMatch(/without naming/);
+    // A count of the results is not the results.
+    expect(answerGaps('Search for papers related to reinforcement learning on arxiv.', 'Successfully searched for papers related to reinforcement learning on arxiv. The search returned 67,163 results.')[0]).toMatch(/without naming/);
+  });
+
+  it('passes an answer that names what the page showed', () => {
+    expect(answerGaps('See Nissan and Honda cars for sale near Kentwood, MI 49512.', 'Nissan Rogue, $18,998; Honda Civic, $21,499.')).toEqual([]);
+    expect(answerGaps('Find a large van for sale from 2024 or newer.', 'Found a 2025 Ford Transit 350 for $52,410.')).toEqual([]);
+  });
+
+  it('flags a task that asks for a value answered without one', () => {
+    expect(answerGaps('Find the price of a full groom for a large dog.', 'Full grooming is offered at the Petco Grooming Salon.')[0]).toMatch(/asks for price/);
+    expect(answerGaps('Find out how many assists Chris Paul averages this season.', 'Chris Paul is averaging assists this season.')[0]).toMatch(/asks for how many/);
+    expect(answerGaps('Find the price of a full groom for a large dog.', 'A full groom for a large dog costs $85.')).toEqual([]);
+  });
+
+  it('accepts an answer that says plainly the page does not give it, and a task that asks for no value', () => {
+    expect(answerGaps('Find the price of a full groom for a large dog.', 'The salon page does not list a price for a full groom.')).toEqual([]);
+    expect(answerGaps('Find reviews of the Nest doorbell.', 'No reviews were found for the Nest doorbell.')).toEqual([]);
+    // An action task carries no value to report and claims nothing was found.
+    expect(answerGaps('Add a Bose speaker to the cart.', 'The Bose speaker has been added to the cart.')).toEqual([]);
+    expect(answerGaps('', 'Anything at all.')).toEqual([]);
   });
 });

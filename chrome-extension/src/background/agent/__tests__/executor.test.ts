@@ -1147,6 +1147,38 @@ describe('Requirements the task sets', () => {
   });
 });
 
+describe('An answer that does not carry what the task asks for', () => {
+  const shop = { url: 'https://shop.test/speakers', title: 'Speakers', text: ['Bose 500 $199', 'JBL Flip $89'] };
+  const task = 'Show me the speakers on sale';
+  const narrated = planDone('The speakers on sale are displayed on the page.');
+
+  it('sends a done that names nothing back once, and takes the answer that names it', async () => {
+    const h = createHarness({
+      task,
+      pages: [shop],
+      planner: [narrated, planDone('Bose 500 at $199 and JBL Flip at $89 are on sale.')],
+    });
+
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner']);
+    expect(textOf(h.llm.requestsFor('planner')[1].messages)).toContain('without naming any of it');
+    expect(h.last()).toMatchObject({
+      state: ExecutionState.TASK_OK,
+      data: { details: 'Bose 500 at $199 and JBL Flip at $89 are on sale.' },
+    });
+  });
+
+  it('accepts the same answer the second time, so the refusal never loops', async () => {
+    const h = createHarness({ task, pages: [shop], planner: [narrated, narrated] });
+
+    await settle(h.executor.execute());
+
+    expect(h.llm.requestsFor('planner')).toHaveLength(2);
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+  });
+});
+
 describe('A task given up before any step', () => {
   const home = { url: 'https://jobs.test/', title: 'Job search', text: ['Search jobs'], elements: [{ tag: 'input', text: 'Keywords' }] };
   const task = 'Find a logistics job near zip 11005';

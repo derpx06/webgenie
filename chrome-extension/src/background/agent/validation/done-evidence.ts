@@ -176,3 +176,75 @@ export function searchOnlyEvidence(requirements: PlannerRequirement[]): PlannerR
       !/\b(filter(s|ed)?|sort(ed)?|selected|checked|chip|facet|option|toggle|refine(d|ment)?|url|parameter)\b|[\w-]+=\S/i.test(item.evidence),
   );
 }
+
+/**
+ * A word reduced to its stem, so "filter", "filters" and "filtered" count as the same word. A suffix is only dropped
+ * when three letters are left: "red" is a colour, not the past tense of "r".
+ */
+function stemWord(word: string): string {
+  const bare = word.replace(/['’]/g, '');
+  const stem = bare.replace(/ies$/, 'y').replace(/(es|s|ed|ing)$/, '');
+  return stem.length >= 3 ? stem : bare;
+}
+
+/**
+ * Words that say nothing about what a page showed: ordinary English, and the words an agent uses to say that it looked
+ * (found, results, filters, displayed). An answer whose words are all in here reports the search, not the page.
+ */
+const PROCESS_WORDS = new Set(
+  (
+    'the and for with from that this these those there here are was were been has have had not but its your you they them their ' +
+    'all any some both each more most other than then also very can could will would should now new per about above below via ' +
+    'page website web search result find look show display list filter sort apply select criteria match request available ' +
+    'successfully success complete done task current screen browser tab view visible following item option information detail ' +
+    'content data user please open navigate click button link top first best according based return which what where when who how ' +
+    // Forms whose stem differs from the one above, so they are listed themselves.
+    'found applied listing shown'
+  )
+    .split(' ')
+    .map(stemWord),
+);
+
+/** The words of a text that say something about the world: stemmed, at least three letters, not a process word. */
+function informationWords(text: string): Set<string> {
+  const words = text.toLowerCase().match(/[a-z][a-z'’-]{2,}/g) ?? [];
+  return new Set(words.map(stemWord).filter(word => word.length >= 3 && !PROCESS_WORDS.has(word)));
+}
+
+/** The numbers of a text, thousands separators aside, so "10,000" in the task matches "10000" in the answer. */
+function numbersIn(text: string): Set<string> {
+  return new Set((text.match(/\d+(?:[.,]\d+)*/g) ?? []).map(number => number.replace(/,/g, '')));
+}
+
+/** An answer claiming the page holds what was asked for, instead of saying what it is. */
+const CLAIMS_FOUND = /\b(found|results?|listings?|listed|displayed|display(s|ing) on|shown|showing|(are|is) (on|visible))\b/i;
+/** A task asking for a value: a quantity, a price, a rating, a date or a time. */
+const ASKS_VALUE =
+  /\bhow (?:much|many|long|far|old|big|heavy|tall|wide)\b|\bnumber of\b|\b(price|prices|pricing|cost|costs|fare|fares|fee|fees|rating|ratings|score|scores|total|amount|date|dates|time|times|hours|schedule|distance|duration|percentage|percent|salary|wage|weight|mileage|count|quantity)\b/i;
+/** An answer that says plainly the page does not give something. Saying so is an answer, not a gap. */
+const NOT_SHOWN =
+  /\b(not (?:shown|listed|displayed|available|given|provided|stated|specified|published|offered)|(?:does|do|did) ?n[o']?t (?:show|list|display|give|provide|state|offer)|no longer available|unavailable)\b/i;
+/** An answer reporting that nothing matched, however long the description of what was looked for. */
+const NONE_MATCHED = /\bno\b[^.]{0,160}\b(?:found|match(?:es|ing)?|available|results?|listed|shown|displayed|posted|present|exists?)\b/i;
+
+/**
+ * What a done answer leaves out of what the task asked for, read from the two texts alone. Two gaps: an answer that says
+ * what was asked for is on the page without naming any of it (live runs finished with "cars are displayed for sale near
+ * Kentwood, MI" and "the search returned 67,163 results"), and a task asking for a value answered without one (the
+ * groomer named, its prices left out). An answer that says plainly the page does not give it has neither gap.
+ */
+export function answerGaps(task: string, answer: string): string[] {
+  if (!answer.trim() || ABSENCE.test(answer) || NOT_SHOWN.test(answer) || NONE_MATCHED.test(answer)) return [];
+  const taskWords = informationWords(task);
+  const addedWords = [...informationWords(answer)].filter(word => !taskWords.has(word));
+  const taskNumbers = numbersIn(task);
+  const addedNumbers = [...numbersIn(answer)].filter(number => !taskNumbers.has(number));
+  const gaps: string[] = [];
+  // Only the task's own words back: a count of results is not the results, and "the filters are applied" is not an answer.
+  if (addedWords.length === 0 && CLAIMS_FOUND.test(answer)) {
+    gaps.push('it says what was asked for is on the page without naming any of it');
+  }
+  const asked = addedNumbers.length === 0 ? task.match(ASKS_VALUE)?.[0] : undefined;
+  if (asked) gaps.push(`the task asks for ${asked.toLowerCase()} and the answer states no value for it`);
+  return gaps;
+}
