@@ -64,6 +64,15 @@ page where it should have read ten. Both are covered by tests now — the in-pag
 are rebuilt from their own source and run against a stub DOM, so a reference to anything
 outside them fails in the suite instead of on a live page.
 
+## What the three tools cost on every call
+
+The tool block is re-sent on all ~23 navigator calls a task makes, so a new tool is not
+free. Serialized, `read_page` is 1,284 characters, `find_in_page` 752 and `extract` 745;
+turning `get_complete_page_content` into a one-line deprecation took it from about 1,000
+to 609. That is about +2,400 characters on a 26,274-character block, roughly +9%, against
+a first read that costs 9,000 tokens today and 536 after. Anything longer than a line
+belongs in `docs/agent.md`, which describes all three in full.
+
 ## What is not measured here
 
 Wall-clock time (one extraction is a single `Runtime.callFunctionOn` per frame, against one
