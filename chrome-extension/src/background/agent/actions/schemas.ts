@@ -250,11 +250,23 @@ export const selectDropdownOptionActionSchema: ActionSchema = {
 export const waitActionSchema: ActionSchema = {
   name: 'wait',
   description:
-    'Wait for the page: until a text appears or disappears, returning as soon as it does, or for a number of seconds.',
+    'Wait a fixed number of seconds, for nothing in particular. Use wait_for instead whenever you can name what you are waiting for: it returns as soon as it happens.',
   schema: z.object({
-    seconds: z.number().int().optional().describe('longest wait, 1-10s; defaults to 10 with text or text_gone, else 3'),
-    text: z.string().optional().describe('return once this text is on the page as whole words (case-insensitive)'),
-    text_gone: z.string().optional().describe('return once this text is gone from the page'),
+    seconds: z.number().int().optional().describe('seconds to wait, 1-10; defaults to 3'),
+  }),
+};
+
+export const waitForActionSchema: ActionSchema = {
+  name: 'wait_for',
+  description:
+    'Wait until the page reaches a state and return as soon as it does: a text appears or is gone, an element by index is gone, or loading and its requests have finished.',
+  schema: z.object({
+    condition: z
+      .enum(['text', 'text_gone', 'element_gone', 'network_idle'])
+      .describe('text appears / text is gone / the element at index is gone / loading finished'),
+    text: z.string().optional().describe('the text, for text and text_gone; matched as whole words, case-insensitive'),
+    index: z.number().int().optional().describe('the element, for element_gone'),
+    seconds: z.number().int().optional().describe('longest wait, 1-30; defaults to 10'),
   }),
 };
 

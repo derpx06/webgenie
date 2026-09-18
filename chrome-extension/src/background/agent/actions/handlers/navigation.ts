@@ -1,5 +1,5 @@
 import { ActionResult } from '@src/background/agent/types';
-import type { searchWebActionSchema, goToUrlActionSchema, waitActionSchema } from '../schemas';
+import type { searchWebActionSchema, goToUrlActionSchema, waitActionSchema, waitForActionSchema } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
@@ -97,44 +97,86 @@ export class NavigationHandler extends BaseHandler {
     return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }
 
-  /** A fixed wait, or a wait for a text to appear or disappear that returns as soon as it does; cancelling ends it. */
-  async handleWait(input: z.infer<typeof waitActionSchema.schema>): Promise<ActionResult> {
-    const condition = input.text ? { text: input.text, gone: false } : input.text_gone ? { text: input.text_gone, gone: true } : null;
-    const seconds = Math.min(Math.max(input.seconds ?? (condition ? 10 : 3), 1), 10);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_wait_start', [seconds.toString()]));
-
+  /** Sleeps, and returns early when the task is cancelled. */
+  private sleep(ms: number): Promise<void> {
     const signal = this.context.controller.signal;
-    const sleep = (ms: number) =>
-      new Promise<void>(resolve => {
-        const timeout = setTimeout(resolve, ms);
-        signal.addEventListener('abort', () => {
-          clearTimeout(timeout);
-          resolve();
-        }, { once: true });
-      });
+    return new Promise<void>(resolve => {
+      const timeout = setTimeout(resolve, ms);
+      signal.addEventListener('abort', () => {
+        clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+    });
+  }
 
-    let msg: string;
-    if (!condition) {
-      await sleep(seconds * 1000);
-      msg = t('act_wait_ok', [seconds.toString()]);
-    } else {
-      const page = await this.context.browserContext.getCurrentPage();
-      const startedAt = Date.now();
-      for (;;) {
-        const found = findWholeText(await page.getCompletePageContent().catch(() => ''), condition.text);
-        const elapsed = (Date.now() - startedAt) / 1000;
-        if ((found !== null) !== condition.gone) {
-          msg = `"${condition.text}" ${condition.gone ? 'is gone from the page' : 'appeared on the page'} after ${elapsed.toFixed(1)} s.`;
-          break;
-        }
-        if (elapsed >= seconds || signal.aborted) {
-          msg = condition.gone
-            ? `"${condition.text}" is still on the page after ${seconds} s, in: "${found}".`
-            : `"${condition.text}" did not appear on the page after ${seconds} s.`;
-          break;
-        }
-        await sleep(WAIT_POLL_MS);
+  /** A fixed wait for nothing in particular; cancelling ends it. Anything nameable goes through wait_for. */
+  async handleWait(input: z.infer<typeof waitActionSchema.schema>): Promise<ActionResult> {
+    const seconds = Math.min(Math.max(input.seconds ?? 3, 1), 10);
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_wait_start', [seconds.toString()]));
+    await this.sleep(seconds * 1000);
+    const msg = `${t('act_wait_ok', [seconds.toString()])} Nothing was checked: wait_for names what you are waiting for and returns as soon as it happens.`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    return new ActionResult({ extractedContent: msg, includeInMemory: true });
+  }
+
+  /**
+   * Waits for a named condition and returns as soon as it holds. Blind waits were 107 wasted steps across the reviewed
+   * tasks, and a `text_gone` that resolved instantly was read as proof a blocker had cleared, so a condition that was
+   * already true when the wait started says so instead of reporting a wait.
+   */
+  async handleWaitFor(input: z.infer<typeof waitForActionSchema.schema>): Promise<ActionResult> {
+    const seconds = Math.min(Math.max(input.seconds ?? 10, 1), 30);
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Waiting for ${input.condition}`);
+    const page = await this.context.browserContext.getCurrentPage();
+
+    let wanted = input.text?.trim() ?? '';
+    if (input.condition === 'element_gone') {
+      const node = input.index === undefined ? undefined : (await this.context.browserContext.getCachedState()).selectorMap.get(input.index);
+      const label = node ? (node.getAllTextTillNextClickableElement(2) || node.attributes['aria-label'] || '').replace(/\s+/g, ' ').trim() : '';
+      if (!label) {
+        const msg = input.index === undefined
+          ? 'Not waited: element_gone needs the index of the element to wait for.'
+          : `Not waited: [${input.index}] carries no text to recognise it by. Wait for a text of the block it is in with text_gone, or act and read the page again.`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+        return new ActionResult({ error: msg, includeInMemory: true });
       }
+      wanted = label;
+    }
+
+    if (input.condition === 'network_idle') {
+      await Promise.race([this.context.browserContext.waitForPageAndFramesLoad(), this.sleep(seconds * 1000)]);
+      const msg = 'The page and its frames finished loading. If what you expect is still missing, it is drawn after loading: wait_for the text itself.';
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+      return new ActionResult({ extractedContent: msg, includeInMemory: true });
+    }
+
+    if (!wanted) {
+      const msg = `Not waited: ${input.condition} needs the text to wait for.`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+      return new ActionResult({ error: msg, includeInMemory: true });
+    }
+
+    const gone = input.condition !== 'text';
+    const what = input.condition === 'element_gone' ? `[${input.index}] "${wanted}"` : `"${wanted}"`;
+    const signal = this.context.controller.signal;
+    const startedAt = Date.now();
+    let msg: string;
+    for (;;) {
+      const found = findWholeText(await page.getCompletePageContent().catch(() => ''), wanted);
+      const elapsed = (Date.now() - startedAt) / 1000;
+      if ((found !== null) !== gone) {
+        msg = elapsed < 0.2
+          ? `${what} was ${gone ? 'already gone' : 'already on the page'} before the wait began, so nothing was waited for and this proves nothing about what you did. Read the page state instead.`
+          : `${what} ${gone ? 'is gone from the page' : 'appeared on the page'} after ${elapsed.toFixed(1)} s.`;
+        break;
+      }
+      if (elapsed >= seconds || signal.aborted) {
+        msg = gone
+          ? `${what} is still on the page after ${seconds} s, in: "${found}".`
+          : `${what} did not appear on the page after ${seconds} s.`;
+        break;
+      }
+      await this.sleep(WAIT_POLL_MS);
     }
 
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);

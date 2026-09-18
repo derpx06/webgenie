@@ -19,6 +19,7 @@ import {
   selectDropdownOptionActionSchema,
   closeTabActionSchema,
   waitActionSchema,
+  waitForActionSchema,
   scrollActionSchema,
   hoverElementActionSchema,
   rightClickElementActionSchema,
@@ -244,6 +245,7 @@ export class ActionBuilder {
       new Action(() => this.navigationHandler.handleGoBack(), goBackActionSchema),
       new Action(() => this.navigationHandler.handleGoForward(), goForwardActionSchema),
       new Action((input) => this.navigationHandler.handleWait(input), waitActionSchema),
+      new Action((input) => this.navigationHandler.handleWaitFor(input), waitForActionSchema),
     ];
   }
 

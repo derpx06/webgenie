@@ -33,6 +33,11 @@ const LEGACY_ACTIONS: Record<string, LegacyUpgrade> = {
   cache_content: args => ({ save_findings: { text: String(args.content ?? '') } }),
   search_google: args => ({ search_web: { query: String(args.query ?? ''), engine: 'google' } }),
   get_dropdown_options: () => null,
+  // wait no longer takes a condition; a saved conditional wait is the wait_for that replaced it.
+  wait: args =>
+    args.text || args.text_gone
+      ? { wait_for: { condition: args.text ? 'text' : 'text_gone', text: String(args.text ?? args.text_gone), ...(args.seconds != null ? { seconds: args.seconds } : {}) } }
+      : { wait: args },
 };
 
 /** A saved action in today's tool names and arguments; anything not renamed is returned unchanged. */

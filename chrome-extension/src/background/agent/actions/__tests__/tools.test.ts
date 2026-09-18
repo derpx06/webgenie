@@ -35,7 +35,7 @@ describe('model-facing tool definitions', () => {
 
   it('covers every action with unique, provider-valid names', () => {
     const names = tools.map(tool => tool.function.name);
-    expect(names).toHaveLength(38);
+    expect(names).toHaveLength(39);
     expect(names).toEqual(expect.arrayContaining(['handle_dialog', 'drag_element']));
     expect(new Set(names).size).toBe(names.length);
     for (const name of names) expect(name).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/);
@@ -72,7 +72,7 @@ describe('model-facing tool definitions', () => {
    */
   it('stays inside its character budget, which is what the model pays for', () => {
     const defaults = new Set([
-      'done', 'ask_human', 'search_web', 'go_to_url', 'go_back', 'go_forward', 'wait',
+      'done', 'ask_human', 'search_web', 'go_to_url', 'go_back', 'go_forward', 'wait', 'wait_for',
       'click_element', 'hover_element', 'right_click_element', 'input_text', 'fill_form', 'upload_file', 'drag_element',
       'handle_dialog', 'select_dropdown_option', 'switch_tab', 'open_tab', 'close_tab',
       'get_complete_page_content', 'read_page', 'find_in_page', 'extract',
