@@ -7,6 +7,7 @@ import type {
   saveFindingsActionSchema,
   scrollActionSchema,
   scrollToTextActionSchema,
+  viewScreenshotActionSchema,
 } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
@@ -28,6 +29,7 @@ import {
   type FieldValue,
 } from '@src/background/browser/dom/read-page';
 import type { DOMElementNode } from '@src/background/browser/dom/views';
+import type { ScreenshotOptions } from '@src/background/browser/page';
 
 const MAX_READ_CHARS = 12000;
 /** Characters a token is worth, for the read tools' `max_tokens` budget. */
@@ -55,6 +57,8 @@ const DEFAULT_SNIPPETS = 8;
 const isTableRow = (line: string) => line.includes('\t') || (line.match(/\|/g)?.length ?? 0) >= 2;
 const cells = (line: string) => line.split(line.includes('\t') ? '\t' : '|').map(cell => cell.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' | ');
 const MAX_ROW_CHARS = 1000;
+/** Pixels kept around an element a screenshot is narrowed to: a control means little without its label or its row. */
+const MIN_REGION_MARGIN = 40;
 
 /** Where a query matches: `[start, end]` character ranges. A regex that does not compile matches nothing. */
 export function matchRanges(text: string, query: string, regex = false): Array<[number, number]> {
@@ -198,9 +202,50 @@ export class ContentHandler extends BaseHandler {
    */
   private reads = new Map<string, { hash: string; step: number; served: Set<string> }>();
 
-  async handleViewScreenshot(): Promise<ActionResult> {
+  /**
+   * Asks for a screenshot with the next browser state. Without arguments it is the whole visible page with every index
+   * drawn on it, as it always was; an index or a region narrows it, which is what makes vision affordable — an image is
+   * the most expensive thing in the prompt, and a chart legend does not need the other nine tenths of the page.
+   */
+  async handleViewScreenshot(input: z.infer<typeof viewScreenshotActionSchema.schema>): Promise<ActionResult> {
+    const page = await this.context.browserContext.getCurrentPage();
+    let clip: ScreenshotOptions['clip'];
+    let where = 'the visible part of the page';
+
+    if (typeof input.index === 'number') {
+      const node = (await page.getCurrentState()).selectorMap.get(input.index);
+      if (!node) return this.handleElementNotFound(input.index);
+      const box = node.viewportCoordinates;
+      if (!box || box.width <= 0 || box.height <= 0) {
+        const msg = `Element [${input.index}] has no measured area, so it cannot be framed. Take the whole screenshot instead.`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+        return new ActionResult({ error: msg, includeInMemory: true });
+      }
+      // Room around it: a control means little without the label, value or row beside it.
+      const margin = Math.max(MIN_REGION_MARGIN, Math.round(Math.max(box.width, box.height) / 2));
+      clip = {
+        x: box.center.x - box.width / 2 - margin,
+        y: box.center.y - box.height / 2 - margin,
+        width: box.width + margin * 2,
+        height: box.height + margin * 2,
+      };
+      where = `element [${input.index}] and its surroundings`;
+    } else if (input.region) {
+      const [x, y, width, height] = input.region;
+      if (input.region.length !== 4 || !(width > 0) || !(height > 0)) {
+        const msg = 'region must be [x, y, width, height] in pixels, with a width and a height above zero.';
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+        return new ActionResult({ error: msg, includeInMemory: true });
+      }
+      clip = { x, y, width, height };
+      where = `the region [${input.region.join(', ')}] of the visible page`;
+    }
+
+    const annotate = input.annotate !== false;
+    const [scrollY] = await page.getScrollInfo();
+    page.setScreenshotOptions(clip || !annotate ? { clip, scrollY, annotate } : null);
     this.context.screenshotWanted = true;
-    const msg = 'A screenshot of the visible part of the page comes with your next browser state.';
+    const msg = `A screenshot of ${where} comes with your next browser state${annotate ? ', with the element indexes drawn on it' : ', with no index boxes'}.`;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, 'Looking at the page');
     return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }

@@ -152,8 +152,15 @@ export const fillFormActionSchema: ActionSchema = {
 export const viewScreenshotActionSchema: ActionSchema = {
   name: 'view_screenshot',
   description:
-    'Attach a screenshot of the visible page to your next state, for what the element list cannot say: colours, pictures, charts, maps, layout. Call it alone; indexes are drawn on it.',
-  schema: z.object({}),
+    'Attach a screenshot to your next state, for what the element list cannot say: colours, pictures, charts, maps, layout. Never for text or a value: the read tools give those far more cheaply. Call it alone; index or region narrows it to one part.',
+  schema: z.object({
+    index: z.number().int().optional().describe('show only the element at this index and its surroundings'),
+    region: z
+      .array(z.number())
+      .optional()
+      .describe('show only this part of the visible page: [x, y, width, height] in pixels from its top left'),
+    annotate: z.boolean().optional().describe('false to leave the index boxes off the image; defaults to true'),
+  }),
 };
 
 export const uploadFileActionSchema: ActionSchema = {

@@ -75,6 +75,9 @@ describe('model-facing tool definitions', () => {
    * killed four tasks over.
    * Raised again for download and read_file (+1,221 characters, ~305 tokens a call): without them a task whose answer
    * is inside a pdf, csv, xlsx or docx cannot be finished at all, whatever it spends.
+   * Raised again for view_screenshot's region and annotate (+434 characters, ~110 tokens a call): an image is the most
+   * expensive thing in a prompt (+1,861 tokens each, TOKEN_BUDGET §4), so framing one element instead of the whole
+   * viewport pays that back on the first narrowed screenshot.
    * Capability outranks the budget; the budget still refuses growth that buys nothing.
    */
   it('stays inside its character budget, which is what the model pays for', () => {
@@ -88,8 +91,8 @@ describe('model-facing tool definitions', () => {
     ]);
     const defaultBlock = tools.filter(tool => defaults.has(tool.function.name));
     expect(defaultBlock).toHaveLength(defaults.size);
-    expect(JSON.stringify(defaultBlock).length).toBeLessThan(23_800);
-    expect(JSON.stringify(tools).length).toBeLessThan(30_700);
+    expect(JSON.stringify(defaultBlock).length).toBeLessThan(24_300);
+    expect(JSON.stringify(tools).length).toBeLessThan(31_200);
     // No description carries a worked example or a retention detail no call can act on.
     for (const tool of tools) expect(tool.function.description.length).toBeLessThan(260);
   });

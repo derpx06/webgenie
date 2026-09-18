@@ -11,6 +11,8 @@ import type Page from '../../browser/page';
 import type { FormCommitInfo } from '../../browser/page';
 import { DEFAULT_BROWSER_CONTEXT_CONFIG, type BrowserContextConfig, type BrowserState, type PageDialog } from '../../browser/views';
 import { DOMElementNode, DOMTextNode } from '../../browser/dom/views';
+import type { CoordinateSet } from '../../browser/dom/history/view';
+import type { ScreenshotOptions } from '../../browser/page';
 import type { ToolDefinition } from '../actions/builder';
 import { TaskCheckpointStore } from '../contracts';
 import type { PlannerLLMOutput } from '../contracts';
@@ -176,6 +178,20 @@ export interface BrowserAction {
   url?: string;
 }
 
+/** The box of element `index`: 200x30 at x=20, stacked every 40 pixels down the page. */
+function boxAt(index: number): CoordinateSet {
+  const [x, y, width, height] = [20, 10 + index * 40, 200, 30];
+  return {
+    topLeft: { x, y },
+    topRight: { x: x + width, y },
+    bottomLeft: { x, y: y + height },
+    bottomRight: { x: x + width, y: y + height },
+    center: { x: x + width / 2, y: y + height / 2 },
+    width,
+    height,
+  };
+}
+
 function buildDom(spec: PageSpec): Pick<BrowserState, 'elementTree' | 'selectorMap'> {
   const body = new DOMElementNode({
     tagName: 'body',
@@ -207,6 +223,9 @@ function buildDom(spec: PageSpec): Pick<BrowserState, 'elementTree' | 'selectorM
       highlightIndex: index,
       backendNodeId: 100 + index,
       parent: body,
+      // A measured box per element, so a screenshot narrowed to one has something to frame: 200x30 stacked 40 apart.
+      viewportCoordinates: boxAt(index),
+      pageCoordinates: boxAt(index),
     });
     if (element.text) node.children.push(new DOMTextNode(element.text, true, node));
     body.children.push(node);
@@ -225,6 +244,8 @@ export class FakeBrowserContext {
   reads = 0;
   /** The window position a page read reports; a test that scrolls moves it. */
   scrollY = 0;
+  /** What the next screenshot was asked to show (view_screenshot); null means the whole visible page, labelled. */
+  screenshotOptions: ScreenshotOptions | null = null;
   config: BrowserContextConfig = {
     ...DEFAULT_BROWSER_CONTEXT_CONFIG,
     actionSettleTimeoutMs: 250,
@@ -278,6 +299,9 @@ export class FakeBrowserContext {
     goBack: async () => this.act({ type: 'go_back' }),
     removeHighlight: async () => {},
     invalidateCache: () => {},
+    setScreenshotOptions: (options: ScreenshotOptions | null) => {
+      this.screenshotOptions = options;
+    },
   };
 
   constructor(pages: PageSpec[]) {

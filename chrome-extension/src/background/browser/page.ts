@@ -40,6 +40,54 @@ import { ChromeStorageProvider } from '../adapters/ChromeStorageProvider';
 
 const logger = createLogger('Page');
 
+/** A part of the viewport a screenshot shows, in CSS pixels from its top left, and whether to label what is in it. */
+export interface ScreenshotOptions {
+  clip?: { x: number; y: number; width: number; height: number };
+  /** The page scroll the clip was measured at, so the element labels can be matched to it. */
+  scrollY?: number;
+  /** False leaves the index boxes off; the default draws them, as a whole-page screenshot always has. */
+  annotate?: boolean;
+}
+
+/** The label boxes to draw: every element with a measured box, or, when the screenshot is clipped, only those it shows. */
+export function highlightRects(
+  selectorMap: Map<number, DOMElementNode>,
+  shot?: ScreenshotOptions | null,
+): Array<{ index: number; x: number; y: number; w: number; h: number }> {
+  const rects: Array<{ index: number; x: number; y: number; w: number; h: number }> = [];
+  // The clip is in viewport pixels and the boxes in page pixels, so the scroll at capture time joins them.
+  const clip = shot?.clip;
+  const top = clip ? clip.y + (shot?.scrollY ?? 0) : 0;
+  for (const [index, element] of selectorMap.entries()) {
+    const box = element.pageCoordinates;
+    if (!box) continue;
+    if (clip) {
+      const left = box.center.x - box.width / 2;
+      const boxTop = box.center.y - box.height / 2;
+      if (left > clip.x + clip.width || left + box.width < clip.x) continue;
+      if (boxTop > top + clip.height || boxTop + box.height < top) continue;
+    }
+    rects.push({ index, x: box.center.x, y: box.center.y, w: box.width, h: box.height });
+  }
+  return rects;
+}
+
+/** A region clamped to the viewport: a clip that reaches past it makes Chrome capture nothing at all. */
+export function clampClip(
+  region: ScreenshotOptions['clip'],
+  view: { width: number; height: number },
+): { x: number; y: number; width: number; height: number } {
+  if (!region) return { x: 0, y: 0, width: view.width, height: view.height };
+  const x = Math.max(0, Math.min(region.x, view.width - 1));
+  const y = Math.max(0, Math.min(region.y, view.height - 1));
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.min(region.width + Math.min(0, region.x), view.width - x)),
+    height: Math.max(1, Math.min(region.height + Math.min(0, region.y), view.height - y)),
+  };
+}
+
 /**
  * Runs in the page: one JavaScript value as text a model can read. DOM nodes become their tag, identifying attributes
  * and text instead of `{}`, lists and objects are walked to a fixed depth, cycles are named, and the whole thing is cut
@@ -604,6 +652,8 @@ export default class Page {
   private _fileChooserNode: number | null = null;
   /** What this tab asked the network for, so sniff_api can show the site's own data endpoints. */
   private readonly _network = new NetworkLog();
+  /** What the next screenshot shows and labels; set by view_screenshot and used once. */
+  private _screenshotOptions: ScreenshotOptions | null = null;
   private _browserAdapter: IBrowserAdapter;
   private _storageProvider: IStorageProvider;
 
@@ -835,6 +885,14 @@ export default class Page {
   }
 
   /**
+   * What the next screenshot shows: a part of the viewport instead of all of it, and whether the interactive elements
+   * in it are labelled. Used by the next read and then forgotten, so one call changes one image.
+   */
+  setScreenshotOptions(options: ScreenshotOptions | null): void {
+    this._screenshotOptions = options;
+  }
+
+  /**
    * Evaluates one JavaScript expression in the page and returns its value as text. The expression goes through
    * Runtime.evaluate, so a page whose CSP forbids eval still runs it; the value is then shaped by a function called
    * on the handle, so DOM nodes come back named rather than empty. The caller decides what may be evaluated.
@@ -923,7 +981,7 @@ export default class Page {
   }
 
   /** The page's interactive elements and text, from the accessibility tree of every frame. */
-  async getClickableElements(showHighlightElements: boolean): Promise<DOMState | null> {
+  async getClickableElements(showHighlightElements: boolean, shot?: ScreenshotOptions | null): Promise<DOMState | null> {
     if (!this._validWebPage) {
       return null;
     }
@@ -933,7 +991,7 @@ export default class Page {
     }
     const state = pruneAXTree(await getAXTreeState(this._puppeteerPage));
     if (showHighlightElements) {
-      await this._drawHighlightsFromCoords(state);
+      await this._drawHighlightsFromCoords(state, shot);
     }
     return state;
   }
@@ -942,19 +1000,8 @@ export default class Page {
    * Draw highlight overlays for all interactive elements in a DOMState using their
    * stored pageCoordinates. Works for both AXTree-derived and DOMSnapshot-derived states.
    */
-  private async _drawHighlightsFromCoords(state: DOMState): Promise<void> {
-    const rects: { index: number; x: number; y: number; w: number; h: number }[] = [];
-    for (const [idx, el] of state.selectorMap.entries()) {
-      if (el.pageCoordinates) {
-        rects.push({
-          index: idx,
-          x: el.pageCoordinates.center.x,
-          y: el.pageCoordinates.center.y,
-          w: el.pageCoordinates.width,
-          h: el.pageCoordinates.height,
-        });
-      }
-    }
+  private async _drawHighlightsFromCoords(state: DOMState, shot?: ScreenshotOptions | null): Promise<void> {
+    const rects = highlightRects(state.selectorMap, shot);
     if (rects.length > 0) {
       await drawHighlightOverlaysViaCoordinates(this._tabId, rects, this._browserAdapter);
     }
@@ -1269,14 +1316,17 @@ export default class Page {
       }
 
       await this.removeHighlight();
-      const displayHighlights = this._config.displayHighlights || useVision;
-      const content = await this.getClickableElements(displayHighlights);
+      // One call of view_screenshot shapes one image; a read that takes no screenshot leaves the request for the next.
+      const shot = useVision ? this._screenshotOptions : null;
+      if (useVision) this._screenshotOptions = null;
+      const displayHighlights = (this._config.displayHighlights || useVision) && shot?.annotate !== false;
+      const content = await this.getClickableElements(displayHighlights, shot);
       if (!content) {
         throw new Error('Failed to get clickable elements');
       }
 
       // Take screenshot if needed
-      const screenshot = useVision ? await this.takeScreenshot() : null;
+      const screenshot = useVision ? await this.takeScreenshot(false, shot?.clip) : null;
       const [scrollY, visualViewportHeight, scrollHeight] = await this.getScrollInfo();
 
       // A new object per read: states handed out earlier are never mutated.
@@ -1377,7 +1427,7 @@ export default class Page {
     }
   }
 
-  async takeScreenshot(fullPage = false): Promise<string | null> {
+  async takeScreenshot(fullPage = false, region?: ScreenshotOptions['clip']): Promise<string | null> {
     await this.ensurePuppeteerConnected();
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer page is not connected');
@@ -1405,13 +1455,14 @@ export default class Page {
       // At most 1280 px wide: a full window on a scaled display is over 2000 px, and those uploads made image calls hang
       // past their limits (run E). Gemini reads a screen at this size just as well.
       const view = await this._puppeteerPage.evaluate(() => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio }));
-      const scale = Math.min(1, 1280 / Math.max(1, view.width * view.dpr));
+      const clip = clampClip(region, view);
+      const scale = Math.min(1, 1280 / Math.max(1, clip.width * view.dpr));
       const screenshot = await this._puppeteerPage.screenshot({
         encoding: 'base64',
         type: 'jpeg',
         quality: 60,
         optimizeForSpeed: true,
-        ...(fullPage ? { fullPage: true } : { clip: { x: 0, y: 0, width: view.width, height: view.height, scale } }),
+        ...(fullPage ? { fullPage: true } : { clip: { ...clip, scale } }),
       });
 
       return screenshot as string;

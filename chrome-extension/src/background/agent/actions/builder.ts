@@ -307,7 +307,7 @@ export class ActionBuilder {
       new Action((input) => this.contentHandler.handleExtract(input), extractActionSchema),
       new Action((input) => this.contentHandler.handleGetCompletePageContent(input), getCompletePageContentActionSchema),
       // Only for a model that reads images, with vision on (index.ts decides both).
-      ...(this.context.options.useVision ? [new Action(() => this.contentHandler.handleViewScreenshot(), viewScreenshotActionSchema)] : []),
+      ...(this.context.options.useVision ? [new Action((input) => this.contentHandler.handleViewScreenshot(input), viewScreenshotActionSchema)] : []),
     ];
   }
 
