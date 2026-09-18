@@ -268,3 +268,29 @@ Runs:
 - `mind2web-r2-cand-6347e1c`.
 
 Both runs use the new harness (US locale, screenshots of the agent's tab once rendered), one worker each at the same time, so they share network conditions and quota. `JUDGE=0`: both are judged afterwards with the same judge. The candidate is kept if it improves over the baseline with no regressions that the traces confirm (`compare.mjs`).
+
+## Round 2 gate result: 6347e1c beats a920989, 45% -> 55% (2026-09-18)
+
+Same 60 tasks, same harness, both runs side by side on the same connection and quota, judged the same way.
+
+| | baseline a920989 | candidate 6347e1c |
+| --- | --- | --- |
+| Judged successes | 27 of 60 (45%, 95% CI 33-58%) | 33 of 60 (55%, 95% CI 43-67%) |
+| easy | — | 13 of 18 (72%) |
+| medium | — | 15 of 25 (60%) |
+| hard | — | 5 of 17 (29%) |
+| Improved | | 10 tasks |
+| Regressed | | 4 tasks |
+
+Judging: the model judge could not carry a round (its quota answered none of six probe calls for hours), so both runs
+were judged by reading every task's result, timeline and screenshots against `JUDGING.md`, the WebJudge rules, and
+`collect-judgments.mjs` folded the verdicts into `judgments.json`. Screenshots were shrunk locally first
+(`trajectory/.small`), because the machine's uplink was 15-30 KB/s.
+
+Improvements worth naming: a Qatar baggage task that burned 44 steps and the whole token budget now finishes in 27; a
+USPS price task went from 36 steps and 514k tokens to 6 steps and 67k; a quiz task from the 50-step limit to 21 steps.
+
+Cost: among the 23 tasks that succeeded in both, median steps rose 6 -> 9 and median input tokens 90k -> 122k. The
+candidate looks harder rather than faster, which the measured speed work (`speed-plan.md`) addresses in the next build.
+
+The four regressions are analysed in `results/regressions-r2.md`; each change is kept, fixed or reverted on that evidence.
