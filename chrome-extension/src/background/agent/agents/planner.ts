@@ -10,6 +10,7 @@ import { plannerLLMOutputSchema, type NextStepContract, type PlannerLLMOutput, t
 import { buildToolDefinitions, buildToolValidators } from '../actions/builder';
 import type { ActionSchema } from '../actions/schemas';
 import { ResponseParseError } from './errors';
+import { mergeRequirements } from '../validation/done-evidence';
 
 const logger = createLogger('PlannerAgent');
 
@@ -63,7 +64,11 @@ export class PlannerAgent extends BaseAgent<PlannerOutput> {
         this.context.lastMacroObjective = cleanedPlan.macro_objective;
       }
       this.context.currentContract = cleanedPlan.next_step_contract ?? null;
-      if (cleanedPlan.requirements) this.context.requirements = cleanedPlan.requirements;
+      if (cleanedPlan.requirements) {
+        // What the page already shows applied stays applied, so the same filter is not planned and applied again.
+        cleanedPlan.requirements = mergeRequirements(this.context, cleanedPlan.requirements);
+        this.context.requirements = cleanedPlan.requirements;
+      }
       if (this.context.traceStore) {
         void this.context.traceStore.append({
           taskId: this.context.taskId,

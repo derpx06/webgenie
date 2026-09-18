@@ -81,8 +81,19 @@ function evidenceValues(evidence: string): string[] {
  * were gone by the end (a later go_back removed a checkbox filter). Evidence with nothing to search for is not judged.
  */
 export function staleRequirements(context: AgentContext, requirements: PlannerRequirement[]): PlannerRequirement[] {
+  const page = evidenceHaystack(context);
+  if (page === null) return [];
+  return requirements.filter(item => {
+    if (item.status !== 'applied' || !item.evidence) return false;
+    const values = evidenceValues(item.evidence);
+    return values.length > 0 && !values.some(value => page.includes(value));
+  });
+}
+
+/** Everything on the page an applied requirement's evidence may be found in: its text, its addresses and its attributes. */
+function evidenceHaystack(context: AgentContext): string | null {
   const state = context.promptState;
-  if (!state) return [];
+  if (!state) return null;
   const parts = [visibleText(state), state.url ?? ''];
   try {
     parts.push(decodeURIComponent((state.url ?? '').replace(/\+/g, ' ')));
@@ -97,11 +108,50 @@ export function staleRequirements(context: AgentContext, requirements: PlannerRe
       stack.push(...node.children);
     }
   }
-  const page = parts.join('\n').replace(/\s+/g, ' ').toLowerCase();
+  return parts.join('\n').replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * A requirement's identity across plans. The planner rewords the same constraint from plan to plan, most often by adding
+ * a parenthetical about what is left to do ("most experienced agent (Years of Experience filter needs to be applied)"),
+ * which made every plan look like a new requirement and let an applied one start again from pending.
+ */
+export function requirementKey(requirement: string): string {
+  return requirement.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * The plan's requirements with what is already applied kept applied. A plan that lists a requirement it had marked
+ * applied as pending again has it restored, so the phase is not planned a second time; only evidence gone from the
+ * current page reopens it, and each requirement may be reopened once (a live run re-applied one filter three times,
+ * losing the sort it had, until the task hit the token cap).
+ */
+export function mergeRequirements(context: AgentContext, incoming: PlannerRequirement[]): PlannerRequirement[] {
+  const previous = new Map(context.requirements.map(item => [requirementKey(item.requirement), item]));
+  const gone = new Set(staleRequirements(context, context.requirements).map(item => requirementKey(item.requirement)));
+  return incoming.map(item => {
+    const key = requirementKey(item.requirement);
+    const before = previous.get(key);
+    if (!before || before.status !== 'applied' || item.status !== 'pending') return item;
+    if (gone.has(key) && !context.requirementReopens.has(key)) {
+      context.requirementReopens.add(key);
+      return item;
+    }
+    return { ...item, status: 'applied', evidence: item.evidence ?? before.evidence };
+  });
+}
+
+/**
+ * Applied requirements whose recorded evidence the current page still shows. Leaving such a page (going back, reloading)
+ * removes what it shows, so what is applied is checked here rather than by navigating away to look.
+ */
+export function appliedOnPage(context: AgentContext, requirements: PlannerRequirement[]): PlannerRequirement[] {
+  const page = evidenceHaystack(context);
+  if (page === null) return [];
   return requirements.filter(item => {
     if (item.status !== 'applied' || !item.evidence) return false;
     const values = evidenceValues(item.evidence);
-    return values.length > 0 && !values.some(value => page.includes(value));
+    return values.length > 0 && values.some(value => page.includes(value));
   });
 }
 

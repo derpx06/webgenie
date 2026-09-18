@@ -9,7 +9,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import type { NextStepContract } from '../../contracts';
-import { absenceUnread, doneEvidence, searchOnlyEvidence, staleRequirements } from '../done-evidence';
+import { absenceUnread, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, staleRequirements } from '../done-evidence';
 import { titleFromTask } from '../../../core/task-groups/manager';
 
 function contextOnPage(lines: string[]) {
@@ -116,5 +116,69 @@ describe('staleRequirements', () => {
         applied('4 stars and up', 'the rating filter is selected'),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe('mergeRequirements', () => {
+  const applied = (requirement: string, evidence: string) => ({ requirement, status: 'applied' as const, evidence });
+  const pending = (requirement: string) => ({ requirement, status: 'pending' as const });
+  // The page keeps showing the sort the planner applied.
+  const sorted = () => {
+    const context = contextOnPage(['Results', 'Sort: Experience, high to low']);
+    (context.promptState as BrowserState).url = 'https://dir.test/search?city=springfield';
+    context.requirements = [applied('most experienced', 'sort label "Sort: Experience, high to low"')];
+    return context;
+  };
+
+  it('keeps a requirement applied when a later plan lists it as pending again', () => {
+    const context = sorted();
+    expect(mergeRequirements(context, [pending('most experienced')])).toEqual([
+      { requirement: 'most experienced', status: 'applied', evidence: 'sort label "Sort: Experience, high to low"' },
+    ]);
+  });
+
+  it('keeps it applied through the parenthetical the planner adds while rewording it', () => {
+    const context = sorted();
+    const [merged] = mergeRequirements(context, [pending('most experienced (Years of Experience filter needs to be applied)')]);
+    expect(merged.status).toBe('applied');
+  });
+
+  it('reopens it once when the evidence is gone from the current page, and not a second time', () => {
+    const context = contextOnPage(['Results', 'Sort: Relevance']);
+    (context.promptState as BrowserState).url = 'https://dir.test/search?city=springfield';
+    const was = applied('most experienced', 'sort label "Sort: Experience, high to low"');
+    context.requirements = [was];
+
+    expect(mergeRequirements(context, [pending('most experienced')])).toEqual([pending('most experienced')]);
+
+    // A second plan may not reopen the same requirement, even while the page still does not show it.
+    context.requirements = [was];
+    expect(mergeRequirements(context, [pending('most experienced')])[0].status).toBe('applied');
+  });
+
+  it('leaves a new requirement, one the planner marks applied, and one it marks not_available alone', () => {
+    const context = sorted();
+    const incoming = [pending('within 10 miles'), applied('most experienced', 'sort label "Sort: Experience, high to low"'), { requirement: 'open now', status: 'not_available' as const }];
+    expect(mergeRequirements(context, incoming)).toEqual(incoming);
+  });
+});
+
+describe('requirementKey', () => {
+  it('reads a reworded requirement as the same one', () => {
+    expect(requirementKey('most experienced agent (Years of Experience filter needs to be applied)')).toBe(requirementKey('Most experienced agent'));
+    expect(requirementKey('price $10-20')).not.toBe(requirementKey('price $30-40'));
+  });
+});
+
+describe('appliedOnPage', () => {
+  it('names the applied requirements this page shows, and nothing when the page was not read', () => {
+    const context = contextOnPage(['Results', 'Sort: Experience, high to low']);
+    (context.promptState as BrowserState).url = 'https://dir.test/search?city=springfield';
+    const sort = { requirement: 'most experienced', status: 'applied' as const, evidence: 'sort label "Sort: Experience, high to low"' };
+    const gone = { requirement: 'open now', status: 'applied' as const, evidence: 'chip "Open now"' };
+    expect(appliedOnPage(context, [sort, gone, { requirement: 'in stock', status: 'pending' as const }])).toEqual([sort]);
+
+    context.promptState = undefined;
+    expect(appliedOnPage(context, [sort])).toEqual([]);
   });
 });

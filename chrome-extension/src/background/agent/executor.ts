@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnread, doneEvidence, givesUpUnseen, reportedValues, searchOnlyEvidence, staleRequirements } from './validation/done-evidence';
+import { absenceUnread, doneEvidence, givesUpUnseen, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -180,6 +180,7 @@ export class Executor {
     // Requirements and the completion checks built on them belong to one task.
     this.context.requirements = [];
     this.context.requirementRefusals = 0;
+    this.context.requirementReopens.clear();
     this.context.absenceChecked = false;
     this.evidenceRechecked = false;
     this.searchEvidenceRefused = false;
@@ -861,10 +862,10 @@ export class Executor {
    * pending keeps the interval re-plan on.
    */
   private noteRequirementChanges(before: PlannerRequirement[], findingsBefore: number): void {
-    const statusBefore = new Map(before.map(item => [item.requirement.toLowerCase(), item.status]));
+    const statusBefore = new Map(before.map(item => [requirementKey(item.requirement), item.status]));
     const after = this.context.requirements;
-    this.requirementReopened = after.some(item => item.status === 'pending' && statusBefore.get(item.requirement.toLowerCase()) === 'applied');
-    const newlyApplied = after.some(item => item.status === 'applied' && statusBefore.get(item.requirement.toLowerCase()) !== 'applied');
+    this.requirementReopened = after.some(item => item.status === 'pending' && statusBefore.get(requirementKey(item.requirement)) === 'applied');
+    const newlyApplied = after.some(item => item.status === 'applied' && statusBefore.get(requirementKey(item.requirement)) !== 'applied');
     if (newlyApplied || this.context.findings.length > findingsBefore) this.goalRepeats.progress();
   }
 
