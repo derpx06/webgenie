@@ -85,3 +85,32 @@ and a cheaper agent that solves fewer tasks is a worse agent, not a better one.
 **Rejected:** *Shipping the measured cuts and checking the score afterwards.* Faster, but it
 is how a silent regression gets baked in — this project has already had two harness bugs
 misread as agent regressions.
+
+## D5 — The harness is model- and provider-agnostic
+
+**Date:** 2026-09-19
+**Decision:** Every harness change must work with any model and provider the extension
+supports (OpenAI, Anthropic, Gemini API, Vertex, Ollama and the others in
+`llmProviders.ts`). Gemini on Vertex is the provider the live benchmark uses, not a design
+target.
+
+**Why:** The user set this directly. Users run the agent on the model they choose; a harness
+tuned to one provider's quirks would score on the benchmark and fail them.
+
+**Consequences:**
+- Provider-specific behaviour (implicit-cache minimums, quota semantics, cache APIs, thinking
+  controls, computer-use action sets) lives behind `llmCapabilities.ts` and
+  `helper.ts::createChatModel`, never in the loop, prompts or tools.
+- Rate limiting, caching, timeouts and retries are driven by capabilities and by what the
+  provider reports at runtime (retry hints, rate-limit headers, cache usage), not by
+  hard-coded Vertex numbers.
+- The planner-cache fix in `reports/TOKEN_BUDGET.md` becomes a capability ("explicit prefix
+  cache") with Gemini's `cachedContents` as one implementation and Anthropic's
+  `cache_control` as another; providers with automatic caching need only a stable prefix.
+- Vision and coordinate grounding are optional, gated by a model capability, with a
+  text-only path that always works.
+- Measurements from Vertex runs are labelled as such; a claim about "the provider" names
+  which one.
+
+**Rejected:** *Optimising for Vertex now and generalising later.* The provider assumptions
+would spread into prompts and control flow, where they are expensive to remove.
