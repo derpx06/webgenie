@@ -42,6 +42,27 @@ describe('the ledger itself', () => {
     expect(ledger.render(130).length).toBeLessThanOrEqual(130 + '- and 3 more pages seen once'.length);
   });
 
+  it('never drops a route or a dead end, however tight the budget', () => {
+    const ledger = new TaskLedger();
+    for (let i = 0; i < 6; i++) {
+      ledger.recordRoute(
+        'go_to_url',
+        { url: 'https://shop.test/', text: '' },
+        { url: `https://shop.test/search?q=query+number+${i}`, text: 'No results found' },
+      );
+      ledger.deadEnd(`shop.test/page-${i}`, 'you went back from it');
+      ledger.refused('click_element', 'the element has no visible area');
+      ledger.visited(`shop.test/seen-${i}`, 'a page');
+    }
+
+    const lines = ledger.render(300).split('\n');
+    expect(lines.filter(line => line.startsWith('- route'))).toHaveLength(6);
+    expect(lines.filter(line => line.startsWith('- dead end'))).toHaveLength(6);
+    // Tight budgets cost the notes and the pages, never the lessons.
+    expect(lines.some(line => line.includes('no results'))).toBe(false);
+    expect(lines[lines.length - 1]).toMatch(/^- and \d+ more entries$/);
+  });
+
   it('is empty until something happens', () => {
     expect(new TaskLedger().render(1600)).toBe('');
   });

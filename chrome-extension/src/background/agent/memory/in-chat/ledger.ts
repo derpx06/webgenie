@@ -324,37 +324,51 @@ export class TaskLedger {
 
   /**
    * The block as the models see it, within `maxChars`. What prevents a loop comes first — routes tried, dead ends,
-   * refusals, then the addresses seen more than once — and a page seen exactly once is dropped before anything else when
-   * the budget is tight: it is the least likely to be revisited by mistake and the most numerous.
+   * refusals, then the addresses seen more than once — and a page seen exactly once is dropped before anything else
+   * when the budget is tight: it is the least likely to be revisited by mistake and the most numerous.
+   *
+   * Every route and every dead end survives whatever the budget: they are the lesson of a branch the task already paid
+   * for, and a lesson dropped is the loop it was written to stop. Over budget they lose their notes first, and if the
+   * bare lines still do not fit they are kept over everything else. Nothing else in the packet grows without a budget
+   * (each block above has its own), so this is the whole of the compaction guarantee.
    */
   render(maxChars: number): string {
     const label = { visit: 'seen', refused: 'refused', dead_end: 'dead end' } as const;
     const count = (times: number) => (times > 1 ? ` x${times}` : '');
-    const routeLine = (route: RouteEntry) =>
+    const entryLine = (entry: LedgerEntry, withNote: boolean) =>
+      `- ${label[entry.kind]} ${entry.subject}${count(entry.times)}${withNote && entry.note ? `: ${entry.note}` : ''}`;
+    const routeLine = (route: RouteEntry, withNote: boolean) =>
       `- route ${route.kind} ${short(route.place, 60)}${route.query ? ` "${short(route.query, 40)}"` : ''}` +
-      `${route.params ? ` [${short(route.params, 50)}]` : ''}${count(route.times)}${route.note ? `: ${route.note}` : ''}`;
-    const rank = (entry: LedgerEntry) =>
-      entry.kind === 'dead_end' ? 0 : entry.kind === 'refused' ? 1 : entry.times > 1 ? 2 : 3;
-    const ordered = [
-      ...this.routes().map(routeLine),
-      ...this.all()
-        .sort((a, b) => rank(a) - rank(b) || b.times - a.times)
-        .map(entry => `- ${label[entry.kind]} ${entry.subject}${count(entry.times)}${entry.note ? `: ${entry.note}` : ''}`),
-    ];
-    if (ordered.length === 0) return '';
+      `${route.params ? ` [${short(route.params, 50)}]` : ''}${count(route.times)}${withNote && route.note ? `: ${route.note}` : ''}`;
 
-    const lines: string[] = [];
-    let used = 0;
+    const rank = (entry: LedgerEntry) => (entry.kind === 'refused' ? 0 : entry.times > 1 ? 1 : 2);
+    const deadEnds = this.all().filter(entry => entry.kind === 'dead_end');
+    const rest = this.all()
+      .filter(entry => entry.kind !== 'dead_end')
+      .sort((a, b) => rank(a) - rank(b) || b.times - a.times);
+    if (this.routes().length + deadEnds.length + rest.length === 0) return '';
+
+    const kept = (withNote: boolean) => [
+      ...this.routes().map(route => routeLine(route, withNote)),
+      ...deadEnds.map(entry => entryLine(entry, withNote)),
+    ];
+    let lines = kept(true);
+    if (lines.reduce((sum, line) => sum + line.length + 1, 0) > maxChars) lines = kept(false);
+
+    let used = lines.reduce((sum, line) => sum + line.length + 1, 0);
     let dropped = 0;
-    for (const line of ordered) {
+    let droppedMoreThanPages = false;
+    for (const entry of rest) {
+      const line = entryLine(entry, true);
       if (used + line.length + 1 > maxChars) {
         dropped++;
+        if (rank(entry) < 2) droppedMoreThanPages = true;
         continue;
       }
       lines.push(line);
       used += line.length + 1;
     }
-    if (dropped > 0) lines.push(`- and ${dropped} more pages seen once`);
+    if (dropped > 0) lines.push(droppedMoreThanPages ? `- and ${dropped} more entries` : `- and ${dropped} more pages seen once`);
     return lines.join('\n');
   }
 }
