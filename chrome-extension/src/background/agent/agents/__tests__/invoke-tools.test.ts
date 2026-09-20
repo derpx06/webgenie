@@ -9,12 +9,19 @@ import {
   invokeTools,
   isToolsUnsupportedError,
   MIN_CALL_TIMEOUT_MS,
+  PACE_MAX_HOLD_MS,
+  noteCallAccepted,
+  noteCallRefused,
+  noteCallStarted,
+  paceKey,
   rateLimitDelayMs,
   rateLimitHint,
   readFinish,
   recordCallLatency,
   resetCallLatencies,
+  resetPacing,
   retryDelayHint,
+  startDelayMs,
 } from '../base';
 import { isAbortedError, isQuotaExhaustedError, isRateLimitError, ResponseParseError } from '../errors';
 import type { ToolDefinition } from '../../actions/builder';
@@ -47,6 +54,12 @@ const tools: ToolDefinition[] = Object.keys(validators).map(name => ({
 }));
 const packet = [new HumanMessage('do the task')];
 const base = { component: 'test', tools, validators, messages: packet, native: true, forceToolChoice: true };
+
+// The pace and the latency window belong to the worker, not to one call, so each test starts from a clean one.
+beforeEach(() => {
+  resetPacing();
+  resetCallLatencies();
+});
 
 describe('invokeTools', () => {
   it('returns valid parallel calls from one request and forces a tool choice', async () => {
@@ -204,6 +217,101 @@ describe('slow calls', () => {
 
     expect(reply.text).toBe('the only answer');
     expect(stub.invoke).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Our own first-attempt refusal rate rose from 0.09-0.13 to 0.29 as this worker's request rate went from under 4 to 12
+ * or more a minute, so part of the burst is self-inflicted. Nothing is paced until a provider refuses once; from then
+ * on it is additive increase on acceptance and halving on refusal, with the clock read explicitly so the test is exact.
+ */
+describe('pacing learned from refusals', () => {
+  const key = 'test-endpoint|test-model';
+  beforeEach(() => resetPacing());
+
+  it('holds nothing back until the provider refuses a call', () => {
+    for (let i = 0; i < 100; i++) noteCallStarted(key, 1_000 + i);
+    expect(startDelayMs(key, 1_100)).toBe(0);
+  });
+
+  it('halves the rate it was running at, and waits until the oldest start leaves the window', () => {
+    const start = 1_000_000;
+    for (let i = 0; i < 20; i++) noteCallStarted(key, start + i * 100);
+    noteCallRefused(key, null, start + 2_000);
+
+    // 20 starts in the window became a limit of 10, so the 10 most recent hold the next call back — capped, so a
+    // pace never parks the task for a whole minute.
+    expect(startDelayMs(key, start + 2_000)).toBe(PACE_MAX_HOLD_MS);
+
+    // Each accepted call earns one more start a minute, so a provider that recovers is used again.
+    for (let i = 0; i < 11; i++) noteCallAccepted(key, start + 3_000);
+    expect(startDelayMs(key, start + 3_000)).toBe(0);
+  });
+
+  it('believes the rate the provider sends over its own estimate, and never paces below the floor', () => {
+    const start = 2_000_000;
+    for (let i = 0; i < 40; i++) noteCallStarted(key, start + i);
+    noteCallRefused(key, 12, start + 100);
+    expect(startDelayMs(key, start + 100)).toBeGreaterThan(0);
+
+    noteCallRefused(key, null, start + 200);
+    noteCallRefused(key, null, start + 300);
+    noteCallRefused(key, null, start + 400);
+    // Halving stops at the floor of four a minute: the worker keeps making progress against a provider that keeps
+    // refusing, and once the window has emptied the next call goes out at once.
+    expect(startDelayMs(key, start + 120_000)).toBe(0);
+    for (let i = 0; i < 4; i++) noteCallStarted(key, start + 120_000);
+    expect(startDelayMs(key, start + 120_000)).toBeGreaterThan(0);
+  });
+
+  it('paces a real call and counts the refusal against the endpoint it was refused on', async () => {
+    const refused = Object.assign(new Error('429 Too Many Requests'), { headers: { 'x-ratelimit-limit-requests': '6' } });
+    const { chatModel } = stubModel([() => Promise.reject(refused), new AIMessage({ content: 'accepted' })]);
+
+    expect((await invokeLLM(chatModel, packet, { component: 'test', model: 'paced-model', rateLimitDelaysMs: [1] })).text).toBe('accepted');
+    // The provider said 6 a minute, so the 7th start of the minute has to wait.
+    for (let i = 0; i < 6; i++) noteCallStarted(paceKey('paced-model'));
+    expect(startDelayMs(paceKey('paced-model'))).toBeGreaterThan(0);
+  });
+});
+
+describe('a model served from more than one endpoint', () => {
+  beforeEach(() => resetPacing());
+
+  it('retries a refused call on the next endpoint instead of the one that just refused it', async () => {
+    const { chatModel } = stubModel([() => Promise.reject(new Error('429 Resource exhausted')), new AIMessage({ content: 'never' })]);
+    const elsewhere = stubModel([new AIMessage({ content: 'from the other endpoint' })]);
+    const asked: string[] = [];
+
+    const reply = await invokeLLM(chatModel, packet, {
+      component: 'test',
+      model: 'multi-endpoint-model',
+      rateLimitDelaysMs: [1],
+      endpoints: ['eu', 'us'],
+      withEndpoint: endpoint => {
+        asked.push(endpoint);
+        return elsewhere.chatModel as unknown as { invoke: (messages: BaseMessage[]) => Promise<unknown> };
+      },
+    });
+
+    expect(reply.text).toBe('from the other endpoint');
+    expect(asked).toEqual(['us']);
+  });
+
+  it('stays where it is when the capability lists only one endpoint', async () => {
+    const { chatModel } = stubModel([() => Promise.reject(new Error('429 Resource exhausted')), new AIMessage({ content: 'same endpoint' })]);
+    const withEndpoint = vi.fn(() => null);
+
+    const reply = await invokeLLM(chatModel, packet, {
+      component: 'test',
+      model: 'single-endpoint-model',
+      rateLimitDelaysMs: [1],
+      endpoints: ['eu'],
+      withEndpoint,
+    });
+
+    expect(reply.text).toBe('same endpoint');
+    expect(withEndpoint).not.toHaveBeenCalled();
   });
 });
 
