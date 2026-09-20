@@ -7,7 +7,7 @@ import { resolveByIdentity, type DOMElementNode } from '../../browser/dom/views'
 import type { FormCommitInfo } from '../../browser/page';
 import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
-import { elementKey, elementLabel, ensureBrowserObservation, listElements, visibleContentKey, visibleText } from './observation';
+import { elementKey, elementLabel, ensureBrowserObservation, listElements, textPieces, visibleContentKey, visibleText } from './observation';
 import { routeKey } from '../memory/global/memory-store';
 import type { PlannerRequirement } from '../contracts/types';
 
@@ -552,6 +552,22 @@ function interceptedLink(before: BrowserState, after: BrowserState, index: numbe
   }
 }
 
+/**
+ * Whether the click replaced what was on the page rather than adding to it. An overlay or interstitial covers the
+ * page it interrupts, so what was there is still there; a single-page app that routes in place puts a different page
+ * in its stead. Without this, every step of an in-place questionnaire was read as "an overlay intercepted the click".
+ * With nothing to compare (a page the read found no text on), the older, more careful reading stands.
+ */
+function replacedContent(before: BrowserState, after: BrowserState): boolean {
+  const lines = (state: BrowserState) => new Set(textPieces(state).filter(piece => piece.length >= 12));
+  const was = lines(before);
+  if (was.size < 4) return false;
+  const now = lines(after);
+  let gone = 0;
+  for (const line of was) if (!now.has(line)) gone++;
+  return gone / was.size >= 0.5;
+}
+
 function actionTargetFingerprint(actionArgs: unknown): TargetFingerprint | null {
   if (!isObject(actionArgs)) return null;
   const target = actionArgs.targetFingerprint;
@@ -927,7 +943,12 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
     if (settled && args.desired_state) return cloneWithValidation(result, 'passed', 'none', [settled]);
     // hover, right-click and drag are options of click_element; only a plain click opens the link it points to.
     const plainClick = actionName === 'click_element' && !args.hover && !args.right && args.drop_on === undefined;
-    const intercepted = plainClick && index !== undefined ? interceptedLink(before, after, index, actionArgs) : null;
+    // A link whose address never opened, on a page that did not change either: something swallowed the click. On a
+    // single-page app the same click routes in place — the address stays and the content changes — and calling that an
+    // overlay sent one live run into twelve false "an overlay intercepted it" verdicts, two needless re-plans and a
+    // question to the user about a navigation bar that was never in the way.
+    const inPlace = (docChanged || contentChanged) && replacedContent(before, after);
+    const intercepted = plainClick && index !== undefined && !inPlace ? interceptedLink(before, after, index, actionArgs) : null;
     if (intercepted) {
       return cloneWithValidation(
         result,

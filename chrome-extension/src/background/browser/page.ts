@@ -1954,11 +1954,22 @@ export default class Page {
     y: number,
     clickCount: number,
   ): Promise<MouseOutcome> {
-    const events: Promise<unknown>[] = [client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })];
+    // `buttons` is the bitmask of what is held down, and a real mouse always sends it: 0 while moving, the button's bit
+    // while it is down, 0 again on release. Without it a press says no button is pressed, and a widget that reads
+    // MouseEvent.buttons (menus, sliders, anything pointer-driven) ignores the click — half the clicks that changed
+    // nothing in a live run worked when they were sent again.
+    const held = button === 'right' ? 2 : 1;
+    const events: Promise<unknown>[] = [
+      client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0, modifiers: 0, pointerType: 'mouse' }),
+    ];
     if (kind !== 'hover') {
       for (let count = 1; count <= clickCount; count++) {
-        events.push(client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount: count }));
-        events.push(client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount: count }));
+        events.push(
+          client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons: held, modifiers: 0, clickCount: count, pointerType: 'mouse' }),
+        );
+        events.push(
+          client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0, modifiers: 0, clickCount: count, pointerType: 'mouse' }),
+        );
       }
     }
     const startedAt = Date.now();

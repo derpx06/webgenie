@@ -290,6 +290,46 @@ describe('action outcome validation', () => {
     expect(click('https://example.com/hourly', 'https://example.com/hourly').validated).toBe('passed');
   });
 
+  /**
+   * A live questionnaire routes each "Next" in place: the address stays, the content is replaced. Reading that as an
+   * intercepted click cost one run twelve false verdicts, two re-plans and a question to the user about a navigation
+   * bar that was never in the way.
+   */
+  it('passes an in-place route that replaces the page, and still catches an overlay that covers it', () => {
+    // A page read: the "Next" link, the options it shows, and the words on it.
+    const page = (url: string, options: string[], lines: string[]) => {
+      const selectorMap = new Map([[1, element(1, { tagName: 'a', attributes: { href: '/question/3' } })]]);
+      options.forEach((label, i) => selectorMap.set(i + 2, element(i + 2, { attributes: { 'aria-label': label } })));
+      const built = state({ url, selectorMap });
+      for (const line of lines) built.elementTree.children.push(new DOMTextNode(line, true, built.elementTree));
+      return built;
+    };
+    const asked = ['What size dog suits your home best?', 'Small, up to 20 pounds of dog', 'Medium, a dog you can still lift', 'Large, a dog that leans on you'];
+    const next = ['How much grooming will you take on?', 'Weekly brushing at most, nothing more', 'A trim every couple of months is fine', 'Daily coat care is no trouble at all'];
+
+    const click = (before: BrowserState, after: BrowserState) =>
+      validateActionOutcome({
+        actionName: 'click_element',
+        actionArgs: { index: 1 },
+        before,
+        after,
+        result: new ActionResult({ executed: true, executionStatus: 'executed' }),
+      });
+
+    // Routed in place: same address, the questions before it are gone.
+    const routed = click(page('https://example.com/quiz#2', asked.slice(1), asked), page('https://example.com/quiz#3', next.slice(1), next));
+    expect(routed.validated).toBe('passed');
+    expect(routed.failureReason ?? '').not.toContain('overlay');
+
+    // Covered instead: everything that was there is still there, with the overlay on top.
+    const covered = click(
+      page('https://example.com/quiz#2', asked.slice(1), asked),
+      page('https://example.com/quiz#ad', [...asked.slice(1), 'Close'], [...asked, 'Subscribe for our newsletter now']),
+    );
+    expect(covered.validated).toBe('unknown');
+    expect(covered.failureReason).toContain('/question/3');
+  });
+
   it('passes a selection that navigated away, where the option can no longer be read back', () => {
     const select = (afterUrl: string) =>
       validateActionOutcome({

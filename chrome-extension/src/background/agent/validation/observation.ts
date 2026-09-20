@@ -148,6 +148,13 @@ export function visibleContentKey(state: BrowserState): string {
   return key;
 }
 
+/** The page's text as separate pieces, in document order: what is on the page, one item per text node. */
+export function textPieces(state: BrowserState): string[] {
+  return textFragments(state.elementTree)
+    .map(piece => piece.replace(/\s+/g, ' ').trim())
+    .filter(piece => piece.length > 0);
+}
+
 /** All text of a page read, in document order. */
 export function visibleText(state: BrowserState): string {
   return pageText(state.elementTree);
