@@ -158,6 +158,14 @@ export class ContextBuilder {
       : '';
     if (validatedBlock) sections.push(validatedBlock);
 
+    // Is the task moving or going round: counted by the harness, because a model asked to judge its own progress
+    // cannot (Magentic-One asks the model; we answer it with numbers, which works whatever the model).
+    if (actor === 'planner' && context.ledger) {
+      const requirements = context.requirements ?? [];
+      const applied = requirements.filter(item => item.status === 'applied').length;
+      sections.push(`[PROGRESS]\n${context.ledger.progressLine(context.nSteps, (context.findings ?? []).length, applied, requirements.length)}`);
+    }
+
     // Saved findings, newest kept within the budget, shown oldest first.
     const findings: string[] = [];
     let used = 0;

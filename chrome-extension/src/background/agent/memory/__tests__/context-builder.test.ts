@@ -126,6 +126,30 @@ describe('ContextBuilder packets', () => {
     expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'navigator').at(-1)!)).not.toContain('[VALIDATED PROGRESS]');
   });
 
+  it('counts progress for the planner: steps, pages, findings, requirements and route kinds', () => {
+    const { context } = makeContext();
+    context.ledger.planned(2, 0);
+    context.ledger.visited('shop.test/search?q=kettle', 'Search');
+    context.ledger.recordRoute(
+      'click_element',
+      { url: 'https://shop.test/', text: '' },
+      { url: 'https://shop.test/search?q=kettle', text: 'No results found' },
+    );
+    context.ledger.progressed(3);
+    context.nSteps = 7;
+    context.findings = ['a price'];
+    context.requirements = [
+      { requirement: 'under £20', status: 'applied', evidence: 'price=0-20' },
+      { requirement: 'in blue', status: 'pending' },
+    ];
+
+    const planner = text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner').at(-1)!);
+    expect(planner).toContain(
+      '[PROGRESS]\nsteps since last plan 5; new pages 1; findings +1; requirements applied 1/2; steps without progress 4; route kinds tried: site_search x1 (1 empty)',
+    );
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'navigator').at(-1)!)).not.toContain('[PROGRESS]');
+  });
+
   it('keeps the system prompt and transcript prefix identical from one step to the next', () => {
     const { context, messageManager } = makeContext();
     messageManager.addTask('read the heading');

@@ -142,6 +142,9 @@ function short(text: string, maxChars = 70): string {
 export class TaskLedger {
   private readonly entries = new Map<string, LedgerEntry>();
   private readonly routeEntries = new Map<string, RouteEntry>();
+  /** The step, pages seen and findings when the planner last planned, and the last step that made progress. */
+  private planMark = { step: 0, pages: 0, findings: 0 };
+  private progressStep = 0;
 
   private add(kind: LedgerKind, subject: string, note: string): void {
     if (!subject) return;
@@ -205,6 +208,43 @@ export class TaskLedger {
     return this.routes()
       .filter(route => (route.query.length >= 3 && text.includes(route.query)) || (route.kind === 'url' && text.includes(route.address)))
       .sort((a, b) => b.query.length - a.query.length)[0]?.key;
+  }
+
+  /** The planner planned at `step`; the progress block counts from here. */
+  planned(step: number, findings: number): void {
+    this.planMark = { step, pages: this.visitCount(), findings };
+  }
+
+  /** The task made progress at `step`: a new page state validated, a finding saved, a requirement applied. */
+  progressed(step: number): void {
+    this.progressStep = step;
+  }
+
+  private visitCount(): number {
+    return this.all().filter(entry => entry.kind === 'visit').length;
+  }
+
+  /**
+   * The planner's progress block, counted by the harness: is the task moving, or is it going round. A weak model
+   * cannot answer that from its own reasoning (Kamoi, Sinha); it can read a count.
+   */
+  progressLine(step: number, findings: number, applied: number, requirements: number): string {
+    const kinds = new Map<RouteKind, { tried: number; empty: number }>();
+    for (const route of this.routes()) {
+      const seen = kinds.get(route.kind) ?? { tried: 0, empty: 0 };
+      seen.tried += route.times;
+      if (route.count === 0) seen.empty++;
+      kinds.set(route.kind, seen);
+    }
+    const tried = [...kinds].map(([kind, seen]) => `${kind} x${seen.tried}${seen.empty ? ` (${seen.empty} empty)` : ''}`).join(', ');
+    return [
+      `steps since last plan ${step - this.planMark.step}`,
+      `new pages ${this.visitCount() - this.planMark.pages}`,
+      `findings +${findings - this.planMark.findings}`,
+      `requirements applied ${applied}/${requirements}`,
+      `steps without progress ${step - this.progressStep}`,
+      `route kinds tried: ${tried || 'none'}`,
+    ].join('; ');
   }
 
   /** Every visit, refusal and dead end, newest first within its kind; for tests, traces and the site playbook. */

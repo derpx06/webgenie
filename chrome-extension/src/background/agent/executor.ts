@@ -613,6 +613,7 @@ export class Executor {
         // search or reopening a page validates too, but is not new.
         if ((navigatorStep.outcome === 'passed' && stepRecord.fresh) || context.findings.length > findingsBefore) {
           this.goalRepeats.progress();
+          context.ledger.progressed(context.nSteps);
           // Only progress refills the failure budget: a repeat that validates (a read, a scroll at the end) between
           // stalls kept the count at 1/3 and the task ran to its token limit.
           context.consecutiveFailures = 0;
@@ -897,7 +898,10 @@ export class Executor {
     const after = this.context.requirements;
     this.requirementReopened = after.some(item => item.status === 'pending' && statusBefore.get(requirementKey(item.requirement)) === 'applied');
     const newlyApplied = after.some(item => item.status === 'applied' && statusBefore.get(requirementKey(item.requirement)) !== 'applied');
-    if (newlyApplied || this.context.findings.length > findingsBefore) this.goalRepeats.progress();
+    if (newlyApplied || this.context.findings.length > findingsBefore) {
+      this.goalRepeats.progress();
+      this.context.ledger.progressed(this.context.nSteps);
+    }
   }
 
   /**
@@ -935,6 +939,8 @@ export class Executor {
       // The planner gets the page on every run, including the first; without it it plans blind.
       const planOutput = await this.planner.execute(await getState(), options);
       this.lastPlanningStep = this.context.nSteps;
+      // The next plan's progress block counts from here, after this call has read the previous one.
+      this.context.ledger.planned(this.context.nSteps, this.context.findings.length);
       // If planner returned an error (e.g., LLM API crash), treat it as an execution failure
       // so it counts toward consecutiveFailures and eventually stops the loop.
       if (planOutput.error) {
