@@ -156,8 +156,8 @@ describe('pointer targets', () => {
     expect(withListener.selectorMap.get(0)?.backendNodeId).toBe(30);
   });
 
-  it('reads nothing hidden with aria-hidden, even a draggable element with its own listener', () => {
-    // Like the agent's own status overlay: aria-hidden, draggable, with a text label inside.
+  it('reads nothing from a layer that takes no pointer events, however clickable it looks', () => {
+    // The agent's own status overlay: aria-hidden, draggable, pointer-events: none, with a text label inside.
     const nodes: AXNode[] = [
       { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3'] },
       text('2', 'Log in'),
@@ -171,12 +171,40 @@ describe('pointer targets', () => {
       },
       { nodeId: '4', ignored: true, ignoredReasons: [{ name: 'ariaHiddenSubtree' }], role: { value: 'StaticText' }, name: { value: 'Input tomsmith into index 2' } },
     ];
-    const layout = { scrollX: 0, scrollY: 0, nodes: new Map([[30, { tagName: 'div', attributes: { draggable: 'true' }, x: 10, y: 60, width: 250, height: 40 }]]) };
+    const overlay = { tagName: 'div', attributes: { draggable: 'true' }, x: 10, y: 60, width: 250, height: 40, noPointer: true };
+    const layout = { scrollX: 0, scrollY: 0, nodes: new Map([[30, overlay]]) };
 
     const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout, pointerListeners: new Set([30]) }], { width: 1000, height: 800 }));
 
     expect(state.selectorMap.size).toBe(0);
     expect(JSON.stringify(state.elementTree, (key, value) => (key === 'parent' ? undefined : value))).not.toContain('Input tomsmith');
+  });
+
+  it('keeps a control the page hid with aria-hidden while showing it, unless a modal is open', () => {
+    // ARIA misuse: a real button on screen, marked aria-hidden, whose label the accessibility tree has dropped.
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      {
+        nodeId: '2',
+        ignored: true,
+        ignoredReasons: [{ name: 'ariaHiddenElement' }],
+        role: { value: 'none' },
+        backendDOMNodeId: 40,
+        childIds: ['3'],
+      },
+      { nodeId: '3', ignored: true, ignoredReasons: [{ name: 'ariaHiddenSubtree' }], role: { value: 'StaticText' } },
+    ];
+    const layout = {
+      scrollX: 0,
+      scrollY: 0,
+      nodes: new Map([[40, { tagName: 'button', attributes: {}, x: 10, y: 60, width: 120, height: 30, text: 'Show more' }]]),
+    };
+
+    const kept = pruneAXTree(buildDomState([{ key: 'main', nodes, layout }], { width: 1000, height: 800 }));
+    expect(kept.selectorMap.get(0)?.getAllTextTillNextClickableElement()).toBe('Show more');
+
+    const behindModal = nodes.map(node => (node.nodeId === '3' ? { ...node, ignoredReasons: [{ name: 'activeModalDialog' }] } : node));
+    expect(pruneAXTree(buildDomState([{ key: 'main', nodes: behindModal, layout }], { width: 1000, height: 800 })).selectorMap.size).toBe(0);
   });
 });
 
@@ -262,6 +290,45 @@ describe('native selects', () => {
     ];
     const state = pruneAXTree(buildDomState([{ key: 'main', nodes }], null));
     expect(state.selectorMap.size).toBe(3);
+  });
+});
+
+describe('virtualized totals', () => {
+  const node = (id: string, role: string, backendDOMNodeId: number, childIds?: string[]): AXNode => ({ nodeId: id, role: { value: role }, backendDOMNodeId, childIds });
+  const layout = (entries: Array<[number, Record<string, string>]>) => ({
+    scrollX: 0,
+    scrollY: 0,
+    nodes: new Map(entries.map(([id, attributes]) => [id, { tagName: 'div', attributes, x: 0, y: 0, width: 200, height: 20 }])),
+  });
+
+  it('says how long a grid is when it renders a window onto it', () => {
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      node('2', 'grid', 20, ['3', '4']),
+      node('3', 'row', 21, ['5']),
+      node('4', 'row', 22),
+      { nodeId: '5', role: { value: 'gridcell' }, name: { value: 'Ada' }, backendDOMNodeId: 23 },
+    ];
+    const rendered = pruneAXTree(
+      buildDomState([{ key: 'main', nodes, layout: layout([[20, { 'aria-rowcount': '500' }], [21, { 'aria-rowindex': '21' }], [22, { 'aria-rowindex': '22' }]]) }], null),
+    ).elementTree.clickableElementsToString();
+    expect(rendered).toContain('rows 21-22 of 500');
+
+    const whole = pruneAXTree(
+      buildDomState([{ key: 'main', nodes, layout: layout([[20, { 'aria-rowcount': '2' }], [21, { 'aria-rowindex': '1' }], [22, { 'aria-rowindex': '2' }]]) }], null),
+    ).elementTree.clickableElementsToString();
+    expect(whole).not.toContain(' of 2');
+  });
+
+  it('says the same for a list whose items carry aria-setsize', () => {
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      node('2', 'list', 30, ['3', '4']),
+      { nodeId: '3', role: { value: 'listitem' }, name: { value: 'First' }, backendDOMNodeId: 31 },
+      { nodeId: '4', role: { value: 'listitem' }, name: { value: 'Second' }, backendDOMNodeId: 32 },
+    ];
+    const items = layout([[31, { 'aria-setsize': '90', 'aria-posinset': '1' }], [32, { 'aria-setsize': '90', 'aria-posinset': '2' }]]);
+    expect(pruneAXTree(buildDomState([{ key: 'main', nodes, layout: items }], null)).elementTree.clickableElementsToString()).toContain('items 1-2 of 90');
   });
 });
 

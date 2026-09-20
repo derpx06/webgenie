@@ -55,6 +55,10 @@ interface NodeLayout {
   scroll?: { above: number; below: number };
   /** Cut away entirely by an ancestor that hides its overflow: a collapsed panel, a carousel's other slides. */
   clipped?: boolean;
+  /** Takes no pointer events, so nothing a person does can reach it (the agent's own overlay, decoration). */
+  noPointer?: boolean;
+  /** The words inside the element, for a node whose accessible name the tree dropped. */
+  text?: string;
 }
 
 /** An element's painted box, in device pixels: what the covered mark is computed from. */
@@ -82,6 +86,9 @@ const SCROLLING_OVERFLOW = new Set(['auto', 'scroll', 'overlay']);
 /** The root scrollers are the page itself, which `scroll` moves without an index. */
 const ROOT_TAGS = new Set(['html', 'body']);
 
+/** Tags that are controls in themselves, for a node whose role the accessibility tree dropped. */
+const NATIVE_CONTROL_TAGS = new Set(['a', 'button', 'input', 'select', 'summary', 'textarea']);
+
 export interface FrameTree {
   key: string;
   /** The frame's document URL; links to the same site are shown as paths. */
@@ -102,6 +109,7 @@ export interface SnapshotDocument {
     nodeName?: number[];
     nodeType?: number[];
     backendNodeId?: number[];
+    nodeValue?: number[];
     attributes?: number[][];
     parentIndex?: number[];
     isClickable?: { index: number[] };
@@ -190,7 +198,17 @@ const STATE_PROPERTIES = new Set(['checked', 'expanded', 'selected', 'pressed'])
 const INTERNAL_PROPERTIES = new Set(['focusable', 'focused', 'editable', 'settable', 'root', 'hiddenRoot']);
 
 /** DOM attributes the accessibility tree does not expose but the model needs (a password or date field). */
-const SNAPSHOT_ATTRIBUTES = new Set(['type', 'name', 'placeholder', 'draggable']);
+const SNAPSHOT_ATTRIBUTES = new Set([
+  'type',
+  'name',
+  'placeholder',
+  'draggable',
+  // Totals of a virtualized grid or list, which the accessibility tree does not carry.
+  'aria-rowcount',
+  'aria-rowindex',
+  'aria-setsize',
+  'aria-posinset',
+]);
 
 /** Computed styles asked of every layout node, in this order. */
 const SNAPSHOT_STYLES = ['border-top-left-radius', 'overflow-x', 'overflow-y', 'pointer-events', 'visibility', 'position', 'cursor'] as const;
@@ -265,7 +283,7 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
   const attributes = doc.nodes.attributes ?? [];
   const clickable = new Set(doc.nodes.isClickable?.index ?? []);
   const scrollers = scrollContainers(doc, strings);
-  const { clipped, layers, pointerCursor, notAllowed } = layoutSignals(doc, strings);
+  const { clipped, layers, pointerCursor, notAllowed, noPointer, texts } = layoutSignals(doc, strings);
   doc.layout.nodeIndex.forEach((nodeIndex, i) => {
     const id = backendNodeId[nodeIndex];
     const bounds = doc.layout.bounds[i];
@@ -293,6 +311,8 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
       radius: parseRadius(strings[doc.layout.styles?.[i]?.[STYLE.radius] ?? -1], width, height),
       scroll: scrollers.get(nodeIndex),
       clipped: clipped.has(nodeIndex) || undefined,
+      noPointer: noPointer.has(nodeIndex) || undefined,
+      text: texts.get(nodeIndex),
     });
   });
   labelHiddenChoices(doc, strings, nodes);
@@ -323,10 +343,14 @@ function layoutSignals(
   layers: { boxes: Map<number, Layer>; parents: Map<number, number> };
   pointerCursor: Set<number>;
   notAllowed: Set<number>;
+  noPointer: Set<number>;
+  texts: Map<number, string>;
 } {
   const clipped = new Set<number>();
   const pointerCursor = new Set<number>();
   const notAllowed = new Set<number>();
+  const noPointer = new Set<number>();
+  const texts = new Map<number, string>();
   const cursors: Array<string | undefined> = [];
   const boxes = new Map<number, Layer>();
   const parents = new Map<number, number>();
@@ -363,6 +387,18 @@ function layoutSignals(
       if (cursor !== cursors[parent] && POINTER_CURSORS.test(cursor)) pointerCursor.add(node);
       if (cursor === 'not-allowed') notAllowed.add(node);
     }
+    if (style(STYLE.pointerEvents) === 'none') noPointer.add(node);
+    if (parent >= 0 && backendNodeId[node] !== undefined) parents.set(backendNodeId[node], backendNodeId[parent]);
+    // The text of a node the accessibility tree does not name (it dropped the names under aria-hidden), kept for the
+    // few levels of wrappers a control puts around its own words.
+    const value = nodeType[node] === 3 ? (strings[doc.nodes.nodeValue?.[node] ?? -1] ?? '').trim() : '';
+    if (value) {
+      let ancestor = parent;
+      for (let up = 0; up < 4 && ancestor >= 0; up++, ancestor = parentIndex[ancestor] ?? -1) {
+        const text = `${texts.get(ancestor) ?? ''} ${value}`.trim();
+        texts.set(ancestor, text.length > 80 ? text.slice(0, 80) : text);
+      }
+    }
     const rect = box === undefined ? undefined : bounds[box];
     if (!rect || root) {
       innerCut[node] = ownCut[node];
@@ -388,7 +424,6 @@ function layoutSignals(
     if (isEmpty(intersect(ownCut[node], x, y, x + width, y + height))) clipped.add(node);
     const id = backendNodeId[node];
     const visible = intersect(ownPaint[node], x, y, x + width, y + height);
-    if (parent >= 0 && id !== undefined) parents.set(id, backendNodeId[parent]);
     // Only what a click can land on: an element, painted, and taking pointer events.
     if (
       id === undefined ||
@@ -402,7 +437,7 @@ function layoutSignals(
     }
     boxes.set(id, { id, paintOrder: paintOrders[box] ?? 0, x1: visible[0], y1: visible[1], x2: visible[2], y2: visible[3] });
   }
-  return { clipped, layers: { boxes, parents }, pointerCursor, notAllowed };
+  return { clipped, layers: { boxes, parents }, pointerCursor, notAllowed, noPointer, texts };
 }
 
 /**
@@ -554,6 +589,37 @@ function relatedNodes(node: AXNode, relation: string): number[] {
   return related.map(target => target.backendDOMNodeId).filter((id): id is number => id !== undefined);
 }
 
+/**
+ * What a virtualized grid or list holds beyond the rows it rendered, from the totals ARIA carries for exactly this
+ * ("rows 1-20 of 500"). The accessibility tree has neither aria-rowcount nor aria-setsize, so both come from the
+ * layout snapshot's attributes.
+ */
+function virtualTotal(element: DOMElementNode): string | null {
+  const number = (node: DOMElementNode, attribute: string) => Number(node.attributes[attribute] ?? NaN);
+  const rowCount = number(element, 'aria-rowcount');
+  const rows: number[] = [];
+  const collect = (node: DOMElementNode): void => {
+    for (const child of node.children) {
+      if (!(child instanceof DOMElementNode) || Number.isFinite(number(child, 'aria-rowcount'))) continue;
+      const index = number(child, 'aria-rowindex');
+      if (Number.isFinite(index)) rows.push(index);
+      collect(child);
+    }
+  };
+  if (Number.isFinite(rowCount) && rowCount > 0) {
+    collect(element);
+    if (!rows.length || rowCount <= rows.length) return null;
+    return `rows ${Math.min(...rows)}-${Math.max(...rows)} of ${rowCount}`;
+  }
+  const items = element.children.filter(
+    (child): child is DOMElementNode => child instanceof DOMElementNode && Number.isFinite(number(child, 'aria-posinset')),
+  );
+  const size = items.length ? number(items[0], 'aria-setsize') : NaN;
+  if (!Number.isFinite(size) || size <= items.length) return null;
+  const positions = items.map(item => number(item, 'aria-posinset'));
+  return `items ${Math.min(...positions)}-${Math.max(...positions)} of ${size}`;
+}
+
 /** Whether `ancestor` holds `node` in the element tree. */
 function holds(ancestor: DOMElementNode, node: DOMElementNode): boolean {
   for (let parent: DOMElementNode | null = node; parent; parent = parent.parent) {
@@ -671,6 +737,10 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
 
     const built = new Map<number, DOMElementNode>();
     const pending: Array<{ field: DOMElementNode; popups: number[] }> = [];
+    // Content the page put behind a modal or made inert is hidden on purpose, whatever else it is marked with.
+    const modalOpen = tree.nodes.some(node =>
+      node.ignoredReasons?.some(reason => reason.name === 'activeModalDialog' || reason.name.startsWith('inert')),
+    );
 
     /** What the page paints over an element it lists, so the model closes that first instead of clicking through it. */
     const markCovered = (element: DOMElementNode): void => {
@@ -718,10 +788,21 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         return text;
       };
 
+      // A control on screen that the page hid from the accessibility tree is ARIA misuse (a menu left aria-hidden
+      // after opening), not content behind a modal: it is the only control there is, so it is kept. Decoration and
+      // the agent's own overlay take no pointer events, which keeps them out.
+      const hiddenButUsable = hiddenByAria && !modalOpen && layout !== undefined && !layout.noPointer && !layout.clipped;
+
       // The page made this element a pointer target: a listener of its own, a native click action, draggable=true.
       const listenerTarget = node.backendDOMNodeId !== undefined && Boolean(tree.pointerListeners?.has(node.backendDOMNodeId));
       const pageTarget =
-        !hiddenByAria && Boolean(layout) && (layout?.attributes.draggable === 'true' || Boolean(layout?.clickable) || listenerTarget);
+        (!hiddenByAria || hiddenButUsable) &&
+        Boolean(layout) &&
+        // A node the tree ignored has no role left to go by, so a control kept from there is known by its tag.
+        (layout?.attributes.draggable === 'true' ||
+          Boolean(layout?.clickable) ||
+          listenerTarget ||
+          (hiddenButUsable && NATIVE_CONTROL_TAGS.has(layout?.tagName ?? '')));
 
       // A panel the page scrolls on its own: without a line of its own there is no index for `scroll {index}`, and a
       // live run scrolled the page eleven times for content that sat in one. Only the outermost one is listed.
@@ -824,6 +905,16 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
 
       const indexedBefore = selectorMap.size;
       const hasText = visitChildren(element, insideControl || interactive);
+      // The accessibility tree drops the names and roles under aria-hidden, so a control kept from there says what it
+      // holds instead.
+      if (hiddenButUsable) {
+        if (!hasText && !name && layout?.text) element.children.push(new DOMTextNode(layout.text, true, element));
+        if (UNNAMED_ROLES.has(role)) delete element.attributes.role;
+      }
+      // A grid or list that renders a window onto a longer one says how long it is, so its rows are not read as all
+      // there is (the answer "there are none" often rests on that).
+      const total = virtualTotal(element);
+      if (total) element.children.unshift(new DOMTextNode(total, true, element));
       // Only a leaf-most target: a clickable card that contains a real button keeps the button as the target.
       if (pointerCandidate && selectorMap.size === indexedBefore) {
         element.isInteractive = true;
