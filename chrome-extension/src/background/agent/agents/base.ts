@@ -17,6 +17,15 @@ import { isBadRequestError, isNetworkError, isRateLimitError, ResponseParseError
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CallOptions = Record<string, any>;
 
+/**
+ * Call options that let the provider reuse this role's prefix. A provider that caches on a key (OpenAI) needs the same
+ * key on every call of one task and role, and nothing else: the prefix itself is what is matched, the key only steers
+ * the request to the machine holding it. Providers that cache on the prefix alone, or not at all, get nothing.
+ */
+export function promptCacheOptions(toolMode: ToolMode, taskId: string, role: string): CallOptions {
+  return toolMode.promptCache === 'implicit-key' ? { promptCacheKey: `webgenie-${taskId}-${role}` } : {};
+}
+
 export type ToolMode = Pick<LlmCapabilities, 'nativeTools' | 'forceToolChoice'> &
   Partial<Pick<LlmCapabilities, 'callTimeoutMs' | 'hedge' | 'endpoints' | 'promptCache' | 'minCacheTokens' | 'rateLimitSignals'>>;
 
@@ -51,7 +60,7 @@ export abstract class BaseAgent<M = unknown> {
     this.context = options.context;
     this.toolMode = options.toolMode ?? { nativeTools: true, forceToolChoice: true };
     this.id = extraOptions?.id || 'agent';
-    this.callOptions = extraOptions?.callOptions;
+    this.callOptions = { ...extraOptions?.callOptions, ...promptCacheOptions(this.toolMode, this.context.taskId, this.id) };
     const model = this.chatLLM as unknown as Record<string, unknown>;
     this.modelName = String(model.modelName ?? model.model_name ?? model.model ?? 'Unknown');
   }
