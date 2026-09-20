@@ -42,6 +42,21 @@ const run = (extra: Partial<Parameters<typeof SiteSkills.record>[1]> = {}) => ({
 });
 
 describe('what a skill keeps', () => {
+  it('gives one note: the playbook plus only what the route of this start page adds', async () => {
+    const steps = [
+      routeStep('click_element', 'https://shop.test/', link, ''),
+      routeStep('click_element', 'https://shop.test/help', link, ''),
+    ].filter(step => step !== null);
+    for (let i = 0; i < 2; i++) await SiteSkills.record('https://shop.test/', { steps: steps.slice(0, 1), urls: [], ledger: [] });
+
+    const note = await SiteSkills.note('https://shop.test/', steps);
+    expect(note).toContain('the path that worked: click_element (link) on /');
+    expect(note).toContain('and from this start page: click_element (link) on /help');
+    // The step the playbook already gives is not repeated.
+    expect(note.match(/click_element \(link\) on \/;|click_element \(link\) on \/$/gm)?.length ?? 1).toBe(1);
+    expect(await SiteSkills.note('https://shop.test/', steps.slice(0, 1))).not.toContain('and from this start page');
+  });
+
   it('reduces a host to its registrable domain and refuses what is not a web page', () => {
     expect(domainOf('https://www.shop.test/x')).toBe('shop.test');
     expect(domainOf('https://a.b.shop.co.uk/')).toBe('shop.co.uk');
@@ -79,7 +94,10 @@ describe('what a skill keeps', () => {
 });
 
 describe('the store', () => {
-  it('writes after a success and shows it to the next task on that domain', async () => {
+  it('writes after a success and shows it to the next task on that domain, from the second confirmation', async () => {
+    await SiteSkills.record('https://www.shop.test/', run({ ledger: ledger({ subject: 'click_element', note: 'covered by a cookie banner' }) }));
+    // One run that worked is not yet a route.
+    expect(await SiteSkills.note('https://shop.test/some/other/page')).toBe('');
     await SiteSkills.record('https://www.shop.test/', run({ ledger: ledger({ subject: 'click_element', note: 'covered by a cookie banner' }) }));
     const note = await SiteSkills.note('https://shop.test/some/other/page');
     expect(note).toContain('What worked on shop.test');
@@ -93,17 +111,33 @@ describe('the store', () => {
 
   it('shows nothing for another domain, or before anything has worked there', async () => {
     await SiteSkills.record('https://www.shop.test/', run());
+    await SiteSkills.record('https://www.shop.test/', run());
     expect(await SiteSkills.note('https://other.test/')).toBe('');
     expect(await SiteSkills.note('chrome://extensions')).toBe('');
   });
 
-  it('stops showing a skill the first time a task on that domain fails', async () => {
-    await SiteSkills.record('https://www.shop.test/', run());
+  it('counts failures against confirmations instead of switching the skill off', async () => {
+    for (let i = 0; i < 3; i++) await SiteSkills.record('https://www.shop.test/', run());
+    await SiteSkills.demote('https://www.shop.test/catalogue');
+    // Three runs confirmed it, so one failure does not throw the route away.
+    expect(await SiteSkills.note('https://www.shop.test/')).toContain('What worked on shop.test');
     await SiteSkills.demote('https://www.shop.test/catalogue');
     expect(await SiteSkills.note('https://www.shop.test/')).toBe('');
-    // A later success confirms the site again and the skill comes back.
+    // A later success pays one failure back and the skill comes again.
     await SiteSkills.record('https://www.shop.test/', run());
     expect(await SiteSkills.note('https://www.shop.test/')).toContain('What worked on shop.test');
+  });
+
+  it('keeps nothing from a failed run: only the fixed trap labels ever cross tasks', async () => {
+    await SiteSkills.demote('https://www.shop.test/catalogue/blue-linen-shirt');
+    expect(store.get('wg_mem:site_skills')).toBeUndefined();
+
+    for (let i = 0; i < 2; i++) await SiteSkills.record('https://www.shop.test/', run());
+    await SiteSkills.demote('https://www.shop.test/catalogue/blue-linen-shirt');
+    const saved = JSON.stringify(store.get('wg_mem:site_skills')).toLowerCase();
+    // A demotion writes a count, never the page the task died on.
+    expect(saved).not.toContain('catalogue');
+    expect(saved).not.toContain('linen');
   });
 
   it('keeps one skill per domain, the newest, and caps the store', async () => {

@@ -1127,5 +1127,28 @@
   },
   "traces_step_model": {
     "message": "model"
+  },
+  "options_memory_title": {
+    "message": "Memória de sites"
+  },
+  "options_memory_subtitle": {
+    "message": "O que o agente lembra entre tarefas"
+  },
+  "options_memory_desc": {
+    "message": "Depois de uma tarefa bem-sucedida, o agente guarda o caminho que percorreu e o site onde o percorreu: páginas e tipos de controles, nunca o que você escreveu nem o que a página disse. Esquecer remove todas as rotas e todos os guias de sites."
+  },
+  "options_memory_forget": {
+    "message": "Esquecer memória de sites"
+  },
+  "options_memory_forgotten": {
+    "message": "Memória de sites esquecida."
+  },
+  "options_memory_forgetFailed": {
+    "message": "Não foi possível esquecer a memória de sites: $REASON$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
   }
 }

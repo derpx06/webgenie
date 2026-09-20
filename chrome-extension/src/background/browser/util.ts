@@ -1,3 +1,5 @@
+import { getDomain } from 'tldts';
+
 /**
  * Checks if a URL is allowed based on firewall configuration
  * @param url The URL to check
@@ -102,4 +104,13 @@ export function capTextLength(text: string, maxLength: number): string {
     return text.slice(0, maxLength) + '...';
   }
   return text;
+}
+
+/**
+ * The site a host belongs to: its registrable domain on the Public Suffix List, private suffixes included, so
+ * `alice.github.io` and `bob.github.io` are two sites. An IP address, localhost or a bare suffix is its own site.
+ */
+export function registrableDomain(host: string): string {
+  const name = host.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
+  return getDomain(name, { allowPrivateDomains: true }) ?? name.replace(/^www\./, '');
 }

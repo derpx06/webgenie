@@ -11,6 +11,7 @@
 // did not succeed with its causes, answer, judge reasoning and logs, and each task folder gets a readable session.md.
 import fs from 'node:fs';
 import path from 'node:path';
+import { measurementIntegrity } from '../metrics.mjs';
 
 const runDir = path.resolve(process.argv[2] ?? '');
 if (!process.argv[2] || !fs.existsSync(runDir)) {
@@ -76,6 +77,8 @@ const tasks = fs
   .sort();
 
 const rows = [];
+/** Each task's saved result, with the judge's verdict as its pass, for the measurement-integrity block. */
+const results = [];
 for (const id of tasks) {
   const dir = path.join(runDir, id);
   const r = readJson(path.join(dir, 'result.json'));
@@ -104,6 +107,8 @@ for (const id of tasks) {
   const sessions = traceRecords.filter(rec => rec.kind === 'session');
   const navigatorCalls = sessions.filter(rec => rec.component === 'navigator' && !(rec.data?.calls ?? []).some(call => call.name === 'intent_check'));
   const seenText = sessions.map(rec => String(rec.data?.state ?? '')).join('\n');
+
+  results.push({ ...r, attempt: r.task_id, pass: judged?.success === true });
 
   const causes = [];
   if (['site_down', 'site_blocked', 'provider_down', 'harness_error'].includes(r.outcome)) causes.push(`infrastructure: ${r.outcome}`);
@@ -237,10 +242,23 @@ const median = values => {
   return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
 };
 
+// What the scores cannot be read without, from the results themselves: the run's own `harness` block plus which tasks
+// were left out and why, how many the harness ended and how much time the provider took away.
+const harness = results.find(r => r.harness)?.harness ?? {};
+const integrity = measurementIntegrity(results, {
+  model: harness.model ?? null,
+  plannerModel: harness.plannerModel ?? null,
+  region: harness.location ?? null,
+  lang: harness.lang ?? null,
+  timeZone: harness.timeZone ?? null,
+  memory: harness.memory ?? null,
+});
+
 const analysis = {
   runDir,
   analyzedAt: new Date().toISOString(),
   tasks: rows.length,
+  integrity,
   outcomes: Object.fromEntries(outcomes),
   judged: { n: judgedRows.length, success: judgedRows.filter(row => row.judged === 'success').length },
   statuses: Object.fromEntries(count(rows, row => row.status)),
@@ -257,6 +275,7 @@ const md = [
   `${rows.length} tasks with results · analyzed ${analysis.analyzedAt}`,
   '',
   `Outcomes: ${outcomes.map(([k, n]) => `${k} ${n}`).join(', ')}`,
+  `Measurement: ${integrity.measured} measured of ${integrity.attempts}, excluded ${JSON.stringify(integrity.excluded)}, harness-ended ${integrity.harnessEnded}, provider time lost ${Math.round(integrity.providerTimeLostMs / 1000)} s, memory ${integrity.memory ?? 'unknown'}, ${integrity.provider} ${integrity.model ?? 'unknown model'} in ${integrity.region ?? 'unknown region'}`,
   judgedRows.length ? `Judged: ${analysis.judged.success} of ${judgedRows.length} successful` : 'Not judged yet.',
   `Medians: ${analysis.medians.steps} steps, ${analysis.medians.seconds} s, ${analysis.medians.tokensPerStep} input tokens per step`,
   `Status: ${Object.entries(analysis.statuses).map(([k, n]) => `${k} ${n}`).join(', ')}`,

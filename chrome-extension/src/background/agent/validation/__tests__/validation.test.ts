@@ -24,6 +24,7 @@ import {
   namedLike,
   normalizeIndexedAction,
   requirementsInQuery,
+  sameBrand,
   sameSite,
   staleIndexResult,
   suggestionCommitted,
@@ -557,6 +558,42 @@ describe('committing actions', () => {
     expect(sameSite('127.0.0.1:8080', '127.0.0.1:9090')).toBe(true);
     expect(sameSite('10.0.0.1', '127.0.0.1')).toBe(false);
     expect(sameSite('', 'example.com')).toBe(false);
+  });
+
+  it('reads the site from the Public Suffix List, private suffixes included', () => {
+    const table: Array<[string, string, boolean]> = [
+      // Private suffixes: every user's pages are their own site.
+      ['alice.github.io', 'bob.github.io', false],
+      ['alice.github.io', 'www.alice.github.io', true],
+      ['app.vercel.app', 'evil.vercel.app', false],
+      ['me.blogspot.com', 'you.blogspot.com', false],
+      ['github.io', 'alice.github.io', false],
+      // ccTLDs with a second level.
+      ['shop.example.co.uk', 'www.example.co.uk', true],
+      ['example.co.uk', 'evil.co.uk', false],
+      ['a.example.com.au', 'example.com.au', true],
+      ['example.com.au', 'other.com.au', false],
+      // IPs, localhost, ports, www.
+      ['127.0.0.1:3000', '127.0.0.1', true],
+      ['localhost:3000', 'localhost:4000', true],
+      ['localhost', '127.0.0.1', false],
+      ['[::1]:8080', '[::1]', true],
+      ['WWW.Example.com', 'example.com:443', true],
+      ['example.com', 'michaels.com', false],
+    ];
+    for (const [a, b, same] of table) expect([a, b, sameSite(a, b)]).toEqual([a, b, same]);
+  });
+
+  it('counts the same brand under another public suffix as the same brand, never as the same site', () => {
+    expect(sameBrand('www.michaels.com', 'michaels.ca')).toBe(true);
+    expect(sameSite('www.michaels.com', 'michaels.ca')).toBe(false);
+    expect(sameBrand('shop.example.co.uk', 'example.com')).toBe(true);
+    expect(sameBrand('accounts.example.com', 'www.example.com')).toBe(true);
+    expect(sameBrand('example.com', 'evil.com')).toBe(false);
+    expect(sameBrand('example.com', 'example.com.evil.net')).toBe(false);
+    expect(sameBrand('127.0.0.1', '127.0.0.2')).toBe(false);
+    expect(sameBrand('localhost', 'localhost.com')).toBe(false);
+    expect(sameBrand('', '')).toBe(false);
   });
 
   it('reads yes-like answers as approval and anything else as a decline', () => {

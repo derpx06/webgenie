@@ -76,10 +76,10 @@ export default defineConfig(({ mode }) => {
   envDir: '../',
   envPrefix: 'VITE_',
 
-  // The content script's pure helpers (overlay geometry, easing, stage colours) are unit tested here:
-  // this is the only package with a test runner.
+  // The content script's pure helpers (overlay geometry, easing, stage colours) and the e2e harness's own pure helpers
+  // are unit tested here: this is the only package with a test runner.
   test: {
-    include: ['src/**/*.test.ts', '../pages/content/src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', '../pages/content/src/**/*.test.ts', 'e2e/**/*.test.mjs'],
   },
   };
 });

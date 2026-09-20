@@ -1,3 +1,5 @@
+import { getDomainWithoutSuffix } from 'tldts';
+import { registrableDomain } from '../../browser/util';
 import { ActionResult } from '../types';
 import { record } from '@src/background/trace';
 import type { AgentContext } from '../types';
@@ -227,17 +229,20 @@ export function hostOf(url: string | undefined): string {
   }
 }
 
-/** Whether two hosts belong to the same site (registrable domain). */
+/** Whether two hosts belong to the same site (registrable domain). This decides where a password may be typed. */
 export function sameSite(a: string, b: string): boolean {
-  const site = (host: string) => {
-    const name = host.toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '');
-    if (/^[\d.]+$/.test(name) || name.includes(':') || !name.includes('.')) return name;
-    const labels = name.split('.');
-    // ponytail: no public-suffix list; two-part suffixes such as co.uk are guessed from their short labels.
-    const take = labels.length > 2 && labels.at(-1)!.length === 2 && labels.at(-2)!.length <= 3 ? 3 : 2;
-    return labels.slice(-take).join('.');
-  };
-  return !!a && site(a) === site(b);
+  return !!a && !!b && registrableDomain(a) === registrableDomain(b);
+}
+
+/**
+ * Whether two hosts are the same site or the same brand under another public suffix (`michaels.com` and `michaels.ca`).
+ * Looser than sameSite: only for wording a question about opening a page, never for where data or a password may go.
+ */
+export function sameBrand(a: string, b: string): boolean {
+  if (sameSite(a, b)) return true;
+  const label = (host: string) => getDomainWithoutSuffix(host.toLowerCase().replace(/:\d+$/, ''), { allowPrivateDomains: true });
+  const brand = a && b ? label(a) : null;
+  return !!brand && brand === label(b);
 }
 
 /**

@@ -1128,6 +1128,52 @@ describe('Interruptions and resuming', () => {
   });
 });
 
+describe('What a finished run teaches later tasks', () => {
+  const before = { url: 'https://books.test/item', title: 'A Light in the Attic', elements: [{ text: 'Home' }, { text: 'Show price' }] };
+  const after = { ...before, text: ['Price: £51.77'] };
+  const task = 'What is the price of this book?';
+  const finalPlan = plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the price', final_phase: true });
+  const saved = async () => ((await chrome.storage.local.get('wg_mem:site_skills'))['wg_mem:site_skills'] ?? []) as Array<Record<string, unknown>>;
+
+  it('records the domain playbook from a run the evidence backed, and shows it only from the second', async () => {
+    for (const taskId of ['task-1', 'task-2']) {
+      const h = createHarness({ task, taskId, pages: [before, after], planner: [finalPlan, planDone('The price is £51.77.')], navigator: [click(1), done('The price is £51.77.')] });
+      await settle(h.executor.execute());
+      expect(h.last().state).toBe(ExecutionState.TASK_OK);
+      const { SiteSkills } = await import('../memory');
+      const note = await SiteSkills.note('https://books.test/item');
+      // One run that worked is not yet a route: the note appears only once a second run has confirmed it.
+      if (taskId === 'task-1') expect(note).toBe('');
+      else expect(note).toContain('What worked on books.test');
+    }
+
+    expect(await saved()).toMatchObject([{ domain: 'books.test', confirmations: 2, failures: 0 }]);
+  });
+
+  it('records nothing from a run whose steps the page never confirmed', async () => {
+    // The click changes nothing, so the step does not validate and the evidence does not back the answer.
+    const h = createHarness({ task, pages: [after, after], planner: [finalPlan, planDone('The price is £51.77.'), planDone('The price is £51.77.')], navigator: [click(1), done('The price is £51.77.')] });
+    await settle(h.executor.execute());
+
+    expect(h.last().state).toBe(ExecutionState.TASK_OK);
+    expect(await saved()).toEqual([]);
+  });
+
+  it('records nothing from a run whose done had to be sent back', async () => {
+    const h = createHarness({
+      task,
+      pages: [before, after],
+      // The first done quotes an action result and goes back to the planner; the second is backed by the page.
+      planner: [finalPlan, planDone('Clicked button with index 1'), planDone('The price is £51.77.')],
+      navigator: [click(1), done('The price is £51.77.')],
+    });
+    await settle(h.executor.execute());
+
+    expect(h.last().state).toBe(ExecutionState.TASK_OK);
+    expect(await saved()).toEqual([]);
+  });
+});
+
 describe('Accepting an evidenced done', () => {
   const page = { url: 'https://books.test/item', title: 'A Light in the Attic', text: ['A Light in the Attic', 'Price: £51.77'] };
   const task = 'What is the price of this book?';
@@ -1514,26 +1560,41 @@ describe('The planning interval', () => {
   });
 });
 
+
 describe('The domain playbook a successful run writes', () => {
   const page = { url: 'https://shop.test/search?q=linen', title: 'Shop', elements: [{ text: 'Linen shirt', tag: 'a' }] };
 
-  /** One task on the shop; a failing one runs out of navigator replies. */
+  /** One task on the shop; a failing one repeats its goal until the failure budget ends it. */
   const runTask = (succeed: boolean) =>
     createHarness({
       task: 'Find the linen shirt',
-      pages: [page, { url: 'https://shop.test/products/48213', title: 'Linen shirt' }],
-      planner: succeed ? [plan(), planDone('Linen shirt, on shop.test')] : Array(16).fill(plan()),
-      navigator: succeed ? [click(0), done('Linen shirt, on shop.test')] : [click(0)],
+      pages: [page, { url: 'https://shop.test/products/48213', title: 'Linen shirt', text: ['Linen shirt'] }],
+      planner: succeed ? [plan({ final_phase: true }), planDone('Linen shirt')] : Array(16).fill(plan()),
+      navigator: succeed ? [click(0), done('Linen shirt')] : [click(0)],
     });
 
-  it('writes what worked and shows it to the next task on that domain', async () => {
+  /** A task whose planner call fails on the provider's side: not a verdict on the site. */
+  const providerFails = () =>
+    createHarness({
+      task: 'Find the linen shirt',
+      pages: [page],
+      // The provider answers 401: base.ts maps it to a fatal auth error, which says nothing about the site.
+      planner: [new Error('Request failed with status 401: API key not valid')],
+      navigator: [],
+    });
+
+  it('writes what worked and shows it to the next task on that domain, from the second confirmation', async () => {
     const first = runTask(true);
     await settle(first.executor.execute());
     expect(first.has(ExecutionState.TASK_OK)).toBe(true);
 
     const second = runTask(true);
     await settle(second.executor.execute());
-    const shown = textOf(second.llm.requests[0].messages);
+    expect(textOf(second.llm.requests[0].messages)).not.toContain('What worked on shop.test');
+
+    const third = runTask(true);
+    await settle(third.executor.execute());
+    const shown = textOf(third.llm.requests[0].messages);
     const note = shown.slice(shown.indexOf('[What worked on shop.test')).split('\n\n')[0];
     expect(note).toContain('[What worked on shop.test');
     expect(note).toContain('its search: https://shop.test/search?q={q}');
@@ -1543,12 +1604,20 @@ describe('The domain playbook a successful run writes', () => {
     expect(note).not.toContain('48213');
   });
 
-  it('stops showing it after one task on that domain fails', async () => {
-    await settle(runTask(true).executor.execute());
+  it('counts a failure of the agent\'s own against the playbook, and a provider error not at all', async () => {
+    const { SiteSkills } = await import('../memory');
+    for (let i = 0; i < 2; i++) await settle(runTask(true).executor.execute());
+    expect(await SiteSkills.note('https://shop.test/')).toContain('What worked on shop.test');
+
+    const offline = providerFails();
+    await settle(offline.executor.execute());
+    expect(offline.has(ExecutionState.TASK_FAIL)).toBe(true);
+    expect(await SiteSkills.note('https://shop.test/')).toContain('What worked on shop.test');
 
     const failed = runTask(false);
     await settle(failed.executor.execute());
     expect(failed.has(ExecutionState.TASK_FAIL)).toBe(true);
+    expect(await SiteSkills.note('https://shop.test/')).toBe('');
 
     const next = runTask(true);
     await settle(next.executor.execute());

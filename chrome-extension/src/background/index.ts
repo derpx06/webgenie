@@ -23,6 +23,7 @@ import BrowserContext from './browser/context';
 import { ChromeBrowserAdapter } from './adapters/ChromeBrowserAdapter';
 import { IndexedDBStorageProvider } from './adapters/IndexedDBStorageProvider';
 import { Executor } from './agent/executor';
+import { clearAll as clearAllMemory } from './agent/memory';
 import { TaskCheckpointStore, isCheckpointResumable, type TaskCheckpoint } from './agent/contracts';
 import {
   DEFAULT_RUN_BUDGET_TOKENS,
@@ -323,6 +324,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .then(([injection]) => sendResponse({ content: String(injection?.result ?? '').slice(0, 12_000) }))
       .catch(error => sendResponse({ content: '', error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
+
+  // "Forget site memory" in the options page: everything the agent remembers across tasks, from every global store.
+  if (message?.type === 'forget_site_memory') {
+    if (!sender.url?.startsWith(chrome.runtime.getURL(''))) return false;
+    clearAllMemory()
+      .then(removed => sendResponse({ ok: true, removed }))
+      .catch(error => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
 
