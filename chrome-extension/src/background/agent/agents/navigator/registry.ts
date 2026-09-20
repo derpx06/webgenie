@@ -8,25 +8,18 @@ import {
 } from '../../actions/builder';
 import { COMMIT_DECIDING_TOOLS, REQUIRED_COMMITS_FIELD, type ActionSchema } from '../../actions/schemas';
 
+/**
+ * The tools of one task. The set is fixed when the registry is built (the executor's constructor) and never changes
+ * again: every provider's prompt cache is keyed on a prefix that starts with the tool block, so a tool added or
+ * dropped mid-task invalidates it for every later call, and a model that saw a tool in step 1 may still call it.
+ */
 export class NavigatorActionRegistry {
-  private actions: Record<string, Action> = {};
+  private readonly actions: Readonly<Record<string, Action>>;
   private tools: ToolDefinition[] | null = null;
   private validators: Record<string, z.AnyZodObject> | null = null;
 
   constructor(actions: Action[]) {
-    for (const action of actions) {
-      this.registerAction(action);
-    }
-  }
-
-  registerAction(action: Action): void {
-    this.actions[action.name()] = action;
-    this.tools = this.validators = null;
-  }
-
-  unregisterAction(name: string): void {
-    delete this.actions[name];
-    this.tools = this.validators = null;
+    this.actions = Object.fromEntries(actions.map(action => [action.name(), action]));
   }
 
   getTools(): ToolDefinition[] {

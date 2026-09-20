@@ -79,6 +79,13 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
           onChange={val => updateGeneralSetting('enableBrowserDataTools', val)}
         />
         <SettingToggle
+          title={t('options_advanced_advancedTools')}
+          desc={t('options_advanced_advancedTools_desc')}
+          checked={generalSettings.enableAdvancedTools}
+          isDarkMode={isDarkMode}
+          onChange={val => updateGeneralSetting('enableAdvancedTools', val)}
+        />
+        <SettingToggle
           title="Show Ambient Border"
           desc="Render the glowing screen-edge border when the agent is actively executing"
           checked={generalSettings.showAmbientBorder}

@@ -962,5 +962,11 @@
   },
   "options_advanced_browserDataTools_desc": {
     "message": "Let the agent read and change your bookmarks, history, downloads, reading list, tab groups, sessions and extensions, and clear browsing data. Off by default: a web page could try to talk the agent into using them."
+  },
+  "options_advanced_advancedTools": {
+    "message": "Power Tools"
+  },
+  "options_advanced_advancedTools_desc": {
+    "message": "Let the agent run a JavaScript expression in the page, read the site's own JSON endpoints, and download and read files (pdf, csv, xlsx, docx). Off by default: a shorter tool list is a more accurate agent, and these reach past the page."
   }
 }

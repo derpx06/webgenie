@@ -44,6 +44,8 @@ export interface AgentOptions {
   captureSessions: boolean;
   /** Registers the manage_* tools (bookmarks, history, downloads, browsing data, extensions...); off unless the user turns them on. */
   enableBrowserDataTools: boolean;
+  /** Registers eval_js, sniff_api, fetch_json, download and read_file; off unless the user turns them on. */
+  enableAdvancedTools: boolean;
   /** Accept the navigator's done without the planner's check when the evidence is complete (validation/done-evidence.ts). */
   acceptEvidencedDone: boolean;
 }
@@ -62,6 +64,7 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   logDOMSnapshot: false,
   captureSessions: false,
   enableBrowserDataTools: false,
+  enableAdvancedTools: false,
   acceptEvidencedDone: false,
 };
 

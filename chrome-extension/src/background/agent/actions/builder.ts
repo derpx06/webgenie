@@ -224,7 +224,8 @@ export class ActionBuilder {
       ...this.buildInteractionActions(),
       ...this.buildTabActions(),
       ...this.buildContentActions(),
-      ...this.buildNetworkActions(),
+      // Running the page's JavaScript, reading its JSON endpoints and saving files off it: opt-in only.
+      ...(this.context.options.enableAdvancedTools ? this.buildPowerActions() : []),
       ...this.buildKeyboardActions(),
       ...this.buildMemoryActions(),
       // They read or change the user's own browser data, which a page could try to talk the agent into: opt-in only.
@@ -293,8 +294,12 @@ export class ActionBuilder {
     ];
   }
 
-  /** Reading the site's own JSON instead of its pages; both only read, and only on the site the agent is on. */
-  private buildNetworkActions(): Action[] {
+  /**
+   * The power tools, off unless the user turns them on: the site's own JSON instead of its pages, the escape hatch for
+   * what the accessibility tree cannot reach, and the files a page produces. Anthropic ships the same set disabled.
+   * upload_file stays on: it is how a file the user attached in the side panel, at the start or in an answer, gets used.
+   */
+  private buildPowerActions(): Action[] {
     return [
       new Action((input) => this.networkHandler.handleSniffApi(input), sniffApiActionSchema),
       new Action((input) => this.networkHandler.handleFetchJson(input), fetchJsonActionSchema),
