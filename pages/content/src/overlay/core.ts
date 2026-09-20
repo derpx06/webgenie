@@ -98,8 +98,21 @@ export function targetPoint(rect: Rect | undefined, viewport: Viewport): Point {
  * the element's real position, so a correction lands exactly where the first aim was meant to.
  */
 export function aimPoint(kind: ActionKind, rect: Rect | undefined, viewport: Viewport): Point {
+  return aimPlan(kind, rect, viewport).point;
+}
+
+/**
+ * Where the cursor goes for this action, and the caret's walk when it is a typing one. Typing is choreographed from
+ * the field's box, so a correction that moved only the cursor left the caret writing in the field's old place and the
+ * walk dragged the cursor back to it.
+ */
+export function aimPlan(
+  kind: ActionKind,
+  rect: Rect | undefined,
+  viewport: Viewport,
+): { point: Point; track: ReturnType<typeof caretTrack> | null } {
   const track = kind === 'type' && rect ? caretTrack(rect, viewport) : null;
-  return clampPoint(track ? typingCursorPoint(track) : targetPoint(rect, viewport), viewport);
+  return { point: clampPoint(track ? typingCursorPoint(track) : targetPoint(rect, viewport), viewport), track };
 }
 
 /** Keeps the cursor inside the viewport: an element scrolled just out of frame still shows where the agent is. */

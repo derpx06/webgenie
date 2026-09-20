@@ -13,6 +13,7 @@
  * the accessibility tree, so it can never change what the agent clicks or what it reads.
  */
 import {
+  aimPlan,
   aimPoint,
   caretTrack,
   chipPlacement,
@@ -596,8 +597,15 @@ export class Presence {
    */
   aimAt(rect: Rect): void {
     if (!this.kind || !this.cursor.classList.contains('on')) return;
-    this.glide(aimPoint(this.kind, rect, this.viewport), FAST);
-    this.showHalo(rect, 520);
+    const { point, track } = aimPlan(this.kind, rect, this.viewport);
+    this.glide(point, FAST);
+    this.showHalo(rect, track ? TRAVEL_MS + TYPE_MS : 520);
+    // Typing is a walk along the field, already scheduled from where the field used to be: start it again here, or the
+    // caret writes in the old place and drags the cursor back to it.
+    if (!track) return;
+    if (this.typeTimer) clearTimeout(this.typeTimer);
+    this.typeTimer = null;
+    this.type(track);
   }
 
   /**

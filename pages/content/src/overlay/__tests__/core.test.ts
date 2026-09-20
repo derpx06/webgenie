@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aimPlan,
   aimPoint,
   caretTrack,
   chipPlacement,
@@ -338,5 +339,47 @@ describe('aiming the cursor', () => {
 
   it('aims at the middle of the page when no element is involved', () => {
     expect(aimPoint('read', undefined, VIEWPORT)).toEqual({ x: 600, y: 400 });
+  });
+});
+
+/**
+ * A typing action is choreographed from the field's box: the caret is placed in it and both caret and cursor walk
+ * along it. When the gesture reports the field's real position, that whole walk has to be re-planned there — a
+ * correction that moved the cursor alone left the caret writing in the field's old place and dragged the cursor back.
+ */
+describe('re-planning a typing action at the corrected position', () => {
+  const field = (y: number) => rect({ x: 673, y, w: 291, h: 56 });
+
+  it('plans a caret walk for typing and none for a click', () => {
+    expect(aimPlan('type', field(560), VIEWPORT).track).not.toBeNull();
+    expect(aimPlan('click', field(560), VIEWPORT).track).toBeNull();
+    expect(aimPlan('scroll', undefined, VIEWPORT).track).toBeNull();
+  });
+
+  it('moves the caret with the field, not just the cursor', () => {
+    const asRead = aimPlan('type', field(120), VIEWPORT).track!;
+    const asTyped = aimPlan('type', field(560), VIEWPORT).track!;
+    expect(asTyped.y).not.toBe(asRead.y);
+    expect(asTyped.x).toBe(asRead.x);
+    expect(asTyped.height).toBe(asRead.height);
+  });
+
+  it('starts the walk where the first character goes, at the head of the field', () => {
+    const { point, track } = aimPlan('type', field(560), VIEWPORT);
+    expect(point).toEqual(typingCursorPoint(track!));
+    expect(point.x).toBeLessThan(field(560).x + field(560).w / 2);
+  });
+
+  it('agrees with aimPoint, so the two aims can never disagree', () => {
+    for (const kind of ['type', 'click', 'read'] as ActionKind[]) {
+      expect(aimPlan(kind, field(560), VIEWPORT).point).toEqual(aimPoint(kind, field(560), VIEWPORT));
+    }
+  });
+
+  it('keeps the walk inside the viewport for a field at the edge', () => {
+    const edge = rect({ x: 1150, y: 780, w: 200, h: 40 });
+    const { point } = aimPlan('type', edge, VIEWPORT);
+    expect(point.x).toBeLessThanOrEqual(VIEWPORT.width - 16);
+    expect(point.y).toBeLessThanOrEqual(VIEWPORT.height - 16);
   });
 });
