@@ -231,6 +231,13 @@ export class TaskLedger {
     this.returnPoint(url, fingerprint, `finding: ${finding}`);
   }
 
+  /** The route that landed on `url` offers no control for these pending requirements (read off its page). */
+  noControl(url: string, requirements: string[]): void {
+    const address = parseAddress(url)?.address;
+    const route = this.routes().filter(entry => entry.address === address).pop();
+    if (route && requirements.length > 0) route.note = short(`no control for ${requirements.join('; ')}`);
+  }
+
   /** A state to come back to with go_to_url. The newest reason for one address wins. */
   returnPoint(url: string, fingerprint: string, why: string): void {
     if (!parseAddress(url) || !why) return;
@@ -260,6 +267,12 @@ export class TaskLedger {
       used += line.length + 1;
     }
     return lines.join('\n');
+  }
+
+  /** Whether this task already landed on this address: the page has been in front of a model at least once. */
+  landedOn(url: string): boolean {
+    const address = parseAddress(url)?.address;
+    return !!address && this.all().some(entry => entry.kind === 'visit' && entry.subject.toLowerCase() === short(address, 90).toLowerCase());
   }
 
   /** The kinds of route whose latest outcome was an empty listing. */

@@ -2,6 +2,7 @@ import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage }
 import type { AgentContext } from '../../types';
 import type { TranscriptEntry } from '../../messages/service';
 import { defangTags } from '../../messages/utils';
+import { unmatchedRequirements } from '../../validation/done-evidence';
 import { renderTodos } from '../../types';
 
 /**
@@ -159,6 +160,16 @@ export class ContextBuilder {
       ? `[VALIDATED PROGRESS]\n${this.formatLinesWithBudget(progressLines, 1000)}`
       : '';
     if (validatedBlock) sections.push(validatedBlock);
+
+    // What this page cannot do: pending requirements no filter, sort or facet here matches, read off the page itself
+    // rather than guessed at. The route that led here keeps the same note, so it is still there after the page is left.
+    if (actor === 'planner' && context.options.reportMissingControls) {
+      const missing = unmatchedRequirements(context, context.requirements ?? []);
+      if (missing.length > 0) {
+        context.ledger?.noControl(context.promptState?.url ?? '', missing);
+        sections.push(`[PAGE CONTROLS]\nthis page offers no control for: ${missing.join('; ').slice(0, 400)}`);
+      }
+    }
 
     // Is the task moving or going round: counted by the harness, because a model asked to judge its own progress
     // cannot (Magentic-One asks the model; we answer it with numbers, which works whatever the model).

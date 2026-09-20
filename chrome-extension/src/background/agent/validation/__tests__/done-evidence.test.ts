@@ -9,7 +9,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import type { NextStepContract } from '../../contracts';
-import { absenceUnderexplored, absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, staleRequirements } from '../done-evidence';
+import { absenceUnderexplored, absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, staleRequirements, unmatchedRequirements } from '../done-evidence';
 import { titleFromTask } from '../../../core/task-groups/manager';
 
 function contextOnPage(lines: string[]) {
@@ -42,6 +42,53 @@ describe('absenceUnread', () => {
     expect(absenceUnread(read, 'No brass lamp was found.', false)).toBe(false);
     expect(absenceUnread(on(['0 results for "brass lamp"']), 'No brass lamp was found.', false)).toBe(false);
     expect(absenceUnread(on([], 'about:blank'), 'No such thing exists.', false)).toBe(false);
+  });
+});
+
+describe('unmatchedRequirements', () => {
+  const pageWithControls = (controls: Array<{ tag?: string; role?: string; label: string; expanded?: string }>) => {
+    const context = contextOnPage([]);
+    const body = (context.promptState as BrowserState).elementTree as DOMElementNode;
+    for (const control of controls) {
+      const node = new DOMElementNode({
+        tagName: control.tag ?? 'button',
+        xpath: '/body/x',
+        attributes: { ...(control.role ? { role: control.role } : {}), ...(control.expanded ? { 'aria-expanded': control.expanded } : {}) },
+        children: [],
+        isVisible: true,
+        parent: body,
+      });
+      node.children.push(new DOMTextNode(control.label, true, node));
+      body.children.push(node);
+    }
+    (context.promptState as BrowserState).url = 'https://shop.test/search?q=lamp';
+    context.pageRead = { url: 'https://shop.test/search?q=lamp', text: '' };
+    return context;
+  };
+
+  it('names the pending requirements no control, collapsed section or sort on the page can apply', () => {
+    const context = pageWithControls([
+      { role: 'checkbox', label: 'Brass' },
+      // A filter section nobody has opened yet is still a control the page offers.
+      { label: 'Price', expanded: 'false' },
+      { tag: 'select', label: 'Sort by' },
+    ]);
+    const missing = unmatchedRequirements(context, [
+      { requirement: 'made of brass', status: 'pending' },
+      { requirement: 'price under 50', status: 'pending' },
+      { requirement: 'the cheapest one', status: 'pending' },
+      { requirement: 'free next-day delivery', status: 'pending' },
+      { requirement: 'in the Lighting department', status: 'applied', evidence: 'dept=lighting' },
+    ]);
+    expect(missing).toEqual(['free next-day delivery']);
+  });
+
+  it('says nothing about a page the task has neither read nor landed on', () => {
+    const context = pageWithControls([{ role: 'checkbox', label: 'Brass' }]);
+    context.pageRead = null;
+    expect(unmatchedRequirements(context, [{ requirement: 'free next-day delivery', status: 'pending' }])).toEqual([]);
+    context.ledger.visited('shop.test/search?q=lamp', 'Search');
+    expect(unmatchedRequirements(context, [{ requirement: 'free next-day delivery', status: 'pending' }])).toEqual(['free next-day delivery']);
   });
 });
 

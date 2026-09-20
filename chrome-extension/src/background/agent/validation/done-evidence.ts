@@ -1,6 +1,7 @@
 import type { AgentContext } from '../types';
 import type { PlannerRequirement } from '../contracts/types';
 import { DOMElementNode } from '../../browser/dom/views';
+import type { BrowserState } from '../../browser/views';
 import { echoesActionResult } from './service';
 import { visibleText } from './observation';
 
@@ -204,6 +205,70 @@ export function mergeRequirements(context: AgentContext, incoming: PlannerRequir
     }
     return { ...item, status: 'applied', evidence: item.evidence ?? before.evidence };
   });
+}
+
+/** Roles and tags of a control a site filters, sorts or chooses with. */
+const CONTROL_ROLE = /^(checkbox|radio|combobox|listbox|option|switch|slider|spinbutton|menuitemcheckbox|menuitemradio|tab)$/;
+const CONTROL_TAG = /^(select|option|input|summary)$/;
+/** A requirement asking for the extreme of an ordering: a sort control answers it, whatever it is named. */
+const SUPERLATIVE = /\b(cheapest|lowest|highest|newest|latest|oldest|earliest|nearest|closest|largest|smallest|biggest|longest|shortest|fastest|best|top|most|least|max|maximum|min|minimum)\b/i;
+const SORT_CONTROL = /\b(sort|order by|ordering|relevance|ranking)\b/i;
+
+/**
+ * What the page offers to filter, sort or choose with: the controls themselves, the headers of collapsed filter
+ * sections (a facet nobody has opened yet is still offered), and short links and buttons, which is what many sites
+ * build their facets from. Long link texts are left out: an item's own title is not a control.
+ */
+function controlLabels(state: BrowserState): string {
+  const labels: string[] = [];
+  const stack: unknown[] = state.elementTree ? [state.elementTree] : [];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!(node instanceof DOMElementNode)) continue;
+    stack.push(...node.children);
+    const role = node.attributes.role ?? '';
+    const tag = node.tagName ?? '';
+    const label = [node.attributes['aria-label'], node.attributes.name, node.attributes.placeholder, node.attributes.title, node.getAllTextTillNextClickableElement(2)]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!label) continue;
+    const collapsed = node.attributes['aria-expanded'] === 'false';
+    const shortAction = /^(a|button)$/.test(tag) || /^(link|button)$/.test(role);
+    if (CONTROL_ROLE.test(role) || CONTROL_TAG.test(tag) || collapsed || (shortAction && label.length <= 40)) labels.push(label);
+  }
+  return labels.join('\n').toLowerCase();
+}
+
+/**
+ * Pending requirements that nothing on this page can apply: no control, collapsed filter header, short facet link or
+ * sort control shares a word or a number with them. It is the look-before-you-commit check that a world model would
+ * guess at — the page is there, it is cheap to read and it is never wrong about itself — and it only answers once the
+ * page has been in front of the agent (a read of it, or a step that landed on it), never on first sight.
+ *
+ * ponytail: word overlap against control labels; if a site names its facets in words no requirement uses, this reports
+ * a control it has. That is why the report is behind an option until a gate run measures it.
+ */
+export function unmatchedRequirements(context: AgentContext, requirements: PlannerRequirement[]): string[] {
+  const state = context.promptState;
+  const pending = requirements.filter(item => item.status === 'pending');
+  if (!state || state.unreadable || pending.length === 0) return [];
+  if (context.pageRead?.url !== state.url && !context.ledger?.landedOn(state.url)) return [];
+  const labels = controlLabels(state);
+  if (!labels) return [];
+  const labelWords = informationWords(labels);
+  const labelNumbers = numbersIn(labels);
+  const sorts = SORT_CONTROL.test(labels);
+  return pending
+    .filter(item => {
+      const words = [...informationWords(item.requirement)];
+      const numbers = [...numbersIn(item.requirement)];
+      if (words.length === 0 && numbers.length === 0) return false;
+      if (SUPERLATIVE.test(item.requirement) && sorts) return false;
+      return !words.some(word => labelWords.has(word)) && !numbers.some(number => labelNumbers.has(number));
+    })
+    .map(item => item.requirement);
 }
 
 /**
