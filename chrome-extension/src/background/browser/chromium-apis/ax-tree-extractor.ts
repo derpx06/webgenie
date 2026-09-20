@@ -51,6 +51,8 @@ interface NodeLayout {
   height: number;
   /** Corner radius in CSS pixels, so the overlay can glow in the element's own shape. */
   radius?: number;
+  /** A scroll container's hidden content, in screens of its own visible height; the outermost one only. */
+  scroll?: { above: number; below: number };
 }
 
 /** Layout of one document, in that document's coordinates (CSS pixels). */
@@ -59,6 +61,12 @@ export interface DocumentLayout {
   scrollY: number;
   nodes: Map<number, NodeLayout>;
 }
+
+/** Overflow settings that scroll rather than cut the content off. */
+const SCROLLING_OVERFLOW = new Set(['auto', 'scroll', 'overlay']);
+
+/** The root scrollers are the page itself, which `scroll` moves without an index. */
+const ROOT_TAGS = new Set(['html', 'body']);
 
 export interface FrameTree {
   key: string;
@@ -84,7 +92,14 @@ export interface SnapshotDocument {
     isClickable?: { index: number[] };
     inputChecked?: { index: number[] };
   };
-  layout: { nodeIndex: number[]; bounds: number[][]; styles?: number[][] };
+  layout: {
+    nodeIndex: number[];
+    bounds: number[][];
+    styles?: number[][];
+    /** Visible box of a scroll container, and the box its content scrolls in (includeDOMRects). */
+    clientRects?: number[][];
+    scrollRects?: number[][];
+  };
   scrollOffsetX?: number;
   scrollOffsetY?: number;
 }
@@ -160,8 +175,9 @@ const INTERNAL_PROPERTIES = new Set(['focusable', 'focused', 'editable', 'settab
 /** DOM attributes the accessibility tree does not expose but the model needs (a password or date field). */
 const SNAPSHOT_ATTRIBUTES = new Set(['type', 'name', 'placeholder', 'draggable']);
 
-/** Computed styles asked of every layout node, in this order; only the on-page overlay uses them. */
-const SNAPSHOT_STYLES = ['border-top-left-radius'] as const;
+/** Computed styles asked of every layout node, in this order. */
+const SNAPSHOT_STYLES = ['border-top-left-radius', 'overflow-x', 'overflow-y'] as const;
+const STYLE = { radius: 0, overflowX: 1, overflowY: 2 };
 
 /**
  * A CSS length as the snapshot reports it, in CSS pixels; a percentage resolves against the element's shorter side,
@@ -225,6 +241,7 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
   const backendNodeId = doc.nodes.backendNodeId ?? [];
   const attributes = doc.nodes.attributes ?? [];
   const clickable = new Set(doc.nodes.isClickable?.index ?? []);
+  const scrollers = scrollContainers(doc, strings);
   doc.layout.nodeIndex.forEach((nodeIndex, i) => {
     const id = backendNodeId[nodeIndex];
     const bounds = doc.layout.bounds[i];
@@ -246,11 +263,45 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
       y: bounds[1] / scale,
       width,
       height,
-      radius: parseRadius(strings[doc.layout.styles?.[i]?.[0] ?? -1], width, height),
+      radius: parseRadius(strings[doc.layout.styles?.[i]?.[STYLE.radius] ?? -1], width, height),
+      scroll: scrollers.get(nodeIndex),
     });
   });
   labelHiddenChoices(doc, strings, nodes);
   return { scrollX: (doc.scrollOffsetX ?? 0) / scale, scrollY: (doc.scrollOffsetY ?? 0) / scale, nodes };
+}
+
+/**
+ * Elements whose content scrolls inside them, with how much of it sits outside their visible box (in screens of that
+ * box). A page's own scrollbar is not one of them, and neither is a scroller inside another: the outermost one is the
+ * handle `scroll {index}` needs, and nested ones only lengthen the list.
+ */
+function scrollContainers(doc: SnapshotDocument, strings: string[]): Map<number, { above: number; below: number }> {
+  const found = new Map<number, { above: number; below: number }>();
+  const { clientRects, scrollRects, styles, nodeIndex } = doc.layout;
+  if (!clientRects || !scrollRects || !styles) return found;
+  const parents = doc.nodes.parentIndex ?? [];
+  const nodeName = doc.nodes.nodeName ?? [];
+  const scrolling = new Set<number>();
+  nodeIndex.forEach((node, i) => {
+    const client = clientRects[i];
+    const scroll = scrollRects[i];
+    const overflow = strings[styles[i]?.[STYLE.overflowY] ?? -1];
+    if (!client || !scroll || !SCROLLING_OVERFLOW.has(overflow)) return;
+    if (ROOT_TAGS.has((strings[nodeName[node]] ?? '').toLowerCase())) return;
+    const height = client[3];
+    if (height <= 0 || scroll[3] <= height + 1) return;
+    scrolling.add(node);
+    // The node list is in document order, so an enclosing scroller has already been seen.
+    for (let parent = parents[node]; parent !== undefined && parent >= 0; parent = parents[parent]) {
+      if (scrolling.has(parent)) return;
+    }
+    const screens = (pixels: number) => Math.round((pixels / height) * 10) / 10;
+    const above = screens(scroll[1]);
+    const below = screens(scroll[3] - scroll[1] - height);
+    if (above > 0 || below > 0) found.set(node, { above, below });
+  });
+  return found;
 }
 
 /**
@@ -287,6 +338,12 @@ function labelHiddenChoices(doc: SnapshotDocument, strings: string[], nodes: Map
     const labelBox = label !== undefined ? nodes.get(backendNodeId[label]) : undefined;
     if (labelBox) labelBox.attributes.checked = String(checked.has(i));
   });
+}
+
+/** What a scroller's line says about the content outside it, e.g. "1 screen above, 2.5 screens below". */
+function scrollNote({ above, below }: { above: number; below: number }): string {
+  const screens = (value: number, where: string) => (value > 0 ? `${value} ${value === 1 ? 'screen' : 'screens'} ${where}` : '');
+  return [screens(above, 'above'), screens(below, 'below')].filter(Boolean).join(', ');
 }
 
 function coordinates(x: number, y: number, width: number, height: number): CoordinateSet {
@@ -448,8 +505,12 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
       const pageTarget =
         !hiddenByAria && Boolean(layout) && (layout?.attributes.draggable === 'true' || Boolean(layout?.clickable) || listenerTarget);
 
+      // A panel the page scrolls on its own: without a line of its own there is no index for `scroll {index}`, and a
+      // live run scrolled the page eleven times for content that sat in one. Only the outermost one is listed.
+      const scroller = !hiddenByAria && !insideControl && layout?.scroll !== undefined;
+
       // An ignored node creates nothing, unless the page made it a pointer target (an empty div with a handler).
-      if (node.ignored && !pageTarget) return visitChildren(into, insideControl);
+      if (node.ignored && !pageTarget && !scroller) return visitChildren(into, insideControl);
 
       const props = propertyMap(node);
       // A keyboard skip link only moves focus within the page; listed, it was clicked as if it led somewhere.
@@ -471,6 +532,8 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         rect!.width >= 8 &&
         rect!.height >= 8 &&
         (!viewport || rect!.width * rect!.height <= 0.5 * viewport.width * viewport.height);
+      // A scroller that is not a control of its own is listed only so it can be scrolled: its line carries no text.
+      const scrollOnly = scroller && !interactive;
       const coords = rect && coordinates(rect.x, rect.y, rect.width, rect.height);
       const pageCoords = rect && coordinates(rect.x + pageScrollX, rect.y + pageScrollY, rect.width, rect.height);
       const element = new DOMElementNode({
@@ -485,7 +548,8 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         isInViewport:
           !rect || !viewport ||
           (rect.x + rect.width > 0 && rect.y + rect.height > 0 && rect.x < viewport.width && rect.y < viewport.height),
-        highlightIndex: interactive ? selectorMap.size : null,
+        highlightIndex: interactive || scrollOnly ? selectorMap.size : null,
+        scrollOnly,
         viewportCoordinates: coords,
         pageCoordinates: pageCoords,
         cornerRadius: layout?.radius,
@@ -494,7 +558,12 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         frame: tree.frame,
         frameKey: tree.key,
       });
-      if (interactive) selectorMap.set(selectorMap.size, element);
+      if (interactive || scrollOnly) selectorMap.set(selectorMap.size, element);
+      if (scroller && layout?.scroll) {
+        element.attributes.scroll = scrollNote(layout.scroll);
+        // A panel's wrapper role ("none", "generic") says nothing next to what it holds.
+        if (UNNAMED_ROLES.has(role)) delete element.attributes.role;
+      }
       into.children.push(element);
 
       // A native date or time input is one element too: its user-agent segments are spinbutton spans that take no text
@@ -620,7 +689,10 @@ async function readLayouts(sessions: CDPSession[], scale: number, timeoutMs = FR
   await Promise.all(
     sessions.map(async client => {
       try {
-        const snapshot = await withTimeout(client.send('DOMSnapshot.captureSnapshot', { computedStyles: [...SNAPSHOT_STYLES] }), timeoutMs);
+        const snapshot = await withTimeout(
+          client.send('DOMSnapshot.captureSnapshot', { computedStyles: [...SNAPSHOT_STYLES], includeDOMRects: true }),
+          timeoutMs,
+        );
         for (const doc of snapshot.documents) {
           layouts.set(snapshot.strings[doc.frameId], documentLayout(doc as unknown as SnapshotDocument, snapshot.strings, scale));
         }

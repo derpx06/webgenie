@@ -265,6 +265,44 @@ describe('native selects', () => {
   });
 });
 
+describe('scroll containers', () => {
+  // Nodes: 0 body, 1 the panel that scrolls (503 px of content in 100), 2 a button inside it, 3 a scroller nested in
+  // the first one, 4 the page itself, which `scroll` moves without an index.
+  const strings = ['BODY', 'DIV', 'BUTTON', 'auto', 'visible', '0px'];
+  const doc = {
+    frameId: 0,
+    nodes: { nodeName: [0, 1, 2, 1], backendNodeId: [10, 11, 12, 13], parentIndex: [-1, 0, 1, 1] },
+    layout: {
+      nodeIndex: [0, 1, 2, 3],
+      bounds: [[0, 0, 1264, 368], [8, 32, 1264, 100], [8, 40, 100, 20], [8, 80, 1264, 50]],
+      styles: [[5, 3, 3], [5, 3, 3], [5, 4, 4], [5, 3, 3]],
+      clientRects: [[0, 0, 1264, 368], [0, 0, 1264, 100], [0, 0, 100, 20], [0, 0, 1264, 50]],
+      scrollRects: [[0, 0, 1264, 900], [0, 50, 1264, 503], [0, 0, 100, 20], [0, 0, 1264, 232]],
+    },
+  };
+
+  it('measures the outermost scroller only, in screens of its own height, and never the page', () => {
+    const layout = documentLayout(doc as never, strings);
+    expect(layout.nodes.get(11)?.scroll).toEqual({ above: 0.5, below: 3.5 });
+    expect(layout.nodes.get(10)?.scroll).toBeUndefined();
+    expect(layout.nodes.get(13)?.scroll).toBeUndefined();
+  });
+
+  it('gives the panel an index and its own line, and keeps the text inside it where it is', () => {
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      { nodeId: '2', ignored: true, role: { value: 'none' }, backendDOMNodeId: 11, childIds: ['3', '4'] },
+      text('3', 'Filters'),
+      { nodeId: '4', role: { value: 'button' }, name: { value: 'Apply' }, backendDOMNodeId: 12 },
+    ];
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout: documentLayout(doc as never, strings) }], { width: 1000, height: 800 }));
+    expect([...state.selectorMap.values()].map(node => node.tagName)).toEqual(['div', 'button']);
+    expect(state.elementTree.clickableElementsToString()).toBe(
+      ['[0]<div scroll="0.5 screens above, 3.5 screens below" />', '\tFilters', '\t[1]<button aria-label="Apply" />'].join('\n'),
+    );
+  });
+});
+
 describe('native date and time inputs', () => {
   // As Chrome reads <label>Start <input type=date value=2025-09-18></label>: the input's role is its internal name
   // and its user-agent segments are spinbutton spans (a <span> takes no text).
