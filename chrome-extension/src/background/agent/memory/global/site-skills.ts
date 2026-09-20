@@ -161,18 +161,24 @@ export const SiteSkills = {
     }
   },
 
-  /** The playbook for this start page as a note for the models; empty when there is none or it has been demoted. */
-  async note(startUrl: string): Promise<string> {
+  /**
+   * The playbook for this start page as a note for the models; empty when there is none or it has been demoted.
+   * `routeSteps` are the steps saved for this exact start page: only the ones the playbook does not already give are
+   * added, so the models read one note about this site instead of two that mostly repeat each other.
+   */
+  async note(startUrl: string, routeSteps: RouteStep[] = []): Promise<string> {
     const domain = domainOf(startUrl);
     if (!domain) return '';
     try {
       const skill = (await load()).find(entry => entry.domain === domain && entry.failures === 0);
       if (!skill) return '';
       const on = new Date(skill.verifiedAt).toISOString().slice(0, 10);
+      const alsoDid = skillSteps(routeSteps, domain).filter(line => !skill.steps.includes(line));
       const lines = [
         skill.searchUrl ? `- its search: ${skill.searchUrl} ({q} is what you search for)` : '',
         skill.traps.length ? `- in the way last time: ${skill.traps.join(', ')}` : '',
         skill.steps.length ? `- the path that worked: ${skill.steps.join('; ')}` : '',
+        alsoDid.length ? `- and from this start page: ${alsoDid.join('; ')}` : '',
       ].filter(Boolean);
       // Built from what the pages showed, so the models get it as data, like page text.
       return `[What worked on ${domain} on ${on}; it may be out of date, and the current page wins]\n${untrustedInline(lines.join('\n'))}\n`;

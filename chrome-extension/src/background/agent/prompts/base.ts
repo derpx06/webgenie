@@ -242,15 +242,14 @@ abstract class BasePrompt {
     context.promptState = browserState;
     context.promptIndexes = new Set();
 
-    // A route saved from this task's start page, read once per task.
-    if (context.routeNote === undefined) {
-      context.routeNote = context.taskStartUrl ? await RouteMemory.note(context.taskStartUrl) : '';
-      if (context.routeNote) logger.info(`Route from an earlier task shown for ${context.taskStartUrl}`);
-    }
-    // And what earlier successful tasks learned about this domain, read once per task.
+    // One note about this site, read once per task: the domain's playbook, carrying whatever the route saved for this
+    // exact start page adds to it, or that route on its own when the domain has no playbook.
     if (context.siteSkillNote === undefined) {
-      context.siteSkillNote = context.taskStartUrl ? await SiteSkills.note(context.taskStartUrl) : '';
+      const routeSteps = context.taskStartUrl ? await RouteMemory.steps(context.taskStartUrl) : [];
+      context.siteSkillNote = context.taskStartUrl ? await SiteSkills.note(context.taskStartUrl, routeSteps) : '';
       if (context.siteSkillNote) logger.info(`Site skill shown for ${context.taskStartUrl}`);
+      context.routeNote = context.siteSkillNote || !context.taskStartUrl ? '' : await RouteMemory.note(context.taskStartUrl);
+      if (context.routeNote) logger.info(`Route from an earlier task shown for ${context.taskStartUrl}`);
     }
 
     const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);

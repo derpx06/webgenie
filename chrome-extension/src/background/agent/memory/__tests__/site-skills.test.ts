@@ -42,6 +42,21 @@ const run = (extra: Partial<Parameters<typeof SiteSkills.record>[1]> = {}) => ({
 });
 
 describe('what a skill keeps', () => {
+  it('gives one note: the playbook plus only what the route of this start page adds', async () => {
+    const steps = [
+      routeStep('click_element', 'https://shop.test/', link, ''),
+      routeStep('click_element', 'https://shop.test/help', link, ''),
+    ].filter(step => step !== null);
+    await SiteSkills.record('https://shop.test/', { steps: steps.slice(0, 1), urls: [], ledger: [] });
+
+    const note = await SiteSkills.note('https://shop.test/', steps);
+    expect(note).toContain('the path that worked: click_element (link) on /');
+    expect(note).toContain('and from this start page: click_element (link) on /help');
+    // The step the playbook already gives is not repeated.
+    expect(note.match(/click_element \(link\) on \/;|click_element \(link\) on \/$/gm)?.length ?? 1).toBe(1);
+    expect(await SiteSkills.note('https://shop.test/', steps.slice(0, 1))).not.toContain('and from this start page');
+  });
+
   it('reduces a host to its registrable domain and refuses what is not a web page', () => {
     expect(domainOf('https://www.shop.test/x')).toBe('shop.test');
     expect(domainOf('https://a.b.shop.co.uk/')).toBe('shop.co.uk');

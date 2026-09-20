@@ -121,6 +121,18 @@ export const RouteMemory = {
     }
   },
 
+  /** The steps saved for this start page, or none. */
+  async steps(startUrl: string): Promise<RouteStep[]> {
+    const key = routeKey(startUrl);
+    if (!key) return [];
+    try {
+      return (await load()).find(saved => saved.key === key)?.steps ?? [];
+    } catch (error) {
+      logger.error('Reading the route failed:', error);
+      return [];
+    }
+  },
+
   /** The route saved for this start page as a note for the models; empty when there is none. */
   async note(startUrl: string): Promise<string> {
     const key = routeKey(startUrl);
