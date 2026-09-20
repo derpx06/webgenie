@@ -547,6 +547,21 @@ function coordinates(x: number, y: number, width: number, height: number): Coord
   };
 }
 
+/** The backendNodeIds an accessibility relation (controls, owns, activedescendant) points at. */
+function relatedNodes(node: AXNode, relation: string): number[] {
+  const property = node.properties?.find(candidate => candidate.name === relation);
+  const related = (property?.value as { relatedNodes?: Array<{ backendDOMNodeId?: number }> } | undefined)?.relatedNodes ?? [];
+  return related.map(target => target.backendDOMNodeId).filter((id): id is number => id !== undefined);
+}
+
+/** Whether `ancestor` holds `node` in the element tree. */
+function holds(ancestor: DOMElementNode, node: DOMElementNode): boolean {
+  for (let parent: DOMElementNode | null = node; parent; parent = parent.parent) {
+    if (parent === ancestor) return true;
+  }
+  return false;
+}
+
 function propertyMap(node: AXNode): Record<string, unknown> {
   const props: Record<string, unknown> = {};
   for (const property of node.properties ?? []) props[property.name] = property.value?.value;
@@ -653,6 +668,9 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
     for (const node of tree.nodes) {
       if (node.backendDOMNodeId !== undefined && !byBackendId.has(node.backendDOMNodeId)) byBackendId.set(node.backendDOMNodeId, node);
     }
+
+    const built = new Map<number, DOMElementNode>();
+    const pending: Array<{ field: DOMElementNode; popups: number[] }> = [];
 
     /** What the page paints over an element it lists, so the model closes that first instead of clicking through it. */
     const markCovered = (element: DOMElementNode): void => {
@@ -762,6 +780,16 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         selectorMap.set(selectorMap.size, element);
         markCovered(element);
       }
+      if (node.backendDOMNodeId !== undefined) built.set(node.backendDOMNodeId, element);
+      // A field's suggestions are usually portalled to the end of the document, far from the field in the element
+      // list, and the model then acts on the wrong one. The list it controls is serialized under the field instead.
+      if (role === 'combobox' || props.hasPopup === 'listbox') {
+        const popups = [...relatedNodes(node, 'controls'), ...relatedNodes(node, 'owns')];
+        if (popups.length) pending.push({ field: element, popups });
+        const [activeId] = relatedNodes(node, 'activedescendant');
+        const activeName = String((activeId === undefined ? undefined : byBackendId.get(activeId))?.name?.value ?? '').trim();
+        if (activeName) element.attributes.active = activeName;
+      }
       // Nothing of the element is on the page: it sits in a panel that is closed or scrolled past, and the step that
       // works is opening that panel, not a click the page would refuse for having no visible area.
       if (layout?.clipped && (interactive || scrollOnly)) element.attributes.hidden = 'clipped';
@@ -815,6 +843,17 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
 
     const root = tree.nodes.find(node => !node.parentId || !nodesById.has(node.parentId));
     if (root) visit(root, parent, false);
+
+    for (const { field, popups } of pending) {
+      for (const id of popups) {
+        const popup = built.get(id);
+        // Moving a field's own ancestor, or something already inside it, would cut the tree.
+        if (!popup || !popup.parent || !field.parent || popup === field || holds(popup, field) || holds(field, popup)) continue;
+        popup.parent.children.splice(popup.parent.children.indexOf(popup), 1);
+        popup.parent = field.parent;
+        field.parent.children.splice(field.parent.children.indexOf(field) + 1, 0, popup);
+      }
+    }
   };
 
   if (main) visitFrame(main, elementTree, { x: 0, y: 0 });

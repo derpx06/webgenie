@@ -265,6 +265,38 @@ describe('native selects', () => {
   });
 });
 
+describe('a combobox and the list it controls', () => {
+  // As Chrome reads an autocomplete: the field carries controls and activedescendant relations, and the listbox the
+  // page portals to the end of the document sits far from it in the element list.
+  const relation = (name: string, backendDOMNodeId: number) => ({ name, value: { type: 'idref', relatedNodes: [{ backendDOMNodeId }] } });
+  const nodes: AXNode[] = [
+    { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3', '5'] },
+    {
+      nodeId: '2',
+      role: { value: 'combobox' },
+      name: { value: 'City' },
+      backendDOMNodeId: 20,
+      properties: [{ name: 'expanded', value: { value: true } }, relation('controls', 70), relation('activedescendant', 72)],
+    },
+    { nodeId: '3', role: { value: 'button' }, name: { value: 'Search' }, backendDOMNodeId: 30 },
+    { nodeId: '5', role: { value: 'listbox' }, backendDOMNodeId: 70, childIds: ['6', '7'] },
+    { nodeId: '6', role: { value: 'option' }, name: { value: 'Paris' }, backendDOMNodeId: 71 },
+    { nodeId: '7', role: { value: 'option' }, name: { value: 'Parma' }, backendDOMNodeId: 72 },
+  ];
+
+  it('serializes the options right after the field and names the active one', () => {
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes }], null));
+    expect([...state.selectorMap.values()].map(node => node.attributes['aria-label'] ?? node.attributes.role)).toEqual([
+      'City',
+      'listbox',
+      'Paris',
+      'Parma',
+      'Search',
+    ]);
+    expect(state.elementTree.clickableElementsToString().split('\n')[0]).toContain('active="Parma"');
+  });
+});
+
 describe('cursor as a clickability signal', () => {
   // Nodes: 0 body, 1 a div a framework made clickable (cursor: pointer), 2 the span inside it, which only inherits
   // that cursor, 3 a control the page switched off with cursor: not-allowed.

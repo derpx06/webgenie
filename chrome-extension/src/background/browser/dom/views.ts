@@ -43,6 +43,8 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'covered',
   // A native select's option count, or its option names when few.
   'options',
+  // The suggestion a combobox has highlighted, which is what Enter would take.
+  'active',
 ];
 
 /** Longest address shown on an element line: `href` was 22% of the element block's characters in a live run. */
