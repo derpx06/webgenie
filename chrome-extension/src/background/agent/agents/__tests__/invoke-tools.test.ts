@@ -1,8 +1,28 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { invokeLLM, invokeTools, isToolsUnsupportedError, rateLimitDelayMs, readFinish, retryDelayHint } from '../base';
+import {
+  callLatencyQuantile,
+  errorHeaders,
+  invokeLLM,
+  invokeTools,
+  isToolsUnsupportedError,
+  MIN_CALL_TIMEOUT_MS,
+  PACE_MAX_HOLD_MS,
+  noteCallAccepted,
+  noteCallRefused,
+  noteCallStarted,
+  paceKey,
+  rateLimitDelayMs,
+  rateLimitHint,
+  readFinish,
+  recordCallLatency,
+  resetCallLatencies,
+  resetPacing,
+  retryDelayHint,
+  startDelayMs,
+} from '../base';
 import { isAbortedError, isQuotaExhaustedError, isRateLimitError, ResponseParseError } from '../errors';
 import type { ToolDefinition } from '../../actions/builder';
 
@@ -34,6 +54,12 @@ const tools: ToolDefinition[] = Object.keys(validators).map(name => ({
 }));
 const packet = [new HumanMessage('do the task')];
 const base = { component: 'test', tools, validators, messages: packet, native: true, forceToolChoice: true };
+
+// The pace and the latency window belong to the worker, not to one call, so each test starts from a clean one.
+beforeEach(() => {
+  resetPacing();
+  resetCallLatencies();
+});
 
 describe('invokeTools', () => {
   it('returns valid parallel calls from one request and forces a tool choice', async () => {
@@ -176,18 +202,219 @@ describe('slow calls', () => {
     await expect(invokeLLM(chatModel, packet, { component: 'test', timeoutMs: 5_000, hedgeAfterMs: 2_000 })).rejects.toThrow('400');
     expect(stub.invoke).toHaveBeenCalledTimes(1);
   });
+
+  it('sends no duplicate at all to a provider that serves one request at a time', async () => {
+    const { chatModel, stub } = stubModel([
+      (signal?: AbortSignal) =>
+        new Promise<AIMessage>(resolve => {
+          setTimeout(() => resolve(new AIMessage({ content: 'the only answer' })), 60);
+          signal?.addEventListener('abort', () => undefined);
+        }),
+      new AIMessage({ content: 'never' }),
+    ]);
+
+    const reply = await invokeLLM(chatModel, packet, { component: 'test', model: 'local-model', timeoutMs: 5_000, hedgeAfterMs: 10, hedge: 'off' });
+
+    expect(reply.text).toBe('the only answer');
+    expect(stub.invoke).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Our own first-attempt refusal rate rose from 0.09-0.13 to 0.29 as this worker's request rate went from under 4 to 12
+ * or more a minute, so part of the burst is self-inflicted. Nothing is paced until a provider refuses once; from then
+ * on it is additive increase on acceptance and halving on refusal, with the clock read explicitly so the test is exact.
+ */
+describe('pacing learned from refusals', () => {
+  const key = 'test-endpoint|test-model';
+  beforeEach(() => resetPacing());
+
+  it('holds nothing back until the provider refuses a call', () => {
+    for (let i = 0; i < 100; i++) noteCallStarted(key, 1_000 + i);
+    expect(startDelayMs(key, 1_100)).toBe(0);
+  });
+
+  it('halves the rate it was running at, and waits until the oldest start leaves the window', () => {
+    const start = 1_000_000;
+    for (let i = 0; i < 20; i++) noteCallStarted(key, start + i * 100);
+    noteCallRefused(key, null, start + 2_000);
+
+    // 20 starts in the window became a limit of 10, so the 10 most recent hold the next call back — capped, so a
+    // pace never parks the task for a whole minute.
+    expect(startDelayMs(key, start + 2_000)).toBe(PACE_MAX_HOLD_MS);
+
+    // Each accepted call earns one more start a minute, so a provider that recovers is used again.
+    for (let i = 0; i < 11; i++) noteCallAccepted(key, start + 3_000);
+    expect(startDelayMs(key, start + 3_000)).toBe(0);
+  });
+
+  it('believes the rate the provider sends over its own estimate, and never paces below the floor', () => {
+    const start = 2_000_000;
+    for (let i = 0; i < 40; i++) noteCallStarted(key, start + i);
+    noteCallRefused(key, 12, start + 100);
+    expect(startDelayMs(key, start + 100)).toBeGreaterThan(0);
+
+    noteCallRefused(key, null, start + 200);
+    noteCallRefused(key, null, start + 300);
+    noteCallRefused(key, null, start + 400);
+    // Halving stops at the floor of four a minute: the worker keeps making progress against a provider that keeps
+    // refusing, and once the window has emptied the next call goes out at once.
+    expect(startDelayMs(key, start + 120_000)).toBe(0);
+    for (let i = 0; i < 4; i++) noteCallStarted(key, start + 120_000);
+    expect(startDelayMs(key, start + 120_000)).toBeGreaterThan(0);
+  });
+
+  it('paces a real call and counts the refusal against the endpoint it was refused on', async () => {
+    const refused = Object.assign(new Error('429 Too Many Requests'), { headers: { 'x-ratelimit-limit-requests': '6' } });
+    const { chatModel } = stubModel([() => Promise.reject(refused), new AIMessage({ content: 'accepted' })]);
+
+    expect((await invokeLLM(chatModel, packet, { component: 'test', model: 'paced-model', rateLimitDelaysMs: [1] })).text).toBe('accepted');
+    // The provider said 6 a minute, so the 7th start of the minute has to wait.
+    for (let i = 0; i < 6; i++) noteCallStarted(paceKey('paced-model'));
+    expect(startDelayMs(paceKey('paced-model'))).toBeGreaterThan(0);
+  });
+});
+
+describe('a model served from more than one endpoint', () => {
+  beforeEach(() => resetPacing());
+
+  it('retries a refused call on the next endpoint instead of the one that just refused it', async () => {
+    const { chatModel } = stubModel([() => Promise.reject(new Error('429 Resource exhausted')), new AIMessage({ content: 'never' })]);
+    const elsewhere = stubModel([new AIMessage({ content: 'from the other endpoint' })]);
+    const asked: string[] = [];
+
+    const reply = await invokeLLM(chatModel, packet, {
+      component: 'test',
+      model: 'multi-endpoint-model',
+      rateLimitDelaysMs: [1],
+      endpoints: ['eu', 'us'],
+      withEndpoint: endpoint => {
+        asked.push(endpoint);
+        return elsewhere.chatModel as unknown as { invoke: (messages: BaseMessage[]) => Promise<unknown> };
+      },
+    });
+
+    expect(reply.text).toBe('from the other endpoint');
+    expect(asked).toEqual(['us']);
+  });
+
+  it('stays where it is when the capability lists only one endpoint', async () => {
+    const { chatModel } = stubModel([() => Promise.reject(new Error('429 Resource exhausted')), new AIMessage({ content: 'same endpoint' })]);
+    const withEndpoint = vi.fn(() => null);
+
+    const reply = await invokeLLM(chatModel, packet, {
+      component: 'test',
+      model: 'single-endpoint-model',
+      rateLimitDelaysMs: [1],
+      endpoints: ['eu'],
+      withEndpoint,
+    });
+
+    expect(reply.text).toBe('same endpoint');
+    expect(withEndpoint).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The fixed 25 s limit abandoned the slowest good calls of a slow model and waited 25 s on a fast one; the fixed 10 s
+ * hedge duplicated calls a fast model had not finished yet. Both now come from what this worker has seen the model do.
+ */
+describe('limits learned from the model', () => {
+  beforeEach(() => resetCallLatencies());
+
+  it('knows a quantile only once it has seen enough calls', () => {
+    for (let i = 0; i < 7; i++) recordCallLatency('learned', 1_000);
+    expect(callLatencyQuantile('learned', 0.99)).toBeNull();
+    recordCallLatency('learned', 1_000);
+    expect(callLatencyQuantile('learned', 0.99)).toBe(1_000);
+
+    for (let i = 0; i < 100; i++) recordCallLatency('learned', i * 100);
+    // Only the last 64 calls count, so a model that changes is followed rather than averaged over its whole history.
+    expect(callLatencyQuantile('learned', 0.5)).toBe(6_700);
+    expect(callLatencyQuantile('learned', 0.99)).toBe(9_900);
+  });
+
+  it('shortens the call limit to 1.5 x the observed p99, never below the floor or above the capability', async () => {
+    for (let i = 0; i < 20; i++) recordCallLatency('quick-model', 900);
+    const hang = (signal?: AbortSignal) =>
+      new Promise<AIMessage>((_, reject) => signal?.addEventListener('abort', () => reject(new Error('Aborted'))));
+    const { chatModel } = stubModel([hang, hang]);
+
+    const startedAt = Date.now();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const call = invokeLLM(chatModel, packet, { component: 'test', model: 'quick-model', timeoutMs: 60_000, hedgeAfterMs: 0 });
+    // Claimed before the clock moves: the call rejects while the timers run, and a handler attached afterwards is late.
+    const rejects = expect(call).rejects.toThrow('timed out');
+    // The floor, not 1.35 s: a model is not abandoned the moment it is slower than usual.
+    await vi.advanceTimersByTimeAsync(MIN_CALL_TIMEOUT_MS + 10);
+    await vi.advanceTimersByTimeAsync(MIN_CALL_TIMEOUT_MS * 1.5 + 10);
+    await rejects;
+    vi.useRealTimers();
+    expect(Date.now() - startedAt).toBeLessThan(60_000);
+  });
+
+  it('duplicates a slow call at the model\'s own p95 instead of a fixed wait', async () => {
+    for (let i = 0; i < 20; i++) recordCallLatency('steady-model', 4_000);
+    const hang = (signal?: AbortSignal) =>
+      new Promise<AIMessage>((_, reject) => signal?.addEventListener('abort', () => reject(new Error('Aborted'))));
+    const { chatModel, stub } = stubModel([hang, new AIMessage({ content: 'from the duplicate' })]);
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const call = invokeLLM(chatModel, packet, { component: 'test', model: 'steady-model', timeoutMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(3_500);
+    expect(stub.invoke).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    vi.useRealTimers();
+
+    expect((await call).text).toBe('from the duplicate');
+    expect(stub.invoke).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('rate limits and quotas', () => {
-  it("waits as long as the provider asks, capped at 30 s, and otherwise backs off with jitter", () => {
+  it("waits as long as the provider asks, capped at 30 s, and otherwise backs off with full jitter", () => {
     expect(retryDelayHint(new Error('429 {"error":{"details":[{"retryDelay":"12s"}]}}'))).toBe(12_000);
     expect(retryDelayHint(new Error('429 Too Many Requests; Retry-After: 7'))).toBe(7_000);
     expect(retryDelayHint(new Error('429 Resource exhausted'))).toBeNull();
     expect(rateLimitDelayMs(new Error('429 {"retryDelay":"90s"}'), 0)).toBe(30_000);
-    expect(rateLimitDelayMs(new Error('429'), 0, () => 0)).toBe(1_000);
+    // Full jitter: the whole range from 0 to the ceiling, which AWS measured as the fastest of the jittered variants.
+    expect(rateLimitDelayMs(new Error('429'), 0, () => 0)).toBe(0);
     expect(rateLimitDelayMs(new Error('429'), 0, () => 1)).toBe(2_000);
-    expect(rateLimitDelayMs(new Error('429'), 3, () => 0)).toBe(15_000);
+    expect(rateLimitDelayMs(new Error('429'), 3, () => 0.5)).toBe(15_000);
     expect(rateLimitDelayMs(new Error('429'), 5, () => 1)).toBe(30_000);
+  });
+
+  /**
+   * OpenAI and Anthropic answer a refusal with `retry-after` and their remaining-capacity headers, and their docs say
+   * a retry before that time "will fail" and still spends quota. The value is on the error object, not in its message.
+   */
+  it('reads the wait and the allowed rate off the error, whatever shape the adapter wrapped them in', () => {
+    const withHeaders = Object.assign(new Error('429 Too Many Requests'), {
+      headers: { 'Retry-After': '9', 'X-RateLimit-Limit-Requests': '120' },
+    });
+    expect(retryDelayHint(withHeaders)).toBe(9_000);
+    expect(rateLimitHint(withHeaders)).toBe(120);
+
+    const onResponse = Object.assign(new Error('429'), {
+      response: { headers: new Headers({ 'retry-after': '3', 'anthropic-ratelimit-requests-limit': '50' }) },
+    });
+    expect(retryDelayHint(onResponse)).toBe(3_000);
+    expect(rateLimitHint(onResponse)).toBe(50);
+
+    // A header beats the message text, and an absent one falls back to it.
+    expect(retryDelayHint(Object.assign(new Error('Retry-After: 30'), { headers: { 'retry-after': '2' } }))).toBe(2_000);
+    expect(rateLimitHint(new Error('429 Resource exhausted'))).toBeNull();
+    expect(errorHeaders(new Error('plain'))).toEqual({});
+  });
+
+  it('never retries a spend cap, which no wait can clear', async () => {
+    const capped = new Error('429 rate_limit_error: enforced spending limit reached for this organization');
+    expect(isQuotaExhaustedError(capped)).toBe(true);
+    expect(isRateLimitError(capped)).toBe(false);
+
+    const { chatModel, stub } = stubModel([() => Promise.reject(capped), new AIMessage({ content: 'never' })]);
+    await expect(invokeLLM(chatModel, packet, { component: 'test', rateLimitDelaysMs: [1, 1] })).rejects.toThrow('spending limit');
+    expect(stub.invoke).toHaveBeenCalledTimes(1);
   });
 
   it('treats a spent billing or daily quota as final, and a per-minute limit as a rate limit', async () => {

@@ -1150,5 +1150,11 @@
         "content": "$1"
       }
     }
+  },
+  "options_advanced_advancedTools": {
+    "message": "進階工具"
+  },
+  "options_advanced_advancedTools_desc": {
+    "message": "允許代理程式在頁面中執行 JavaScript 運算式、讀取網站自己的 JSON 端點，並下載及讀取檔案（pdf、csv、xlsx、docx）。預設為關閉：較短的工具清單讓代理程式更準確，而這些工具會觸及頁面以外的範圍。"
   }
 }

@@ -18,8 +18,8 @@ const MAX_EXPRESSION = 2000;
  * the personal-data intent check, the firewall) an expression would walk straight past.
  */
 const REFUSALS: Array<[RegExp, string]> = [
-  [/\b(location\s*[.=]|location\s*\.\s*(href|assign|replace|reload)|window\s*\.\s*open|document\s*\.\s*location)/i, 'it navigates: use go_to_url, open_tab or click_element'],
-  [/\bhistory\s*\.\s*(pushState|replaceState|go|back|forward)\b/i, 'it changes history: use go_back or go_forward'],
+  [/\b(location\s*[.=]|location\s*\.\s*(href|assign|replace|reload)|window\s*\.\s*open|document\s*\.\s*location)/i, 'it navigates: use go_to_url or click_element'],
+  [/\bhistory\s*\.\s*(pushState|replaceState|go|back|forward)\b/i, 'it changes history: use go_back'],
   [/\.\s*(click|submit|focus|blur|dispatchEvent)\s*\(/i, 'it acts on the page: use click_element, send_keys or the form tools'],
   [/(\.\s*value\s*=[^=]|\.\s*(innerHTML|outerHTML|textContent|innerText)\s*=[^=]|\bsetAttribute\s*\()/i, 'it writes to the page: use input_text, fill_form or select_dropdown_option'],
   [/\b(password|credentials?|autocomplete\s*=\s*["']?(current|new)-password)/i, 'it touches credentials: passwords are given through ask_human and never read or written here'],

@@ -610,6 +610,13 @@ export function toNativeInputValue(text: string, type: string): string | null {
 export const SPARSE_READ_ELEMENTS = 2;
 
 /**
+ * Longest one page read may hold a step. A complete read of a heavy page legitimately spends a few seconds (the
+ * accessibility tree of every frame, a retry on an empty DOM, settling a page that renders late), so the cap is set
+ * where reads stop being reads: 37 of run r3's reads ran past 10 s, two of them for 221 s and 192 s.
+ */
+export const READ_STATE_CAP_MS = 10_000;
+
+/**
  * Re-reads a sparse page (see SPARSE_READ_ELEMENTS) while it is likely still rendering: after a navigation, or while its
  * document loads. Stops as soon as controls appear, or once the document has loaded and re-reads found no more
  * elements (a page that really is that sparse costs one or two intervals), and never waits longer than maxWaitMs.
@@ -1247,17 +1254,37 @@ export default class Page {
       return pending.promise;
     }
     const generation = this._generation;
-    const promise = this._readState(useVision).then(state => {
-      if (generation === this._generation) this._cachedState = state;
-      return state;
-    });
-    const entry = { generation, useVision, promise };
+    const entry = { generation, useVision } as { generation: number; useVision: boolean; promise: Promise<PageState> };
+    entry.promise = this._readState(useVision)
+      .then(state => {
+        if (generation === this._generation) this._cachedState = state;
+        return state;
+      })
+      .finally(() => {
+        if (this._pendingState === entry) this._pendingState = null;
+      });
     this._pendingState = entry;
-    try {
-      return await promise;
-    } finally {
-      if (this._pendingState === entry) this._pendingState = null;
-    }
+    // A read that will not finish must not hold the step: two reads in run r3 took 221 s and 192 s, and 37 of them
+    // took over 10 s (4.79 s a task on average). The read goes on in the background — the next one joins it instead of
+    // starting over — and the step is told the page could not be read in time, which the prompt turns into an
+    // instruction to wait and read it again rather than into "the page is empty".
+    const overdue = Symbol('overdue');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const capped = await Promise.race([
+      entry.promise,
+      new Promise<typeof overdue>(resolve => {
+        timer = setTimeout(() => resolve(overdue), READ_STATE_CAP_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    if (capped !== overdue) return capped;
+    // Nothing else awaits the read now, so its failure must not surface as an unhandled rejection.
+    entry.promise.catch(() => undefined);
+    logger.warning(`[getState] Page read still running after ${READ_STATE_CAP_MS}ms; reporting the page as unreadable`);
+    const tab = await this._browserAdapter.getTab(this._tabId).catch(() => null);
+    return {
+      ...build_initial_state(this._tabId, tab?.url ?? this._state.url, tab?.title ?? this._state.title),
+      unreadable: true,
+    };
   }
 
   private async _readState(useVision: boolean): Promise<PageState> {

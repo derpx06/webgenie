@@ -65,15 +65,32 @@ describe('wait_for', () => {
   });
 });
 
-describe('wait', () => {
-  it('waits blindly and points at wait_for', async () => {
-    expect(await waitOn('anything', 'wait', { seconds: 1 })).toContain('Nothing was checked: wait_for names what you are waiting for');
+describe('a wait with no condition', () => {
+  it('waits for loading to finish and returns as soon as it has', async () => {
+    expect(await waitOn('anything', 'wait_for', {})).toContain('The page and its frames finished loading.');
   });
 
-  it('replays a saved conditional wait as the wait_for that replaced it', () => {
+  it('replays a saved wait as the wait_for that replaced it', () => {
     expect(upgradeLegacyAction({ wait: { text_gone: 'Loading', seconds: 5 } })).toEqual({
       wait_for: { condition: 'text_gone', text: 'Loading', seconds: 5 },
     });
-    expect(upgradeLegacyAction({ wait: { seconds: 3 } })).toEqual({ wait: { seconds: 3 } });
+    expect(upgradeLegacyAction({ wait: { seconds: 3 } })).toEqual({ wait_for: { seconds: 3 } });
+    expect(upgradeLegacyAction({ wait: {} })).toEqual({ wait_for: {} });
+  });
+});
+
+describe('the tools folded into an argument of another tool', () => {
+  it('replays a saved call as the tool that absorbed it', () => {
+    expect(upgradeLegacyAction({ hover_element: { index: 4 } })).toEqual({ click_element: { index: 4, hover: true } });
+    expect(upgradeLegacyAction({ right_click_element: { index: 4 } })).toEqual({ click_element: { index: 4, right: true } });
+    expect(upgradeLegacyAction({ drag_element: { index: 4, target_index: 9 } })).toEqual({ click_element: { index: 4, drop_on: 9 } });
+    expect(upgradeLegacyAction({ go_forward: {} })).toEqual({ go_back: { forward: true } });
+    expect(upgradeLegacyAction({ open_tab: { url: 'https://a.test/' } })).toEqual({ go_to_url: { url: 'https://a.test/', new_tab: true } });
+    expect(upgradeLegacyAction({ close_tab: { tab_id: 7 } })).toEqual({ switch_tab: { tab_id: 7, action: 'close' } });
+    expect(upgradeLegacyAction({ scroll_to_text: { text: 'Total' } })).toEqual({ scroll: { direction: 'down', text: 'Total' } });
+    expect(upgradeLegacyAction({ get_complete_page_content: { find: 'price' } })).toEqual({ find_in_page: { query: 'price' } });
+    expect(upgradeLegacyAction({ get_complete_page_content: { start_char: 500 } })).toEqual({ read_page: { mode: 'full', cursor: 500 } });
+    // A tool that was never renamed is replayed as it was saved.
+    expect(upgradeLegacyAction({ click_element: { index: 1 } })).toEqual({ click_element: { index: 1 } });
   });
 });

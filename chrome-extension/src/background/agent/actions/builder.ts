@@ -3,31 +3,23 @@ import {
   clickElementActionSchema,
   doneActionSchema,
   goBackActionSchema,
-  goForwardActionSchema,
   goToUrlActionSchema,
   inputTextActionSchema,
   fillFormActionSchema,
   uploadFileActionSchema,
   viewScreenshotActionSchema,
-  openTabActionSchema,
   searchWebActionSchema,
   switchTabActionSchema,
   type ActionSchema,
   sendKeysActionSchema,
-  scrollToTextActionSchema,
   saveFindingsActionSchema,
   notesActionSchema,
   todoListActionSchema,
   assertActionSchema,
   selectDropdownOptionActionSchema,
-  closeTabActionSchema,
-  waitActionSchema,
   waitForActionSchema,
   scrollActionSchema,
-  hoverElementActionSchema,
-  rightClickElementActionSchema,
   askHumanActionSchema,
-  getCompletePageContentActionSchema,
   readPageActionSchema,
   findInPageActionSchema,
   extractActionSchema,
@@ -46,7 +38,6 @@ import {
   manageExtensionsActionSchema,
   manageSystemActionSchema,
   manageSessionsActionSchema,
-  dragElementActionSchema,
   handleDialogActionSchema,
 } from './schemas';
 import { z } from 'zod';
@@ -233,7 +224,8 @@ export class ActionBuilder {
       ...this.buildInteractionActions(),
       ...this.buildTabActions(),
       ...this.buildContentActions(),
-      ...this.buildNetworkActions(),
+      // Running the page's JavaScript, reading its JSON endpoints and saving files off it: opt-in only.
+      ...(this.context.options.enableAdvancedTools ? this.buildPowerActions() : []),
       ...this.buildKeyboardActions(),
       ...this.buildMemoryActions(),
       // They read or change the user's own browser data, which a page could try to talk the agent into: opt-in only.
@@ -264,9 +256,7 @@ export class ActionBuilder {
       // No web search when the firewall blocks both engines it can open: the tool could only fail.
       ...(this.searchEngineAllowed() ? [new Action((input) => this.navigationHandler.handleSearchWeb(input), searchWebActionSchema)] : []),
       new Action((input) => this.navigationHandler.handleGoToUrl(input), goToUrlActionSchema),
-      new Action(() => this.navigationHandler.handleGoBack(), goBackActionSchema),
-      new Action(() => this.navigationHandler.handleGoForward(), goForwardActionSchema),
-      new Action((input) => this.navigationHandler.handleWait(input), waitActionSchema),
+      new Action((input) => this.navigationHandler.handleGoBack(input), goBackActionSchema),
       new Action((input) => this.navigationHandler.handleWaitFor(input), waitForActionSchema),
     ];
   }
@@ -274,12 +264,9 @@ export class ActionBuilder {
   private buildInteractionActions(): Action[] {
     return [
       new Action((input) => this.interactionHandler.handleClickElement(input), clickElementActionSchema, true),
-      new Action((input) => this.interactionHandler.handleHoverElement(input), hoverElementActionSchema, true),
-      new Action((input) => this.interactionHandler.handleRightClickElement(input), rightClickElementActionSchema, true),
       new Action((input) => this.interactionHandler.handleInputText(input), inputTextActionSchema, true),
       new Action((input) => this.interactionHandler.handleFillForm(input), fillFormActionSchema),
       new Action((input) => this.interactionHandler.handleUploadFile(input), uploadFileActionSchema, true),
-      new Action((input) => this.interactionHandler.handleDragElement(input), dragElementActionSchema, true),
       new Action((input) => this.interactionHandler.handleHandleDialog(input), handleDialogActionSchema),
       new Action(
         (input) => this.interactionHandler.handleSelectDropdownOption(input),
@@ -292,8 +279,6 @@ export class ActionBuilder {
   private buildTabActions(): Action[] {
     return [
       new Action((input) => this.tabHandler.handleSwitchTab(input), switchTabActionSchema),
-      new Action((input) => this.tabHandler.handleOpenTab(input), openTabActionSchema),
-      new Action((input) => this.tabHandler.handleCloseTab(input), closeTabActionSchema),
     ];
   }
 
@@ -301,18 +286,20 @@ export class ActionBuilder {
     return [
       new Action((input) => this.contentHandler.handleSaveFindings(input), saveFindingsActionSchema),
       new Action((input) => this.contentHandler.handleScroll(input), scrollActionSchema, true),
-      new Action((input) => this.contentHandler.handleScrollToText(input), scrollToTextActionSchema),
       new Action((input) => this.contentHandler.handleReadPage(input), readPageActionSchema),
       new Action((input) => this.contentHandler.handleFindInPage(input), findInPageActionSchema),
       new Action((input) => this.contentHandler.handleExtract(input), extractActionSchema),
-      new Action((input) => this.contentHandler.handleGetCompletePageContent(input), getCompletePageContentActionSchema),
       // Only for a model that reads images, with vision on (index.ts decides both).
       ...(this.context.options.useVision ? [new Action((input) => this.contentHandler.handleViewScreenshot(input), viewScreenshotActionSchema)] : []),
     ];
   }
 
-  /** Reading the site's own JSON instead of its pages; both only read, and only on the site the agent is on. */
-  private buildNetworkActions(): Action[] {
+  /**
+   * The power tools, off unless the user turns them on: the site's own JSON instead of its pages, the escape hatch for
+   * what the accessibility tree cannot reach, and the files a page produces. Anthropic ships the same set disabled.
+   * upload_file stays on: it is how a file the user attached in the side panel, at the start or in an answer, gets used.
+   */
+  private buildPowerActions(): Action[] {
     return [
       new Action((input) => this.networkHandler.handleSniffApi(input), sniffApiActionSchema),
       new Action((input) => this.networkHandler.handleFetchJson(input), fetchJsonActionSchema),

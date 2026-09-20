@@ -1150,5 +1150,11 @@
         "content": "$1"
       }
     }
+  },
+  "options_advanced_advancedTools": {
+    "message": "Ferramentas avançadas"
+  },
+  "options_advanced_advancedTools_desc": {
+    "message": "Permite que o agente execute uma expressão JavaScript na página, leia os endpoints JSON do próprio site e baixe e leia arquivos (pdf, csv, xlsx, docx). Desativado por padrão: uma lista de ferramentas mais curta torna o agente mais preciso, e estas alcançam além da página."
   }
 }

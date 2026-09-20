@@ -87,6 +87,20 @@ function pressesEnter(actionName: string, args: Record<string, unknown>): boolea
 /** Tools that press an element: the commit gate treats them alike, so a purchase cannot slip through the one it forgot. */
 const CLICKING_TOOLS = new Set(['click_element', 'download']);
 
+/**
+ * The tools `commitTarget()` can decide about on its own (by the element's label, the form around it or the arguments
+ * of a browser-data tool). A tool whose `irreversible` tier is not `never` must be here or in `COMMIT_DECIDING_TOOLS`,
+ * which `actions/__tests__/tools.test.ts` checks, so nothing that may not be undoable reaches a page ungated.
+ */
+export const COMMIT_GATED_TOOLS = new Set([
+  ...CLICKING_TOOLS,
+  'send_keys',
+  'input_text',
+  'fill_form',
+  'manage_privacy',
+  'manage_extensions',
+]);
+
 /** Whether an action could submit a form, so its form must be inspected before the gate decides. */
 export function mayCommitThroughForm(actionName: string, args: Record<string, unknown>): boolean {
   return CLICKING_TOOLS.has(actionName) || pressesEnter(actionName, args);
@@ -573,16 +587,14 @@ export function isStaleElementError(message: string): boolean {
   return /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)|node is detached|detached from (the )?document/i.test(message);
 }
 
-const NAVIGATION_ACTIONS = ['go_to_url', 'search_web', 'go_back', 'go_forward'];
+const NAVIGATION_ACTIONS = ['go_to_url', 'search_web', 'go_back'];
 const SCROLL_ACTIONS = ['scroll'];
-const POINTER_ACTIONS = ['click_element', 'hover_element', 'right_click_element', 'send_keys', 'drag_element'];
+const POINTER_ACTIONS = ['click_element', 'send_keys'];
 const MUTATING_ACTIONS = new Set([
   ...NAVIGATION_ACTIONS,
   ...SCROLL_ACTIONS,
   ...POINTER_ACTIONS,
-  'open_tab',
   'switch_tab',
-  'close_tab',
   'input_text',
   'fill_form',
   'select_dropdown_option',
@@ -780,6 +792,17 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
     );
   }
 
+  if (actionName === 'go_to_url' && args.new_tab === true) {
+    const passed = openedNewTab || before.tabId !== after.tabId;
+    return cloneWithValidation(
+      result,
+      passed ? 'passed' : 'failed',
+      passed ? 'none' : 'retry_reobserve',
+      [evidence('new_tab', passed, passed ? 'A new tab or active tab transition was observed.' : 'No new tab or active tab transition was observed.')],
+      passed ? null : 'Opening the address in a new tab did not create or activate a tab.',
+    );
+  }
+
   if (NAVIGATION_ACTIONS.includes(actionName)) {
     const alreadyThere = actionName === 'go_to_url' && sameUrl(args.url, after.url);
     const passed = changedUrl || docChanged || alreadyThere;
@@ -795,38 +818,20 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
     );
   }
 
-  if (actionName === 'open_tab') {
-    const passed = openedNewTab || before.tabId !== after.tabId;
-    return cloneWithValidation(
-      result,
-      passed ? 'passed' : 'failed',
-      passed ? 'none' : 'retry_reobserve',
-      [evidence('new_tab', passed, passed ? 'A new tab or active tab transition was observed.' : 'No new tab or active tab transition was observed.')],
-      passed ? null : 'Open-tab action did not create or activate a tab.',
-    );
-  }
-
   if (actionName === 'switch_tab') {
     const expected = typeof args.tab_id === 'number' ? args.tab_id : undefined;
-    const passed = expected !== undefined && after.tabId === expected;
+    const closing = args.action === 'close';
+    const passed = expected !== undefined && (closing ? !after.tabs.some(tab => tab.id === expected) : after.tabId === expected);
     return cloneWithValidation(
       result,
       passed ? 'passed' : 'failed',
       passed ? 'none' : 'retry_reobserve',
-      [evidence('active_tab', passed, passed ? 'Requested tab is active.' : 'Requested tab is not active.', before.tabId, after.tabId)],
-      passed ? null : 'Switch-tab action did not activate the requested tab.',
-    );
-  }
-
-  if (actionName === 'close_tab') {
-    const expected = typeof args.tab_id === 'number' ? args.tab_id : undefined;
-    const passed = expected !== undefined && !after.tabs.some(tab => tab.id === expected);
-    return cloneWithValidation(
-      result,
-      passed ? 'passed' : 'failed',
-      passed ? 'none' : 'retry_reobserve',
-      [evidence('active_tab', passed, passed ? 'Requested tab is closed.' : 'Requested tab still exists.')],
-      passed ? null : 'Close-tab action did not close the requested tab.',
+      [
+        closing
+          ? evidence('active_tab', passed, passed ? 'Requested tab is closed.' : 'Requested tab still exists.')
+          : evidence('active_tab', passed, passed ? 'Requested tab is active.' : 'Requested tab is not active.', before.tabId, after.tabId),
+      ],
+      passed ? null : closing ? 'Close-tab action did not close the requested tab.' : 'Switch-tab action did not activate the requested tab.',
     );
   }
 
@@ -868,6 +873,12 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
   }
 
   if (SCROLL_ACTIONS.includes(actionName)) {
+    // A scroll to a text reports itself whether or not the view moved (the text may already be in view).
+    if (typeof args.text === 'string' && args.text) {
+      return cloneWithValidation(result, 'passed', 'none', [
+        evidence('scroll_delta', true, 'The page was searched for the text and scrolled to it if it was there.'),
+      ]);
+    }
     // Scrolling inside an element leaves the window position unchanged; only the page content can show it.
     if (index !== undefined) {
       return layoutChanged
@@ -911,7 +922,12 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
   }
 
   if (POINTER_ACTIONS.includes(actionName)) {
-    const intercepted = actionName === 'click_element' && index !== undefined ? interceptedLink(before, after, index, actionArgs) : null;
+    // A toggle already in the state the call asked for: the handler read the control, and nothing was meant to change.
+    const settled = result.evidence.find(item => item.kind === 'target_state' && item.passed);
+    if (settled && args.desired_state) return cloneWithValidation(result, 'passed', 'none', [settled]);
+    // hover, right-click and drag are options of click_element; only a plain click opens the link it points to.
+    const plainClick = actionName === 'click_element' && !args.hover && !args.right && args.drop_on === undefined;
+    const intercepted = plainClick && index !== undefined ? interceptedLink(before, after, index, actionArgs) : null;
     if (intercepted) {
       return cloneWithValidation(
         result,
@@ -936,7 +952,7 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
     }
     // A click that only moved the address fragment (an in-page anchor, an overlay's #hash) or reloaded the same address
     // into the same content did nothing the task can use; passing it hid that from the model in live runs.
-    if (actionName === 'click_element' && readable && !openedNewTab && (changedUrl || docChanged)) {
+    if (plainClick && readable && !openedNewTab && (changedUrl || docChanged)) {
       const withoutFragment = (url: string) => url.split('#')[0];
       const sameAddress = withoutFragment(before.url) === withoutFragment(after.url)
         && withoutFragment(activeTabUrl(before)) === withoutFragment(activeTabUrl(after));

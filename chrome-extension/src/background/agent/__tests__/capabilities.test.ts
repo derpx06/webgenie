@@ -50,6 +50,44 @@ describe('LLM capability table', () => {
     expect(getLlmCapabilities(ProviderTypeEnum.Ollama, 'qwen3:8b').callTimeoutMs).toBe(90_000);
   });
 
+  /**
+   * Backoff, hedging, failover and caching read these fields instead of asking which provider they are talking to
+   * (D5): every provider declares what it sends on a refusal, where else it can be called, and how it caches a prefix.
+   */
+  it('declares what every provider sends back and how it caches, for every provider type', () => {
+    for (const type of Object.values(ProviderTypeEnum)) {
+      const caps = getLlmCapabilities(type, 'some-model');
+      expect(['headers', 'body-hint', 'none']).toContain(caps.rateLimitSignals);
+      expect(['off', 'auto']).toContain(caps.hedge);
+      expect(['none', 'implicit', 'implicit-key', 'top-level-marker', 'resource']).toContain(caps.promptCache);
+      expect(Array.isArray(caps.endpoints)).toBe(true);
+      expect(caps.minCacheTokens).toBeGreaterThanOrEqual(0);
+      // A provider that caches nothing has no minimum, and one that caches has one to clear.
+      expect(caps.minCacheTokens > 0).toBe(caps.promptCache !== 'none');
+    }
+  });
+
+  it('knows which providers hint at a wait, and which say nothing', () => {
+    expect(getLlmCapabilities(ProviderTypeEnum.OpenAI, 'gpt-4o').rateLimitSignals).toBe('headers');
+    expect(getLlmCapabilities(ProviderTypeEnum.Anthropic, 'claude-sonnet-4-5').rateLimitSignals).toBe('headers');
+    expect(getLlmCapabilities(ProviderTypeEnum.Gemini, 'gemini-2.5-flash').rateLimitSignals).toBe('body-hint');
+    expect(getLlmCapabilities(ProviderTypeEnum.VertexAI, 'gemini-2.5-flash').rateLimitSignals).toBe('none');
+    expect(getLlmCapabilities(ProviderTypeEnum.Ollama, 'qwen3:8b').rateLimitSignals).toBe('none');
+  });
+
+  it('never duplicates a slow call on a server that runs one request at a time', () => {
+    expect(getLlmCapabilities(ProviderTypeEnum.Ollama, 'qwen3:8b').hedge).toBe('off');
+    expect(getLlmCapabilities(ProviderTypeEnum.VertexAI, 'gemini-2.5-flash').hedge).toBe('auto');
+  });
+
+  it('says how each provider caches a prefix and how long it must be', () => {
+    expect(getLlmCapabilities(ProviderTypeEnum.Anthropic, 'claude-sonnet-4-5')).toMatchObject({ promptCache: 'top-level-marker', minCacheTokens: 1024 });
+    expect(getLlmCapabilities(ProviderTypeEnum.OpenAI, 'gpt-4o')).toMatchObject({ promptCache: 'implicit-key', minCacheTokens: 1024 });
+    expect(getLlmCapabilities(ProviderTypeEnum.VertexAI, 'gemini-2.5-flash')).toMatchObject({ promptCache: 'implicit', minCacheTokens: 2048 });
+    expect(getLlmCapabilities(ProviderTypeEnum.VertexAI, 'gemini-3-pro').minCacheTokens).toBe(4096);
+    expect(getLlmCapabilities(ProviderTypeEnum.Ollama, 'qwen3:8b').promptCache).toBe('none');
+  });
+
   it('maps Gemini thinking budgets, never turning pro thinking fully off', () => {
     expect(geminiThinkingBudget(undefined, 'gemini-2.5-flash')).toBe(1024);
     expect(geminiThinkingBudget('minimal', 'gemini-2.5-flash')).toBe(0);

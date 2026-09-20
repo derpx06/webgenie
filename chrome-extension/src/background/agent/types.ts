@@ -45,6 +45,8 @@ export interface AgentOptions {
   captureSessions: boolean;
   /** Registers the manage_* tools (bookmarks, history, downloads, browsing data, extensions...); off unless the user turns them on. */
   enableBrowserDataTools: boolean;
+  /** Registers eval_js, sniff_api, fetch_json, download and read_file; off unless the user turns them on. */
+  enableAdvancedTools: boolean;
   /** Accept the navigator's done without the planner's check when the evidence is complete (validation/done-evidence.ts). */
   acceptEvidencedDone: boolean;
   /** How many kinds of route must have come back empty before an answer of absence is accepted; below 2 turns the check off. */
@@ -67,6 +69,7 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   logDOMSnapshot: false,
   captureSessions: false,
   enableBrowserDataTools: false,
+  enableAdvancedTools: false,
   acceptEvidencedDone: false,
   absenceRouteKinds: 2,
   reportMissingControls: false,
@@ -147,7 +150,7 @@ export class AgentContext {
   stagnantActions = 0;
   /** The action that just failed and why, so an identical retry looks at the current page first. */
   lastFailedAction: { key: string; reason: string } | null = null;
-  /** Addresses opened with go_to_url or open_tab this task and how often; a fourth open of one is refused. */
+  /** Addresses opened with go_to_url this task and how often; a fourth open of one is refused. */
   openedAddresses = new Map<string, number>();
   /** Entries of a list in the task that every value typed since the last other action comes from, and those values. */
   entryCandidates: { entries: Array<{ index: number; text: string }>; values: string[]; url: string } | null = null;
@@ -178,7 +181,7 @@ export class AgentContext {
    * caller's JSON Schema and the page text and returns whatever the model could read.
    */
   extractWithModel?: (schema: Record<string, unknown>, text: string) => Promise<unknown>;
-  /** The last page read (read_page, find_in_page, extract or get_complete_page_content) and the address it was read on. */
+  /** The last page read (read_page, find_in_page or extract) and the address it was read on. */
   pageRead: { url: string; text: string } | null = null;
   /** The page read shown to the models this step; element indexes in their actions refer to it. */
   promptState?: BrowserState;

@@ -69,10 +69,10 @@ const logger = createLogger('NavigatorAgent');
 const SECRET_PLACEHOLDER = /\{\{secret_\d+\}\}/g;
 
 /** Actions that can carry the user's data to a site: typed text, addresses, queries. */
-const DATA_CARRYING_ACTIONS = new Set(['input_text', 'fill_form', 'go_to_url', 'open_tab', 'search_web', 'read_page', 'fetch_json']);
+const DATA_CARRYING_ACTIONS = new Set(['input_text', 'fill_form', 'go_to_url', 'search_web', 'read_page', 'fetch_json']);
 
 /** Actions that open an address the model wrote. */
-const NAVIGATING_ACTIONS = new Set(['go_to_url', 'open_tab', 'read_page']);
+const NAVIGATING_ACTIONS = new Set(['go_to_url', 'read_page']);
 
 /** The address an action opens, if any: read_page opens one only when its target is not the current page. */
 function navigatedUrl(actionName: string, args: unknown): string {
@@ -94,11 +94,12 @@ const MAX_IDENTICAL_ACTIONS = 3;
 /** Actions left out of the repeat count: scrolls have their own, and a done or a question is not a repeat. */
 const UNCOUNTED_REPEATS = new Set(['scroll', 'done', 'ask_human']);
 
-/** Times one address may be opened with go_to_url or open_tab in a task; the next open is refused. */
+/** Times one address may be opened with go_to_url in a task; the next open is refused. */
 const MAX_OPENS_PER_ADDRESS = 3;
 
 const intentCheckSchema: ActionSchema = {
   name: 'intent_check',
+  irreversible: 'never',
   description: "Report whether the user's own request asks for the action described.",
   schema: z.object({
     asked: z.boolean().describe('true only if the user asked for it, or it is a necessary part of what the user asked'),
@@ -668,7 +669,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // The element list holds the whole page, offscreen elements included: after three page scrolls that listed nothing
         // new, another one will not either (a live run scrolled 8-21 times for filters already listed or in a collapsed section).
         if (actionName === 'scroll' && indexArg === null && this.context.emptyScrolls >= MAX_EMPTY_SCROLLS) {
-          refuse('empty-scroll', `Not scrolled: the last ${this.context.emptyScrolls} page scrolls revealed nothing new, so every element of this page is already listed. Use an element marked ^ (offscreen) by index, open a collapsed section (aria-expanded="false") that may hold what you look for, find a text with get_complete_page_content with find or scroll_to_text, or scroll a specific element by index.`);
+          refuse('empty-scroll', `Not scrolled: the last ${this.context.emptyScrolls} page scrolls revealed nothing new, so every element of this page is already listed. Use an element marked ^ (offscreen) by index, open a collapsed section (aria-expanded="false") that may hold what you look for, find a text with find_in_page, or scroll a specific element by index.`);
           break;
         }
 
@@ -685,7 +686,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // The same action on an unchanged page, three times over: the fourth does not work either.
         if (!UNCOUNTED_REPEATS.has(actionName)
           && (this.context.actionRepeats.get(this.repeatKey(actionName, actionArgs, beforeState.url)) ?? 0) >= MAX_IDENTICAL_ACTIONS) {
-          refuse('identical-repeat', `Not done: you have already done exactly this ${MAX_IDENTICAL_ACTIONS} times on this page and nothing on it changed, so this one is refused. Do something else: another element, a collapsed section or menu that may hold what you look for, get_complete_page_content with find, another route, or finish with done (success: false) and say what blocks you.`);
+          refuse('identical-repeat', `Not done: you have already done exactly this ${MAX_IDENTICAL_ACTIONS} times on this page and nothing on it changed, so this one is refused. Do something else: another element, a collapsed section or menu that may hold what you look for, find_in_page, another route, or finish with done (success: false) and say what blocks you.`);
           break;
         }
 
@@ -697,7 +698,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           const leaving = appliedOnPage(this.context, this.context.requirements);
           if (leaving.length > 0) {
             this.context.leavingAppliedChecked = true;
-            refuse('leave-applied', `Not done: this page shows ${leaving.map(item => `${item.requirement} (${item.evidence})`).join('; ')} applied, and going back removes it. Never leave a page to check what is applied on it, and never leave one that already holds what the task asks: read the current page state here, or get_complete_page_content. Send go_back again only if you really need the previous page.`);
+            refuse('leave-applied', `Not done: this page shows ${leaving.map(item => `${item.requirement} (${item.evidence})`).join('; ')} applied, and going back removes it. Never leave a page to check what is applied on it, and never leave one that already holds what the task asks: read the current page state here, or read_page. Send go_back again only if you really need the previous page.`);
             break;
           }
         }
@@ -1039,15 +1040,15 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         }
 
         // Dragging the same item onto the same target again undoes a swap or repeats a move the page already shows.
-        const dragKey = actionName === 'drag_element'
+        const dragKey = actionName === 'click_element' && (actionArgs as { drop_on?: number }).drop_on !== undefined
           ? (() => {
             const labelOf = (index: number | undefined) => {
               const node = beforeState.selectorMap.get(index ?? -1);
               return node ? [node.attributes['aria-label'], node.getAllTextTillNextClickableElement(2)].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim() : '';
             };
-            const { index, target_index } = actionArgs as { index?: number; target_index?: number };
+            const { index, drop_on } = actionArgs as { index?: number; drop_on?: number };
             const source = labelOf(index);
-            const target = labelOf(target_index);
+            const target = labelOf(drop_on);
             return source && target ? `${source} -> ${target}` : null;
           })()
           : null;
@@ -1260,7 +1261,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
               ? `Scrolling revealed ${revealed.length} new element${revealed.length === 1 ? '' : 's'}.`
               : windowed
                 ? 'Scrolling moved the part of this long page that the element list shows.'
-                : 'Scrolling revealed nothing new: every element of this page was already listed; use elements marked ^ (offscreen) by index, open a collapsed section, or use get_complete_page_content with find.'}`.trim(),
+                : 'Scrolling revealed nothing new: every element of this page was already listed; use elements marked ^ (offscreen) by index, open a collapsed section, or use find_in_page.'}`.trim(),
           });
         } else if (actionName !== 'scroll') {
           this.context.emptyScrolls = 0;
@@ -1274,7 +1275,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
             : '';
           result = new ActionResult({
             ...result,
-            extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row.${escalation} Elements marked ^ (offscreen) are on the page already: use them by index (the action scrolls to them). Options you look for (a price or rating filter) often sit inside a collapsed section, menu or filter panel: open the button with that name instead of scrolling. To find a text, use get_complete_page_content with find, or scroll_to_text.`.trim(),
+            extractedContent: `${result.extractedContent ?? ''} That is ${this.context.scrollRun} scrolls in a row.${escalation} Elements marked ^ (offscreen) are on the page already: use them by index (the action scrolls to them). Options you look for (a price or rating filter) often sit inside a collapsed section, menu or filter panel: open the button with that name instead of scrolling. To find a text, use find_in_page, or scroll with text.`.trim(),
           });
         }
         // The same action on the same page, over and over (live runs: go_back 11 times, switch_tab back and forth, the same
@@ -1298,7 +1299,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           if (times >= MAX_IDENTICAL_ACTIONS) {
             result = new ActionResult({
               ...result,
-              extractedContent: `${result.extractedContent ?? ''} You have done exactly this ${times} times on this page and nothing on it changed, so another one is refused; do something different: another element, another route, get_complete_page_content with find, or report what blocks you.`.trim(),
+              extractedContent: `${result.extractedContent ?? ''} You have done exactly this ${times} times on this page and nothing on it changed, so another one is refused; do something different: another element, another route, find_in_page, or report what blocks you.`.trim(),
             });
           }
         }

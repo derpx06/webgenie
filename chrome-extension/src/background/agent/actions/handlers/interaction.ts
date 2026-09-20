@@ -1,12 +1,9 @@
 import { ActionResult } from '@src/background/agent/types';
 import type {
   clickElementActionSchema,
-  dragElementActionSchema,
   fillFormActionSchema,
   handleDialogActionSchema,
-  hoverElementActionSchema,
   inputTextActionSchema,
-  rightClickElementActionSchema,
   selectDropdownOptionActionSchema,
   uploadFileActionSchema,
 } from '../schemas';
@@ -22,6 +19,19 @@ import { registerSecret } from '@src/background/trace';
 
 function describe(node: DOMElementNode): string {
   return node.getAllTextTillNextClickableElement(2) || node.attributes['aria-label'] || node.tagName || 'element';
+}
+
+/** Whether an element is a two-state control: a checkbox, a switch or a radio button. */
+function isToggle(node: DOMElementNode): boolean {
+  const { role = '', type = '' } = node.attributes;
+  return ['checkbox', 'switch', 'radio'].includes(role) || ['checkbox', 'radio'].includes(type.toLowerCase());
+}
+
+/** Whether a toggle is on, as the accessibility tree reports it; null when the element does not say. */
+function toggleState(node: DOMElementNode): boolean | null {
+  const { attributes: a } = node;
+  const value = a['aria-checked'] ?? a.checked;
+  return value === 'true' || value === '' ? true : value === 'false' ? false : null;
 }
 
 /**
@@ -81,7 +91,31 @@ export class InteractionHandler extends BaseHandler {
     return new ActionResult({ extractedContent: ownAction(`You ${verb} [${index}] "${describe(node)}"`) + extra, includeInMemory: true });
   }
 
+  /** One pointer verb: a click, or the gesture an option names (double, right, hover, drag and drop). */
   async handleClickElement(input: z.infer<typeof clickElementActionSchema.schema>): Promise<ActionResult> {
+    if (input.drop_on !== undefined) return this.dragOnto(input.index, input.drop_on);
+    if (input.desired_state) {
+      const settled = await this.alreadyInState(input.index, input.desired_state);
+      if (settled) return settled;
+    }
+    if (input.hover) {
+      return this.pointerAction(
+        input.index,
+        `Hovering over element ${input.index}`,
+        (page, node) => page.hoverNode(node),
+        node => `Hovered over element ${input.index}: ${describe(node)}`,
+        'hovered over',
+      );
+    }
+    if (input.right) {
+      return this.pointerAction(
+        input.index,
+        `Right clicking element ${input.index}`,
+        (page, node) => page.rightClickNode(node),
+        node => `Right clicked element ${input.index}: ${describe(node)}`,
+        'right-clicked',
+      );
+    }
     return this.pointerAction(
       input.index,
       t('act_click_start', [input.index.toString()]),
@@ -112,35 +146,33 @@ export class InteractionHandler extends BaseHandler {
     });
   }
 
-  async handleHoverElement(input: z.infer<typeof hoverElementActionSchema.schema>): Promise<ActionResult> {
-    return this.pointerAction(
-      input.index,
-      `Hovering over element ${input.index}`,
-      (page, node) => page.hoverNode(node),
-      node => `Hovered over element ${input.index}: ${describe(node)}`,
-      'hovered over',
-    );
-  }
-
-  async handleRightClickElement(input: z.infer<typeof rightClickElementActionSchema.schema>): Promise<ActionResult> {
-    return this.pointerAction(
-      input.index,
-      `Right clicking element ${input.index}`,
-      (page, node) => page.rightClickNode(node),
-      node => `Right clicked element ${input.index}: ${describe(node)}`,
-      'right-clicked',
-    );
-  }
-
-  async handleDragElement(input: z.infer<typeof dragElementActionSchema.schema>): Promise<ActionResult> {
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Dragging element ${input.index} onto ${input.target_index}`);
-    const { page, node } = await this.resolveIndex(input.index);
-    const { node: target } = await this.resolveIndex(input.target_index);
-    await page.dragNode(node, target);
-    const msg = `Dragged element ${input.index} (${describe(node)}) onto element ${input.target_index} (${describe(target)})`;
+  /**
+   * A checkbox, switch or radio the call asked for a state that it already has: clicking it would turn it off, which
+   * is the opposite of what was asked. The result says so and counts as done, so the step is not spent and not undone.
+   */
+  private async alreadyInState(index: number, desired: 'checked' | 'unchecked'): Promise<ActionResult | null> {
+    const { node } = await this.resolveIndex(index);
+    if (!isToggle(node)) return null;
+    const state = toggleState(node);
+    if (state === null || state !== (desired === 'checked')) return null;
+    const msg = `[${index}] "${describe(node)}" is already ${desired}; it was left as it is, because clicking it would turn it ${desired === 'checked' ? 'off' : 'on'}.`;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     return new ActionResult({
-      extractedContent: ownAction(`You dragged [${input.index}] "${describe(node)}" onto [${input.target_index}] "${describe(target)}"`),
+      extractedContent: msg,
+      includeInMemory: true,
+      evidence: [{ kind: 'target_state', passed: true, message: msg, after: { checked: state } }],
+    });
+  }
+
+  private async dragOnto(index: number, targetIndex: number): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Dragging element ${index} onto ${targetIndex}`);
+    const { page, node } = await this.resolveIndex(index);
+    const { node: target } = await this.resolveIndex(targetIndex);
+    await page.dragNode(node, target);
+    const msg = `Dragged element ${index} (${describe(node)}) onto element ${targetIndex} (${describe(target)})`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    return new ActionResult({
+      extractedContent: ownAction(`You dragged [${index}] "${describe(node)}" onto [${targetIndex}] "${describe(target)}"`),
       includeInMemory: true,
     });
   }

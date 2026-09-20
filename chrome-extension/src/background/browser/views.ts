@@ -22,8 +22,8 @@ export interface BrowserContextConfig {
   waitForNetworkIdlePageLoadTime: number;
 
   /**
-   * Maximum time to wait for page load before proceeding anyway
-   * @default 5.0
+   * Maximum time to wait for the page's requests to go quiet before reading it anyway.
+   * @default 2.0
    */
   maximumWaitPageLoadTime: number;
 
@@ -100,7 +100,9 @@ export interface BrowserContextConfig {
 export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   minimumWaitPageLoadTime: 0.1,
   waitForNetworkIdlePageLoadTime: 0.25,
-  maximumWaitPageLoadTime: 5.0,
+  // 26% of network-idle waits spent the whole 5 s cap, while the 74% that returned early returned in 0.30 s: the
+  // signal arrives fast or not at all, so the last three seconds bought nothing (analysis-3-latency.md, item 7).
+  maximumWaitPageLoadTime: 2.0,
   waitBetweenActions: 0.15,
   actionSettleTimeoutMs: 2000,
   actionPollIntervalMs: 150,

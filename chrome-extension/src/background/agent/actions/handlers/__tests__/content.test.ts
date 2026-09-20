@@ -96,7 +96,7 @@ describe('ContentHandler scroll', () => {
   });
 });
 
-describe('ContentHandler get_complete_page_content (deprecated alias)', () => {
+describe('ContentHandler whole-page read (what get_complete_page_content replays as)', () => {
   const long = `# Report\n\n${'a'.repeat(12000)}\n\nTAIL price $42 end`;
 
   function page(markdown = long) {
@@ -110,34 +110,34 @@ describe('ContentHandler get_complete_page_content (deprecated alias)', () => {
     };
   }
 
-  it('reads the whole page through read_page and continues at start_char', async () => {
+  it('reads the whole page and continues at the cursor', async () => {
     const reader = page();
     const { handler } = handlerFor(reader);
 
-    const first = await handler.handleGetCompletePageContent({});
+    const first = await handler.handleReadPage({ mode: 'full' });
     expect(reader.readPageMarkdown).toHaveBeenCalledWith('full');
     expect(first.extractedContent).toContain('full content');
     expect(first.extractedContent).not.toContain('TAIL');
 
-    const rest = await handler.handleGetCompletePageContent({ start_char: 12010 });
+    const rest = await handler.handleReadPage({ mode: 'full', cursor: 12010 });
     expect(rest.extractedContent).toContain('TAIL price $42 end');
   });
 
-  it('searches through find_in_page when find is given', async () => {
+  it('searches the page text and says when there is no match', async () => {
     const { handler } = handlerFor(page());
 
-    const found = await handler.handleGetCompletePageContent({ find: 'PRICE' });
+    const found = await handler.handleFindInPage({ query: 'PRICE' });
     expect(found.extractedContent).toContain('1 match for "PRICE"');
     expect(found.extractedContent).toContain('TAIL price $42 end');
 
-    const missing = await handler.handleGetCompletePageContent({ find: 'discount' });
+    const missing = await handler.handleFindInPage({ query: 'discount' });
     expect(missing.extractedContent).toContain('No match for "discount"');
   });
 
-  it('says the whole page was read when start_char is past the end', async () => {
+  it('says the whole page was read when the cursor is past the end', async () => {
     const { handler } = handlerFor(page());
 
-    const past = await handler.handleGetCompletePageContent({ start_char: long.length + 100 });
+    const past = await handler.handleReadPage({ mode: 'full', cursor: long.length + 100 });
 
     expect(past.extractedContent).toContain('at or past the end of the text');
   });

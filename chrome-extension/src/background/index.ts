@@ -933,6 +933,7 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
         generalSettings.useVisionForPlanner && (tune?.useVision ?? true) && toolModeOf(roleModel ?? plannerModel ?? navigatorModel).vision,
       planningInterval: generalSettings.planningInterval,
       enableBrowserDataTools: generalSettings.enableBrowserDataTools,
+      enableAdvancedTools: generalSettings.enableAdvancedTools,
       acceptEvidencedDone: generalSettings.acceptEvidencedDone,
       logDOMSnapshot: advancedSettings.enableDeveloperOptions && advancedSettings.logDOMSnapshot,
       captureSessions: advancedSettings.enableDeveloperOptions && advancedSettings.captureTraces && advancedSettings.captureSessions,

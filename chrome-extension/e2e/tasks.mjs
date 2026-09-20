@@ -1550,6 +1550,8 @@ const FILES = [
     id: 'F5',
     title: 'Downloads a file and reports the name it was saved under',
     url: f => `${f.hostOrigin}/reports`,
+    // download and read_file are power tools: a user who wants them turns them on, so the task turns them on too.
+    settings: { 'general-settings': { enableAdvancedTools: true } },
     task: 'Download the March sales report and tell me the file name it was saved as.',
     check: ({ answer, downloadsDir }) => {
       const saved = downloadsDir && fs.existsSync(downloadsDir) ? fs.readdirSync(downloadsDir) : [];

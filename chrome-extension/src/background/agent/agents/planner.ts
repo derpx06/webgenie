@@ -16,6 +16,7 @@ const logger = createLogger('PlannerAgent');
 
 export const planToolSchema: ActionSchema = {
   name: 'plan',
+  irreversible: 'never',
   description:
     'Report whether the user task is complete and, if it is not, the next phase for the browser navigator. Call it exactly once.',
   schema: plannerLLMOutputSchema,

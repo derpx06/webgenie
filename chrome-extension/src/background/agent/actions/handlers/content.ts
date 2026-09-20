@@ -2,11 +2,9 @@ import { ActionResult } from '@src/background/agent/types';
 import type {
   extractActionSchema,
   findInPageActionSchema,
-  getCompletePageContentActionSchema,
   readPageActionSchema,
   saveFindingsActionSchema,
   scrollActionSchema,
-  scrollToTextActionSchema,
   viewScreenshotActionSchema,
 } from '../schemas';
 import type { z } from 'zod';
@@ -284,6 +282,8 @@ export class ContentHandler extends BaseHandler {
   }
 
   async handleScroll(input: z.infer<typeof scrollActionSchema.schema>): Promise<ActionResult> {
+    // A named text is what the scroll is for, so it is scrolled to directly instead of by screens.
+    if (input.text) return this.scrollToText(input.text);
     const { direction } = input;
     const byPages = direction === 'down' || direction === 'up';
     const pages = Math.min(Math.max(input.pages ?? 1, 0.1), 10);
@@ -318,17 +318,17 @@ export class ContentHandler extends BaseHandler {
     });
   }
 
-  async handleScrollToText(input: z.infer<typeof scrollToTextActionSchema.schema>): Promise<ActionResult> {
-    const nth = input.nth ?? 1;
-    const intent = t('act_scrollToText_start', [input.text, nth.toString()]);
+  private async scrollToText(text: string): Promise<ActionResult> {
+    const nth = 1;
+    const intent = t('act_scrollToText_start', [text, nth.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
     const page = await this.context.browserContext.getCurrentPage();
     try {
-      const scrolled = await page.scrollToText(input.text, nth);
+      const scrolled = await page.scrollToText(text, nth);
       const msg = scrolled
-        ? t('act_scrollToText_ok', [input.text, nth.toString()])
-        : t('act_scrollToText_notFound', [input.text, nth.toString()]);
+        ? t('act_scrollToText_ok', [text, nth.toString()])
+        : t('act_scrollToText_notFound', [text, nth.toString()]);
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
       return new ActionResult({ extractedContent: msg, includeInMemory: true });
     } catch (error) {
@@ -582,14 +582,4 @@ export class ContentHandler extends BaseHandler {
     });
   }
 
-  /**
-   * The old whole-page read, kept for one release so saved histories and older prompts keep working: `find` is a
-   * find_in_page, everything else a full read_page continued at `start_char`.
-   *
-   * @deprecated use read_page and find_in_page.
-   */
-  async handleGetCompletePageContent(input: z.infer<typeof getCompletePageContentActionSchema.schema>): Promise<ActionResult> {
-    if (input.find) return this.handleFindInPage({ query: input.find });
-    return this.handleReadPage({ mode: 'full', cursor: input.start_char });
-  }
 }

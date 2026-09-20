@@ -33,11 +33,24 @@ const LEGACY_ACTIONS: Record<string, LegacyUpgrade> = {
   cache_content: args => ({ save_findings: { text: String(args.content ?? '') } }),
   search_google: args => ({ search_web: { query: String(args.query ?? ''), engine: 'google' } }),
   get_dropdown_options: () => null,
-  // wait no longer takes a condition; a saved conditional wait is the wait_for that replaced it.
+  // Every wait is wait_for now; a saved conditional wait keeps its condition, a blind one waits for loading to finish.
   wait: args =>
     args.text || args.text_gone
       ? { wait_for: { condition: args.text ? 'text' : 'text_gone', text: String(args.text ?? args.text_gone), ...(args.seconds != null ? { seconds: args.seconds } : {}) } }
-      : { wait: args },
+      : { wait_for: args.seconds != null ? { seconds: args.seconds } : {} },
+  // The pointer verbs are options of the one click tool; the tab verbs are options of go_to_url and switch_tab.
+  hover_element: args => ({ click_element: { index: args.index, hover: true } }),
+  right_click_element: args => ({ click_element: { index: args.index, right: true } }),
+  drag_element: args => ({ click_element: { index: args.index, drop_on: args.target_index } }),
+  go_forward: () => ({ go_back: { forward: true } }),
+  open_tab: args => ({ go_to_url: { url: String(args.url ?? ''), new_tab: true } }),
+  close_tab: args => ({ switch_tab: { tab_id: args.tab_id, action: 'close' } }),
+  scroll_to_text: args => ({ scroll: { direction: 'down', text: String(args.text ?? '') } }),
+  // The deprecated whole-page read: a find is a find_in_page, everything else a full read continued where it stopped.
+  get_complete_page_content: args =>
+    args.find
+      ? { find_in_page: { query: String(args.find) } }
+      : { read_page: { mode: 'full', ...(args.start_char != null ? { cursor: args.start_char } : {}) } },
 };
 
 /** A saved action in today's tool names and arguments; anything not renamed is returned unchanged. */

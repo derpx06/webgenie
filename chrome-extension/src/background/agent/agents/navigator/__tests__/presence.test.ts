@@ -31,7 +31,7 @@ describe('actionKind', () => {
     expect(actionKind('input_text')).toBe('type');
     expect(actionKind('scroll')).toBe('scroll');
     expect(actionKind('go_to_url')).toBe('scroll');
-    expect(actionKind('wait')).toBe('wait');
+    expect(actionKind('wait_for')).toBe('wait');
     expect(actionKind('ask_human')).toBe('ask');
     expect(actionKind('done')).toBe('done');
   });

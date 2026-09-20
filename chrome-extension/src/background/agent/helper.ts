@@ -340,6 +340,12 @@ export function createChatModel(
         maxRetries: 0,
         clientOptions: {},
         callbacks,
+        // Nothing is cached here without a marker, and the prefix (system prompt and tools) is the same on every call
+        // of a task: one top-level breakpoint moves itself forward, so the prefix is read at a tenth of the price and
+        // stops counting against the input-token limit.
+        ...(getLlmCapabilities(ProviderTypeEnum.Anthropic, modelConfig.modelName).promptCache === 'top-level-marker'
+          ? { invocationKwargs: { cache_control: { type: 'ephemeral' } } }
+          : {}),
       };
       return new ChatAnthropic(args);
     }

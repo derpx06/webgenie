@@ -17,7 +17,17 @@ import { isBadRequestError, isNetworkError, isRateLimitError, ResponseParseError
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CallOptions = Record<string, any>;
 
-export type ToolMode = Pick<LlmCapabilities, 'nativeTools' | 'forceToolChoice'> & Partial<Pick<LlmCapabilities, 'callTimeoutMs'>>;
+/**
+ * Call options that let the provider reuse this role's prefix. A provider that caches on a key (OpenAI) needs the same
+ * key on every call of one task and role, and nothing else: the prefix itself is what is matched, the key only steers
+ * the request to the machine holding it. Providers that cache on the prefix alone, or not at all, get nothing.
+ */
+export function promptCacheOptions(toolMode: ToolMode, taskId: string, role: string): CallOptions {
+  return toolMode.promptCache === 'implicit-key' ? { promptCacheKey: `webgenie-${taskId}-${role}` } : {};
+}
+
+export type ToolMode = Pick<LlmCapabilities, 'nativeTools' | 'forceToolChoice'> &
+  Partial<Pick<LlmCapabilities, 'callTimeoutMs' | 'hedge' | 'endpoints' | 'promptCache' | 'minCacheTokens' | 'rateLimitSignals'>>;
 
 export interface BaseAgentOptions {
   chatLLM: BaseChatModel;
@@ -50,7 +60,7 @@ export abstract class BaseAgent<M = unknown> {
     this.context = options.context;
     this.toolMode = options.toolMode ?? { nativeTools: true, forceToolChoice: true };
     this.id = extraOptions?.id || 'agent';
-    this.callOptions = extraOptions?.callOptions;
+    this.callOptions = { ...extraOptions?.callOptions, ...promptCacheOptions(this.toolMode, this.context.taskId, this.id) };
     const model = this.chatLLM as unknown as Record<string, unknown>;
     this.modelName = String(model.modelName ?? model.model_name ?? model.model ?? 'Unknown');
   }
@@ -74,6 +84,8 @@ export abstract class BaseAgent<M = unknown> {
         native: this.toolMode.nativeTools && typeof this.chatLLM.bindTools === 'function',
         forceToolChoice: this.toolMode.forceToolChoice,
         timeoutMs: this.toolMode.callTimeoutMs,
+        hedge: this.toolMode.hedge,
+        endpoints: this.toolMode.endpoints,
         component: this.id,
         model: this.modelName,
         signal: this.context.controller.signal,
@@ -132,6 +144,104 @@ export abstract class BaseAgent<M = unknown> {
 /** Limit for each attempt without a per-model limit: a response this slow is usually a one-off, so the retry starts fresh. */
 export const LLM_CALL_TIMEOUTS_MS = [25_000, 37_500];
 /**
+ * What this worker has seen each model take, newest last. The window follows a model that speeds up or slows down, and
+ * it is what the call limit and the hedge point are set from: a fixed 25 s limit abandons a model whose p99 is 40 s and
+ * waits 25 s for one whose p99 is 6 s (timeouts cost 18.2 s a task in run r3).
+ */
+const LATENCY_WINDOW = 64;
+/** Below this many samples the capability's own numbers are used: a handful of calls says nothing about a tail. */
+const MIN_LATENCY_SAMPLES = 8;
+/** No call is abandoned sooner than this, however fast the model has been. */
+export const MIN_CALL_TIMEOUT_MS = 10_000;
+/** No duplicate is sent sooner than this, however fast the model has been. */
+export const MIN_HEDGE_AFTER_MS = 3_000;
+const latencies = new Map<string, number[]>();
+
+/** Remembers how long one call took, for the model's own limits. */
+export function recordCallLatency(model: string, ms: number): void {
+  const samples = latencies.get(model) ?? [];
+  samples.push(ms);
+  if (samples.length > LATENCY_WINDOW) samples.shift();
+  latencies.set(model, samples);
+}
+
+/** The model's observed quantile in ms, or null while too little has been seen to know it. */
+export function callLatencyQuantile(model: string, quantile: number): number | null {
+  const samples = latencies.get(model);
+  if (!samples || samples.length < MIN_LATENCY_SAMPLES) return null;
+  const sorted = [...samples].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(quantile * sorted.length) - 1)];
+}
+
+/** Forgets every model's history; tests and a new worker start clean. */
+export function resetCallLatencies(): void {
+  latencies.clear();
+}
+
+// ── Pacing: how fast this worker may start calls ─────────────────────────────
+/**
+ * A rate this worker keeps to per (provider endpoint, model), learned from refusals: our own first-attempt 429 rate
+ * rose from 0.09-0.13 to 0.29 as our request rate went from under 4 to 12 or more fresh requests a minute, so the
+ * burst is partly self-inflicted. Nothing is paced until the provider refuses once (a local server never does), and
+ * from then on it is additive increase on every accepted call, halving on every refusal — AIMD, with the 429 as the
+ * only loss signal. A provider that sends its own limit in a header is believed over the estimate.
+ */
+const PACE_WINDOW_MS = 60_000;
+const PACE_MIN_PER_MINUTE = 4;
+const PACE_MAX_PER_MINUTE = 240;
+/** Longest a call is held back for pacing: this smooths a burst, it never parks a task for a minute. */
+export const PACE_MAX_HOLD_MS = 15_000;
+
+interface Pace {
+  /** Starts allowed per minute, or null while this endpoint has never refused a call. */
+  limit: number | null;
+  /** When calls were started, within the window. */
+  starts: number[];
+}
+const paces = new Map<string, Pace>();
+
+/** One pace per provider endpoint and model: a limit is a property of the queue behind them, not of the caller. */
+export function paceKey(model: string | undefined, endpoint?: string): string {
+  return `${endpoint ?? ''}|${model ?? 'default'}`;
+}
+
+function paceFor(key: string, now: number): Pace {
+  const pace = paces.get(key) ?? { limit: null, starts: [] };
+  pace.starts = pace.starts.filter(at => now - at < PACE_WINDOW_MS);
+  paces.set(key, pace);
+  return pace;
+}
+
+/** How long to hold a call back so this worker stays under the rate the provider last refused; 0 to start now. */
+export function startDelayMs(key: string, now: number = Date.now()): number {
+  const pace = paceFor(key, now);
+  if (pace.limit === null || pace.starts.length < pace.limit) return 0;
+  const oldestThatCounts = pace.starts[pace.starts.length - pace.limit];
+  return Math.min(PACE_MAX_HOLD_MS, Math.max(0, oldestThatCounts + PACE_WINDOW_MS - now));
+}
+
+export function noteCallStarted(key: string, now: number = Date.now()): void {
+  paceFor(key, now).starts.push(now);
+}
+
+/** A call the provider accepted: allow one more a minute, up to the ceiling. */
+export function noteCallAccepted(key: string, now: number = Date.now()): void {
+  const pace = paceFor(key, now);
+  if (pace.limit !== null) pace.limit = Math.min(PACE_MAX_PER_MINUTE, pace.limit + 1);
+}
+
+/** A refusal: take the provider's own limit when it sent one, otherwise halve the rate we were running at. */
+export function noteCallRefused(key: string, allowedPerMinute: number | null = null, now: number = Date.now()): void {
+  const pace = paceFor(key, now);
+  const halved = Math.floor((pace.limit ?? pace.starts.length) / 2);
+  pace.limit = Math.min(PACE_MAX_PER_MINUTE, Math.max(PACE_MIN_PER_MINUTE, allowedPerMinute ?? halved));
+}
+
+/** Forgets every pace; tests and a new worker start unthrottled. */
+export function resetPacing(): void {
+  paces.clear();
+}
+/**
  * A call still running after this long gets a duplicate request, and the first answer wins. Provider latency has a
  * long tail unrelated to the request (flash: median 2-3 s, yet some calls take 25-36 s for 70 output tokens), and a
  * second request usually escapes it. Roughly the p95 of successful calls, so few calls are duplicated.
@@ -153,21 +263,68 @@ const cooldownUntil = new Map<string, number>();
 export const NO_HEDGE_AFTER_RATE_LIMIT_MS = 60_000;
 const rateLimitedAt = new Map<string, number>();
 
-/** A wait the provider asked for: Google's retryDelay ("30s") or a Retry-After value in seconds. */
+/**
+ * The response headers an error carries, however the adapter wrapped them (a `Headers` object, a plain object, on the
+ * error, its response or its cause). Lower-cased, so a caller reads one spelling.
+ */
+export function errorHeaders(error: unknown): Record<string, string> {
+  const source = error as { headers?: unknown; response?: { headers?: unknown }; cause?: { headers?: unknown } } | null;
+  for (const raw of [source?.headers, source?.response?.headers, source?.cause?.headers]) {
+    if (!raw || typeof raw !== 'object') continue;
+    const headers: Record<string, string> = {};
+    if (typeof (raw as Headers).forEach === 'function' && typeof (raw as Headers).get === 'function') {
+      (raw as Headers).forEach((value, key) => {
+        headers[key.toLowerCase()] = String(value);
+      });
+    } else {
+      for (const [key, value] of Object.entries(raw as Record<string, unknown>)) headers[key.toLowerCase()] = String(value);
+    }
+    if (Object.keys(headers).length > 0) return headers;
+  }
+  return {};
+}
+
+/**
+ * A wait the provider asked for, from the error object first: OpenAI and Anthropic send `retry-after` as a header and
+ * only the header is authoritative, while Gemini puts a `retryDelay` in the body and Vertex sends nothing at all.
+ * Falls back to the message text, which is where these values landed before adapters passed the headers through.
+ */
 export function retryDelayHint(error: unknown): number | null {
+  const header = errorHeaders(error)['retry-after'];
+  if (header !== undefined) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+    // HTTP-date form: what matters is how long from now.
+    const at = Date.parse(header);
+    if (!Number.isNaN(at)) return Math.max(0, at - Date.now());
+  }
   const text = error instanceof Error ? `${error.message} ${JSON.stringify((error as { cause?: unknown }).cause ?? '')}` : String(error);
   const google = /retryDelay\\?"?\s*:\s*\\?"(\d+(?:\.\d+)?)s/.exec(text);
   if (google) return Math.round(Number(google[1]) * 1000);
-  const header = /retry-after\\?"?\s*[:=]\s*\\?"?(\d+)/i.exec(text);
-  return header ? Number(header[1]) * 1000 : null;
+  const inText = /retry-after\\?"?\s*[:=]\s*\\?"?(\d+)/i.exec(text);
+  return inText ? Number(inText[1]) * 1000 : null;
 }
 
-/** The wait before rate-limit retry `attempt` (0-based): the provider's hint, else exponential backoff with jitter. */
+/** The request rate this provider says it allows, per minute, when it sends one; null when it does not. */
+export function rateLimitHint(error: unknown): number | null {
+  const headers = errorHeaders(error);
+  for (const name of ['x-ratelimit-limit-requests', 'anthropic-ratelimit-requests-limit', 'ratelimit-limit']) {
+    const value = Number(headers[name]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+/**
+ * The wait before rate-limit retry `attempt` (0-based): the provider's hint, else exponential backoff with **full**
+ * jitter, `rand(0, ceiling)`. AWS measured every jittered variant against 100 contending clients: full jitter finished
+ * first, and equal jitter — half the ceiling plus a random half, which this was — was "significantly slower".
+ */
 export function rateLimitDelayMs(error: unknown, attempt: number, random: () => number = Math.random): number {
   const hint = retryDelayHint(error);
   if (hint !== null) return Math.min(hint, 30_000);
   const ceiling = Math.min(30_000, 2_000 * 3 ** attempt);
-  return Math.round(ceiling / 2 + random() * (ceiling / 2));
+  return Math.round(random() * ceiling);
 }
 const DEFAULT_MAX_REASKS = 2;
 
@@ -194,8 +351,14 @@ export interface InvokeLLMOptions {
   onUsage?: (usage: LLMUsage) => void;
   /** Fixed waits before each retry of a rate-limited call (tests); by default the provider's hint or jittered backoff. */
   rateLimitDelaysMs?: number[];
-  /** When to send a duplicate of a slow call (defaults to HEDGE_AFTER_MS); 0 never duplicates. */
+  /** When to send a duplicate of a slow call (defaults to the model's observed p95); 0 never duplicates. */
   hedgeAfterMs?: number;
+  /** From the capability table: `off` for a provider that serves one request at a time, where a duplicate only waits. */
+  hedge?: 'off' | 'auto';
+  /** The endpoints this model is served from, the one in use first; with a second one, a failed call retries there. */
+  endpoints?: string[];
+  /** The same model on another endpoint; without it there is nowhere to fail over to. */
+  withEndpoint?: (endpoint: string) => InvokableModel | null;
 }
 
 export interface InvokeToolsOptions extends InvokeLLMOptions {
@@ -350,20 +513,67 @@ export async function invokeLLM(
   // A screenshot makes a call slower: V1's image call timed out four times at the text-only limits.
   const withImage = messages.some(message => Array.isArray(message.content) && message.content.some(part => (part as { type?: string }).type === 'image_url'));
   const scale = withImage ? 2 : 1;
-  const timeouts = (options.timeoutMs ? [options.timeoutMs, Math.round(options.timeoutMs * 1.5)] : LLM_CALL_TIMEOUTS_MS).map(ms => ms * scale);
-  if (withImage) options = { ...options, hedgeAfterMs: (options.hedgeAfterMs ?? HEDGE_AFTER_MS) * scale };
   const cooldownKey = options.model ?? 'default';
+  // The capability's limit is the ceiling; what this model is measured to need sets the limit under it.
+  const ceiling = options.timeoutMs ?? LLM_CALL_TIMEOUTS_MS[0];
+  const p99 = callLatencyQuantile(cooldownKey, 0.99);
+  const limit = p99 === null ? ceiling : Math.min(ceiling, Math.max(MIN_CALL_TIMEOUT_MS, Math.round(1.5 * p99)));
+  const timeouts = [limit, Math.round(limit * 1.5)].map(ms => ms * scale);
+  // A duplicate at the model's own p95 rather than a fixed 10 s, and none at all where a duplicate would only queue.
+  const hedgeAfterMs =
+    options.hedge === 'off'
+      ? 0
+      : (options.hedgeAfterMs ?? Math.max(MIN_HEDGE_AFTER_MS, callLatencyQuantile(cooldownKey, 0.95) ?? HEDGE_AFTER_MS)) * scale;
+  options = { ...options, hedgeAfterMs };
   let rateLimitRetries = 0;
   let rateLimitWaitedMs = 0;
   let transientRetries = 0;
+  // With more than one endpoint to serve this model, a refused or timed-out call is retried on the next one instead of
+  // the one that just failed: same-endpoint retries failed 71-73% of the time, and timeouts cluster by region and hour.
+  const endpoints = options.endpoints ?? [];
+  let endpoint = 0;
+  let attemptModel = model;
+  const moveToNextEndpoint = (): boolean => {
+    if (endpoints.length < 2 || !options.withEndpoint) return false;
+    endpoint = (endpoint + 1) % endpoints.length;
+    const next = options.withEndpoint(endpoints[endpoint]);
+    if (!next) return false;
+    attemptModel = next;
+    record({
+      level: 'warning',
+      kind: 'llm',
+      component: options.component,
+      msg: `retrying on ${endpoints[endpoint]}`,
+      data: { model: options.model, endpoint: endpoints[endpoint] },
+    });
+    return true;
+  };
   for (;;) {
     // Another call to this model was just rate limited: wait it out instead of spending a request on another 429.
     const cooling = (cooldownUntil.get(cooldownKey) ?? 0) - Date.now();
     if (cooling > 0) await waitUnlessAborted(cooling, options.signal);
+    // Keep under the rate this endpoint last refused, so the request is not spent on a refusal and its backoff. Only
+    // a first attempt is paced: a retry has already waited out the backoff the provider asked for.
+    const pacing = paceKey(options.model, endpoints[endpoint]);
+    const held = rateLimitRetries + transientRetries === 0 ? startDelayMs(pacing) : 0;
+    if (held > 0) {
+      record({
+        level: 'info',
+        kind: 'llm',
+        component: options.component,
+        msg: `pacing; waiting ${(held / 1000).toFixed(1)}s before the next call`,
+        data: { model: options.model, endpoint: endpoints[endpoint] },
+      });
+      await waitUnlessAborted(held, options.signal);
+    }
+    noteCallStarted(pacing);
     try {
-      return await invokeHedged(model, messages, { ...options, timeoutMs: timeouts[transientRetries] });
+      const reply = await invokeHedged(attemptModel, messages, { ...options, timeoutMs: timeouts[transientRetries] });
+      noteCallAccepted(pacing);
+      return reply;
     } catch (error) {
       if (options.signal?.aborted) throw error;
+      if (isRateLimitError(error)) noteCallRefused(pacing, rateLimitHint(error));
       // A lost connection waits like a rate limit: an outage of a minute or two should not end the task (run C).
       const offline = isNetworkError(error);
       if (isRateLimitError(error) || offline) {
@@ -374,6 +584,7 @@ export async function invokeLLM(
         rateLimitWaitedMs += delay;
         cooldownUntil.set(cooldownKey, Math.max(cooldownUntil.get(cooldownKey) ?? 0, Date.now() + delay));
         if (!offline) rateLimitedAt.set(cooldownKey, Date.now());
+        moveToNextEndpoint();
         record({
           level: 'warning',
           kind: 'llm',
@@ -386,6 +597,7 @@ export async function invokeLLM(
       }
       if (transientRetries + 1 >= timeouts.length || !isTransientLLMError(error)) throw error;
       transientRetries++;
+      moveToNextEndpoint();
       record({
         level: 'warning',
         kind: 'llm',
@@ -482,6 +694,7 @@ async function invokeOnce(
     })) as AIMessage;
     const usage = readUsage(response);
     if (usage) options.onUsage?.(usage);
+    recordCallLatency(options.model ?? 'default', Date.now() - startedAt);
     record({
       level: 'info',
       kind: 'llm',
