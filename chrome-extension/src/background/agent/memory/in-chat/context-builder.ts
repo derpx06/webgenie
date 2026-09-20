@@ -20,6 +20,8 @@ const NOTES_CHARS = 1200;
 const NOTES_KEPT = 20;
 /** The visited-and-dead-end ledger; about 400 tokens, the budget P3 sets for it. */
 const LEDGER_CHARS = 1600;
+/** The states the planner can return to with go_to_url. */
+const RETURN_POINTS_CHARS = 500;
 
 interface ToolTurn {
   kind: 'turn';
@@ -190,6 +192,13 @@ export class ContextBuilder {
     // Where this task has already been and what it was refused: the block that stops it going round again.
     const ledger = context.ledger?.render(LEDGER_CHARS) ?? '';
     if (ledger) sections.push(`[ALREADY TRIED]\n${ledger}`);
+
+    // The states worth coming back to. An address is the one checkpoint a live tab has: a chain of go_back never
+    // returns to it (a reviewed run went back off the article with the answer and never found it again).
+    const returns = actor === 'planner' ? context.ledger?.renderReturnPoints(context.activeObservation ?? null, RETURN_POINTS_CHARS) ?? '' : '';
+    if (returns) {
+      sections.push(`[RETURN POINTS]\nReach one again with go_to_url, not with go_back, and check the page still shows what is named here.\n${returns}`);
+    }
 
     if (context.blockedState) sections.push(`[BLOCKED]\n${JSON.stringify(context.blockedState).slice(0, 700)}`);
     return sections;

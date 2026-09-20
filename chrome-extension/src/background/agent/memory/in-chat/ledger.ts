@@ -47,6 +47,18 @@ export interface RouteEntry {
   times: number;
 }
 
+/**
+ * A state worth coming back to: a requirement was applied or a finding saved there. An address is the one thing a live
+ * tab can return to exactly, so it is the only checkpoint the harness offers (going back step by step lost the page
+ * that had the answer in the reviewed runs).
+ */
+export interface ReturnPoint {
+  url: string;
+  /** The observation's fingerprint then; the same address with another fingerprint is another page now. */
+  fingerprint: string;
+  why: string;
+}
+
 /** Search parameters: the same list SiteSkills reads a site's search address with. */
 const SEARCH_PARAMS = ['q', 'query', 'search', 'search_query', 'searchterm', 'keyword', 'keywords', 'term', 'text', 'k', 's', 'wd'];
 /** Parameters that page, track or identify a session: not part of what a route asks for. */
@@ -142,6 +154,8 @@ function short(text: string, maxChars = 70): string {
 export class TaskLedger {
   private readonly entries = new Map<string, LedgerEntry>();
   private readonly routeEntries = new Map<string, RouteEntry>();
+  private lastRoute: RouteEntry | null = null;
+  private readonly returns: ReturnPoint[] = [];
   /** The step, pages seen and findings when the planner last planned, and the last step that made progress. */
   private planMark = { step: 0, pages: 0, findings: 0 };
   private progressStep = 0;
@@ -192,6 +206,7 @@ export class TaskLedger {
     } else {
       this.routeEntries.set(key, { ...route, key, note: outcome, times: 1 });
     }
+    this.lastRoute = this.routeEntries.get(key) ?? null;
   }
 
   /** Every route tried, in the order first tried. */
@@ -208,6 +223,43 @@ export class TaskLedger {
     return this.routes()
       .filter(route => (route.query.length >= 3 && text.includes(route.query)) || (route.kind === 'url' && text.includes(route.address)))
       .sort((a, b) => b.query.length - a.query.length)[0]?.key;
+  }
+
+  /** A finding was saved on `url`: the route that led there gave it, and the page is a state worth returning to. */
+  findingSaved(url: string, fingerprint: string, finding: string): void {
+    if (this.lastRoute) this.lastRoute.note = 'gave a finding';
+    this.returnPoint(url, fingerprint, `finding: ${finding}`);
+  }
+
+  /** A state to come back to with go_to_url. The newest reason for one address wins. */
+  returnPoint(url: string, fingerprint: string, why: string): void {
+    if (!parseAddress(url) || !why) return;
+    const known = this.returns.find(point => point.url === url);
+    if (known) Object.assign(known, { fingerprint, why: short(why, 90) });
+    else this.returns.push({ url, fingerprint, why: short(why, 90) });
+  }
+
+  returnPoints(): ReturnPoint[] {
+    return [...this.returns];
+  }
+
+  /**
+   * The return points as the planner sees them, newest first: where to go back to and what that page showed. A point
+   * whose address is the current one is marked, so a plan does not navigate to the page it is already on, and one whose
+   * page has changed since is marked too, because what was recorded there is no longer guaranteed.
+   */
+  renderReturnPoints(here: { url?: string; fingerprint?: string } | null, maxChars: number, keep = 4): string {
+    const lines: string[] = [];
+    let used = 0;
+    for (const point of [...this.returns].reverse().slice(0, keep)) {
+      const state =
+        here?.url !== point.url ? '' : here?.fingerprint === point.fingerprint ? ' (you are here)' : ' (you are here, and the page has changed since)';
+      const line = `- ${point.url} — ${point.why}${state}`;
+      if (used + line.length + 1 > maxChars) break;
+      lines.push(line);
+      used += line.length + 1;
+    }
+    return lines.join('\n');
   }
 
   /** The kinds of route whose latest outcome was an empty listing. */

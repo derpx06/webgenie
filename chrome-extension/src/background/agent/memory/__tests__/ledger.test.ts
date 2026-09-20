@@ -95,6 +95,28 @@ describe('the route ledger', () => {
   });
 });
 
+describe('return points', () => {
+  it('keeps where a finding was saved and where a requirement was applied, newest first', () => {
+    const ledger = new TaskLedger();
+    ledger.recordRoute(
+      'click_element',
+      { url: 'https://shop.test/', text: '' },
+      { url: 'https://shop.test/search?q=kettle', text: '12 results' },
+    );
+    ledger.returnPoint('https://shop.test/search?q=kettle&price=0-20', 'fp1', 'applied: price under £20');
+    ledger.findingSaved('https://shop.test/p/12', 'fp2', 'the kettle costs £18');
+
+    expect(ledger.routes()[0].note).toBe('gave a finding');
+    expect(ledger.returnPoints()).toHaveLength(2);
+    expect(ledger.renderReturnPoints({ url: 'https://shop.test/p/12', fingerprint: 'fp2' }, 500).split('\n')).toEqual([
+      '- https://shop.test/p/12 — finding: the kettle costs £18 (you are here)',
+      '- https://shop.test/search?q=kettle&price=0-20 — applied: price under £20',
+    ]);
+    // Back at the address, but the page is not the page it was.
+    expect(ledger.renderReturnPoints({ url: 'https://shop.test/p/12', fingerprint: 'other' }, 500)).toContain('(you are here, and the page has changed since)');
+  });
+});
+
 const page = (url: string, title: string): PageSpec => ({ url, title, elements: [{ text: 'Next' }] });
 
 describe('the agent writing to the ledger', () => {

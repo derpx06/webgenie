@@ -150,6 +150,16 @@ describe('ContextBuilder packets', () => {
     expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'navigator').at(-1)!)).not.toContain('[PROGRESS]');
   });
 
+  it('shows the planner the states it can return to, and the navigator none', () => {
+    const { context } = makeContext();
+    context.ledger.returnPoint('https://shop.test/search?q=kettle&price=0-20', 'fp1', 'applied: price under £20');
+
+    const planner = text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner').at(-1)!);
+    expect(planner).toContain('[RETURN POINTS]');
+    expect(planner).toContain('- https://shop.test/search?q=kettle&price=0-20 — applied: price under £20');
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'navigator').at(-1)!)).not.toContain('[RETURN POINTS]');
+  });
+
   it('keeps the system prompt and transcript prefix identical from one step to the next', () => {
     const { context, messageManager } = makeContext();
     messageManager.addTask('read the heading');

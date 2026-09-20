@@ -621,6 +621,11 @@ export class Executor {
         stalled = stepRecord.stalled;
         // Progress: a validated action this task had not done on that layout before, or a new finding. Repeating a
         // search or reopening a page validates too, but is not new.
+        const here = this.hereNow();
+        // The page a finding came off is worth returning to, and the route that led there gave something.
+        if (here && context.findings.length > findingsBefore) {
+          context.ledger.findingSaved(here.url, here.fingerprint, context.findings[context.findings.length - 1]);
+        }
         if ((navigatorStep.outcome === 'passed' && stepRecord.fresh) || context.findings.length > findingsBefore) {
           this.goalRepeats.progress();
           context.ledger.progressed(context.nSteps);
@@ -899,6 +904,13 @@ export class Executor {
     return { stalled: this.stepKeys.slice(-6).filter(recent => recent === key).length >= 3, fresh };
   }
 
+  /** The page the task is on now, as a return point is recorded: its address and the fingerprint of what it shows. */
+  private hereNow(): { url: string; fingerprint: string } | null {
+    const observation = this.context.activeObservation;
+    const url = observation?.url || this.context.promptState?.url;
+    return url ? { url, fingerprint: observation?.contentFingerprint ?? observation?.layoutFingerprint ?? '' } : null;
+  }
+
   /**
    * After a plan: a requirement it newly marks applied, or a finding, is progress; one it moves from applied back to
    * pending keeps the interval re-plan on.
@@ -907,7 +919,11 @@ export class Executor {
     const statusBefore = new Map(before.map(item => [requirementKey(item.requirement), item.status]));
     const after = this.context.requirements;
     this.requirementReopened = after.some(item => item.status === 'pending' && statusBefore.get(requirementKey(item.requirement)) === 'applied');
-    const newlyApplied = after.some(item => item.status === 'applied' && statusBefore.get(requirementKey(item.requirement)) !== 'applied');
+    const applied = after.filter(item => item.status === 'applied' && statusBefore.get(requirementKey(item.requirement)) !== 'applied');
+    const newlyApplied = applied.length > 0;
+    // The page that shows a requirement applied is the state to come back to if a later step loses it.
+    const here = newlyApplied ? this.hereNow() : null;
+    if (here) this.context.ledger.returnPoint(here.url, here.fingerprint, `applied: ${applied.map(item => item.requirement).join('; ')}`);
     if (newlyApplied || this.context.findings.length > findingsBefore) {
       this.goalRepeats.progress();
       this.context.ledger.progressed(this.context.nSteps);
