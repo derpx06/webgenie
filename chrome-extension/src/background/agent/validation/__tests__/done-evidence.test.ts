@@ -9,7 +9,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import type { NextStepContract } from '../../contracts';
-import { absenceUnderexplored, absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, staleRequirements, unmatchedRequirements } from '../done-evidence';
+import { absenceUnderexplored, absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, inexactFilterEvidence, staleRequirements, unmatchedRequirements } from '../done-evidence';
 import { titleFromTask } from '../../../core/task-groups/manager';
 
 function contextOnPage(lines: string[]) {
@@ -42,6 +42,31 @@ describe('absenceUnread', () => {
     expect(absenceUnread(read, 'No brass lamp was found.', false)).toBe(false);
     expect(absenceUnread(on(['0 results for "brass lamp"']), 'No brass lamp was found.', false)).toBe(false);
     expect(absenceUnread(on([], 'about:blank'), 'No such thing exists.', false)).toBe(false);
+  });
+});
+
+describe('inexactFilterEvidence', () => {
+  it('refuses a range or a superlative whose evidence names neither the bounds nor the sort', () => {
+    const inexact = inexactFilterEvidence([
+      { requirement: 'built between 2004 and 2012', status: 'applied', evidence: 'Year filter applied' },
+      { requirement: 'the cheapest option', status: 'applied', evidence: 'the first result is the cheapest' },
+      { requirement: 'under $50', status: 'applied', evidence: 'the Price filter is set' },
+    ]).map(item => item.requirement);
+    expect(inexact).toEqual(['built between 2004 and 2012', 'the cheapest option', 'under $50']);
+  });
+
+  it('accepts evidence naming the bound values, a sort control or an address parameter', () => {
+    expect(
+      inexactFilterEvidence([
+        { requirement: 'built between 2004 and 2012', status: 'applied', evidence: 'Year from 2004 to 2012 selected' },
+        { requirement: 'the cheapest option', status: 'applied', evidence: 'Sort by: price low to high' },
+        { requirement: 'under $50', status: 'applied', evidence: 'price_max=50 in the address' },
+        { requirement: 'rated 4 stars and up', status: 'applied', evidence: '"4 Stars & Up" is checked' },
+        // Not a range and not a superlative: this check says nothing about it.
+        { requirement: 'in blue', status: 'applied', evidence: 'the Blue swatch is selected' },
+        { requirement: 'under $50', status: 'pending' },
+      ]),
+    ).toEqual([]);
   });
 });
 

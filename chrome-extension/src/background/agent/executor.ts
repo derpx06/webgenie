@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnderexplored, absenceUnread, answerGaps, doneEvidence, givesUpUnseen, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements, unbackedValues } from './validation/done-evidence';
+import { absenceUnderexplored, absenceUnread, answerGaps, doneEvidence, givesUpUnseen, inexactFilterEvidence, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements, unbackedValues } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -112,6 +112,8 @@ export class Executor {
   private unevidencedRefused = false;
   /** An answer of absence resting on one kind of route was sent back once; once per task. */
   private absenceRoutesRefused = false;
+  /** A range or superlative requirement whose evidence named no bound or sort was sent back once; once per task. */
+  private inexactEvidenceRefused = false;
   constructor(
     task: string,
     taskId: string,
@@ -190,6 +192,7 @@ export class Executor {
     this.context.leavingAppliedChecked = false;
     this.context.absenceChecked = false;
     this.absenceRoutesRefused = false;
+    this.inexactEvidenceRefused = false;
     this.evidenceRechecked = false;
     this.searchEvidenceRefused = false;
     this.unseenGiveUpRefused = false;
@@ -243,6 +246,12 @@ export class Executor {
     if (searchOnly.length > 0) {
       this.searchEvidenceRefused = true;
       return this.refuseCompletion(planOutput, `Not done: the evidence for these applied requirements is the search or its results, not a filter or sort the site applied: ${searchOnly.map(item => `${item.requirement} (${item.evidence})`).join('; ')}. Search text does not filter results. Apply each with the site's filter or sort controls (open a collapsed filter section if needed) and record the selected option, chip, sort label or URL parameter as evidence; mark it not_available only when the site offers no such control.`);
+    }
+    // A range or a superlative applied "about right": the evidence has to name the bounds themselves or the sort.
+    const inexact = this.inexactEvidenceRefused ? [] : inexactFilterEvidence(requirements);
+    if (inexact.length > 0) {
+      this.inexactEvidenceRefused = true;
+      return this.refuseCompletion(planOutput, `Not done: the evidence for these applied requirements does not show what was applied exactly: ${inexact.map(item => `${item.requirement} (${item.evidence || 'no evidence'})`).join('; ')}. A range must be evidenced by the bound values the control or the address now holds (the numbers themselves, as the page writes them), and a "cheapest/newest/highest" requirement by the sort control or sort parameter in effect. Check the current page, apply the exact bounds or the sort, and record what it shows; mark it not_available only when the site offers no such control.`);
     }
     // "Not found" said about a results page nobody read.
     if (!context.absenceChecked && absenceUnread(context, answer, this.doneReportedFailure)) {

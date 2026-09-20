@@ -300,6 +300,34 @@ export function searchOnlyEvidence(requirements: PlannerRequirement[]): PlannerR
   );
 }
 
+/** A requirement naming a range: a number with a bound word, or two numbers with a dash between them. */
+const RANGE =
+  /\b(under|below|over|above|between|less|fewer|more|greater|least|most|up to|starting|after|before|within|max|maximum|min|minimum|or (?:more|less|higher|lower|older|newer)|and up|plus)\b|\d\s*[-–—]\s*\d|\d\s*\+/i;
+/** Evidence that names the site's own ordering: a sort control, or a sort parameter in the address. */
+const SORT_EVIDENCE = /\b(sort(ed|ing)?|order(ed|ing)?|rank(ed|ing)?|relevance)\b|\b(sort|order|orderby|sortby)[\w-]*=/i;
+/** Evidence that names an address parameter, whatever it is called: the site applied something, and it is in the URL. */
+const URL_EVIDENCE = /[\w.[\]-]+=[^\s&,;)"”]+/;
+
+/**
+ * Applied requirements whose evidence does not show what was applied *exactly*: a range requirement whose evidence does
+ * not name its own bound values (nor an address parameter), or a superlative ("cheapest", "newest", "highest rated")
+ * whose evidence names no sort control and no address parameter. Online-Mind2Web's largest failure class is filters
+ * applied loosely — "2001 to 2012" accepted for "2004 to 2012" — and an evidence line that repeats the requirement in
+ * words is exactly what a loose filter looks like from here.
+ */
+export function inexactFilterEvidence(requirements: PlannerRequirement[]): PlannerRequirement[] {
+  return requirements.filter(item => {
+    if (item.status !== 'applied') return false;
+    const evidence = item.evidence ?? '';
+    if (URL_EVIDENCE.test(evidence)) return false;
+    if (SUPERLATIVE.test(item.requirement)) return !SORT_EVIDENCE.test(evidence);
+    const bounds = [...numbersIn(item.requirement)];
+    if (bounds.length === 0 || !RANGE.test(item.requirement)) return false;
+    const named = numbersIn(evidence);
+    return !bounds.every(bound => named.has(bound));
+  });
+}
+
 /**
  * A word reduced to its stem, so "filter", "filters" and "filtered" count as the same word. A suffix is only dropped
  * when three letters are left: "red" is a colour, not the past tense of "r".
