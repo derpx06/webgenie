@@ -13,7 +13,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   };
 });
 
-import Page, { build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, settleSparseRead, toNativeInputValue, typingMethod } from '../page';
+import Page, { build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, READ_STATE_CAP_MS, settleSparseRead, toNativeInputValue, typingMethod } from '../page';
 import { DOMElementNode } from '../dom/views';
 import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
@@ -131,6 +131,34 @@ describe('Page state cache', () => {
     reads[1].resolve(pageState('https://example.com/new'));
     expect((await fresh).url).toBe('https://example.com/new');
     expect(page.getCachedState()?.url).toBe('https://example.com/new');
+  });
+
+  /**
+   * Two reads in run r3 held their step for 221 s and 192 s and came back with nothing usable. A read that will not
+   * finish is reported as unreadable — the prompt turns that into "read it again", not "the page is empty" — while the
+   * read itself goes on, so the next one joins it instead of starting a second read of the same page.
+   */
+  it('stops waiting on a read that will not finish, and hands the finished read to the next caller', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const adapter = { getTab: vi.fn().mockResolvedValue({ url: 'https://slow.test/', title: 'Slow' }) };
+    const page = new Page(1, 'https://slow.test/', 'Slow', {}, adapter as unknown as IBrowserAdapter);
+    const slow = deferred();
+    const readState = vi.fn().mockReturnValue(slow.promise);
+    (page as unknown as { _readState: typeof readState })._readState = readState;
+
+    const first = page.getState();
+    await vi.advanceTimersByTimeAsync(READ_STATE_CAP_MS + 10);
+    const reported = await first;
+    expect(reported.unreadable).toBe(true);
+    expect(reported.selectorMap.size).toBe(0);
+    expect(reported.url).toBe('https://slow.test/');
+
+    // The read is still the pending one, so nothing starts a second read of the same page.
+    const second = page.getState();
+    expect(readState).toHaveBeenCalledTimes(1);
+    slow.resolve(pageState('https://slow.test/'));
+    expect((await second).url).toBe('https://slow.test/');
+    vi.useRealTimers();
   });
 
   it('serves the cache only while the tab is still on the cached URL', async () => {

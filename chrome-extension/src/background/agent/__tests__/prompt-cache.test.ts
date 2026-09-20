@@ -49,7 +49,7 @@ describe('prompt caching, per provider', () => {
   });
 
   it('passes the key through to the request', async () => {
-    const invoke = vi.fn(async () => new AIMessage({ content: 'ok' }));
+    const invoke = vi.fn(async (_messages: unknown, _options?: Record<string, unknown>) => new AIMessage({ content: 'ok' }));
     const model = { invoke } as unknown as BaseChatModel;
 
     await invokeLLM(model, [new HumanMessage('do the task')], {
