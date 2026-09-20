@@ -51,4 +51,30 @@ describe('An element the page will not let the agent use', () => {
     expect(sent).toContain('Elements named like it on the current page: [1] "Menu"');
     expect(sent).not.toContain('[2] "Search"');
   });
+
+  it('is not sent again unchanged the moment it failed: the model looks at the current page first', async () => {
+    const h = createHarness({
+      task: 'Open the menu',
+      pages: [{ url: 'https://shop.test/', title: 'Shop', elements: [{ tag: 'button', attributes: { 'aria-label': 'Menu' } }] }],
+      planner: keepPlanning,
+      navigator: [click(0), click(0), click(0), done('Stuck', false)],
+    });
+    const page = await h.browser.getCurrentPage();
+    let clicks = 0;
+    (page as unknown as { clickNode: () => Promise<never> }).clickNode = async () => {
+      clicks++;
+      throw new Error('The element is covered by <div> "Cookie choices"');
+    };
+
+    const execution = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0);
+    await h.executor.cancel();
+    await settle(execution);
+
+    // The second click is refused; the third, sent after that refusal, is the model's deliberate retry.
+    expect(clicks).toBe(2);
+    expect(h.llm.requestsFor('navigator').map(request => textOf(request.messages)).join('\n')).toContain(
+      'Not done: this exact action just failed',
+    );
+  });
 });

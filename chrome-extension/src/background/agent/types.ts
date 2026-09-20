@@ -130,6 +130,12 @@ export class AgentContext {
   refusedActions = new Map<string, number>();
   /** Executed actions by name, page address before it and arguments: a model repeating one gets told from the third time. */
   actionRepeats = new Map<string, number>();
+  /** The last executed actions as the loop detector reads them (element role and name, path template, sorted words). */
+  recentActions: string[] = [];
+  /** Executed actions in a row that changed nothing on the page. */
+  stagnantActions = 0;
+  /** The action that just failed and why, so an identical retry looks at the current page first. */
+  lastFailedAction: { key: string; reason: string } | null = null;
   /** Addresses opened with go_to_url or open_tab this task and how often; a fourth open of one is refused. */
   openedAddresses = new Map<string, number>();
   /** Entries of a list in the task that every value typed since the last other action comes from, and those values. */

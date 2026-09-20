@@ -6,6 +6,7 @@ import type { FormCommitInfo } from '../../browser/page';
 import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
 import { elementKey, elementLabel, ensureBrowserObservation, listElements, visibleContentKey, visibleText } from './observation';
+import { routeKey } from '../memory/global/memory-store';
 
 /** What a guard decided about one action: it let it through, refused it, or put it to the user. */
 export type GuardVerdict = 'allowed' | 'refused' | 'asked';
@@ -543,6 +544,68 @@ const MUTATING_ACTIONS = new Set([
   'select_dropdown_option',
   'handle_dialog',
 ]);
+
+/** Actions the loop detector counts by what they do rather than by their arguments. */
+const POINTING_TOOLS = new Set([...POINTER_ACTIONS, 'select_dropdown_option']);
+
+/** The words of a text, lowercased and sorted: two searches for the same thing in another order are one move. */
+function sortedWords(text: string): string {
+  return text
+    .toLowerCase()
+    .split(new RegExp('[^\\p{L}\\p{N}]+', 'u'))
+    .filter(Boolean)
+    .sort()
+    .join(' ');
+}
+
+/**
+ * One action as the loop detector reads it: what it does, not how it was written. A click or selection is its
+ * element's role and name (not its index, which changes with every read), a navigation is its host and path
+ * template, and typing or searching is the sorted words of its text. 94 of 157 repeated failures in one live run
+ * were the identical action on the identical index.
+ */
+export function actionSignature(actionName: string, actionArgs: unknown, node?: DOMElementNode): string {
+  const args = isObject(actionArgs) ? actionArgs : {};
+  const target = node ? `${node.attributes.role || node.tagName || ''} ${elementLabel(node).toLowerCase()}` : `#${args.index ?? ''}`;
+  if (POINTING_TOOLS.has(actionName)) {
+    return `${actionName}|${target}|${sortedWords(String(args.text ?? ''))}`;
+  }
+  if (actionName === 'input_text' || actionName === 'fill_form') {
+    return `${actionName}|${target}|${sortedWords(String(args.text ?? JSON.stringify(args.fields ?? '')))}`;
+  }
+  if (actionName === 'search_web' || actionName === 'find_in_page' || actionName === 'scroll_to_text') {
+    return `${actionName}|${sortedWords(String(args.query ?? args.text ?? args.find ?? ''))}`;
+  }
+  if (typeof args.url === 'string' || typeof args.target === 'string') {
+    const url = String(args.url ?? args.target ?? '');
+    return `${actionName}|${routeKey(url) ?? url}`;
+  }
+  const { memory: _memory, observationId: _observation, targetFingerprint: _target, ...rest } = args;
+  return `${actionName}|${JSON.stringify(rest)}`;
+}
+
+/** Actions the loop detector keeps in view; browser-use uses the same window. */
+export const LOOP_WINDOW = 20;
+
+/**
+ * What to tell the model when the same move keeps coming back, or the page has not changed over a run of actions:
+ * a hint at 5, a plain warning at 8, and at 12 the instruction to stop. Null at every other count, so each threshold
+ * is said once instead of on every step.
+ */
+export function loopNudge(repeats: number, stagnant: number): string | null {
+  if (repeats === 5 || (repeats < 5 && stagnant === 5)) {
+    return repeats === 5
+      ? `That is the same move ${repeats} times in your last ${LOOP_WINDOW} actions (the same element or the same address, whatever index it has now). If it were going to work it would have worked: try another way to the goal.`
+      : `The page has not changed over your last ${stagnant} actions. What you are doing is not moving the task: try another route.`;
+  }
+  if (repeats === 8 || (repeats < 8 && stagnant === 8)) {
+    return `${repeats === 8 ? `That is ${repeats} times for the same move` : `The page has not changed over your last ${stagnant} actions`}. Change the approach: another element, the site's own search or filters, get_complete_page_content with find, or another page.`;
+  }
+  if (repeats === 12 || (repeats < 12 && stagnant === 12)) {
+    return `${repeats === 12 ? `${repeats} times for the same move` : `${stagnant} actions without a change on the page`}. Stop repeating it: take a completely different route, or finish with done (success: false) and say plainly what blocks you.`;
+  }
+  return null;
+}
 
 export interface ValidateActionOutcomeInput {
   actionName: string;

@@ -20,6 +20,7 @@ import { presenceMessage } from './navigator/presence';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
 import { appearedText, elementKey, ensureBrowserObservation, listElements, newElements, revealedControls } from '../validation/observation';
 import {
+  actionSignature,
   addressKey,
   amountBefore,
   challengeOnPage,
@@ -29,6 +30,8 @@ import {
   changesUserValue,
   taskEntriesWith,
   isStaleElementError,
+  loopNudge,
+  LOOP_WINDOW,
   commitQuestion,
   commitTarget,
   currentIndexFor,
@@ -658,6 +661,16 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           break;
         }
 
+        // An action sent again the moment it failed fails the same way (94 of 157 repeated failures in a live run were
+        // the identical action on the identical index). The page that refused it is in front of the model: look there
+        // first. Refused once; the same action after that is a deliberate retry.
+        const failed = this.context.lastFailedAction;
+        if (failed && failed.key === this.repeatKey(actionName, actionArgs, beforeState.url)) {
+          this.context.lastFailedAction = null;
+          refuse('failed-retry', `Not done: this exact action just failed (${failed.reason.slice(0, 200)}). Sending it again unchanged fails the same way. The element list below is current: choose another element or another route, or first do what this one needs (open what holds it, close what covers it, let the page settle). Send it again only if you really mean the same action.`);
+          break;
+        }
+
         // The same action on an unchanged page, three times over: the fourth does not work either.
         if (!UNCOUNTED_REPEATS.has(actionName)
           && (this.context.actionRepeats.get(this.repeatKey(actionName, actionArgs, beforeState.url)) ?? 0) >= MAX_IDENTICAL_ACTIONS) {
@@ -1160,6 +1173,18 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // The same action on the same page, over and over (live runs: go_back 11 times, switch_tab back and forth, the same
         // typing or click 3-4 times). Anything the page did is progress, so the counts start again; a run of actions that
         // changed nothing gets a note on the last one that is allowed, and the next identical one is refused above.
+        // The same move, whatever index it wears this time: a click by the element's role and name, a navigation by
+        // host and path template, a search by its words. The count runs over a window of the last actions, so a loop
+        // that goes round a page or two is still one loop, and the page standing still counts as well.
+        this.context.stagnantActions = changedPage ? 0 : this.context.stagnantActions + 1;
+        if (!UNCOUNTED_REPEATS.has(actionName)) {
+          const signature = actionSignature(actionName, actionArgs, indexedNode);
+          const recent = this.context.recentActions;
+          recent.push(signature);
+          if (recent.length > LOOP_WINDOW) recent.shift();
+          const nudge = loopNudge(recent.filter(entry => entry === signature).length, this.context.stagnantActions);
+          if (nudge) result = new ActionResult({ ...result, extractedContent: `${result.extractedContent ?? ''} ${nudge}`.trim() });
+        }
         if (changedPage) this.context.actionRepeats.clear();
         if (!UNCOUNTED_REPEATS.has(actionName)) {
           const times = this.countRepeat(actionName, actionArgs, beforeState.url);
@@ -1229,6 +1254,10 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
         console.log(`\n${actionLogMsg}`);
         logger.info(actionLogMsg);
+        // What just failed, so the same action sent again is answered with the current page instead of failing again.
+        this.context.lastFailedAction = result.validated === 'failed'
+          ? { key: this.repeatKey(actionName, actionArgs, beforeState.url), reason: result.failureReason ?? result.error ?? 'it failed' }
+          : null;
         results.push(result);
 
         // If the action returned an error, halt immediately to prevent execution on incorrect page state
@@ -1309,6 +1338,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // a row on a live site, ending the task).
         await browserContext.invalidateCache().catch(() => undefined);
         const stale = isStaleElementError(msg);
+        this.context.lastFailedAction = { key: this.repeatKey(actionName, actionArgs, chosenState?.url ?? ''), reason };
 
         results.push(new ActionResult({
           error: reason,
