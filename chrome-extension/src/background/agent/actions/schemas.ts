@@ -1,9 +1,27 @@
 import { z } from 'zod';
 
+/**
+ * How hard this tool's call is to undo, as static metadata next to the schema (Magentic-UI's tiering):
+ * - `never`: it reads, or it only changes what this task keeps; nothing outside the browser survives it.
+ * - `maybe`: it depends on the target — a click is "Next page" or "Place order" — so the gate inspects the call.
+ * - `always`: every call destroys something, so it is confirmed whatever its arguments say.
+ *
+ * The commit gate is derived from it (`COMMIT_DECIDING_TOOLS` below, `COMMIT_GATED_TOOLS` in `validation/service.ts`)
+ * and `actions/__tests__/tools.test.ts` refuses a tool with no tier or one no gate knows, so a new tool cannot slip
+ * past `commitTarget()` unnoticed.
+ */
+export type Irreversibility = 'always' | 'maybe' | 'never';
+
 export interface ActionSchema {
   name: string;
   description: string;
   schema: z.AnyZodObject;
+  irreversible: Irreversibility;
+  /**
+   * The model must say what this call commits: a press or a key whose meaning is in the element it lands on, which
+   * only the model can read. `commits` becomes required in the model-facing schema (replays may omit it).
+   */
+  commitDeciding?: true;
 }
 
 const elementIndex = z.number().int().describe('index from the interactive elements list');
@@ -11,8 +29,6 @@ const COMMIT_KINDS = ['none', 'order', 'payment', 'subscription', 'account_chang
 const COMMITS_DESCRIPTION =
   "What this commits: 'none' unless it places an order, pays, starts a subscription or trial, or deletes, closes or changes an account. Anything but 'none' is confirmed with the user first.";
 const commitsField = z.enum(COMMIT_KINDS).optional().describe(COMMITS_DESCRIPTION);
-/** Tools whose calls must say what they commit: the model decides on every click and key press. */
-export const COMMIT_DECIDING_TOOLS = new Set(['click_element', 'send_keys']);
 /** The model-facing form of `commits`: required, so a purchase in another language cannot slip through unmarked. */
 export const REQUIRED_COMMITS_FIELD = { commits: z.enum(COMMIT_KINDS).describe(COMMITS_DESCRIPTION) };
 const optionalElementIndex = z
@@ -24,6 +40,7 @@ const optionalElementIndex = z
 
 export const doneActionSchema: ActionSchema = {
   name: 'done',
+  irreversible: 'never',
   description:
     'Propose the finished answer, alone in the response; the planner checks it against the page. Also when the task cannot be completed.',
   schema: z.object({
@@ -39,6 +56,7 @@ export const doneActionSchema: ActionSchema = {
 // Basic Navigation Actions
 export const searchWebActionSchema: ActionSchema = {
   name: 'search_web',
+  irreversible: 'never',
   description:
     'Search the web in one step, in the current tab. Prefer it over opening a search engine and typing.',
   schema: z.object({
@@ -49,6 +67,7 @@ export const searchWebActionSchema: ActionSchema = {
 
 export const goToUrlActionSchema: ActionSchema = {
   name: 'go_to_url',
+  irreversible: 'never',
   description: 'Open a URL in the current tab, or in a new tab that becomes the current one.',
   schema: z.object({
     url: z.string().describe('absolute URL, including https://'),
@@ -58,6 +77,7 @@ export const goToUrlActionSchema: ActionSchema = {
 
 export const goBackActionSchema: ActionSchema = {
   name: 'go_back',
+  irreversible: 'never',
   description: 'Go back to the previous page, or forward again after going back.',
   schema: z.object({
     forward: z.boolean().optional().describe('true to go forward again after a go_back; defaults to false'),
@@ -66,6 +86,8 @@ export const goBackActionSchema: ActionSchema = {
 
 export const clickElementActionSchema: ActionSchema = {
   name: 'click_element',
+  irreversible: 'maybe',
+  commitDeciding: true,
   description:
     'Click an element by index. One option changes the gesture: double, right for its context menu, hover to only point at it, drop_on to drag it onto another element.',
   schema: z.object({
@@ -83,6 +105,7 @@ export const clickElementActionSchema: ActionSchema = {
 
 export const handleDialogActionSchema: ActionSchema = {
   name: 'handle_dialog',
+  irreversible: 'maybe',
   description:
     'Answer the JavaScript dialog in the browser state; no other action works while one is open.',
   schema: z.object({
@@ -93,6 +116,7 @@ export const handleDialogActionSchema: ActionSchema = {
 
 export const inputTextActionSchema: ActionSchema = {
   name: 'input_text',
+  irreversible: 'maybe',
   description:
     "Replace the field's content with text (inputs, textareas, editable elements, date and range inputs). Set submit to press Enter afterwards.",
   schema: z.object({
@@ -110,6 +134,7 @@ export const inputTextActionSchema: ActionSchema = {
 
 export const fillFormActionSchema: ActionSchema = {
   name: 'fill_form',
+  irreversible: 'maybe',
   description:
     'Fill a whole form in one call: every field by index with its value, in order. All indexes are checked before anything is typed, and it stops at the first field whose typing leaves the page.',
   schema: z.object({
@@ -130,6 +155,7 @@ export const fillFormActionSchema: ActionSchema = {
 
 export const viewScreenshotActionSchema: ActionSchema = {
   name: 'view_screenshot',
+  irreversible: 'never',
   description:
     'Attach a screenshot to your next state, for what the element list cannot say: colours, pictures, charts, maps, layout. Never for text or a value: the read tools give those far more cheaply. Call it alone; index or region narrows it to one part.',
   schema: z.object({
@@ -144,6 +170,7 @@ export const viewScreenshotActionSchema: ActionSchema = {
 
 export const uploadFileActionSchema: ActionSchema = {
   name: 'upload_file',
+  irreversible: 'maybe',
   description:
     'Upload a file the user attached into a file field, upload button or drop zone by index. Only attached files; ask_human when none is.',
   schema: z.object({
@@ -155,6 +182,7 @@ export const uploadFileActionSchema: ActionSchema = {
 // Tab Management Actions
 export const switchTabActionSchema: ActionSchema = {
   name: 'switch_tab',
+  irreversible: 'never',
   description: 'Switch to a tab by id, or close it.',
   schema: z.object({
     tab_id: z.number().int().describe('the tab to act on'),
@@ -164,6 +192,7 @@ export const switchTabActionSchema: ActionSchema = {
 
 export const saveFindingsActionSchema: ActionSchema = {
   name: 'save_findings',
+  irreversible: 'never',
   description:
     'Keep values, lists or partial results, with where they came from, for later steps of this task.',
   schema: z.object({
@@ -173,6 +202,7 @@ export const saveFindingsActionSchema: ActionSchema = {
 
 export const notesActionSchema: ActionSchema = {
   name: 'notes',
+  irreversible: 'never',
   description:
     'Your own scratchpad for this task, shown in every later step and never summarized away: what you tried, what did not work, where things are, what to do next. Not the answer; that is save_findings.',
   schema: z.object({
@@ -183,6 +213,7 @@ export const notesActionSchema: ActionSchema = {
 
 export const todoListActionSchema: ActionSchema = {
   name: 'todo_list',
+  irreversible: 'never',
   description:
     'The parts of the task, numbered and shown in every step, so a task asking for several things loses none of them. Add them once, complete each as its answer is in hand.',
   schema: z.object({
@@ -195,6 +226,7 @@ export const todoListActionSchema: ActionSchema = {
 
 export const assertActionSchema: ActionSchema = {
   name: 'assert',
+  irreversible: 'never',
   description:
     'Back a claim you are going to report with the page text that shows it, before you finish. The evidence is checked against the page you are on; a success is sent back without one.',
   schema: z.object({
@@ -205,6 +237,7 @@ export const assertActionSchema: ActionSchema = {
 
 export const scrollActionSchema: ActionSchema = {
   name: 'scroll',
+  irreversible: 'never',
   description:
     'Scroll the page, or the element at index, by screens or to an end. It only moves the view: it loads no next page, reveals no element the list does not already hold, and is refused after a few scrolls that revealed nothing new.',
   schema: z.object({
@@ -220,6 +253,8 @@ export const scrollActionSchema: ActionSchema = {
 
 export const sendKeysActionSchema: ActionSchema = {
   name: 'send_keys',
+  irreversible: 'maybe',
+  commitDeciding: true,
   description:
     'Press keys in the focused element, or in element index after focusing it: Enter, Escape, Tab, arrows, PageDown, Control+A. Not for typing text (input_text) or dialogs (handle_dialog).',
   schema: z.object({
@@ -232,6 +267,7 @@ export const sendKeysActionSchema: ActionSchema = {
 
 export const selectDropdownOptionActionSchema: ActionSchema = {
   name: 'select_dropdown_option',
+  irreversible: 'never',
   description:
     'Select an option of a select, combobox or listbox by its exact visible text; the result lists the options when none matches.',
   schema: z.object({
@@ -242,6 +278,7 @@ export const selectDropdownOptionActionSchema: ActionSchema = {
 
 export const waitForActionSchema: ActionSchema = {
   name: 'wait_for',
+  irreversible: 'never',
   description:
     'Wait until the page reaches a state and return as soon as it does: a text appears or is gone, an element by index is gone, or loading and its requests have finished (the default).',
   schema: z.object({
@@ -257,6 +294,7 @@ export const waitForActionSchema: ActionSchema = {
 
 export const askHumanActionSchema: ActionSchema = {
   name: 'ask_human',
+  irreversible: 'never',
   description:
     'Ask the user for a decision or information that is theirs: a confirmation, a value the task and page do not give, or a choice the task leaves open. Never for an order, payment, subscription or account change: the system confirms those.',
   schema: z.object({
@@ -287,6 +325,7 @@ export const askHumanActionSchema: ActionSchema = {
 
 export const readPageActionSchema: ActionSchema = {
   name: 'read_page',
+  irreversible: 'never',
   description:
     "Read the page as markdown instead of scrolling it. A long page returns its first part with a section outline and a cursor; section or cursor reads the rest.",
   schema: z.object({
@@ -308,6 +347,7 @@ export const readPageActionSchema: ActionSchema = {
 
 export const extractActionSchema: ActionSchema = {
   name: 'extract',
+  irreversible: 'never',
   description:
     'Pull typed data off the page against a JSON Schema you give: lists, tables, grids. Says per field whether it was parsed or inferred.',
   schema: z.object({
@@ -320,6 +360,7 @@ export const extractActionSchema: ActionSchema = {
 
 export const findInPageActionSchema: ActionSchema = {
   name: 'find_in_page',
+  irreversible: 'never',
   description:
     'Find text anywhere on the page without reading it all: each match with its surroundings and, where there is one, the element index.',
   schema: z.object({
@@ -331,6 +372,7 @@ export const findInPageActionSchema: ActionSchema = {
 
 export const sniffApiActionSchema: ActionSchema = {
   name: 'sniff_api',
+  irreversible: 'never',
   description:
     "The JSON endpoints this site called while you browsed, with a sample of each. A list or table paged over many pages usually comes from one of them; fetch_json reads it in one call instead.",
   schema: z.object({
@@ -341,6 +383,7 @@ export const sniffApiActionSchema: ActionSchema = {
 
 export const fetchJsonActionSchema: ActionSchema = {
   name: 'fetch_json',
+  irreversible: 'never',
   description:
     "Request a JSON address of the site you are on, in the page's own session, and read the reply. For an endpoint sniff_api showed; change its query to page or filter. It loads no page and clicks nothing.",
   schema: z.object({
@@ -352,6 +395,7 @@ export const fetchJsonActionSchema: ActionSchema = {
 
 export const downloadActionSchema: ActionSchema = {
   name: 'download',
+  irreversible: 'maybe',
   description:
     'Click a link or button that produces a file and wait for the browser to save it. read_file then reads it. For a file, not for a link that opens a page.',
   schema: z.object({
@@ -362,6 +406,7 @@ export const downloadActionSchema: ActionSchema = {
 
 export const readFileActionSchema: ActionSchema = {
   name: 'read_file',
+  irreversible: 'never',
   description:
     'Read a file the task downloaded as text and tables: pdf, csv, xlsx, docx, txt. PDF text is marked [page n], so name the page a value came from.',
   schema: z.object({
@@ -372,6 +417,7 @@ export const readFileActionSchema: ActionSchema = {
 
 export const evalJsActionSchema: ActionSchema = {
   name: 'eval_js',
+  irreversible: 'never',
   description:
     'Last resort, when no other tool can see it: read a value out of the page with one JavaScript expression (shadow DOM, canvas, an exotic widget). It only reads; navigating, clicking, typing and storage are refused.',
   schema: z.object({
@@ -384,6 +430,7 @@ export const evalJsActionSchema: ActionSchema = {
 
 export const manageBookmarksActionSchema: ActionSchema = {
   name: 'manage_bookmarks',
+  irreversible: 'never',
   description: 'Manage Chrome bookmarks: get flat lists, search by title/url, get recent bookmarks, or create new ones.',
   schema: z.object({
     action: z.enum(['getFlat', 'search', 'create', 'getRecent']).describe('The action to perform on bookmarks'),
@@ -398,6 +445,7 @@ export const manageBookmarksActionSchema: ActionSchema = {
 
 export const manageReadingListActionSchema: ActionSchema = {
   name: 'manage_reading_list',
+  irreversible: 'never',
   description: 'Manage Chrome reading list: query items, get unread, add items, or mark as read.',
   schema: z.object({
     action: z.enum(['query', 'getUnread', 'add', 'markAsRead']).describe('The action to perform on the reading list'),
@@ -408,6 +456,7 @@ export const manageReadingListActionSchema: ActionSchema = {
 
 export const manageHistoryActionSchema: ActionSchema = {
   name: 'manage_history',
+  irreversible: 'never',
   description: 'Manage Chrome history: get recent history items or find frequent domains.',
   schema: z.object({
     action: z.enum(['getRecent', 'getFrequentDomains']).describe('The action to perform on history'),
@@ -420,6 +469,7 @@ export const manageHistoryActionSchema: ActionSchema = {
 
 export const manageDownloadsActionSchema: ActionSchema = {
   name: 'manage_downloads',
+  irreversible: 'never',
   description: "Search Chrome's downloads (downloads during this task are already listed in the state).",
   schema: z.object({
     query: z.string().optional().describe('Text to search for in file names and addresses'),
@@ -428,6 +478,7 @@ export const manageDownloadsActionSchema: ActionSchema = {
 
 export const manageTabsActionSchema: ActionSchema = {
   name: 'manage_tabs',
+  irreversible: 'never',
   description: 'Manage Chrome tab groups: group tabs, ungroup tabs, or update existing groups.',
   schema: z.object({
     action: z.enum(['groupTabs', 'ungroupTabs', 'updateGroup']).describe('The action to perform on tab groups'),
@@ -445,6 +496,7 @@ export const manageTabsActionSchema: ActionSchema = {
 
 export const manageWindowsActionSchema: ActionSchema = {
   name: 'manage_windows',
+  irreversible: 'never',
   description: 'Manage Chrome windows: get all windows or get the current window.',
   schema: z.object({
     action: z.enum(['getAllWindows', 'getCurrentWindow']).describe('The action to perform on windows'),
@@ -453,6 +505,7 @@ export const manageWindowsActionSchema: ActionSchema = {
 
 export const managePrivacyActionSchema: ActionSchema = {
   name: 'manage_privacy',
+  irreversible: 'always',
   description: 'Manage Chrome privacy data: clear browsing data like cookies, cache, or history.',
   schema: z.object({
     action: z.enum(['clearData']).describe('The action to perform for privacy'),
@@ -485,6 +538,7 @@ export const managePrivacyActionSchema: ActionSchema = {
 
 export const manageExtensionsActionSchema: ActionSchema = {
   name: 'manage_extensions',
+  irreversible: 'maybe',
   description: 'Manage Chrome extensions: get all installed extensions or enable/disable them.',
   schema: z.object({
     action: z.enum(['getAll', 'setEnabled']).describe('The action to perform on extensions'),
@@ -495,6 +549,7 @@ export const manageExtensionsActionSchema: ActionSchema = {
 
 export const manageSystemActionSchema: ActionSchema = {
   name: 'manage_system',
+  irreversible: 'never',
   description: 'Manage Chrome system info: get CPU or memory information.',
   schema: z.object({
     action: z.enum(['getCpu', 'getMemory']).describe('The action to perform on system info'),
@@ -503,9 +558,61 @@ export const manageSystemActionSchema: ActionSchema = {
 
 export const manageSessionsActionSchema: ActionSchema = {
   name: 'manage_sessions',
+  irreversible: 'never',
   description: 'Manage Chrome sessions: get recently closed tabs/windows or restore a specific session.',
   schema: z.object({
     action: z.enum(['getRecentlyClosed', 'restore']).describe('The action to perform on sessions'),
     sessionId: z.string().optional().describe('Session ID to restore'),
   }),
 };
+
+/** Every tool the extension defines, whether or not this task offers it. */
+export const ALL_ACTION_SCHEMAS: ActionSchema[] = [
+  doneActionSchema,
+  searchWebActionSchema,
+  goToUrlActionSchema,
+  goBackActionSchema,
+  clickElementActionSchema,
+  handleDialogActionSchema,
+  inputTextActionSchema,
+  fillFormActionSchema,
+  viewScreenshotActionSchema,
+  uploadFileActionSchema,
+  switchTabActionSchema,
+  saveFindingsActionSchema,
+  notesActionSchema,
+  todoListActionSchema,
+  assertActionSchema,
+  scrollActionSchema,
+  sendKeysActionSchema,
+  selectDropdownOptionActionSchema,
+  waitForActionSchema,
+  askHumanActionSchema,
+  readPageActionSchema,
+  extractActionSchema,
+  findInPageActionSchema,
+  sniffApiActionSchema,
+  fetchJsonActionSchema,
+  downloadActionSchema,
+  readFileActionSchema,
+  evalJsActionSchema,
+  manageBookmarksActionSchema,
+  manageReadingListActionSchema,
+  manageHistoryActionSchema,
+  manageDownloadsActionSchema,
+  manageTabsActionSchema,
+  manageWindowsActionSchema,
+  managePrivacyActionSchema,
+  manageExtensionsActionSchema,
+  manageSystemActionSchema,
+  manageSessionsActionSchema,
+];
+
+/**
+ * Tools whose calls must say what they commit, derived from the schemas rather than remembered by hand: a tool that
+ * may not be undoable and whose meaning is in the element the model chose. Typing is gated on the form around the
+ * field instead (`mayCommitThroughForm`), so its `commits` stays an optional hint.
+ */
+export const COMMIT_DECIDING_TOOLS = new Set(
+  ALL_ACTION_SCHEMAS.filter(action => action.irreversible !== 'never' && action.commitDeciding).map(action => action.name),
+);

@@ -64,6 +64,20 @@ function pressesEnter(actionName: string, args: Record<string, unknown>): boolea
 /** Tools that press an element: the commit gate treats them alike, so a purchase cannot slip through the one it forgot. */
 const CLICKING_TOOLS = new Set(['click_element', 'download']);
 
+/**
+ * The tools `commitTarget()` can decide about on its own (by the element's label, the form around it or the arguments
+ * of a browser-data tool). A tool whose `irreversible` tier is not `never` must be here or in `COMMIT_DECIDING_TOOLS`,
+ * which `actions/__tests__/tools.test.ts` checks, so nothing that may not be undoable reaches a page ungated.
+ */
+export const COMMIT_GATED_TOOLS = new Set([
+  ...CLICKING_TOOLS,
+  'send_keys',
+  'input_text',
+  'fill_form',
+  'manage_privacy',
+  'manage_extensions',
+]);
+
 /** Whether an action could submit a form, so its form must be inspected before the gate decides. */
 export function mayCommitThroughForm(actionName: string, args: Record<string, unknown>): boolean {
   return CLICKING_TOOLS.has(actionName) || pressesEnter(actionName, args);

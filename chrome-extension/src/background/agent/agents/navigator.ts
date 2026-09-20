@@ -87,6 +87,7 @@ const MAX_OPENS_PER_ADDRESS = 3;
 
 const intentCheckSchema: ActionSchema = {
   name: 'intent_check',
+  irreversible: 'never',
   description: "Report whether the user's own request asks for the action described.",
   schema: z.object({
     asked: z.boolean().describe('true only if the user asked for it, or it is a necessary part of what the user asked'),

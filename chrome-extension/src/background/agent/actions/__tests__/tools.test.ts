@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { ChatGoogle } from '@langchain/google-webauth';
 import { ChatOpenAI } from '@langchain/openai';
 import * as schemaModule from '../schemas';
-import type { ActionSchema } from '../schemas';
+import { ALL_ACTION_SCHEMAS, COMMIT_DECIDING_TOOLS, type ActionSchema } from '../schemas';
+import { COMMIT_GATED_TOOLS } from '../../validation/service';
 import { buildToolDefinitions, buildToolValidators, NAVIGATOR_TOOL_FIELDS } from '../builder';
 
 const actionSchemas = Object.values(schemaModule).filter(
@@ -102,6 +103,36 @@ describe('model-facing tool definitions', () => {
     expect(JSON.stringify(tools).length).toBeLessThan(28_700);
     // No description carries a worked example or a retention detail no call can act on.
     for (const tool of tools) expect(tool.function.description.length).toBeLessThan(260);
+  });
+
+  /**
+   * Every tool says how hard its call is to undo, and every tool that may not be undoable is known to the commit gate
+   * — either because the model must state what the call commits, or because `commitTarget()` decides about it from the
+   * element, the form or the arguments. A new tool with no tier, or one no gate knows, fails here (11 B3).
+   */
+  it('gives every tool an irreversibility tier, and lets none of the irreversible ones past the gate', () => {
+    expect(ALL_ACTION_SCHEMAS.map(action => action.name).sort()).toEqual(actionSchemas.map(action => action.name).sort());
+    for (const action of ALL_ACTION_SCHEMAS) {
+      expect(['always', 'maybe', 'never'], `${action.name} has no irreversibility tier`).toContain(action.irreversible);
+    }
+
+    const gatedElsewhere = new Set([
+      // The dialog was raised by the action before it, and that one went through the gate.
+      'handle_dialog',
+      // Every file and every site goes through the page-blind intent check instead (navigator.ts).
+      'upload_file',
+    ]);
+    const ungated = ALL_ACTION_SCHEMAS.filter(
+      action =>
+        action.irreversible !== 'never' &&
+        !COMMIT_DECIDING_TOOLS.has(action.name) &&
+        !COMMIT_GATED_TOOLS.has(action.name) &&
+        !gatedElsewhere.has(action.name),
+    );
+    expect(ungated.map(action => action.name)).toEqual([]);
+
+    // The tools the model itself must mark, which is what makes `commits` required on them.
+    expect([...COMMIT_DECIDING_TOOLS].sort()).toEqual(['click_element', 'send_keys']);
   });
 
   it('binds to the Google and OpenAI LangChain adapters without schema errors', () => {
