@@ -51,6 +51,24 @@ interface NodeLayout {
   height: number;
   /** Corner radius in CSS pixels, so the overlay can glow in the element's own shape. */
   radius?: number;
+  /** A scroll container's hidden content, in screens of its own visible height; the outermost one only. */
+  scroll?: { above: number; below: number };
+  /** Cut away entirely by an ancestor that hides its overflow: a collapsed panel, a carousel's other slides. */
+  clipped?: boolean;
+  /** Takes no pointer events, so nothing a person does can reach it (the agent's own overlay, decoration). */
+  noPointer?: boolean;
+  /** The words inside the element, for a node whose accessible name the tree dropped. */
+  text?: string;
+}
+
+/** An element's painted box, in device pixels: what the covered mark is computed from. */
+interface Layer {
+  id: number;
+  paintOrder: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
 }
 
 /** Layout of one document, in that document's coordinates (CSS pixels). */
@@ -58,7 +76,18 @@ export interface DocumentLayout {
   scrollX: number;
   scrollY: number;
   nodes: Map<number, NodeLayout>;
+  /** Painted boxes and DOM parents, for `coveringLayer`. */
+  layers?: { boxes: Map<number, Layer>; parents: Map<number, number> };
 }
+
+/** Overflow settings that scroll rather than cut the content off. */
+const SCROLLING_OVERFLOW = new Set(['auto', 'scroll', 'overlay']);
+
+/** The root scrollers are the page itself, which `scroll` moves without an index. */
+const ROOT_TAGS = new Set(['html', 'body']);
+
+/** Tags that are controls in themselves, for a node whose role the accessibility tree dropped. */
+const NATIVE_CONTROL_TAGS = new Set(['a', 'button', 'input', 'select', 'summary', 'textarea']);
 
 export interface FrameTree {
   key: string;
@@ -78,13 +107,24 @@ export interface SnapshotDocument {
   frameId: number;
   nodes: {
     nodeName?: number[];
+    nodeType?: number[];
     backendNodeId?: number[];
+    nodeValue?: number[];
     attributes?: number[][];
     parentIndex?: number[];
     isClickable?: { index: number[] };
     inputChecked?: { index: number[] };
   };
-  layout: { nodeIndex: number[]; bounds: number[][]; styles?: number[][] };
+  layout: {
+    nodeIndex: number[];
+    bounds: number[][];
+    styles?: number[][];
+    /** Visible box of a scroll container, and the box its content scrolls in (includeDOMRects). */
+    clientRects?: number[][];
+    scrollRects?: number[][];
+    /** Where each box sits in the page's paint order (includePaintOrder); what is painted later is on top. */
+    paintOrders?: number[];
+  };
   scrollOffsetX?: number;
   scrollOffsetY?: number;
 }
@@ -107,12 +147,25 @@ const INTERACTIVE_ROLES = new Set([
   'spinbutton',
   'switch',
   'treeitem',
+  // Roles Chrome has no ARIA name for are reported as its internal name (a date input, a color well).
   'DisclosureTriangle',
-  'date',
-  'dateTime',
-  'inputTime',
-  'colorWell',
+  'Date',
+  'DateTime',
+  'InputTime',
+  'ColorWell',
 ]);
+
+/** Native date and time inputs: the value they take, which is never what their segments show. */
+const DATE_FORMATS: Record<string, string> = {
+  date: 'YYYY-MM-DD',
+  time: 'HH:MM',
+  'datetime-local': 'YYYY-MM-DDTHH:MM',
+  month: 'YYYY-MM',
+  week: 'YYYY-Www',
+};
+
+/** Chrome's internal roles for the same inputs, for a field the layout snapshot did not reach. */
+const DATE_ROLES = new Set(['Date', 'DateTime', 'InputTime']);
 
 /** Listener types that make an element a pointer target for the user. */
 const POINTER_EVENTS = new Set([
@@ -145,10 +198,27 @@ const STATE_PROPERTIES = new Set(['checked', 'expanded', 'selected', 'pressed'])
 const INTERNAL_PROPERTIES = new Set(['focusable', 'focused', 'editable', 'settable', 'root', 'hiddenRoot']);
 
 /** DOM attributes the accessibility tree does not expose but the model needs (a password or date field). */
-const SNAPSHOT_ATTRIBUTES = new Set(['type', 'name', 'placeholder', 'draggable']);
+const SNAPSHOT_ATTRIBUTES = new Set([
+  'type',
+  'name',
+  'placeholder',
+  'draggable',
+  // Totals of a virtualized grid or list, which the accessibility tree does not carry.
+  'aria-rowcount',
+  'aria-rowindex',
+  'aria-setsize',
+  'aria-posinset',
+]);
 
-/** Computed styles asked of every layout node, in this order; only the on-page overlay uses them. */
-const SNAPSHOT_STYLES = ['border-top-left-radius'] as const;
+/** Computed styles asked of every layout node, in this order. */
+const SNAPSHOT_STYLES = ['border-top-left-radius', 'overflow-x', 'overflow-y', 'pointer-events', 'visibility', 'position', 'cursor'] as const;
+const STYLE = { radius: 0, overflowX: 1, overflowY: 2, pointerEvents: 3, visibility: 4, position: 5, cursor: 6 };
+
+/**
+ * Cursors a page gives what the user is meant to use. It is the one signal a framework cannot delegate away: React
+ * attaches its handlers to the root, so a div with an onClick has no listener of its own to find.
+ */
+const POINTER_CURSORS = /^(pointer|grab|move|[a-z]+-resize)$/;
 
 /**
  * A CSS length as the snapshot reports it, in CSS pixels; a percentage resolves against the element's shorter side,
@@ -175,6 +245,9 @@ const ROLE_TAGS: Record<string, string> = {
   slider: 'input',
   spinbutton: 'input',
   switch: 'input',
+  Date: 'input',
+  DateTime: 'input',
+  InputTime: 'input',
   option: 'option',
   menuitem: 'li',
   menuitemcheckbox: 'li',
@@ -209,6 +282,8 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
   const backendNodeId = doc.nodes.backendNodeId ?? [];
   const attributes = doc.nodes.attributes ?? [];
   const clickable = new Set(doc.nodes.isClickable?.index ?? []);
+  const scrollers = scrollContainers(doc, strings);
+  const { clipped, layers, pointerCursor, notAllowed, noPointer, texts } = layoutSignals(doc, strings);
   doc.layout.nodeIndex.forEach((nodeIndex, i) => {
     const id = backendNodeId[nodeIndex];
     const bounds = doc.layout.bounds[i];
@@ -220,21 +295,223 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
       const name = strings[pairs[j]];
       if (SNAPSHOT_ATTRIBUTES.has(name)) selected[name] = strings[pairs[j + 1]] ?? '';
     }
+    // "not-allowed" is how a page shows a control it has switched off without marking it disabled.
+    if (notAllowed.has(nodeIndex)) selected.disabled = 'true';
     const width = bounds[2] / scale;
     const height = bounds[3] / scale;
     nodes.set(id, {
       tagName: (strings[nodeName[nodeIndex]] ?? '').toLowerCase(),
       attributes: selected,
-      clickable: clickable.has(nodeIndex),
+      // A pointer cursor is the page saying the element is there to be used, however its handler is attached.
+      clickable: clickable.has(nodeIndex) || pointerCursor.has(nodeIndex),
       x: bounds[0] / scale,
       y: bounds[1] / scale,
       width,
       height,
-      radius: parseRadius(strings[doc.layout.styles?.[i]?.[0] ?? -1], width, height),
+      radius: parseRadius(strings[doc.layout.styles?.[i]?.[STYLE.radius] ?? -1], width, height),
+      scroll: scrollers.get(nodeIndex),
+      clipped: clipped.has(nodeIndex) || undefined,
+      noPointer: noPointer.has(nodeIndex) || undefined,
+      text: texts.get(nodeIndex),
     });
   });
   labelHiddenChoices(doc, strings, nodes);
-  return { scrollX: (doc.scrollOffsetX ?? 0) / scale, scrollY: (doc.scrollOffsetY ?? 0) / scale, nodes };
+  return { scrollX: (doc.scrollOffsetX ?? 0) / scale, scrollY: (doc.scrollOffsetY ?? 0) / scale, nodes, layers };
+}
+
+type Clip = [number, number, number, number];
+const UNCLIPPED: Clip = [-Infinity, -Infinity, Infinity, Infinity];
+
+/** `box` cut down to `clip` on the axes the clip applies to, in device pixels. */
+function intersect(clip: Clip, x1: number, y1: number, x2: number, y2: number): Clip {
+  return [Math.max(clip[0], x1), Math.max(clip[1], y1), Math.min(clip[2], x2), Math.min(clip[3], y2)];
+}
+
+const isEmpty = (clip: Clip) => clip[2] <= clip[0] || clip[3] <= clip[1];
+
+/**
+ * One walk of the snapshot for what the styles say about each box: what every ancestor that hides its overflow does
+ * to it (an element cut away entirely sits in a closed panel — an accordion at height 0, a carousel's other slides),
+ * what is left of it once scrollers and clips are applied (the boxes `coveringLayer` hit-tests), and what its cursor
+ * says about using it.
+ */
+function layoutSignals(
+  doc: SnapshotDocument,
+  strings: string[],
+): {
+  clipped: Set<number>;
+  layers: { boxes: Map<number, Layer>; parents: Map<number, number> };
+  pointerCursor: Set<number>;
+  notAllowed: Set<number>;
+  noPointer: Set<number>;
+  texts: Map<number, string>;
+} {
+  const clipped = new Set<number>();
+  const pointerCursor = new Set<number>();
+  const notAllowed = new Set<number>();
+  const noPointer = new Set<number>();
+  const texts = new Map<number, string>();
+  const cursors: Array<string | undefined> = [];
+  const boxes = new Map<number, Layer>();
+  const parents = new Map<number, number>();
+  const { styles, bounds, nodeIndex, paintOrders } = doc.layout;
+  const parentIndex = doc.nodes.parentIndex ?? [];
+  const nodeName = doc.nodes.nodeName ?? [];
+  const nodeType = doc.nodes.nodeType ?? [];
+  const backendNodeId = doc.nodes.backendNodeId ?? [];
+  const firstBox = new Map<number, number>();
+  nodeIndex.forEach((node, i) => {
+    if (!firstBox.has(node)) firstBox.set(node, i);
+  });
+  // The clip an element's own box gets from its ancestors, and the one it passes to its children: `cut` counts only
+  // overflow that hides content for good, `paint` counts scrollers too, since their content is drawn inside them.
+  const ownCut: Clip[] = [];
+  const innerCut: Clip[] = [];
+  const ownPaint: Clip[] = [];
+  const innerPaint: Clip[] = [];
+  for (let node = 0; node < nodeName.length; node++) {
+    const parent = parentIndex[node] ?? -1;
+    const box = firstBox.get(node);
+    const style = (which: number) => (box === undefined ? undefined : strings[styles?.[box]?.[which] ?? -1]);
+    // Overflow on the root propagates to the viewport, so neither <html> nor <body> clips what it holds.
+    const root = ROOT_TAGS.has((strings[nodeName[node]] ?? '').toLowerCase());
+    // A fixed element is positioned against the viewport: no ancestor clips it.
+    // ponytail: an absolutely positioned element whose containing block sits outside the clipper escapes it too;
+    // that needs the position of every ancestor, so it waits until a page is seen to need it.
+    const escapes = style(STYLE.position) === 'fixed';
+    ownCut[node] = escapes || parent < 0 ? UNCLIPPED : innerCut[parent] ?? UNCLIPPED;
+    ownPaint[node] = escapes || parent < 0 ? UNCLIPPED : innerPaint[parent] ?? UNCLIPPED;
+    // Inherited unless the element has a box of its own to set it on; only an element that asks for a pointer itself
+    // is a target, or every span inside a link would become one.
+    const cursor = box === undefined ? cursors[parent] : style(STYLE.cursor);
+    cursors[node] = cursor;
+    if (box !== undefined && cursor !== undefined) {
+      if (cursor !== cursors[parent] && POINTER_CURSORS.test(cursor)) pointerCursor.add(node);
+      if (cursor === 'not-allowed') notAllowed.add(node);
+    }
+    if (style(STYLE.pointerEvents) === 'none') noPointer.add(node);
+    if (parent >= 0 && backendNodeId[node] !== undefined) parents.set(backendNodeId[node], backendNodeId[parent]);
+    // The text of a node the accessibility tree does not name (it dropped the names under aria-hidden), kept for the
+    // few levels of wrappers a control puts around its own words.
+    const value = nodeType[node] === 3 ? (strings[doc.nodes.nodeValue?.[node] ?? -1] ?? '').trim() : '';
+    if (value) {
+      let ancestor = parent;
+      for (let up = 0; up < 4 && ancestor >= 0; up++, ancestor = parentIndex[ancestor] ?? -1) {
+        const text = `${texts.get(ancestor) ?? ''} ${value}`.trim();
+        texts.set(ancestor, text.length > 80 ? text.slice(0, 80) : text);
+      }
+    }
+    const rect = box === undefined ? undefined : bounds[box];
+    if (!rect || root) {
+      innerCut[node] = ownCut[node];
+      innerPaint[node] = ownPaint[node];
+      continue;
+    }
+    const [x, y, width, height] = rect;
+    const overflow = [style(STYLE.overflowX) ?? 'visible', style(STYLE.overflowY) ?? 'visible'];
+    const edge = (axis: number, hides: (value: string) => boolean, low: number, high: number) =>
+      hides(overflow[axis]) ? [low, high] : [-Infinity, Infinity];
+    const cuts = (value: string) => value !== 'visible' && !SCROLLING_OVERFLOW.has(value);
+    const hides = (value: string) => value !== 'visible';
+    const clipOf = (test: (value: string) => boolean): Clip => {
+      const [x1, x2] = edge(0, test, x, x + width);
+      const [y1, y2] = edge(1, test, y, y + height);
+      return [x1, y1, x2, y2];
+    };
+    const cut = clipOf(cuts);
+    const paint = clipOf(hides);
+    innerCut[node] = intersect(ownCut[node], cut[0], cut[1], cut[2], cut[3]);
+    innerPaint[node] = intersect(ownPaint[node], paint[0], paint[1], paint[2], paint[3]);
+    if (width <= 0 || height <= 0) continue;
+    if (isEmpty(intersect(ownCut[node], x, y, x + width, y + height))) clipped.add(node);
+    const id = backendNodeId[node];
+    const visible = intersect(ownPaint[node], x, y, x + width, y + height);
+    // Only what a click can land on: an element, painted, and taking pointer events.
+    if (
+      id === undefined ||
+      box === undefined ||
+      nodeType[node] !== 1 ||
+      paintOrders === undefined ||
+      isEmpty(visible) ||
+      style(STYLE.pointerEvents) === 'none' ||
+      style(STYLE.visibility) === 'hidden'
+    ) {
+      continue;
+    }
+    boxes.set(id, { id, paintOrder: paintOrders[box] ?? 0, x1: visible[0], y1: visible[1], x2: visible[2], y2: visible[3] });
+  }
+  return { clipped, layers: { boxes, parents }, pointerCursor, notAllowed, noPointer, texts };
+}
+
+/**
+ * The part of the page painted over an element's centre, or undefined when nothing is: the outermost element of that
+ * layer (a cookie banner's root, a modal's container), so the model is told what to deal with rather than which inner
+ * box happened to be on top. Only boxes painted later than the element count, which leaves normal flow alone.
+ */
+export function coveringLayer(layout: DocumentLayout, backendNodeId: number): number | undefined {
+  const { boxes, parents } = layout.layers ?? { boxes: new Map<number, Layer>(), parents: new Map<number, number>() };
+  const self = boxes.get(backendNodeId);
+  if (!self) return undefined;
+  const x = (self.x1 + self.x2) / 2;
+  const y = (self.y1 + self.y2) / 2;
+  const above = new Set<number>();
+  for (let parent = parents.get(backendNodeId); parent !== undefined && !above.has(parent); parent = parents.get(parent)) {
+    above.add(parent);
+  }
+  const holds = (id: number) => {
+    for (let parent: number | undefined = id; parent !== undefined; parent = parents.get(parent)) {
+      if (parent === backendNodeId) return true;
+    }
+    return false;
+  };
+  let top: Layer | undefined;
+  for (const layer of boxes.values()) {
+    if (layer.paintOrder <= self.paintOrder || (top && layer.paintOrder <= top.paintOrder)) continue;
+    if (layer.x1 > x || layer.x2 < x || layer.y1 > y || layer.y2 < y) continue;
+    if (above.has(layer.id) || holds(layer.id)) continue;
+    top = layer;
+  }
+  if (!top) return undefined;
+  let outermost = top.id;
+  for (let parent = parents.get(outermost); parent !== undefined && !above.has(parent); parent = parents.get(parent)) {
+    outermost = parent;
+  }
+  return outermost;
+}
+
+/**
+ * Elements whose content scrolls inside them, with how much of it sits outside their visible box (in screens of that
+ * box). A page's own scrollbar is not one of them, and neither is a scroller inside another: the outermost one is the
+ * handle `scroll {index}` needs, and nested ones only lengthen the list.
+ */
+// ponytail: vertical scrollers only, which is what `scroll` moves; a carousel that scrolls sideways is still read
+// through its own controls.
+function scrollContainers(doc: SnapshotDocument, strings: string[]): Map<number, { above: number; below: number }> {
+  const found = new Map<number, { above: number; below: number }>();
+  const { clientRects, scrollRects, styles, nodeIndex } = doc.layout;
+  if (!clientRects || !scrollRects || !styles) return found;
+  const parents = doc.nodes.parentIndex ?? [];
+  const nodeName = doc.nodes.nodeName ?? [];
+  const scrolling = new Set<number>();
+  nodeIndex.forEach((node, i) => {
+    const client = clientRects[i];
+    const scroll = scrollRects[i];
+    const overflow = strings[styles[i]?.[STYLE.overflowY] ?? -1];
+    if (!client || !scroll || !SCROLLING_OVERFLOW.has(overflow)) return;
+    if (ROOT_TAGS.has((strings[nodeName[node]] ?? '').toLowerCase())) return;
+    const height = client[3];
+    if (height <= 0 || scroll[3] <= height + 1) return;
+    scrolling.add(node);
+    // The node list is in document order, so an enclosing scroller has already been seen.
+    for (let parent = parents[node]; parent !== undefined && parent >= 0; parent = parents[parent]) {
+      if (scrolling.has(parent)) return;
+    }
+    const screens = (pixels: number) => Math.round((pixels / height) * 10) / 10;
+    const above = screens(scroll[1]);
+    const below = screens(scroll[3] - scroll[1] - height);
+    if (above > 0 || below > 0) found.set(node, { above, below });
+  });
+  return found;
 }
 
 /**
@@ -273,6 +550,31 @@ function labelHiddenChoices(doc: SnapshotDocument, strings: string[], nodes: Map
   });
 }
 
+/** Names a layer on top of an element by what it is, falling back to the first named thing it holds. */
+function describeLayer(layer: AXNode | undefined, nodesById: Map<string, AXNode>): string {
+  const queue = layer ? [layer] : [];
+  let unnamed = '';
+  for (let seen = 0; seen < 20 && queue.length; seen++) {
+    const node = queue.shift()!;
+    const role = String(node.role?.value ?? '');
+    const name = String(node.name?.value ?? '').trim();
+    const kind = UNNAMED_ROLES.has(role) || role === 'StaticText' ? '' : role;
+    if (name) return [kind, name].filter(Boolean).join(' ').slice(0, 40);
+    if (!unnamed) unnamed = kind;
+    for (const id of node.childIds ?? []) {
+      const child = nodesById.get(id);
+      if (child) queue.push(child);
+    }
+  }
+  return unnamed || 'another layer';
+}
+
+/** What a scroller's line says about the content outside it, e.g. "1 screen above, 2.5 screens below". */
+function scrollNote({ above, below }: { above: number; below: number }): string {
+  const screens = (value: number, where: string) => (value > 0 ? `${value} ${value === 1 ? 'screen' : 'screens'} ${where}` : '');
+  return [screens(above, 'above'), screens(below, 'below')].filter(Boolean).join(', ');
+}
+
 function coordinates(x: number, y: number, width: number, height: number): CoordinateSet {
   return {
     topLeft: { x, y },
@@ -283,6 +585,52 @@ function coordinates(x: number, y: number, width: number, height: number): Coord
     width,
     height,
   };
+}
+
+/** The backendNodeIds an accessibility relation (controls, owns, activedescendant) points at. */
+function relatedNodes(node: AXNode, relation: string): number[] {
+  const property = node.properties?.find(candidate => candidate.name === relation);
+  const related = (property?.value as { relatedNodes?: Array<{ backendDOMNodeId?: number }> } | undefined)?.relatedNodes ?? [];
+  return related.map(target => target.backendDOMNodeId).filter((id): id is number => id !== undefined);
+}
+
+/**
+ * What a virtualized grid or list holds beyond the rows it rendered, from the totals ARIA carries for exactly this
+ * ("rows 1-20 of 500"). The accessibility tree has neither aria-rowcount nor aria-setsize, so both come from the
+ * layout snapshot's attributes.
+ */
+function virtualTotal(element: DOMElementNode): string | null {
+  const number = (node: DOMElementNode, attribute: string) => Number(node.attributes[attribute] ?? NaN);
+  const rowCount = number(element, 'aria-rowcount');
+  const rows: number[] = [];
+  const collect = (node: DOMElementNode): void => {
+    for (const child of node.children) {
+      if (!(child instanceof DOMElementNode) || Number.isFinite(number(child, 'aria-rowcount'))) continue;
+      const index = number(child, 'aria-rowindex');
+      if (Number.isFinite(index)) rows.push(index);
+      collect(child);
+    }
+  };
+  if (Number.isFinite(rowCount) && rowCount > 0) {
+    collect(element);
+    if (!rows.length || rowCount <= rows.length) return null;
+    return `rows ${Math.min(...rows)}-${Math.max(...rows)} of ${rowCount}`;
+  }
+  const items = element.children.filter(
+    (child): child is DOMElementNode => child instanceof DOMElementNode && Number.isFinite(number(child, 'aria-posinset')),
+  );
+  const size = items.length ? number(items[0], 'aria-setsize') : NaN;
+  if (!Number.isFinite(size) || size <= items.length) return null;
+  const positions = items.map(item => number(item, 'aria-posinset'));
+  return `items ${Math.min(...positions)}-${Math.max(...positions)} of ${size}`;
+}
+
+/** Whether `ancestor` holds `node` in the element tree. */
+function holds(ancestor: DOMElementNode, node: DOMElementNode): boolean {
+  for (let parent: DOMElementNode | null = node; parent; parent = parent.parent) {
+    if (parent === ancestor) return true;
+  }
+  return false;
 }
 
 function propertyMap(node: AXNode): Record<string, unknown> {
@@ -387,6 +735,24 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
     const visited = new Set<string>();
     const scrollX = tree.layout?.scrollX ?? 0;
     const scrollY = tree.layout?.scrollY ?? 0;
+    const byBackendId = new Map<number, AXNode>();
+    for (const node of tree.nodes) {
+      if (node.backendDOMNodeId !== undefined && !byBackendId.has(node.backendDOMNodeId)) byBackendId.set(node.backendDOMNodeId, node);
+    }
+
+    const built = new Map<number, DOMElementNode>();
+    const pending: Array<{ field: DOMElementNode; popups: number[] }> = [];
+    // Content the page put behind a modal or made inert is hidden on purpose, whatever else it is marked with.
+    const modalOpen = tree.nodes.some(node =>
+      node.ignoredReasons?.some(reason => reason.name === 'activeModalDialog' || reason.name.startsWith('inert')),
+    );
+
+    /** What the page paints over an element it lists, so the model closes that first instead of clicking through it. */
+    const markCovered = (element: DOMElementNode): void => {
+      if (!tree.layout || element.backendNodeId === undefined || !element.isInViewport) return;
+      const layer = coveringLayer(tree.layout, element.backendNodeId);
+      if (layer !== undefined) element.attributes.covered = describeLayer(byBackendId.get(layer), nodesById);
+    };
 
     /** Returns whether the subtree produced any text. */
     const visit = (node: AXNode, into: DOMElementNode, insideControl: boolean): boolean => {
@@ -427,13 +793,28 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         return text;
       };
 
+      // A control on screen that the page hid from the accessibility tree is ARIA misuse (a menu left aria-hidden
+      // after opening), not content behind a modal: it is the only control there is, so it is kept. Decoration and
+      // the agent's own overlay take no pointer events, which keeps them out.
+      const hiddenButUsable = hiddenByAria && !modalOpen && layout !== undefined && !layout.noPointer && !layout.clipped;
+
       // The page made this element a pointer target: a listener of its own, a native click action, draggable=true.
       const listenerTarget = node.backendDOMNodeId !== undefined && Boolean(tree.pointerListeners?.has(node.backendDOMNodeId));
       const pageTarget =
-        !hiddenByAria && Boolean(layout) && (layout?.attributes.draggable === 'true' || Boolean(layout?.clickable) || listenerTarget);
+        (!hiddenByAria || hiddenButUsable) &&
+        Boolean(layout) &&
+        // A node the tree ignored has no role left to go by, so a control kept from there is known by its tag.
+        (layout?.attributes.draggable === 'true' ||
+          Boolean(layout?.clickable) ||
+          listenerTarget ||
+          (hiddenButUsable && NATIVE_CONTROL_TAGS.has(layout?.tagName ?? '')));
+
+      // A panel the page scrolls on its own: without a line of its own there is no index for `scroll {index}`, and a
+      // live run scrolled the page eleven times for content that sat in one. Only the outermost one is listed.
+      const scroller = !hiddenByAria && !insideControl && layout?.scroll !== undefined;
 
       // An ignored node creates nothing, unless the page made it a pointer target (an empty div with a handler).
-      if (node.ignored && !pageTarget) return visitChildren(into, insideControl);
+      if (node.ignored && !pageTarget && !scroller) return visitChildren(into, insideControl);
 
       const props = propertyMap(node);
       // A keyboard skip link only moves focus within the page; listed, it was clicked as if it led somewhere.
@@ -455,6 +836,8 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         rect!.width >= 8 &&
         rect!.height >= 8 &&
         (!viewport || rect!.width * rect!.height <= 0.5 * viewport.width * viewport.height);
+      // A scroller that is not a control of its own is listed only so it can be scrolled: its line carries no text.
+      const scrollOnly = scroller && !interactive;
       const coords = rect && coordinates(rect.x, rect.y, rect.width, rect.height);
       const pageCoords = rect && coordinates(rect.x + pageScrollX, rect.y + pageScrollY, rect.width, rect.height);
       const element = new DOMElementNode({
@@ -469,7 +852,8 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         isInViewport:
           !rect || !viewport ||
           (rect.x + rect.width > 0 && rect.y + rect.height > 0 && rect.x < viewport.width && rect.y < viewport.height),
-        highlightIndex: interactive ? selectorMap.size : null,
+        highlightIndex: interactive || scrollOnly ? selectorMap.size : null,
+        scrollOnly,
         viewportCoordinates: coords,
         pageCoordinates: pageCoords,
         cornerRadius: layout?.radius,
@@ -478,8 +862,39 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         frame: tree.frame,
         frameKey: tree.key,
       });
-      if (interactive) selectorMap.set(selectorMap.size, element);
+      if (interactive || scrollOnly) {
+        selectorMap.set(selectorMap.size, element);
+        markCovered(element);
+      }
+      if (node.backendDOMNodeId !== undefined) built.set(node.backendDOMNodeId, element);
+      // A field's suggestions are usually portalled to the end of the document, far from the field in the element
+      // list, and the model then acts on the wrong one. The list it controls is serialized under the field instead.
+      if (role === 'combobox' || props.hasPopup === 'listbox') {
+        const popups = [...relatedNodes(node, 'controls'), ...relatedNodes(node, 'owns')];
+        if (popups.length) pending.push({ field: element, popups });
+        const [activeId] = relatedNodes(node, 'activedescendant');
+        const activeName = String((activeId === undefined ? undefined : byBackendId.get(activeId))?.name?.value ?? '').trim();
+        if (activeName) element.attributes.active = activeName;
+      }
+      // Nothing of the element is on the page: it sits in a panel that is closed or scrolled past, and the step that
+      // works is opening that panel, not a click the page would refuse for having no visible area.
+      if (layout?.clipped && (interactive || scrollOnly)) element.attributes.hidden = 'clipped';
+      if (scroller && layout?.scroll) {
+        element.attributes.scroll = scrollNote(layout.scroll);
+        // A panel's wrapper role ("none", "generic") says nothing next to what it holds.
+        if (UNNAMED_ROLES.has(role)) delete element.attributes.role;
+      }
       into.children.push(element);
+
+      // A native date or time input is one element too: its user-agent segments are spinbutton spans that take no text
+      // (typing into one failed six times in a live run), while the input itself is set to a value in the format below.
+      const inputType = layout?.tagName === 'input' ? layout.attributes.type : undefined;
+      if (interactive && (DATE_ROLES.has(role) || (inputType !== undefined && inputType in DATE_FORMATS))) {
+        if (!element.attributes.value) delete element.attributes.value;
+        if (inputType) element.attributes.format = DATE_FORMATS[inputType];
+        delete element.attributes.role;
+        return false;
+      }
 
       // A native <select> is one element: its options become a count (or their names when few), not one element each
       // (a country list listed 240). select_dropdown_option picks by visible text.
@@ -495,11 +910,23 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
 
       const indexedBefore = selectorMap.size;
       const hasText = visitChildren(element, insideControl || interactive);
+      // The accessibility tree drops the names and roles under aria-hidden, so a control kept from there says what it
+      // holds instead.
+      if (hiddenButUsable) {
+        if (!hasText && !name && layout?.text) element.children.push(new DOMTextNode(layout.text, true, element));
+        if (UNNAMED_ROLES.has(role)) delete element.attributes.role;
+      }
+      // A grid or list that renders a window onto a longer one says how long it is, so its rows are not read as all
+      // there is (the answer "there are none" often rests on that).
+      const total = virtualTotal(element);
+      if (total) element.children.unshift(new DOMTextNode(total, true, element));
       // Only a leaf-most target: a clickable card that contains a real button keeps the button as the target.
       if (pointerCandidate && selectorMap.size === indexedBefore) {
         element.isInteractive = true;
         element.highlightIndex = selectorMap.size;
         selectorMap.set(selectorMap.size, element);
+        if (layout?.clipped) element.attributes.hidden = 'clipped';
+        markCovered(element);
       }
       // A named image, region or heading without text children shows its name as text; for interactive
       // nodes the name stays an attribute.
@@ -512,6 +939,17 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
 
     const root = tree.nodes.find(node => !node.parentId || !nodesById.has(node.parentId));
     if (root) visit(root, parent, false);
+
+    for (const { field, popups } of pending) {
+      for (const id of popups) {
+        const popup = built.get(id);
+        // Moving a field's own ancestor, or something already inside it, would cut the tree.
+        if (!popup || !popup.parent || !field.parent || popup === field || holds(popup, field) || holds(field, popup)) continue;
+        popup.parent.children.splice(popup.parent.children.indexOf(popup), 1);
+        popup.parent = field.parent;
+        field.parent.children.splice(field.parent.children.indexOf(field) + 1, 0, popup);
+      }
+    }
   };
 
   if (main) visitFrame(main, elementTree, { x: 0, y: 0 });
@@ -594,7 +1032,10 @@ async function readLayouts(sessions: CDPSession[], scale: number, timeoutMs = FR
   await Promise.all(
     sessions.map(async client => {
       try {
-        const snapshot = await withTimeout(client.send('DOMSnapshot.captureSnapshot', { computedStyles: [...SNAPSHOT_STYLES] }), timeoutMs);
+        const snapshot = await withTimeout(
+          client.send('DOMSnapshot.captureSnapshot', { computedStyles: [...SNAPSHOT_STYLES], includeDOMRects: true, includePaintOrder: true }),
+          timeoutMs,
+        );
         for (const doc of snapshot.documents) {
           layouts.set(snapshot.strings[doc.frameId], documentLayout(doc as unknown as SnapshotDocument, snapshot.strings, scale));
         }

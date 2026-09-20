@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildDomState, documentLayout, getAXTreeState, isSkipLink, parseRadius, type AXNode, type FrameTree } from '../ax-tree-extractor';
+import { buildDomState, coveringLayer, documentLayout, getAXTreeState, isSkipLink, parseRadius, type AXNode, type FrameTree } from '../ax-tree-extractor';
 import { pruneAXTree } from '../../dom/ax-tree-pruner';
 import type { DOMElementNode } from '../../dom/views';
 
@@ -156,8 +156,8 @@ describe('pointer targets', () => {
     expect(withListener.selectorMap.get(0)?.backendNodeId).toBe(30);
   });
 
-  it('reads nothing hidden with aria-hidden, even a draggable element with its own listener', () => {
-    // Like the agent's own status overlay: aria-hidden, draggable, with a text label inside.
+  it('reads nothing from a layer that takes no pointer events, however clickable it looks', () => {
+    // The agent's own status overlay: aria-hidden, draggable, pointer-events: none, with a text label inside.
     const nodes: AXNode[] = [
       { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3'] },
       text('2', 'Log in'),
@@ -171,12 +171,40 @@ describe('pointer targets', () => {
       },
       { nodeId: '4', ignored: true, ignoredReasons: [{ name: 'ariaHiddenSubtree' }], role: { value: 'StaticText' }, name: { value: 'Input tomsmith into index 2' } },
     ];
-    const layout = { scrollX: 0, scrollY: 0, nodes: new Map([[30, { tagName: 'div', attributes: { draggable: 'true' }, x: 10, y: 60, width: 250, height: 40 }]]) };
+    const overlay = { tagName: 'div', attributes: { draggable: 'true' }, x: 10, y: 60, width: 250, height: 40, noPointer: true };
+    const layout = { scrollX: 0, scrollY: 0, nodes: new Map([[30, overlay]]) };
 
     const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout, pointerListeners: new Set([30]) }], { width: 1000, height: 800 }));
 
     expect(state.selectorMap.size).toBe(0);
     expect(JSON.stringify(state.elementTree, (key, value) => (key === 'parent' ? undefined : value))).not.toContain('Input tomsmith');
+  });
+
+  it('keeps a control the page hid with aria-hidden while showing it, unless a modal is open', () => {
+    // ARIA misuse: a real button on screen, marked aria-hidden, whose label the accessibility tree has dropped.
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      {
+        nodeId: '2',
+        ignored: true,
+        ignoredReasons: [{ name: 'ariaHiddenElement' }],
+        role: { value: 'none' },
+        backendDOMNodeId: 40,
+        childIds: ['3'],
+      },
+      { nodeId: '3', ignored: true, ignoredReasons: [{ name: 'ariaHiddenSubtree' }], role: { value: 'StaticText' } },
+    ];
+    const layout = {
+      scrollX: 0,
+      scrollY: 0,
+      nodes: new Map([[40, { tagName: 'button', attributes: {}, x: 10, y: 60, width: 120, height: 30, text: 'Show more' }]]),
+    };
+
+    const kept = pruneAXTree(buildDomState([{ key: 'main', nodes, layout }], { width: 1000, height: 800 }));
+    expect(kept.selectorMap.get(0)?.getAllTextTillNextClickableElement()).toBe('Show more');
+
+    const behindModal = nodes.map(node => (node.nodeId === '3' ? { ...node, ignoredReasons: [{ name: 'activeModalDialog' }] } : node));
+    expect(pruneAXTree(buildDomState([{ key: 'main', nodes: behindModal, layout }], { width: 1000, height: 800 })).selectorMap.size).toBe(0);
   });
 });
 
@@ -262,6 +290,238 @@ describe('native selects', () => {
     ];
     const state = pruneAXTree(buildDomState([{ key: 'main', nodes }], null));
     expect(state.selectorMap.size).toBe(3);
+  });
+});
+
+describe('virtualized totals', () => {
+  const node = (id: string, role: string, backendDOMNodeId: number, childIds?: string[]): AXNode => ({ nodeId: id, role: { value: role }, backendDOMNodeId, childIds });
+  const layout = (entries: Array<[number, Record<string, string>]>) => ({
+    scrollX: 0,
+    scrollY: 0,
+    nodes: new Map(entries.map(([id, attributes]) => [id, { tagName: 'div', attributes, x: 0, y: 0, width: 200, height: 20 }])),
+  });
+
+  it('says how long a grid is when it renders a window onto it', () => {
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      node('2', 'grid', 20, ['3', '4']),
+      node('3', 'row', 21, ['5']),
+      node('4', 'row', 22),
+      { nodeId: '5', role: { value: 'gridcell' }, name: { value: 'Ada' }, backendDOMNodeId: 23 },
+    ];
+    const rendered = pruneAXTree(
+      buildDomState([{ key: 'main', nodes, layout: layout([[20, { 'aria-rowcount': '500' }], [21, { 'aria-rowindex': '21' }], [22, { 'aria-rowindex': '22' }]]) }], null),
+    ).elementTree.clickableElementsToString();
+    expect(rendered).toContain('rows 21-22 of 500');
+
+    const whole = pruneAXTree(
+      buildDomState([{ key: 'main', nodes, layout: layout([[20, { 'aria-rowcount': '2' }], [21, { 'aria-rowindex': '1' }], [22, { 'aria-rowindex': '2' }]]) }], null),
+    ).elementTree.clickableElementsToString();
+    expect(whole).not.toContain(' of 2');
+  });
+
+  it('says the same for a list whose items carry aria-setsize', () => {
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      node('2', 'list', 30, ['3', '4']),
+      { nodeId: '3', role: { value: 'listitem' }, name: { value: 'First' }, backendDOMNodeId: 31 },
+      { nodeId: '4', role: { value: 'listitem' }, name: { value: 'Second' }, backendDOMNodeId: 32 },
+    ];
+    const items = layout([[31, { 'aria-setsize': '90', 'aria-posinset': '1' }], [32, { 'aria-setsize': '90', 'aria-posinset': '2' }]]);
+    expect(pruneAXTree(buildDomState([{ key: 'main', nodes, layout: items }], null)).elementTree.clickableElementsToString()).toContain('items 1-2 of 90');
+  });
+});
+
+describe('a combobox and the list it controls', () => {
+  // As Chrome reads an autocomplete: the field carries controls and activedescendant relations, and the listbox the
+  // page portals to the end of the document sits far from it in the element list.
+  const relation = (name: string, backendDOMNodeId: number) => ({ name, value: { type: 'idref', relatedNodes: [{ backendDOMNodeId }] } });
+  const nodes: AXNode[] = [
+    { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3', '5'] },
+    {
+      nodeId: '2',
+      role: { value: 'combobox' },
+      name: { value: 'City' },
+      backendDOMNodeId: 20,
+      properties: [{ name: 'expanded', value: { value: true } }, relation('controls', 70), relation('activedescendant', 72)],
+    },
+    { nodeId: '3', role: { value: 'button' }, name: { value: 'Search' }, backendDOMNodeId: 30 },
+    { nodeId: '5', role: { value: 'listbox' }, backendDOMNodeId: 70, childIds: ['6', '7'] },
+    { nodeId: '6', role: { value: 'option' }, name: { value: 'Paris' }, backendDOMNodeId: 71 },
+    { nodeId: '7', role: { value: 'option' }, name: { value: 'Parma' }, backendDOMNodeId: 72 },
+  ];
+
+  it('serializes the options right after the field and names the active one', () => {
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes }], null));
+    expect([...state.selectorMap.values()].map(node => node.attributes['aria-label'] ?? node.attributes.role)).toEqual([
+      'City',
+      'listbox',
+      'Paris',
+      'Parma',
+      'Search',
+    ]);
+    expect(state.elementTree.clickableElementsToString().split('\n')[0]).toContain('active="Parma"');
+  });
+});
+
+describe('cursor as a clickability signal', () => {
+  // Nodes: 0 body, 1 a div a framework made clickable (cursor: pointer), 2 the span inside it, which only inherits
+  // that cursor, 3 a control the page switched off with cursor: not-allowed.
+  const strings = ['BODY', 'DIV', 'SPAN', 'visible', 'static', 'auto', '0px', 'pointer', 'not-allowed'];
+  const style = (cursor: number) => [6, 3, 3, 5, 3, 4, cursor];
+  const doc = {
+    frameId: 0,
+    nodes: { nodeName: [0, 1, 2, 1], nodeType: [1, 1, 1, 1], backendNodeId: [10, 11, 12, 13], parentIndex: [-1, 0, 1, 0] },
+    layout: {
+      nodeIndex: [0, 1, 2, 3],
+      bounds: [[0, 0, 1264, 368], [8, 32, 100, 30], [8, 32, 68, 17], [8, 80, 100, 30]],
+      styles: [style(5), style(7), style(7), style(8)],
+      paintOrders: [1, 2, 2, 3],
+    },
+  };
+
+  it('treats an element that asks for a pointer as a target, but not what merely inherits it', () => {
+    const layout = documentLayout(doc as never, strings);
+    expect(layout.nodes.get(11)?.clickable).toBe(true);
+    expect(layout.nodes.get(12)?.clickable).toBe(false);
+  });
+
+  it('reads cursor: not-allowed as disabled', () => {
+    expect(documentLayout(doc as never, strings).nodes.get(13)?.attributes.disabled).toBe('true');
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      { nodeId: '2', role: { value: 'button' }, name: { value: 'Add to cart' }, backendDOMNodeId: 13 },
+    ];
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout: documentLayout(doc as never, strings) }], { width: 1000, height: 800 }));
+    expect(state.elementTree.clickableElementsToString()).toContain('disabled="true"');
+  });
+});
+
+describe('clipped and covered elements', () => {
+  // Nodes: 0 body, 1 a collapsed panel (height 0, overflow hidden), 2 the button inside it, 3 a button lower down
+  // the page, 4 a fixed cookie banner painted over it, 5 the banner's "Accept" button.
+  const strings = ['BODY', 'DIV', 'BUTTON', 'visible', 'hidden', 'static', 'fixed', 'none', '0px', 'auto'];
+  const style = (overflow: number, position: number, pointer = 9) => [8, overflow, overflow, pointer, 3, position];
+  const doc = {
+    frameId: 0,
+    nodes: {
+      nodeName: [0, 1, 2, 2, 1, 2],
+      nodeType: [1, 1, 1, 1, 1, 1],
+      backendNodeId: [10, 11, 12, 13, 14, 15],
+      parentIndex: [-1, 0, 1, 0, 0, 4],
+    },
+    layout: {
+      nodeIndex: [0, 1, 2, 3, 4, 5],
+      bounds: [[0, 0, 1264, 368], [8, 180, 1264, 0], [8, 180, 100, 21], [10, 400, 100, 21], [0, 380, 300, 100], [10, 400, 80, 20]],
+      styles: [style(3, 5), style(4, 5), style(3, 5), style(3, 5), style(3, 6), style(3, 6)],
+      paintOrders: [1, 2, 2, 3, 4, 5],
+    },
+  };
+  const nodes: AXNode[] = [
+    { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '4', '5'] },
+    { nodeId: '2', ignored: true, role: { value: 'none' }, backendDOMNodeId: 11, childIds: ['3'] },
+    { nodeId: '3', role: { value: 'button' }, name: { value: 'Filter by size' }, backendDOMNodeId: 12 },
+    { nodeId: '4', role: { value: 'button' }, name: { value: 'Add to cart' }, backendDOMNodeId: 13 },
+    { nodeId: '5', role: { value: 'dialog' }, name: { value: 'Cookie consent' }, backendDOMNodeId: 14, childIds: ['6'] },
+    { nodeId: '6', role: { value: 'button' }, name: { value: 'Accept' }, backendDOMNodeId: 15 },
+  ];
+
+  it('marks a control its panel cuts away, and leaves one the panel would scroll to alone', () => {
+    const layout = documentLayout(doc as never, strings);
+    expect(layout.nodes.get(12)?.clipped).toBe(true);
+    expect(layout.nodes.get(13)?.clipped).toBeUndefined();
+
+    const scrolled = { ...doc, layout: { ...doc.layout, styles: doc.layout.styles.map((s, i) => (i === 1 ? style(9, 5) : s)) } };
+    expect(documentLayout(scrolled as never, strings).nodes.get(12)?.clipped).toBeUndefined();
+  });
+
+  it('names the layer painted over an element, and not the element itself or what it holds', () => {
+    const layout = documentLayout(doc as never, strings);
+    expect(coveringLayer(layout, 13)).toBe(14);
+    expect(coveringLayer(layout, 15)).toBeUndefined();
+    expect(coveringLayer(layout, 14)).toBeUndefined();
+
+    const serialized = pruneAXTree(buildDomState([{ key: 'main', nodes, layout }], { width: 1000, height: 800 })).elementTree.clickableElementsToString();
+    expect(serialized).toContain('aria-label="Add to cart" covered="dialog Cookie consent"');
+    expect(serialized).toContain('aria-label="Filter by size" hidden="clipped"');
+    expect(serialized).not.toContain('aria-label="Accept" covered');
+  });
+});
+
+describe('scroll containers', () => {
+  // Nodes: 0 body, 1 the panel that scrolls (503 px of content in 100), 2 a button inside it, 3 a scroller nested in
+  // the first one, 4 the page itself, which `scroll` moves without an index.
+  const strings = ['BODY', 'DIV', 'BUTTON', 'auto', 'visible', '0px'];
+  const doc = {
+    frameId: 0,
+    nodes: { nodeName: [0, 1, 2, 1], backendNodeId: [10, 11, 12, 13], parentIndex: [-1, 0, 1, 1] },
+    layout: {
+      nodeIndex: [0, 1, 2, 3],
+      bounds: [[0, 0, 1264, 368], [8, 32, 1264, 100], [8, 40, 100, 20], [8, 80, 1264, 50]],
+      styles: [[5, 3, 3], [5, 3, 3], [5, 4, 4], [5, 3, 3]],
+      clientRects: [[0, 0, 1264, 368], [0, 0, 1264, 100], [0, 0, 100, 20], [0, 0, 1264, 50]],
+      scrollRects: [[0, 0, 1264, 900], [0, 50, 1264, 503], [0, 0, 100, 20], [0, 0, 1264, 232]],
+    },
+  };
+
+  it('measures the outermost scroller only, in screens of its own height, and never the page', () => {
+    const layout = documentLayout(doc as never, strings);
+    expect(layout.nodes.get(11)?.scroll).toEqual({ above: 0.5, below: 3.5 });
+    expect(layout.nodes.get(10)?.scroll).toBeUndefined();
+    expect(layout.nodes.get(13)?.scroll).toBeUndefined();
+  });
+
+  it('gives the panel an index and its own line, and keeps the text inside it where it is', () => {
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      { nodeId: '2', ignored: true, role: { value: 'none' }, backendDOMNodeId: 11, childIds: ['3', '4'] },
+      text('3', 'Filters'),
+      { nodeId: '4', role: { value: 'button' }, name: { value: 'Apply' }, backendDOMNodeId: 12 },
+    ];
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout: documentLayout(doc as never, strings) }], { width: 1000, height: 800 }));
+    expect([...state.selectorMap.values()].map(node => node.tagName)).toEqual(['div', 'button']);
+    expect(state.elementTree.clickableElementsToString()).toBe(
+      ['[0]<div scroll="0.5 screens above, 3.5 screens below" />', '\tFilters', '\t[1]<button aria-label="Apply" />'].join('\n'),
+    );
+  });
+});
+
+describe('native date and time inputs', () => {
+  // As Chrome reads <label>Start <input type=date value=2025-09-18></label>: the input's role is its internal name
+  // and its user-agent segments are spinbutton spans (a <span> takes no text).
+  const nodes: AXNode[] = [
+    { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+    { nodeId: '2', role: { type: 'internalRole', value: 'Date' }, name: { value: 'Start' }, value: { value: '2025-09-18' }, backendDOMNodeId: 11, childIds: ['3', '9'] },
+    { nodeId: '3', ignored: true, role: { value: 'none' }, backendDOMNodeId: 12, childIds: ['4', '6', '8'] },
+    { nodeId: '4', role: { value: 'spinbutton' }, name: { value: 'Day Day' }, value: { value: 18 }, backendDOMNodeId: 15, childIds: ['5'] },
+    text('5', '18'),
+    { nodeId: '6', role: { value: 'spinbutton' }, name: { value: 'Month Month' }, value: { value: 9 }, backendDOMNodeId: 17, childIds: ['7'] },
+    text('7', '09'),
+    { nodeId: '8', role: { value: 'button' }, name: { value: 'Show date picker' }, backendDOMNodeId: 20 },
+    { nodeId: '9', role: { value: 'MenuListPopup' }, childIds: [] },
+  ];
+  const layout = layoutOf([[11, { tagName: 'input', attributes: { type: 'date' } }], [15, { tagName: 'span' }], [17, { tagName: 'span' }], [20, { tagName: 'div' }]]);
+
+  it('lists the input alone, with its ISO value and the format it takes, and never its segments', () => {
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout }], { width: 1000, height: 800 }));
+    expect(state.selectorMap.size).toBe(1);
+    const field = state.selectorMap.get(0)!;
+    expect(field.tagName).toBe('input');
+    expect(field.attributes).toMatchObject({ type: 'date', value: '2025-09-18', format: 'YYYY-MM-DD' });
+    const serialized = state.elementTree.clickableElementsToString();
+    expect(serialized).toBe('[0]<input type="date" aria-label="Start" value="2025-09-18" format="YYYY-MM-DD" />');
+  });
+
+  it('collapses every date-family input, and shows no value for an empty one', () => {
+    for (const [type, format] of [['time', 'HH:MM'], ['datetime-local', 'YYYY-MM-DDTHH:MM'], ['month', 'YYYY-MM'], ['week', 'YYYY-Www']]) {
+      const empty = nodes.map(node => (node.nodeId === '2' ? { ...node, role: { type: 'internalRole', value: 'DateTime' }, value: undefined } : node));
+      const state = pruneAXTree(
+        buildDomState([{ key: 'main', nodes: empty, layout: layoutOf([[11, { tagName: 'input', attributes: { type } }], [15, { tagName: 'span' }]]) }], null),
+      );
+      expect(state.selectorMap.size).toBe(1);
+      expect(state.selectorMap.get(0)?.attributes).toMatchObject({ type, format });
+      expect(state.selectorMap.get(0)?.attributes.value).toBeUndefined();
+    }
   });
 });
 

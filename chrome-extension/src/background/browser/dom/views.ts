@@ -10,6 +10,8 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'name',
   'role',
   'value',
+  // The format a native date or time input takes, which its segments do not show.
+  'format',
   'placeholder',
   'data-date-format',
   'data-state',
@@ -34,8 +36,15 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'aria-autocomplete',
   'draggable',
   'data-value',
+  // A panel that scrolls on its own, and how much of its content sits outside it.
+  'scroll',
+  // Cut away by a closed or scrolled-past panel, and what the page paints on top of the element.
+  'hidden',
+  'covered',
   // A native select's option count, or its option names when few.
   'options',
+  // The suggestion a combobox has highlighted, which is what Enter would take.
+  'active',
 ];
 
 /** Longest address shown on an element line: `href` was 22% of the element block's characters in a live run. */
@@ -84,7 +93,8 @@ export class DOMTextNode extends DOMBaseNode {
   hasParentWithHighlightIndex(): boolean {
     let current = this.parent;
     while (current != null) {
-      if (current.highlightIndex !== null) {
+      // A scroll container is indexed so it can be scrolled, not as a control: the text inside it is still page text.
+      if (current.highlightIndex !== null && !current.scrollOnly) {
         return true;
       }
       current = current.parent;
@@ -137,6 +147,8 @@ export class DOMElementNode extends DOMBaseNode {
   frameKey?: string;
   /** Not on the page the model saw at its last step; serialized as *[index]. */
   isNew = false;
+  /** Indexed only so `scroll {index}` can reach the panel it scrolls: its own line carries no text. */
+  scrollOnly = false;
 
   /**
    * What the element *is*, as opposed to the number it was given. Every read renumbers interactive nodes 0..n-1
@@ -166,6 +178,7 @@ export class DOMElementNode extends DOMBaseNode {
     backendNodeId?: number;
     frame?: Frame;
     frameKey?: string;
+    scrollOnly?: boolean;
   }) {
     super(params.isVisible, params.parent);
     this.tagName = params.tagName;
@@ -184,6 +197,7 @@ export class DOMElementNode extends DOMBaseNode {
     this.backendNodeId = params.backendNodeId;
     this.frame = params.frame;
     this.frameKey = params.frameKey;
+    this.scrollOnly = params.scrollOnly ?? false;
   }
 
   // Cache for the hash value
@@ -252,8 +266,9 @@ export class DOMElementNode extends DOMBaseNode {
         return;
       }
 
-      // Skip this branch if we hit a highlighted element (except for the current node)
-      if (node instanceof DOMElementNode && node !== this && node.highlightIndex !== null) {
+      // Skip this branch if we hit a highlighted element (except for the current node, and a scroll container,
+      // which is indexed but holds page text rather than a control's own label)
+      if (node instanceof DOMElementNode && node !== this && node.highlightIndex !== null && !node.scrollOnly) {
         return;
       }
 
@@ -311,7 +326,7 @@ export class DOMElementNode extends DOMBaseNode {
         if (isClickable) {
           nextDepth += 1;
 
-          const text = node.getAllTextTillNextClickableElement();
+          const text = node.scrollOnly ? '' : node.getAllTextTillNextClickableElement();
           let attributesHtmlStr: string | null = null;
 
           if (includeAttributes) {
@@ -389,7 +404,7 @@ export class DOMElementNode extends DOMBaseNode {
                  .map(([key, value]) => {
                    // A field's value and an element's label are what the model checks its work against: cut short,
                    // a typed address or a long option name cannot be verified.
-                   const capLimit = ['aria-label', 'aria-description', 'placeholder', 'title', 'value', 'options'].includes(key) ? 120 : 30;
+                   const capLimit = ['aria-label', 'aria-description', 'placeholder', 'title', 'value', 'options', 'scroll'].includes(key) ? 120 : 30;
                    const capped = key === 'href' ? capHref(value) : capTextLength(value, capLimit);
                    const escaped = capped.replace(/"/g, '&quot;');
                    return `${key}="${escaped}"`;
