@@ -953,5 +953,170 @@
   },
   "options_advanced_browserDataTools_desc": {
     "message": "Let the agent read and change your bookmarks, history, downloads, reading list, tab groups, sessions and extensions, and clear browsing data. Off by default: a web page could try to talk the agent into using them."
+  },
+  "options_tabs_traces": {
+    "message": "Traces"
+  },
+  "traces_subtitle": {
+    "message": "Replay what the agent did, what it cost and where the time went, from this browser's local trace store."
+  },
+  "traces_refresh": {
+    "message": "Refresh"
+  },
+  "traces_store_summary": {
+    "message": "Trace records stored:"
+  },
+  "traces_store_limit": {
+    "message": "Tasks listed:"
+  },
+  "traces_empty_title": {
+    "message": "No traced tasks yet"
+  },
+  "traces_empty_capturing": {
+    "message": "Capture is on — run a task and refresh."
+  },
+  "traces_empty_off": {
+    "message": "Trace capture is off."
+  },
+  "traces_empty_how": {
+    "message": "Development builds always capture. In a production build, turn on Developer Options → Enable Developer Options → Capture Traces, run a task, then refresh this page. Traces stay in this browser and are never sent anywhere."
+  },
+  "traces_tasks_title": {
+    "message": "Recent tasks"
+  },
+  "traces_tasks_subtitle": {
+    "message": "Newest first; select a row for its timeline"
+  },
+  "traces_col_started": {
+    "message": "Started"
+  },
+  "traces_col_task": {
+    "message": "Task"
+  },
+  "traces_col_outcome": {
+    "message": "Outcome"
+  },
+  "traces_col_steps": {
+    "message": "Steps"
+  },
+  "traces_col_duration": {
+    "message": "Duration"
+  },
+  "traces_col_tokens": {
+    "message": "Tokens in / out"
+  },
+  "traces_col_cached": {
+    "message": "Cached"
+  },
+  "traces_col_model": {
+    "message": "Model"
+  },
+  "traces_provider_note": {
+    "message": "The provider is not written to the trace; the model name is what the run recorded."
+  },
+  "traces_outcome_ok": {
+    "message": "Done"
+  },
+  "traces_outcome_fail": {
+    "message": "Failed"
+  },
+  "traces_outcome_cancel": {
+    "message": "Cancelled"
+  },
+  "traces_outcome_pause": {
+    "message": "Paused"
+  },
+  "traces_outcome_running": {
+    "message": "Running"
+  },
+  "traces_detail_title": {
+    "message": "Where the time went"
+  },
+  "traces_stat_calls": {
+    "message": "Model calls"
+  },
+  "traces_truncated": {
+    "message": "Timeline truncated; this task has more records than"
+  },
+  "traces_bucket_modelOk": {
+    "message": "Model calls that succeeded"
+  },
+  "traces_bucket_modelFailed": {
+    "message": "Model calls that failed"
+  },
+  "traces_bucket_hedge": {
+    "message": "Superseded duplicates"
+  },
+  "traces_bucket_backoff": {
+    "message": "Rate-limit backoff"
+  },
+  "traces_bucket_settle": {
+    "message": "Settling and validation"
+  },
+  "traces_bucket_action": {
+    "message": "Action execution"
+  },
+  "traces_bucket_getState": {
+    "message": "Page-state reads"
+  },
+  "traces_bucket_networkIdle": {
+    "message": "Network-idle waits"
+  },
+  "traces_bucket_other": {
+    "message": "Everything else"
+  },
+  "traces_health_title": {
+    "message": "Health"
+  },
+  "traces_health_subtitle": {
+    "message": "What the run had to recover from"
+  },
+  "traces_health_rateLimited": {
+    "message": "Rate limits"
+  },
+  "traces_health_providerUnreachable": {
+    "message": "Provider unreachable"
+  },
+  "traces_health_transientRetries": {
+    "message": "Transient retries"
+  },
+  "traces_health_hedges": {
+    "message": "Hedged duplicates"
+  },
+  "traces_health_timeouts": {
+    "message": "Call timeouts"
+  },
+  "traces_health_failedCalls": {
+    "message": "Failed model calls"
+  },
+  "traces_health_validationReasks": {
+    "message": "Tool-call re-asks"
+  },
+  "traces_health_toolCallGiveUps": {
+    "message": "Gave up on a tool call"
+  },
+  "traces_health_toolsRejected": {
+    "message": "Provider rejected tools"
+  },
+  "traces_health_guardChecks": {
+    "message": "Intent-guard checks"
+  },
+  "traces_health_validationsFailed": {
+    "message": "Actions that did not validate"
+  },
+  "traces_health_errors": {
+    "message": "Errors logged"
+  },
+  "traces_timeline_title": {
+    "message": "Step timeline"
+  },
+  "traces_timeline_subtitle": {
+    "message": "Model calls, actions, validations and errors per step"
+  },
+  "traces_step": {
+    "message": "Step"
+  },
+  "traces_step_model": {
+    "message": "model"
   }
 }

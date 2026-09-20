@@ -5,6 +5,9 @@
     "paths": {
       "@src/*": [
         "src/*"
+      ],
+      "@trace-summary": [
+        "../../chrome-extension/src/background/trace-summary.ts"
       ]
     },
     "types": [

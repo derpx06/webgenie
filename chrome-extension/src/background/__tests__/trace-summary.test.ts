@@ -209,6 +209,9 @@ describe('summarizeTask health and steps', () => {
     expect(steps[0].modelMs).toBe(1_000);
     expect(steps[1].llmCalls[0].component).toBe('planner');
     expect(steps[1].errors).toHaveLength(1);
+    // Step 0 runs to step 1's first record (the planner call, stamped when it ended), not to its own last one.
+    expect(steps[0].durationMs).toBe(4_000);
+    expect(steps[1].durationMs).toBe(100);
   });
 });
 

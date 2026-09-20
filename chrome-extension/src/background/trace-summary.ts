@@ -7,7 +7,23 @@
  * interval, the intervals are merged in a fixed priority order, and each bucket is charged only the
  * time no higher bucket already owns.
  */
-import type { TraceRecord } from './trace';
+
+/**
+ * The record shape `background/trace.ts` writes. Declared here rather than imported so this module
+ * pulls no Dexie or chrome.* into the options page bundle; the unit test asserts a real `TraceRecord`
+ * stays assignable to it.
+ */
+export interface TraceRecordLike {
+  ts: number;
+  level: string;
+  kind: string;
+  component: string;
+  msg: string;
+  taskId?: string;
+  step?: number;
+  durationMs?: number;
+  data?: unknown;
+}
 
 /**
  * The only fields the dashboard reads. The cursor projects every record through `slimRecord` so a
@@ -117,7 +133,7 @@ export interface TaskDetail {
   steps: StepSummary[];
 }
 
-const TASK_TEXT = /Executing task:\s*(.+)$/s;
+const TASK_TEXT = /Executing task:\s*([\s\S]+)/;
 const RATE_LIMIT_DELAY = /retrying in ([\d.]+)s/;
 const SETTLE_TOTAL = /^\[ActionSettle\].*\btotal=(\d+)ms/;
 const VALIDATED = /^validated (\S+): (\S+)$/;
@@ -130,7 +146,7 @@ type Bucket = (typeof BUCKETS)[number];
 
 type Interval = { start: number; end: number };
 
-export function slimRecord(entry: TraceRecord): TraceSlim {
+export function slimRecord(entry: TraceRecordLike): TraceSlim {
   const data = (entry.data ?? {}) as Record<string, unknown>;
   const usage = data.usage as Partial<TokenUsage> | undefined;
   const error = data.error as { message?: string } | string | undefined;
@@ -343,7 +359,13 @@ function buildSteps(entries: TraceSlim[]): StepSummary[] {
     }
     if (entry.level === 'error') step.errors.push({ ts: entry.ts, component: entry.component, msg: entry.msg });
   }
-  return [...byStep.values()].sort((a, b) => a.step - b.step);
+  // A step runs to the next step's first record: an llm record is stamped when the call *ends*, so a
+  // call that started in the previous step would otherwise make its own step look shorter than it was.
+  const steps = [...byStep.values()].sort((a, b) => a.step - b.step);
+  for (let index = 0; index < steps.length - 1; index++) {
+    steps[index].durationMs = Math.max(0, steps[index + 1].startedAt - steps[index].startedAt);
+  }
+  return steps;
 }
 
 const OUTCOMES: Record<string, TaskOutcome> = {

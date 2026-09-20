@@ -2,22 +2,24 @@ import { useState, useEffect } from 'react';
 import '@src/Options.css';
 import { withErrorBoundary, withSuspense } from '@extension/shared';
 import { t } from '@extension/i18n';
-import { FiSettings, FiCpu, FiShield, FiTrendingUp, FiHelpCircle, FiSliders, FiTerminal } from 'react-icons/fi';
+import { FiSettings, FiCpu, FiShield, FiTrendingUp, FiHelpCircle, FiSliders, FiTerminal, FiActivity } from 'react-icons/fi';
 import { GeneralSettings } from './components/GeneralSettings';
 import { ModelSettings } from './components/ModelSettings';
 import { FirewallSettings } from './components/FirewallSettings';
 import { AnalyticsSettings } from './components/AnalyticsSettings';
 import { AdvancedSettings } from './components/AdvancedSettings';
 import { DeveloperSettings } from './components/DeveloperSettings';
+import { TraceDashboard } from './components/TraceDashboard';
 import { OptionsSidebar, OptionsBackground, OptionsHeader } from './components/Layout';
 
-export type TabTypes = 'general' | 'models' | 'firewall' | 'analytics' | 'advanced' | 'developer' | 'help';
+export type TabTypes = 'general' | 'models' | 'firewall' | 'analytics' | 'traces' | 'advanced' | 'developer' | 'help';
 
 export const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: string; size?: number }>; label: string }[] = [
   { id: 'general', icon: FiSettings, label: t('options_tabs_general') },
   { id: 'models', icon: FiCpu, label: t('options_tabs_models') },
   { id: 'firewall', icon: FiShield, label: t('options_tabs_firewall') },
   { id: 'analytics', icon: FiTrendingUp, label: 'Analytics' },
+  { id: 'traces', icon: FiActivity, label: t('options_tabs_traces') },
   { id: 'advanced', icon: FiSliders, label: 'Advanced' },
   { id: 'developer', icon: FiTerminal, label: 'Developer Options' },
   { id: 'help', icon: FiHelpCircle, label: t('options_tabs_help') },
@@ -28,6 +30,7 @@ const SUBTITLES: Record<TabTypes, string> = {
   models: 'Calibrate agent cognitive models, adjust parameters like temperature, and manage provider connections.',
   firewall: 'Configure network permissions and restrict domains to secure the automation runtime.',
   analytics: 'Monitor system telemetry, token usage, performance logs, and command execution metrics.',
+  traces: t('traces_subtitle'),
   advanced: 'Tune low-level network limits, latency parameters, and experimental browser features.',
   developer: 'Access sandbox bypass configurations, diagnostic logs, and verbose runtime debugging.',
   help: 'Access documentation and user guides for WebGenie.'
@@ -80,6 +83,7 @@ const Options = () => {
       case 'models': return <ModelSettings isDarkMode={isDarkMode} />;
       case 'firewall': return <FirewallSettings isDarkMode={isDarkMode} />;
       case 'analytics': return <AnalyticsSettings isDarkMode={isDarkMode} />;
+      case 'traces': return <TraceDashboard isDarkMode={isDarkMode} />;
       case 'advanced': return <AdvancedSettings isDarkMode={isDarkMode} />;
       case 'developer': return <DeveloperSettings isDarkMode={isDarkMode} />;
       default: return null;
