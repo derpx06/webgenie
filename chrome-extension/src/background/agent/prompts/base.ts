@@ -338,16 +338,12 @@ abstract class BasePrompt {
       .map(tab => `- {id: ${tab.id}, url: ${defangTags(clip(tab.url, 120))}, title: ${untrustedInline(clip(tab.title, 80))}}`);
     if (allOtherTabs.length > MAX_OTHER_TABS) otherTabs.push(`- ...and ${allOtherTabs.length - MAX_OTHER_TABS} more tabs`);
 
-    // Notes shown above the page: a route from an earlier task, the navigator's memory.
-    let reflectionPrefix = `${context.siteSkillNote ?? ''}${context.routeNote ?? ''}`;
+    // Notes shown above the page: what earlier tasks learned here, the navigator's memory.
     const durableMemory = context.messageManager.getWorkingMemory();
-    if (durableMemory) {
-      reflectionPrefix += `[Agent memory]: ${durableMemory}\n`;
-    }
-    if (reflectionPrefix) {
-      // Model notes can quote page text.
-      reflectionPrefix = `${defangTags(capPromptSection(reflectionPrefix, MAX_REFLECTION_CHARS, 'agent memory'))}\n`;
-    }
+    // Model notes can quote page text; the memory note carries its own untrusted wrapper, so it is not defanged again.
+    const memoryLine = durableMemory ? `${defangTags(capPromptSection(`[Agent memory]: ${durableMemory}`, MAX_REFLECTION_CHARS, 'agent memory'))}\n` : '';
+    const notes = `${context.siteSkillNote ?? ''}${context.routeNote ?? ''}${memoryLine}`;
+    const reflectionPrefix = notes ? `${notes}\n` : '';
     // ─────────────────────────────────────────────────────────────────────────
 
     const dialog = browserState.dialog;

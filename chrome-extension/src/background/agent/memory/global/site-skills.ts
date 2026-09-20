@@ -10,6 +10,7 @@
  */
 import { createLogger } from '../../../log';
 import { registrableDomain } from '../../../browser/util';
+import { untrustedInline } from '../../messages/utils';
 import type { RouteStep } from './types';
 import type { LedgerEntry } from '../in-chat/ledger';
 
@@ -173,7 +174,8 @@ export const SiteSkills = {
         skill.traps.length ? `- in the way last time: ${skill.traps.join(', ')}` : '',
         skill.steps.length ? `- the path that worked: ${skill.steps.join('; ')}` : '',
       ].filter(Boolean);
-      return `[What worked on ${domain} on ${on}; it may be out of date, and the current page wins]\n${lines.join('\n')}\n`;
+      // Built from what the pages showed, so the models get it as data, like page text.
+      return `[What worked on ${domain} on ${on}; it may be out of date, and the current page wins]\n${untrustedInline(lines.join('\n'))}\n`;
     } catch (error) {
       logger.error('Reading the site skill failed:', error);
       return '';
