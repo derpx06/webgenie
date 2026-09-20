@@ -6,6 +6,7 @@
 //   E2E_MODEL=gemini-2.5-flash  E2E_PLANNER_MODEL=<model>  E2E_LOCATION=us-central1  E2E_PROJECT=<id>  CHROMIUM_PATH=/usr/bin/chromium
 //   E2E_MAX_INPUT_TOKENS=4000000 (whole run)   E2E_TASK_MAX_INPUT_TOKENS=400000
 //   E2E_UPDATE_BASELINE=1 (full run with no regression: rewrite e2e/baseline.json; subset run: merge its entries)
+//   E2E_MEMORY=cold|warm (default cold: every task starts with no memory of earlier tasks)
 //   E2E_ORACLE=1 (no model calls: each fixture task's checker must pass with its scripted oracle and fail with no action)
 //
 // Results land in e2e/results/<run>/: summary.json, and per task events, trace, timeline (failures) and a
@@ -20,7 +21,7 @@ import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { TASKS } from './tasks.mjs';
 import { startFixtures } from './fixtures.mjs';
-import { baselineFrom, compareWithBaseline, mergeBaseline, suiteHealth, taskMetrics, timeline, UNMEASURED, wilson } from './metrics.mjs';
+import { baselineFrom, compareWithBaseline, measurementIntegrity, memoryMode, mergeBaseline, suiteHealth, taskMetrics, timeline, UNMEASURED, wilson } from './metrics.mjs';
 
 const HERE = import.meta.dirname;
 // E2E_DIST runs a saved copy of a build, so the working build can change while a long run uses another.
@@ -30,6 +31,9 @@ const CHROMIUM = process.env.CHROMIUM_PATH ?? '/usr/bin/chromium';
 const MODEL = process.env.E2E_MODEL ?? 'gemini-2.5-flash';
 const PLANNER_MODEL = process.env.E2E_PLANNER_MODEL ?? MODEL;
 const ORACLE = !!process.env.E2E_ORACLE;
+// Memory the agent carries from task to task: cold (the default) starts every task with none, warm keeps what earlier
+// tasks in this browser learned. Without it, sibling tasks and repeats read each other's routes and inflate pass^k.
+const MEMORY = memoryMode();
 // global spreads requests across regions: in live runs us-central1 returned 429 on about 1 in 7 model calls.
 const LOCATION = process.env.E2E_LOCATION ?? 'global';
 const RUN_TOKEN_CAP = Number(process.env.E2E_MAX_INPUT_TOKENS ?? 4_000_000);
@@ -253,6 +257,15 @@ export class Harness {
         db.close();
       }
       return out;
+    });
+  }
+
+  /** Everything the agent remembers across tasks (`wg_mem:*`), for a task that must start with none. */
+  async clearMemory() {
+    return this.ctl.evaluate(async () => {
+      const keys = Object.keys(await chrome.storage.local.get(null)).filter(key => key.startsWith('wg_mem:'));
+      if (keys.length > 0) await chrome.storage.local.remove(keys);
+      return keys.length;
     });
   }
 
@@ -672,6 +685,8 @@ export class Harness {
     }
 
     await this.ensureControl();
+    // A cold task starts with an empty memory store, so what it learns is its own and repeats do not read each other.
+    if (MEMORY === 'cold') await this.clearMemory();
     await this.clearOrigins([new URL(url).origin, ...(task.origins ?? [])]);
     await this.configure(taskId, task.title, task.settings);
     this.fixtures.resetHits();
@@ -900,6 +915,16 @@ async function main() {
     runId,
     model: MODEL,
     plannerModel: PLANNER_MODEL,
+    // Everything a score cannot be read without: what was excluded, what the harness ended, what the provider cost,
+    // where the run was served and whether memory was cold or warm.
+    integrity: measurementIntegrity(results, {
+      model: MODEL,
+      plannerModel: PLANNER_MODEL,
+      region: LOCATION,
+      lang: process.env.E2E_LANG ?? null,
+      timeZone: process.env.E2E_TZ ?? null,
+      memory: MEMORY,
+    }),
     gitSha: gitAtStart.sha,
     gitDirty: gitAtStart.dirty,
     distBuiltAt: fs.statSync(path.join(DIST, 'manifest.json')).mtime.toISOString(),
@@ -926,6 +951,7 @@ async function main() {
     })),
   );
   for (const [name, h] of Object.entries(health)) console.log(`${name}: ${JSON.stringify(h)}`);
+  console.log(`measurement: ${JSON.stringify(summary.integrity)}`);
   const counted = results.filter(r => !UNMEASURED.has(r.outcome) && r.outcome !== 'oracle');
   if (counted.length) {
     const passedAll = counted.filter(r => r.pass).length;

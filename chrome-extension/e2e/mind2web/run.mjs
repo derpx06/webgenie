@@ -3,7 +3,8 @@
 //
 //   pnpm build && node e2e/mind2web/run.mjs [--all] [--limit N] [--only <task_id>,<task_id>] [--level easy|medium|hard]
 //   node e2e/mind2web/run.mjs --all --resume e2e/results/mind2web-<timestamp>   (continue an interrupted run)
-//   Environment as for ../run.mjs: E2E_MODEL, E2E_PLANNER_MODEL, E2E_PROJECT, E2E_LOCATION, E2E_HEADLESS, CHROMIUM_PATH
+//   Environment as for ../run.mjs: E2E_MODEL, E2E_PLANNER_MODEL, E2E_PROJECT, E2E_LOCATION, E2E_HEADLESS, CHROMIUM_PATH,
+//   E2E_MEMORY=cold|warm (default cold: every task starts with no memory of earlier tasks)
 //
 // Tasks: the 60-task slice (slice.json) by default; --all runs every task in Online_Mind2Web.json. --resume reuses a run
 // folder and skips tasks that already have a result, except harness errors and provider outages, which run again.
@@ -26,7 +27,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { closeSession, launchSession, shootPage } from '../run.mjs';
-import { taskMetrics, timeline } from '../metrics.mjs';
+import { measurementIntegrity, memoryMode, taskMetrics, timeline } from '../metrics.mjs';
 
 const HERE = import.meta.dirname;
 // E2E_DIST runs a saved copy of a build (e2e/builds/<commit>), so rounds on different builds do not disturb each other.
@@ -58,6 +59,8 @@ const HARNESS_COMMIT = (() => {
   }
 })();
 const LIMITS = { maxSteps: 50, maxMs: 2_400_000, maxInputTokens: 500_000 };
+// Memory the agent carries from task to task: cold (the default) starts every task with none, warm keeps it.
+const MEMORY = memoryMode();
 /** Provider-ended attempts after which a task keeps the agent's own outcome (flagged providerAffected) instead of running again. */
 const MAX_PROVIDER_ATTEMPTS = 3;
 const MAX_SHOTS = 40;
@@ -332,6 +335,7 @@ function writeResult(runDir, task, fields) {
       location: process.env.E2E_LOCATION ?? 'global',
       lang: process.env.E2E_LANG ?? null,
       timeZone: process.env.E2E_TZ ?? null,
+      memory: MEMORY,
     },
     ...fields,
   };
@@ -372,6 +376,8 @@ async function runTask(harness, task, runId, runDir) {
   fs.mkdirSync(path.join(dir, 'trajectory'), { recursive: true });
 
   await harness.ensureControl();
+  // A cold task starts with an empty memory store: what one task learns must not decide the next one's score.
+  if (MEMORY === 'cold') await harness.clearMemory();
   const host = new URL(task.website).hostname;
   await harness.clearOrigins([new URL(task.website).origin]);
   await harness.configure(taskId, task.confirmed_task.slice(0, 60), {
@@ -831,7 +837,26 @@ async function main() {
   const summaryTmp = path.join(runDir, `summary.json.${process.pid}.tmp`);
   fs.writeFileSync(
     summaryTmp,
-    `${JSON.stringify({ runId, model, plannerModel: process.env.E2E_PLANNER_MODEL ?? model, source, limits: LIMITS, results: rows }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        runId,
+        model,
+        plannerModel: process.env.E2E_PLANNER_MODEL ?? model,
+        source,
+        limits: LIMITS,
+        integrity: measurementIntegrity(results, {
+          model,
+          plannerModel: process.env.E2E_PLANNER_MODEL ?? model,
+          region: process.env.E2E_LOCATION ?? 'global',
+          lang: process.env.E2E_LANG ?? null,
+          timeZone: process.env.E2E_TZ ?? null,
+          memory: MEMORY,
+        }),
+        results: rows,
+      },
+      null,
+      2,
+    )}\n`,
   );
   fs.renameSync(summaryTmp, path.join(runDir, 'summary.json'));
   const outcomes = {};

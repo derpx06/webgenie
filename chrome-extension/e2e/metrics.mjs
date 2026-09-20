@@ -214,6 +214,48 @@ export function timeline(records, events) {
 }
 
 /** Per-suite aggregates used by the summary and the ratchet. */
+/** Memory the agent carries from task to task: `cold` (the default) clears it before every task, `warm` keeps it. */
+export function memoryMode(env = process.env) {
+  const mode = (env.E2E_MEMORY ?? 'cold').toLowerCase();
+  if (mode !== 'cold' && mode !== 'warm') throw new Error(`E2E_MEMORY must be cold or warm, not "${mode}"`);
+  return mode;
+}
+
+/** Outcomes the harness itself ended: its own limits and a browser it had to restart. Not the site, not the provider. */
+const HARNESS_ENDED = /^(harness_error|limit_)/;
+
+/**
+ * What a score cannot be read without: which tasks were left out and why, how many the harness itself ended, how much
+ * time the model provider took away, the region and locale the run was served in, whether memory was cold or warm, and
+ * which provider and models answered. `run` names what the run was configured with (a runner passes it from its
+ * environment, an analysis from the `harness` block saved with each result).
+ */
+export function measurementIntegrity(results, run = {}) {
+  const rows = results.filter(r => r.outcome !== 'oracle');
+  const excluded = {};
+  for (const r of rows.filter(row => UNMEASURED.has(row.outcome))) excluded[r.outcome] = (excluded[r.outcome] ?? 0) + 1;
+  const measured = rows.filter(row => !UNMEASURED.has(row.outcome));
+  const providerTimeLostMs = rows.reduce(
+    (n, r) => n + (r.metrics?.backoffMs ?? 0) + (r.metrics?.failedCallMs ?? 0) + (r.provider?.rateLimitWaitMs ?? 0),
+    0,
+  );
+  return {
+    provider: run.provider ?? 'vertex_ai',
+    model: run.model ?? null,
+    plannerModel: run.plannerModel ?? run.model ?? null,
+    region: run.region ?? null,
+    locale: { lang: run.lang ?? null, timeZone: run.timeZone ?? null },
+    memory: run.memory ?? null,
+    attempts: rows.length,
+    measured: measured.length,
+    passed: measured.filter(r => r.pass).length,
+    excluded,
+    excludedTasks: rows.filter(r => UNMEASURED.has(r.outcome)).map(r => `${r.attempt ?? r.id ?? r.task_id}: ${r.outcome}`),
+    harnessEnded: rows.filter(r => HARNESS_ENDED.test(String(r.outcome ?? ''))).length,
+    providerTimeLostMs,
+  };
+}
+
 export function suiteHealth(results) {
   const health = {};
   for (const suite of [...new Set(results.map(r => r.suite))]) {
