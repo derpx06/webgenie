@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('webextension-polyfill', () => ({}));
 vi.mock('@extension/i18n', () => ({ t: (key: string) => key }));
 
-import { TaskLedger } from '../in-chat/ledger';
+import { TaskLedger, routeOf } from '../in-chat/ledger';
 import { call, createHarness, done, plan, settle, stubChrome, textOf, until, type PageSpec } from '../../__tests__/fakes';
 
 beforeEach(() => {
@@ -47,6 +47,50 @@ describe('the ledger itself', () => {
   });
 });
 
+describe('the route ledger', () => {
+  const page = (url: string, text = '') => ({ url, text });
+
+  it('tells a site search, a filter, a category listing, an address and a web search apart', () => {
+    const home = page('https://shop.test/');
+    const results = page('https://shop.test/search?q=Blue+Kettle', '24 results');
+    expect(routeOf('click_element', home, results)).toMatchObject({ kind: 'site_search', place: 'shop.test/search', query: 'blue kettle', count: 24 });
+    expect(routeOf('click_element', results, page('https://shop.test/search?q=Blue+Kettle&colour=blue', '3 results'))).toMatchObject({
+      kind: 'facet',
+      params: 'colour=blue',
+      count: 3,
+    });
+    // A filter applied without a new address shows itself in the count the listing states.
+    expect(routeOf('click_element', page('https://shop.test/c/kettles', '24 items'), page('https://shop.test/c/kettles', '3 items'))).toMatchObject({ kind: 'facet' });
+    expect(routeOf('click_element', home, page('https://shop.test/c/kettles', '24 items'))).toMatchObject({ kind: 'category' });
+    expect(routeOf('go_to_url', home, page('https://shop.test/help'))).toMatchObject({ kind: 'url' });
+    expect(routeOf('search_web', home, page('https://duckduckgo.com/?q=blue+kettle'))).toMatchObject({ kind: 'web_search', query: 'blue kettle' });
+  });
+
+  it('is not a route when the page only scrolled, was read or was left', () => {
+    const results = page('https://shop.test/search?q=kettle', '24 results');
+    expect(routeOf('scroll', results, results)).toBeNull();
+    expect(routeOf('read_page', results, results)).toBeNull();
+    expect(routeOf('go_back', results, page('https://shop.test/'))).toBeNull();
+    // Opening an item is not a route: the page it opens states no result count.
+    expect(routeOf('click_element', results, page('https://shop.test/p/12345', 'Blue Kettle £20'))).toBeNull();
+  });
+
+  it('counts the same route again, keeps its newest outcome and renders it before everything else', () => {
+    const ledger = new TaskLedger();
+    ledger.visited('shop.test/', 'Home');
+    ledger.recordRoute('click_element', page('https://shop.test/'), page('https://shop.test/search?q=blue+kettle', 'No results found'));
+    ledger.recordRoute('go_to_url', page('https://shop.test/'), page('https://shop.test/search?q=blue%20kettle', 'No results found'));
+    ledger.recordRoute('click_element', page('https://shop.test/'), page('https://shop.test/c/kettles', '12 results'));
+
+    expect(ledger.routes()).toHaveLength(2);
+    expect(ledger.routes()[0]).toMatchObject({ kind: 'site_search', times: 2, count: 0 });
+    const lines = ledger.render(1600).split('\n');
+    expect(lines[0]).toBe('- route site_search shop.test/search "blue kettle" x2: no results');
+    expect(lines[1]).toBe('- route category shop.test/c/kettles: 12 results');
+    expect(lines[2]).toContain('seen shop.test/');
+  });
+});
+
 const page = (url: string, title: string): PageSpec => ({ url, title, elements: [{ text: 'Next' }] });
 
 describe('the agent writing to the ledger', () => {
@@ -82,6 +126,26 @@ describe('the agent writing to the ledger', () => {
     expect(deadEnds).toHaveLength(1);
     expect(deadEnds[0].subject).toContain('shop.test/a');
     expect(h.llm.requests.map(request => textOf(request.messages)).join('\n')).toContain('dead end shop.test/a');
+  });
+
+  it('records the route a search took and what it gave', async () => {
+    const h = createHarness({
+      pages: [
+        page('https://shop.test/', 'Shop'),
+        { url: 'https://shop.test/search?q=blue+kettle', title: 'Search', text: ['No results found'], elements: [{ text: 'Next' }] },
+      ],
+      planner: Array(6).fill(plan()),
+      navigator: [call('click_element', { index: 0, commits: 'none' }), done('Finished')],
+    });
+    const execution = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0);
+    await h.executor.cancel();
+    await settle(execution);
+
+    const routes = h.executor.getContext().ledger.routes();
+    expect(routes).toHaveLength(1);
+    expect(routes[0]).toMatchObject({ kind: 'site_search', query: 'blue kettle', count: 0 });
+    expect(h.llm.requests.map(request => textOf(request.messages)).join('\n')).toContain('route site_search shop.test/search "blue kettle": no results');
   });
 
   it('records a refused action with its reason', async () => {
