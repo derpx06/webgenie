@@ -64,6 +64,8 @@ describe('LLM capability table', () => {
       expect(caps.minCacheTokens).toBeGreaterThanOrEqual(0);
       // A provider that caches nothing has no minimum, and one that caches has one to clear.
       expect(caps.minCacheTokens > 0).toBe(caps.promptCache !== 'none');
+      // The traces name the provider as well as the model: a score belongs to what it ran on (D5).
+      expect(caps.provider).toBe(type);
     }
   });
 

@@ -27,7 +27,7 @@ export function promptCacheOptions(toolMode: ToolMode, taskId: string, role: str
 }
 
 export type ToolMode = Pick<LlmCapabilities, 'nativeTools' | 'forceToolChoice'> &
-  Partial<Pick<LlmCapabilities, 'callTimeoutMs' | 'hedge' | 'endpoints' | 'promptCache' | 'minCacheTokens' | 'rateLimitSignals'>>;
+  Partial<Pick<LlmCapabilities, 'callTimeoutMs' | 'hedge' | 'endpoints' | 'promptCache' | 'minCacheTokens' | 'rateLimitSignals' | 'provider'>>;
 
 export interface BaseAgentOptions {
   chatLLM: BaseChatModel;
@@ -88,6 +88,7 @@ export abstract class BaseAgent<M = unknown> {
         endpoints: this.toolMode.endpoints,
         component: this.id,
         model: this.modelName,
+        provider: this.toolMode.provider,
         signal: this.context.controller.signal,
         callbacks: this.context.traceCallbacks,
         callOptions: this.callOptions,
@@ -359,6 +360,8 @@ export interface InvokeLLMOptions {
   endpoints?: string[];
   /** The same model on another endpoint; without it there is nowhere to fail over to. */
   withEndpoint?: (endpoint: string) => InvokableModel | null;
+  /** Which provider serves this model, for the trace: a run must say what it ran on, not only which model. */
+  provider?: string;
 }
 
 export interface InvokeToolsOptions extends InvokeLLMOptions {
@@ -703,6 +706,7 @@ async function invokeOnce(
       durationMs: Date.now() - startedAt,
       data: {
         model: options.model,
+        provider: options.provider,
         messages: messages.length,
         promptChars,
         finishReason: readFinish(response.response_metadata).reason || undefined,
@@ -723,7 +727,7 @@ async function invokeOnce(
       component: options.component,
       msg: superseded ? `llm call ${options.model ?? ''} superseded`.replace('  ', ' ') : `llm call ${options.model ?? ''} failed`.replace('  ', ' '),
       durationMs: Date.now() - startedAt,
-      data: { model: options.model, messages: messages.length, promptChars, error: finalError },
+      data: { model: options.model, provider: options.provider, messages: messages.length, promptChars, error: finalError },
     });
     throw finalError;
   } finally {

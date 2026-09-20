@@ -18,6 +18,8 @@ export type PromptCacheKind = 'none' | 'implicit' | 'implicit-key' | 'top-level-
 
 /** What the agent may rely on for a provider/model, verified against the installed LangChain adapters. */
 export interface LlmCapabilities {
+  /** Which provider serves this model; traces carry it, so a run says what it ran on. */
+  provider: string;
   /** Native tool calling through LangChain bindTools. */
   nativeTools: boolean;
   /** Accepts a forced tool choice (LangChain tool_choice "any"). */
@@ -56,6 +58,7 @@ export function isOpenAIReasoningModel(modelName: string): boolean {
 
 export function getLlmCapabilities(providerType: string | undefined, modelName: string): LlmCapabilities {
   const tools = (nativeTools: boolean, forceToolChoice = nativeTools): LlmCapabilities => ({
+    provider: providerType ?? 'unknown',
     nativeTools,
     forceToolChoice,
     reasoning: 'none',
