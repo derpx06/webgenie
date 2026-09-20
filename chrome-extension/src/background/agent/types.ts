@@ -115,6 +115,8 @@ export class AgentContext {
   declinedCommitKeys = new Set<string>();
   /** Page-blind decisions on whether the user's request asks for an action (entering personal data, opening an address). */
   intentDecisions = new Map<string, boolean>();
+  /** Intent checks already refused once; the second time the question goes to the user instead of refusing again. */
+  intentRefusals = new Set<string>();
   /** Pages this task has been on (host and path), so going back to one needs no check. */
   visitedUrls = new Set<string>();
   /** Passwords from the user's answers by placeholder, with the host they were given on; never sent to a model. */

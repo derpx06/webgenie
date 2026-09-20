@@ -27,6 +27,7 @@ import {
   sameSite,
   staleIndexResult,
   suggestionCommitted,
+  taskNamesSite,
   urlKey,
   userPersonalData,
   validateActionOutcome,
@@ -722,6 +723,19 @@ describe('verification challenges', () => {
     expect(isChallengeQuestion('Could you please solve the CAPTCHA in the browser?')).toBe(true);
     expect(isChallengeQuestion('Which size do you want?')).toBe(false);
     expect(normalizeQuestion('Which colour,  do you want?')).toBe(normalizeQuestion('which colour do you want'));
+  });
+});
+
+describe('A site the user named themselves', () => {
+  it('is recognised by its host, its domain or its own label, whatever suffix it wears', () => {
+    expect(taskNamesSite('shop.michaels.com', 'Sign up for Michaels rewards with my email')).toBe(true);
+    expect(taskNamesSite('www.michaels.ca', 'order from michaels.com')).toBe(true);
+    expect(taskNamesSite('help.test', 'Tell me what help.test says')).toBe(true);
+  });
+
+  it('is not recognised from an email address or from a site the user never mentions', () => {
+    expect(taskNamesSite('example.com', 'My email is jamie@example.com. What does this article say?')).toBe(false);
+    expect(taskNamesSite('collect.test', 'Tell me what the FAQ says')).toBe(false);
   });
 });
 

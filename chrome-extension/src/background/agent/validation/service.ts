@@ -241,6 +241,24 @@ export function sameSite(a: string, b: string): boolean {
 }
 
 /**
+ * Whether the user's own messages name this site: its host, its domain, or its own label ("michaels" for
+ * shop.michaels.com or michaels.ca) as a word. Email addresses are removed first — writing an email address names
+ * no site. ponytail: the label is the second-to-last one, as `sameSite` reads it; a public-suffix version would be
+ * exact.
+ */
+export function taskNamesSite(host: string, userText: string): boolean {
+  const name = host.toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '');
+  if (!name || !userText) return false;
+  const text = userText.toLowerCase().replace(EMAIL, ' ');
+  const said = (needle: string) =>
+    needle.length >= 3
+    && new RegExp(`(^|[^\\p{L}\\p{N}.@-])${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}-])`, 'u').test(text);
+  const labels = name.split('.');
+  const brand = labels.length > 1 ? labels[labels.length - 2] : labels[0];
+  return said(name) || said(brand);
+}
+
+/**
  * Whether typing `next` into a field replaces `previous`, a value the user gave (it appears in their messages), with
  * one of the agent's own. A reformat (the same letters and digits in another order or with other punctuation) or a
  * value that also appears in the user's messages is not a replacement.
