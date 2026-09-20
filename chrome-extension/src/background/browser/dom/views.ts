@@ -38,6 +38,9 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'data-value',
   // A panel that scrolls on its own, and how much of its content sits outside it.
   'scroll',
+  // Cut away by a closed or scrolled-past panel, and what the page paints on top of the element.
+  'hidden',
+  'covered',
   // A native select's option count, or its option names when few.
   'options',
 ];

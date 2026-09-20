@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildDomState, documentLayout, getAXTreeState, isSkipLink, parseRadius, type AXNode, type FrameTree } from '../ax-tree-extractor';
+import { buildDomState, coveringLayer, documentLayout, getAXTreeState, isSkipLink, parseRadius, type AXNode, type FrameTree } from '../ax-tree-extractor';
 import { pruneAXTree } from '../../dom/ax-tree-pruner';
 import type { DOMElementNode } from '../../dom/views';
 
@@ -262,6 +262,57 @@ describe('native selects', () => {
     ];
     const state = pruneAXTree(buildDomState([{ key: 'main', nodes }], null));
     expect(state.selectorMap.size).toBe(3);
+  });
+});
+
+describe('clipped and covered elements', () => {
+  // Nodes: 0 body, 1 a collapsed panel (height 0, overflow hidden), 2 the button inside it, 3 a button lower down
+  // the page, 4 a fixed cookie banner painted over it, 5 the banner's "Accept" button.
+  const strings = ['BODY', 'DIV', 'BUTTON', 'visible', 'hidden', 'static', 'fixed', 'none', '0px', 'auto'];
+  const style = (overflow: number, position: number, pointer = 9) => [8, overflow, overflow, pointer, 3, position];
+  const doc = {
+    frameId: 0,
+    nodes: {
+      nodeName: [0, 1, 2, 2, 1, 2],
+      nodeType: [1, 1, 1, 1, 1, 1],
+      backendNodeId: [10, 11, 12, 13, 14, 15],
+      parentIndex: [-1, 0, 1, 0, 0, 4],
+    },
+    layout: {
+      nodeIndex: [0, 1, 2, 3, 4, 5],
+      bounds: [[0, 0, 1264, 368], [8, 180, 1264, 0], [8, 180, 100, 21], [10, 400, 100, 21], [0, 380, 300, 100], [10, 400, 80, 20]],
+      styles: [style(3, 5), style(4, 5), style(3, 5), style(3, 5), style(3, 6), style(3, 6)],
+      paintOrders: [1, 2, 2, 3, 4, 5],
+    },
+  };
+  const nodes: AXNode[] = [
+    { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '4', '5'] },
+    { nodeId: '2', ignored: true, role: { value: 'none' }, backendDOMNodeId: 11, childIds: ['3'] },
+    { nodeId: '3', role: { value: 'button' }, name: { value: 'Filter by size' }, backendDOMNodeId: 12 },
+    { nodeId: '4', role: { value: 'button' }, name: { value: 'Add to cart' }, backendDOMNodeId: 13 },
+    { nodeId: '5', role: { value: 'dialog' }, name: { value: 'Cookie consent' }, backendDOMNodeId: 14, childIds: ['6'] },
+    { nodeId: '6', role: { value: 'button' }, name: { value: 'Accept' }, backendDOMNodeId: 15 },
+  ];
+
+  it('marks a control its panel cuts away, and leaves one the panel would scroll to alone', () => {
+    const layout = documentLayout(doc as never, strings);
+    expect(layout.nodes.get(12)?.clipped).toBe(true);
+    expect(layout.nodes.get(13)?.clipped).toBeUndefined();
+
+    const scrolled = { ...doc, layout: { ...doc.layout, styles: doc.layout.styles.map((s, i) => (i === 1 ? style(9, 5) : s)) } };
+    expect(documentLayout(scrolled as never, strings).nodes.get(12)?.clipped).toBeUndefined();
+  });
+
+  it('names the layer painted over an element, and not the element itself or what it holds', () => {
+    const layout = documentLayout(doc as never, strings);
+    expect(coveringLayer(layout, 13)).toBe(14);
+    expect(coveringLayer(layout, 15)).toBeUndefined();
+    expect(coveringLayer(layout, 14)).toBeUndefined();
+
+    const serialized = pruneAXTree(buildDomState([{ key: 'main', nodes, layout }], { width: 1000, height: 800 })).elementTree.clickableElementsToString();
+    expect(serialized).toContain('aria-label="Add to cart" covered="dialog Cookie consent"');
+    expect(serialized).toContain('aria-label="Filter by size" hidden="clipped"');
+    expect(serialized).not.toContain('aria-label="Accept" covered');
   });
 });
 

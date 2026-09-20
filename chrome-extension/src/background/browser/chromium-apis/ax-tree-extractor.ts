@@ -53,6 +53,18 @@ interface NodeLayout {
   radius?: number;
   /** A scroll container's hidden content, in screens of its own visible height; the outermost one only. */
   scroll?: { above: number; below: number };
+  /** Cut away entirely by an ancestor that hides its overflow: a collapsed panel, a carousel's other slides. */
+  clipped?: boolean;
+}
+
+/** An element's painted box, in device pixels: what the covered mark is computed from. */
+interface Layer {
+  id: number;
+  paintOrder: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
 }
 
 /** Layout of one document, in that document's coordinates (CSS pixels). */
@@ -60,6 +72,8 @@ export interface DocumentLayout {
   scrollX: number;
   scrollY: number;
   nodes: Map<number, NodeLayout>;
+  /** Painted boxes and DOM parents, for `coveringLayer`. */
+  layers?: { boxes: Map<number, Layer>; parents: Map<number, number> };
 }
 
 /** Overflow settings that scroll rather than cut the content off. */
@@ -86,6 +100,7 @@ export interface SnapshotDocument {
   frameId: number;
   nodes: {
     nodeName?: number[];
+    nodeType?: number[];
     backendNodeId?: number[];
     attributes?: number[][];
     parentIndex?: number[];
@@ -99,6 +114,8 @@ export interface SnapshotDocument {
     /** Visible box of a scroll container, and the box its content scrolls in (includeDOMRects). */
     clientRects?: number[][];
     scrollRects?: number[][];
+    /** Where each box sits in the page's paint order (includePaintOrder); what is painted later is on top. */
+    paintOrders?: number[];
   };
   scrollOffsetX?: number;
   scrollOffsetY?: number;
@@ -176,8 +193,8 @@ const INTERNAL_PROPERTIES = new Set(['focusable', 'focused', 'editable', 'settab
 const SNAPSHOT_ATTRIBUTES = new Set(['type', 'name', 'placeholder', 'draggable']);
 
 /** Computed styles asked of every layout node, in this order. */
-const SNAPSHOT_STYLES = ['border-top-left-radius', 'overflow-x', 'overflow-y'] as const;
-const STYLE = { radius: 0, overflowX: 1, overflowY: 2 };
+const SNAPSHOT_STYLES = ['border-top-left-radius', 'overflow-x', 'overflow-y', 'pointer-events', 'visibility', 'position'] as const;
+const STYLE = { radius: 0, overflowX: 1, overflowY: 2, pointerEvents: 3, visibility: 4, position: 5 };
 
 /**
  * A CSS length as the snapshot reports it, in CSS pixels; a percentage resolves against the element's shorter side,
@@ -242,6 +259,7 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
   const attributes = doc.nodes.attributes ?? [];
   const clickable = new Set(doc.nodes.isClickable?.index ?? []);
   const scrollers = scrollContainers(doc, strings);
+  const { clipped, layers } = clipAndLayers(doc, strings);
   doc.layout.nodeIndex.forEach((nodeIndex, i) => {
     const id = backendNodeId[nodeIndex];
     const bounds = doc.layout.bounds[i];
@@ -265,10 +283,136 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
       height,
       radius: parseRadius(strings[doc.layout.styles?.[i]?.[STYLE.radius] ?? -1], width, height),
       scroll: scrollers.get(nodeIndex),
+      clipped: clipped.has(nodeIndex) || undefined,
     });
   });
   labelHiddenChoices(doc, strings, nodes);
-  return { scrollX: (doc.scrollOffsetX ?? 0) / scale, scrollY: (doc.scrollOffsetY ?? 0) / scale, nodes };
+  return { scrollX: (doc.scrollOffsetX ?? 0) / scale, scrollY: (doc.scrollOffsetY ?? 0) / scale, nodes, layers };
+}
+
+type Clip = [number, number, number, number];
+const UNCLIPPED: Clip = [-Infinity, -Infinity, Infinity, Infinity];
+
+/** `box` cut down to `clip` on the axes the clip applies to, in device pixels. */
+function intersect(clip: Clip, x1: number, y1: number, x2: number, y2: number): Clip {
+  return [Math.max(clip[0], x1), Math.max(clip[1], y1), Math.min(clip[2], x2), Math.min(clip[3], y2)];
+}
+
+const isEmpty = (clip: Clip) => clip[2] <= clip[0] || clip[3] <= clip[1];
+
+/**
+ * What every ancestor that hides its overflow does to each box: an element cut away entirely sits in a closed panel
+ * (an accordion at height 0, a carousel's other slides), and what is left of a box after scrollers and clips is what
+ * the page actually paints there — the boxes `coveringLayer` hit-tests.
+ */
+function clipAndLayers(
+  doc: SnapshotDocument,
+  strings: string[],
+): { clipped: Set<number>; layers: { boxes: Map<number, Layer>; parents: Map<number, number> } } {
+  const clipped = new Set<number>();
+  const boxes = new Map<number, Layer>();
+  const parents = new Map<number, number>();
+  const { styles, bounds, nodeIndex, paintOrders } = doc.layout;
+  const parentIndex = doc.nodes.parentIndex ?? [];
+  const nodeName = doc.nodes.nodeName ?? [];
+  const nodeType = doc.nodes.nodeType ?? [];
+  const backendNodeId = doc.nodes.backendNodeId ?? [];
+  const firstBox = new Map<number, number>();
+  nodeIndex.forEach((node, i) => {
+    if (!firstBox.has(node)) firstBox.set(node, i);
+  });
+  // The clip an element's own box gets from its ancestors, and the one it passes to its children: `cut` counts only
+  // overflow that hides content for good, `paint` counts scrollers too, since their content is drawn inside them.
+  const ownCut: Clip[] = [];
+  const innerCut: Clip[] = [];
+  const ownPaint: Clip[] = [];
+  const innerPaint: Clip[] = [];
+  for (let node = 0; node < nodeName.length; node++) {
+    const parent = parentIndex[node] ?? -1;
+    const box = firstBox.get(node);
+    const style = (which: number) => (box === undefined ? undefined : strings[styles?.[box]?.[which] ?? -1]);
+    // Overflow on the root propagates to the viewport, so neither <html> nor <body> clips what it holds.
+    const root = ROOT_TAGS.has((strings[nodeName[node]] ?? '').toLowerCase());
+    // A fixed element is positioned against the viewport: no ancestor clips it.
+    const escapes = style(STYLE.position) === 'fixed';
+    ownCut[node] = escapes || parent < 0 ? UNCLIPPED : innerCut[parent] ?? UNCLIPPED;
+    ownPaint[node] = escapes || parent < 0 ? UNCLIPPED : innerPaint[parent] ?? UNCLIPPED;
+    const rect = box === undefined ? undefined : bounds[box];
+    if (!rect || root) {
+      innerCut[node] = ownCut[node];
+      innerPaint[node] = ownPaint[node];
+      continue;
+    }
+    const [x, y, width, height] = rect;
+    const overflow = [style(STYLE.overflowX) ?? 'visible', style(STYLE.overflowY) ?? 'visible'];
+    const edge = (axis: number, hides: (value: string) => boolean, low: number, high: number) =>
+      hides(overflow[axis]) ? [low, high] : [-Infinity, Infinity];
+    const cuts = (value: string) => value !== 'visible' && !SCROLLING_OVERFLOW.has(value);
+    const hides = (value: string) => value !== 'visible';
+    const clipOf = (test: (value: string) => boolean): Clip => {
+      const [x1, x2] = edge(0, test, x, x + width);
+      const [y1, y2] = edge(1, test, y, y + height);
+      return [x1, y1, x2, y2];
+    };
+    const cut = clipOf(cuts);
+    const paint = clipOf(hides);
+    innerCut[node] = intersect(ownCut[node], cut[0], cut[1], cut[2], cut[3]);
+    innerPaint[node] = intersect(ownPaint[node], paint[0], paint[1], paint[2], paint[3]);
+    if (width <= 0 || height <= 0) continue;
+    if (isEmpty(intersect(ownCut[node], x, y, x + width, y + height))) clipped.add(node);
+    const id = backendNodeId[node];
+    const visible = intersect(ownPaint[node], x, y, x + width, y + height);
+    if (parent >= 0 && id !== undefined) parents.set(id, backendNodeId[parent]);
+    // Only what a click can land on: an element, painted, and taking pointer events.
+    if (
+      id === undefined ||
+      nodeType[node] !== 1 ||
+      paintOrders === undefined ||
+      isEmpty(visible) ||
+      style(STYLE.pointerEvents) === 'none' ||
+      style(STYLE.visibility) === 'hidden'
+    ) {
+      continue;
+    }
+    boxes.set(id, { id, paintOrder: paintOrders[box] ?? 0, x1: visible[0], y1: visible[1], x2: visible[2], y2: visible[3] });
+  }
+  return { clipped, layers: { boxes, parents } };
+}
+
+/**
+ * The part of the page painted over an element's centre, or undefined when nothing is: the outermost element of that
+ * layer (a cookie banner's root, a modal's container), so the model is told what to deal with rather than which inner
+ * box happened to be on top. Only boxes painted later than the element count, which leaves normal flow alone.
+ */
+export function coveringLayer(layout: DocumentLayout, backendNodeId: number): number | undefined {
+  const { boxes, parents } = layout.layers ?? { boxes: new Map<number, Layer>(), parents: new Map<number, number>() };
+  const self = boxes.get(backendNodeId);
+  if (!self) return undefined;
+  const x = (self.x1 + self.x2) / 2;
+  const y = (self.y1 + self.y2) / 2;
+  const above = new Set<number>();
+  for (let parent = parents.get(backendNodeId); parent !== undefined && !above.has(parent); parent = parents.get(parent)) {
+    above.add(parent);
+  }
+  const holds = (id: number) => {
+    for (let parent: number | undefined = id; parent !== undefined; parent = parents.get(parent)) {
+      if (parent === backendNodeId) return true;
+    }
+    return false;
+  };
+  let top: Layer | undefined;
+  for (const layer of boxes.values()) {
+    if (layer.paintOrder <= self.paintOrder || (top && layer.paintOrder <= top.paintOrder)) continue;
+    if (layer.x1 > x || layer.x2 < x || layer.y1 > y || layer.y2 < y) continue;
+    if (above.has(layer.id) || holds(layer.id)) continue;
+    top = layer;
+  }
+  if (!top) return undefined;
+  let outermost = top.id;
+  for (let parent = parents.get(outermost); parent !== undefined && !above.has(parent); parent = parents.get(parent)) {
+    outermost = parent;
+  }
+  return outermost;
 }
 
 /**
@@ -338,6 +482,26 @@ function labelHiddenChoices(doc: SnapshotDocument, strings: string[], nodes: Map
     const labelBox = label !== undefined ? nodes.get(backendNodeId[label]) : undefined;
     if (labelBox) labelBox.attributes.checked = String(checked.has(i));
   });
+}
+
+/** Names a layer on top of an element by what it is, falling back to the first named thing it holds. */
+function describeLayer(layer: AXNode | undefined, nodesById: Map<string, AXNode>): string {
+  const named = (node: AXNode | undefined) => {
+    const role = String(node?.role?.value ?? '');
+    const name = String(node?.name?.value ?? '').trim();
+    return [UNNAMED_ROLES.has(role) || role === 'StaticText' ? '' : role, name].filter(Boolean).join(' ');
+  };
+  const queue = layer ? [layer] : [];
+  for (let seen = 0; seen < 20 && queue.length; seen++) {
+    const node = queue.shift()!;
+    const description = named(node);
+    if (description) return description.slice(0, 40);
+    for (const id of node.childIds ?? []) {
+      const child = nodesById.get(id);
+      if (child) queue.push(child);
+    }
+  }
+  return 'another layer';
 }
 
 /** What a scroller's line says about the content outside it, e.g. "1 screen above, 2.5 screens below". */
@@ -460,6 +624,17 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
     const visited = new Set<string>();
     const scrollX = tree.layout?.scrollX ?? 0;
     const scrollY = tree.layout?.scrollY ?? 0;
+    const byBackendId = new Map<number, AXNode>();
+    for (const node of tree.nodes) {
+      if (node.backendDOMNodeId !== undefined && !byBackendId.has(node.backendDOMNodeId)) byBackendId.set(node.backendDOMNodeId, node);
+    }
+
+    /** What the page paints over an element it lists, so the model closes that first instead of clicking through it. */
+    const markCovered = (element: DOMElementNode): void => {
+      if (!tree.layout || element.backendNodeId === undefined || !element.isInViewport) return;
+      const layer = coveringLayer(tree.layout, element.backendNodeId);
+      if (layer !== undefined) element.attributes.covered = describeLayer(byBackendId.get(layer), nodesById);
+    };
 
     /** Returns whether the subtree produced any text. */
     const visit = (node: AXNode, into: DOMElementNode, insideControl: boolean): boolean => {
@@ -558,7 +733,13 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         frame: tree.frame,
         frameKey: tree.key,
       });
-      if (interactive || scrollOnly) selectorMap.set(selectorMap.size, element);
+      if (interactive || scrollOnly) {
+        selectorMap.set(selectorMap.size, element);
+        markCovered(element);
+      }
+      // Nothing of the element is on the page: it sits in a panel that is closed or scrolled past, and the step that
+      // works is opening that panel, not a click the page would refuse for having no visible area.
+      if (layout?.clipped && (interactive || scrollOnly)) element.attributes.hidden = 'clipped';
       if (scroller && layout?.scroll) {
         element.attributes.scroll = scrollNote(layout.scroll);
         // A panel's wrapper role ("none", "generic") says nothing next to what it holds.
@@ -595,6 +776,8 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
         element.isInteractive = true;
         element.highlightIndex = selectorMap.size;
         selectorMap.set(selectorMap.size, element);
+        if (layout?.clipped) element.attributes.hidden = 'clipped';
+        markCovered(element);
       }
       // A named image, region or heading without text children shows its name as text; for interactive
       // nodes the name stays an attribute.
@@ -690,7 +873,7 @@ async function readLayouts(sessions: CDPSession[], scale: number, timeoutMs = FR
     sessions.map(async client => {
       try {
         const snapshot = await withTimeout(
-          client.send('DOMSnapshot.captureSnapshot', { computedStyles: [...SNAPSHOT_STYLES], includeDOMRects: true }),
+          client.send('DOMSnapshot.captureSnapshot', { computedStyles: [...SNAPSHOT_STYLES], includeDOMRects: true, includePaintOrder: true }),
           timeoutMs,
         );
         for (const doc of snapshot.documents) {
