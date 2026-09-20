@@ -68,6 +68,12 @@ chrome.runtime.onMessage.addListener(message => {
     return;
   }
 
+  if (message?.type === 'AGENT_POINTER') {
+    const rect = readRect(message.rect);
+    if (rect) overlay()?.aimAt(rect);
+    return;
+  }
+
   if (message?.type === 'AGENT_ACTION' && KINDS.has(message.kind)) {
     overlay()?.act({
       kind: message.kind as ActionKind,

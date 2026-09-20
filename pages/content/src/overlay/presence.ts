@@ -13,6 +13,7 @@
  * the accessibility tree, so it can never change what the agent clicks or what it reads.
  */
 import {
+  aimPoint,
   caretTrack,
   chipPlacement,
   clampPoint,
@@ -22,7 +23,6 @@ import {
   SOFT_EASING,
   stageColors,
   stageForAction,
-  targetPoint,
   TRAVEL_EASING,
   travelMotion,
   truncateGoal,
@@ -388,6 +388,8 @@ export class Presence {
   private stage: WorkflowStage | null = null;
   /** Where the cursor is resting. Null before its first appearance, so it arrives instead of flying in. */
   private point: Point | null = null;
+  /** The kind of the action in flight, so a corrected position lands the way that action would have. */
+  private kind: ActionKind | null = null;
 
   constructor(parent: Element) {
     this.host = document.createElement('div');
@@ -555,6 +557,7 @@ export class Presence {
 
   act({ kind, rect, goal }: ActionUpdate): void {
     const viewport = this.viewport;
+    this.kind = kind;
     this.paint(stageForAction(kind));
     this.wake(this.capsule.classList.contains('on'));
     if (this.typeTimer) clearTimeout(this.typeTimer);
@@ -572,8 +575,7 @@ export class Presence {
     // Typing starts at the head of the field, not its middle: the pointer has to be where the first
     // character goes before it can walk along with the rest of them.
     const track = kind === 'type' && rect ? caretTrack(rect, viewport) : null;
-    const landing = track ? typingCursorPoint(track) : targetPoint(rect, viewport);
-    const point = clampPoint(landing, viewport);
+    const point = aimPoint(kind, rect, viewport);
     this.glide(point, TRAVEL_MS);
     this.showChip(goal, point, rect);
 
@@ -585,6 +587,17 @@ export class Presence {
     const rest = track ? TRAVEL_MS + TYPE_MS + 220 : 900;
     if (this.restTimer) clearTimeout(this.restTimer);
     this.restTimer = setTimeout(() => this.cursor.classList.add('idle'), rest);
+  }
+
+  /**
+   * The element's real position, sent when the gesture reaches it. The action scrolls the element into view after
+   * the page read the cursor was aimed from, so without this the cursor presses where the element used to be.
+   * A short correction, not a new flight: the action is already under way.
+   */
+  aimAt(rect: Rect): void {
+    if (!this.kind || !this.cursor.classList.contains('on')) return;
+    this.glide(aimPoint(this.kind, rect, this.viewport), FAST);
+    this.showHalo(rect, 520);
   }
 
   /**

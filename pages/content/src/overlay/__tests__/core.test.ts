@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aimPoint,
   caretTrack,
   chipPlacement,
   clampPoint,
@@ -294,5 +295,48 @@ describe('typingCursorPoint', () => {
 
   it('never walks backwards past the start of the field', () => {
     expect(typingCursorPoint(track, -50)).toEqual(typingCursorPoint(track, 0));
+  });
+});
+
+/**
+ * The cursor is aimed twice for one action: once from the element list the model was shown, and again when the
+ * gesture reaches the element, because the action scrolls it into view first. Both aims go through this, so a
+ * correction lands where the first aim meant to and never drifts to a different part of the element.
+ */
+describe('aiming the cursor', () => {
+  it('presses the middle of the element', () => {
+    expect(aimPoint('click', rect(), VIEWPORT)).toEqual({ x: 180, y: 220 });
+  });
+
+  it('starts typing at the head of the field, not its middle', () => {
+    const typing = aimPoint('type', rect(), VIEWPORT);
+    const clicking = aimPoint('click', rect(), VIEWPORT);
+    expect(typing.x).toBeLessThan(clicking.x);
+    expect(typing).toEqual(typingCursorPoint(caretTrack(rect(), VIEWPORT)));
+  });
+
+  it('lands on the same point for the same element, whichever aim asked', () => {
+    const moved = rect({ x: 1027, y: 562, w: 291, h: 56 });
+    for (const kind of ['click', 'type', 'scroll', 'read'] as ActionKind[]) {
+      expect(aimPoint(kind, moved, VIEWPORT)).toEqual(aimPoint(kind, moved, VIEWPORT));
+    }
+  });
+
+  it('follows the element when the page scrolls it, instead of staying where it was read', () => {
+    const asRead = rect({ x: 1027, y: 1180, w: 291, h: 56 });
+    const asClicked = rect({ x: 1027, y: 562, w: 291, h: 56 });
+    expect(aimPoint('click', asRead, VIEWPORT)).not.toEqual(aimPoint('click', asClicked, VIEWPORT));
+    expect(aimPoint('click', asClicked, VIEWPORT)).toEqual({ x: 1172.5, y: 590 });
+  });
+
+  it('stays inside the viewport when the element sits under its edge', () => {
+    const below = rect({ x: 1180, y: 1400, w: 40, h: 40 });
+    const point = aimPoint('click', below, VIEWPORT);
+    expect(point.x).toBeLessThanOrEqual(VIEWPORT.width - 16);
+    expect(point.y).toBeLessThanOrEqual(VIEWPORT.height - 16);
+  });
+
+  it('aims at the middle of the page when no element is involved', () => {
+    expect(aimPoint('read', undefined, VIEWPORT)).toEqual({ x: 600, y: 400 });
   });
 });

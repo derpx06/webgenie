@@ -239,3 +239,12 @@ export interface AgentActionMessage {
   /** The planner's current goal, a few words, already truncated. */
   goal?: string;
 }
+
+/**
+ * Where the element actually is when the gesture reaches it. The action scrolls the element into view after the
+ * page read the cursor was aimed from, so without this correction the cursor presses where the element used to be.
+ */
+export interface AgentPointerMessage {
+  type: 'AGENT_POINTER';
+  rect: { x: number; y: number; w: number; h: number };
+}

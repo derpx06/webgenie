@@ -374,6 +374,92 @@ describe('Page click that opens a tab', () => {
     return { page, handle };
   };
 
+  /**
+   * The on-page cursor is aimed from the element list the model was shown, and the gesture scrolls the element into
+   * view before it clicks: without a correction the cursor presses where the element used to be (a live screenshot
+   * showed it a field's height above the field it was opening).
+   */
+  describe('the cursor is told where the element really is', () => {
+    const aiming = (box: { x: number; y: number; width: number; height: number } | null, coverBlocker: unknown = null) => {
+      const sent: unknown[] = [];
+      const adapter = {
+        addTabCreatedListener: vi.fn(),
+        removeTabCreatedListener: vi.fn(),
+        sendTabMessage: vi.fn(async (_tabId: number, message: unknown) => void sent.push(message)),
+      };
+      const { page, handle } = clickable(() => undefined, adapter);
+      const target = (handle.evaluateHandle as ReturnType<typeof vi.fn>).mock.results;
+      void target;
+      return { page, handle, adapter, sent, box, coverBlocker };
+    };
+
+    const withTarget = async (fixture: Awaited<ReturnType<typeof aiming>>, order: string[] = []) => {
+      const target = (await fixture.handle.evaluateHandle()).asElement() as Record<string, ReturnType<typeof vi.fn>>;
+      target.scrollIntoView = vi.fn(async () => void order.push('scroll'));
+      target.evaluate = vi.fn(async (fn: unknown) => {
+        if (String(fn).includes('scrollX')) return [0, 0];
+        return fixture.coverBlocker;
+      });
+      target.boundingBox = vi.fn(async () => {
+        order.push('box');
+        return fixture.box;
+      });
+      target.clickablePoint = vi.fn(async () => {
+        order.push('point');
+        return { x: 5, y: 5 };
+      });
+      Object.assign(fixture.page, { _requireHandle: vi.fn().mockResolvedValue(fixture.handle) });
+      return target;
+    };
+
+    const node = () => new DOMElementNode({ tagName: 'button', xpath: null, attributes: {}, children: [], isVisible: true });
+
+    it('sends the box the element has after the scroll, in viewport pixels', async () => {
+      const fixture = aiming({ x: 1027, y: 562, width: 291, height: 56 });
+      await withTarget(fixture);
+      await fixture.page.clickNode(node());
+      expect(fixture.sent).toEqual([{ type: 'AGENT_POINTER', rect: { x: 1027, y: 562, w: 291, h: 56 } }]);
+    });
+
+    it('sends it only once the gesture has scrolled to the element', async () => {
+      const order: string[] = [];
+      const fixture = aiming({ x: 10, y: 20, width: 30, height: 40 });
+      await withTarget(fixture, order);
+      await fixture.page.clickNode(node());
+      expect(order.indexOf('scroll')).toBeLessThan(order.indexOf('box'));
+    });
+
+    it('says nothing when the gesture is refused, so the cursor never presses a covered element', async () => {
+      const fixture = aiming({ x: 10, y: 20, width: 30, height: 40 }, { message: 'The element is covered by a dialog', covered: true });
+      await withTarget(fixture);
+      await expect(fixture.page.clickNode(node())).rejects.toThrow('covered by a dialog');
+      expect(fixture.sent).toEqual([]);
+    });
+
+    it('says nothing about an element with no box, and the click still happens', async () => {
+      const fixture = aiming(null);
+      await withTarget(fixture);
+      await expect(fixture.page.clickNode(node())).resolves.toBeTruthy();
+      expect(fixture.sent).toEqual([]);
+    });
+
+    it('a page without the content script costs the gesture nothing', async () => {
+      const fixture = aiming({ x: 1, y: 2, width: 3, height: 4 });
+      await withTarget(fixture);
+      fixture.adapter.sendTabMessage = vi.fn(async () => {
+        throw new Error('Receiving end does not exist');
+      });
+      await expect(fixture.page.clickNode(node())).resolves.toBeTruthy();
+    });
+
+    it('re-aims for a hover as well, since the cursor is drawn for that too', async () => {
+      const fixture = aiming({ x: 7, y: 8, width: 9, height: 10 });
+      await withTarget(fixture);
+      await fixture.page.hoverNode(node());
+      expect(fixture.sent).toEqual([{ type: 'AGENT_POINTER', rect: { x: 7, y: 8, w: 9, h: 10 } }]);
+    });
+  });
+
   it('waits for the tab the page asked to open and reports it', async () => {
     let created: ((tab: chrome.tabs.Tab) => void) | undefined;
     const adapter = {

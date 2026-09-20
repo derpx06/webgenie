@@ -92,6 +92,16 @@ export function targetPoint(rect: Rect | undefined, viewport: Viewport): Point {
   return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
 }
 
+/**
+ * Where the cursor belongs for an action on this element: typing starts at the head of the field, where the first
+ * character goes; everything else presses the middle. Used both when the action starts and when the gesture reports
+ * the element's real position, so a correction lands exactly where the first aim was meant to.
+ */
+export function aimPoint(kind: ActionKind, rect: Rect | undefined, viewport: Viewport): Point {
+  const track = kind === 'type' && rect ? caretTrack(rect, viewport) : null;
+  return clampPoint(track ? typingCursorPoint(track) : targetPoint(rect, viewport), viewport);
+}
+
 /** Keeps the cursor inside the viewport: an element scrolled just out of frame still shows where the agent is. */
 export function clampPoint(point: Point, viewport: Viewport, margin = 16): Point {
   return {

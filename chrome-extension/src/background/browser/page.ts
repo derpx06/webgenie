@@ -32,6 +32,7 @@ import { isUrlAllowed, isNewTabPage } from './util';
 import { NetworkLog, type NetRecord } from './network-log';
 import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
 import { pruneAXTree } from './dom/ax-tree-pruner';
+import type { AgentPointerMessage } from '@extension/storage';
 import type { IBrowserAdapter } from '../adapters/IBrowserAdapter';
 import type { IStorageProvider } from '../adapters/IStorageProvider';
 import { ChromeBrowserAdapter } from '../adapters/ChromeBrowserAdapter';
@@ -1889,6 +1890,9 @@ export default class Page {
         'The element is still moving (an animation, a sliding panel or a list still loading). Wait for the page to settle and try again; if it keeps moving, use a control that stands still.',
       );
     }
+    // The overlay aimed its cursor from the page read; the scroll above has since moved the element, so the gesture
+    // tells the page where the element really is. Decoration, so it is never awaited and never throws.
+    void this._showPointer(target);
     const { x, y } = await target.clickablePoint(blocker?.offset).catch(async () => {
       await restoreScroll();
       // "Off the page" in the old wording sent the model scrolling for it; the action has already scrolled to it.
@@ -1915,6 +1919,23 @@ export default class Page {
       return opened?.id !== undefined ? { ...outcome, newTabId: opened.id } : outcome;
     } finally {
       this._browserAdapter.removeTabCreatedListener(onTabCreated);
+    }
+  }
+
+  /**
+   * Where the element sits now, in top-level viewport pixels, for the on-page cursor. Sent after the gesture has
+   * scrolled to the element and found it clickable, so a refused gesture never moves the cursor to it.
+   */
+  private async _showPointer(target: ElementHandle): Promise<void> {
+    try {
+      const box = await target.boundingBox();
+      if (!box || box.width <= 0 || box.height <= 0) return;
+      await this._browserAdapter.sendTabMessage(this._tabId, {
+        type: 'AGENT_POINTER',
+        rect: { x: box.x, y: box.y, w: box.width, h: box.height },
+      } satisfies AgentPointerMessage);
+    } catch {
+      // A tab without the content script, or one navigating away: the gesture itself is unaffected.
     }
   }
 
