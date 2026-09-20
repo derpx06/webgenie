@@ -13,7 +13,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   };
 });
 
-import Page, { build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, settleSparseRead, toNativeInputValue, typingMethod } from '../page';
+import Page, { boxMoving, build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, settleSparseRead, toNativeInputValue, typingMethod } from '../page';
 import { DOMElementNode } from '../dom/views';
 import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
@@ -347,6 +347,28 @@ describe('Page click that opens a tab', () => {
     expect(scrolledTo).toEqual([[0, 1406]]);
   });
 
+  it('is refused while the target is still moving, and the scroll is put back', async () => {
+    const adapter = { addTabCreatedListener: vi.fn(), removeTabCreatedListener: vi.fn() };
+    const { page, handle } = clickable(() => undefined, adapter);
+    const target = (await handle.evaluateHandle()).asElement() as { evaluate: ReturnType<typeof vi.fn> };
+    const scrolledTo: number[][] = [];
+    target.evaluate = vi.fn(async (fn: unknown, ...args: unknown[]) => {
+      if (String(fn).includes('scrollX')) return [0, 40];
+      if (String(fn).includes('scrollTo')) {
+        scrolledTo.push(args as number[]);
+        return undefined;
+      }
+      // coverBlocker passes; the box keeps moving from frame to frame.
+      return String(fn).includes('requestAnimationFrame') ? true : null;
+    });
+    Object.assign(page, { _requireHandle: vi.fn().mockResolvedValue(handle) });
+
+    await expect(
+      page.clickNode(new DOMElementNode({ tagName: 'button', xpath: null, attributes: {}, children: [], isVisible: true })),
+    ).rejects.toThrow('still moving');
+    expect(scrolledTo).toEqual([[0, 40]]);
+  });
+
   it('does not wait after a click that opened nothing', async () => {
     const adapter = { addTabCreatedListener: vi.fn(), removeTabCreatedListener: vi.fn() };
     const { page, handle } = clickable(() => undefined, adapter);
@@ -465,6 +487,35 @@ describe('pointerTarget', () => {
     const { control } = tree({ name: 'page', kids: [{ name: 'wrapper', kids: [{ name: 'control', control: true }] }] });
     // Returned unchanged: the caller then reports that the element has no visible area.
     expect(pointerTarget(control)).toBe(control);
+  });
+});
+
+describe('boxMoving', () => {
+  const element = (boxes: number[][]) => {
+    let read = 0;
+    return {
+      getBoundingClientRect: () => {
+        const [left, top, width, height] = boxes[Math.min(read++, boxes.length - 1)];
+        return { left, top, width, height };
+      },
+    } as unknown as Element;
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reports a box that moved between two frames', async () => {
+    vi.stubGlobal('requestAnimationFrame', (fn: () => void) => setTimeout(fn, 0));
+    await expect(boxMoving(element([[0, 100, 200, 30], [0, 140, 200, 30]]))).resolves.toBe(true);
+    await expect(boxMoving(element([[0, 100, 200, 30]]))).resolves.toBe(false);
+  });
+
+  it('counts a frame that never comes as still, so nothing is refused for want of an answer', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', () => undefined);
+    const moving = boxMoving(element([[0, 100, 200, 30]]));
+    await vi.advanceTimersByTimeAsync(300);
+    await expect(moving).resolves.toBe(false);
+    vi.useRealTimers();
   });
 });
 

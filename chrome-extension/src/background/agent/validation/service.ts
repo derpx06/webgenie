@@ -5,7 +5,7 @@ import { resolveByIdentity, type DOMElementNode } from '../../browser/dom/views'
 import type { FormCommitInfo } from '../../browser/page';
 import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
-import { ensureBrowserObservation, visibleContentKey, visibleText } from './observation';
+import { elementKey, elementLabel, ensureBrowserObservation, listElements, visibleContentKey, visibleText } from './observation';
 
 /** What a guard decided about one action: it let it through, refused it, or put it to the user. */
 export type GuardVerdict = 'allowed' | 'refused' | 'asked';
@@ -321,16 +321,33 @@ export function normalizeQuestion(question: string): string {
   return question.toLowerCase().replace(new RegExp('[^\\p{L}\\p{N}]+', 'gu'), ' ').trim();
 }
 
-export function staleIndexResult(index: number, observationId: string): ActionResult {
+/**
+ * Elements of a read that carry the same name as the one an action could not use: the copy that is visible, the
+ * button the page rendered again. They are the candidates the refusal hands back, so the next call needs no guess.
+ */
+export function namedLike(chosen: DOMElementNode | undefined, state: BrowserState | null | undefined, max = 5): DOMElementNode[] {
+  const wanted = chosen ? elementLabel(chosen).toLowerCase() : '';
+  if (!wanted || !state) return [];
+  const chosenKey = elementKey(chosen!);
+  return [...state.selectorMap.values()]
+    .filter(node => elementLabel(node).toLowerCase() === wanted && (chosenKey === null || elementKey(node) !== chosenKey))
+    .slice(0, max);
+}
+
+export function staleIndexResult(index: number, observationId: string, candidates: DOMElementNode[] = []): ActionResult {
+  // The page has been read again since this was chosen and the element is gone from it, so there is nothing to
+  // retry: name the fix and hand back what is on the page now rather than only that the index is stale.
+  const fix = candidates.length > 0
+    ? ` Elements named like it on the current page: ${listElements(candidates)}.`
+    : ' If what you want is not in it, open the section, menu or dialog that holds it first.';
+  const msg = `[${index}] is not on the current page; the list below is current.${fix}`;
   return new ActionResult({
     executed: false,
     executionStatus: 'not_attempted',
     validated: 'unknown',
     retryability: 'retry_reobserve',
-    // The page has been read again since this was chosen and the element is gone from it, so there is nothing to
-    // retry: say what to do instead rather than only that the index is stale.
-    failureReason: `Element index ${index} is no longer on the page, which has been read again since you chose it. Use an index from the new element list; if what you want is not in it, open the section, menu or dialog that holds it first.`,
-    extractedContent: `Element index ${index} is no longer on the page; use an index from the new element list.`,
+    failureReason: msg,
+    extractedContent: msg,
     includeInMemory: true,
     observationId,
   });
@@ -491,7 +508,7 @@ function actionTargetFingerprint(actionArgs: unknown): TargetFingerprint | null 
  * clicked), or the site's connection failed. Online-Mind2Web: 3 of 39 tasks ended on three of these within seconds.
  */
 export function isPageSideError(message: string): boolean {
-  return /is covered by <|no visible area|net::ERR_(HTTP2_PROTOCOL_ERROR|CONNECTION_(RESET|CLOSED|REFUSED)|TIMED_OUT|EMPTY_RESPONSE|NETWORK_CHANGED)/i.test(message);
+  return /is covered by <|no visible area|still moving|net::ERR_(HTTP2_PROTOCOL_ERROR|CONNECTION_(RESET|CLOSED|REFUSED)|TIMED_OUT|EMPTY_RESPONSE|NETWORK_CHANGED)/i.test(message);
 }
 
 /**

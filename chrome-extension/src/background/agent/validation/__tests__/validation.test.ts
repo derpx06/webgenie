@@ -17,10 +17,14 @@ import {
   commitTarget,
   echoesActionResult,
   currentIndexFor,
+  dispatchGuard,
   isApproval,
+  isPageSideError,
   mayCommitThroughForm,
+  namedLike,
   normalizeIndexedAction,
   sameSite,
+  staleIndexResult,
   urlKey,
   userPersonalData,
   validateActionOutcome,
@@ -716,5 +720,44 @@ describe('verification challenges', () => {
     expect(isChallengeQuestion('Could you please solve the CAPTCHA in the browser?')).toBe(true);
     expect(isChallengeQuestion('Which size do you want?')).toBe(false);
     expect(normalizeQuestion('Which colour,  do you want?')).toBe(normalizeQuestion('which colour do you want'));
+  });
+});
+
+describe('An action refused before it is dispatched', () => {
+  it('names the fix and hands back the elements named like the one it could not use', () => {
+    const current = state({
+      selectorMap: new Map([
+        [2, element(2, { attributes: { 'aria-label': 'Apply filters' } })],
+        [3, element(3, { attributes: { 'aria-label': 'Reset' } })],
+      ]),
+    });
+    const chosen = element(9, { attributes: { 'aria-label': 'Apply filters' } });
+
+    const candidates = namedLike(chosen, current);
+    expect(candidates.map(node => node.highlightIndex)).toEqual([2]);
+
+    const refusal = staleIndexResult(9, 'obs-1', candidates);
+    expect(refusal.extractedContent).toContain('[9] is not on the current page; the list below is current.');
+    expect(refusal.extractedContent).toContain('Elements named like it on the current page: [2] "Apply filters"');
+    expect(refusal.executed).toBe(false);
+  });
+
+  it('leaves the fix general when nothing on the page carries that name', () => {
+    expect(namedLike(element(9, { attributes: { 'aria-label': 'Apply filters' } }), state())).toEqual([]);
+    expect(staleIndexResult(9, 'obs-1').extractedContent).toContain('open the section, menu or dialog that holds it first');
+  });
+
+  it('names the guard behind every actionability refusal, and lets the rest through', () => {
+    expect(dispatchGuard('The element is covered by <div> "Cookie choices"')).toBe('covered');
+    expect(dispatchGuard('The element has no visible area: it is hidden')).toBe('invisible');
+    expect(dispatchGuard('The element is still moving (an animation, a sliding panel or a list still loading).')).toBe('moving');
+    expect(dispatchGuard('The element is disabled: the page turns it on once')).toBe('disabled');
+    expect(dispatchGuard('The field is read-only: the page fills it through its own control')).toBe('read-only');
+    expect(dispatchGuard('That element is no longer available: the page replaced it')).toBe('stale-index');
+    expect(dispatchGuard('net::ERR_CONNECTION_RESET')).toBeNull();
+  });
+
+  it("counts a target that will not hold still as the page's doing, not the agent's", () => {
+    expect(isPageSideError('The element is still moving (an animation, a sliding panel or a list still loading).')).toBe(true);
   });
 });

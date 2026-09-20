@@ -265,6 +265,6 @@ describe('An element the cached read has lost', () => {
     await settle(execution);
 
     expect(h.browser.actions.map(action => action.type)).toContain('click');
-    expect(h.llm.requestsFor('navigator').map(request => textOf(request.messages)).join('\n')).not.toContain('is no longer on the page');
+    expect(h.llm.requestsFor('navigator').map(request => textOf(request.messages)).join('\n')).not.toContain('is not on the current page');
   });
 });

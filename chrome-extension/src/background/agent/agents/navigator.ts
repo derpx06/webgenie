@@ -35,6 +35,7 @@ import {
   dispatchGuard,
   hostOf,
   mayCommitThroughForm,
+  namedLike,
   sameSite,
   isMutatingAction,
   normalizeIndexedAction,
@@ -501,6 +502,11 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         break;
       }
 
+      // The element the action names and the read it was chosen from, kept for the catch below: a refusal there hands
+      // back the candidates the current page offers instead.
+      let chosenNode: DOMElementNode | undefined;
+      let chosenState: BrowserState | undefined;
+
       try {
         const actionInstance = this.actionRegistry.getAction(actionName);
         if (!actionInstance) throw new Error(`Action ${actionName} not exists`);
@@ -592,7 +598,14 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           if (currentIndex !== null) args.index = currentIndex;
           if (typeof targetIndex === 'number') args.target_index = targetIndex;
           const normalized = staleIndex !== undefined
-            ? { ok: false, actionResult: staleIndexResult(staleIndex, beforeObservation.id) }
+            ? {
+              ok: false,
+              actionResult: staleIndexResult(
+                staleIndex,
+                beforeObservation.id,
+                namedLike(this.context.promptState?.selectorMap.get(staleIndex), beforeState),
+              ),
+            }
             : normalizeIndexedAction(actionName, actionArgs, beforeObservation);
           if (!normalized.ok && normalized.actionResult) {
             traceGuard('stale-index', 'refused', actionName, normalized.actionResult.failureReason ?? '');
@@ -688,6 +701,8 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         }
 
         const indexedNode = indexArg !== null ? beforeState.selectorMap.get((actionArgs as { index?: number }).index ?? -1) : undefined;
+        chosenNode = indexedNode;
+        chosenState = beforeState;
 
         // CAPTCHAs and bot checks are the user's to pass: live runs clicked "I'm not a robot" boxes and challenge widgets.
         if (actionName !== 'scroll' && isChallengeElement(indexedNode)) {
@@ -1277,10 +1292,18 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         // run's traces count each actionability check.
         const guard = dispatchGuard(msg);
         if (guard) traceGuard(guard, 'refused', actionName, msg);
+        // A hidden, disabled or vanished target usually has a twin on the page (the visible copy of a duplicated menu,
+        // the button the page rendered again): the refusal names it, so the next call needs no second read to find it.
+        const candidates = guard === 'invisible' || guard === 'disabled' || guard === 'stale-index'
+          ? namedLike(chosenNode, guard === 'stale-index' ? await browserContext.getCachedState().catch(() => undefined) : chosenState)
+          : [];
+        const reason = candidates.length > 0
+          ? `${msg} Elements named like it on the current page: ${listElements(candidates)}.`
+          : msg;
         const failMsg = `[Action] [${i + 1}/${actions.length}] ${actionName} FAILED\n  args : ${JSON.stringify(redactArgs(actionName, actionArgs))}\n  error: ${msg}`;
         console.warn(`\n${failMsg}`);
         logger.error(failMsg);
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, reason);
         // A thrown action may have changed the page, or found it changed (a re-rendered element): the next read must be
         // fresh. Without this the model saw the same stale read and picked the same removed element again (three times in
         // a row on a live site, ending the task).
@@ -1288,7 +1311,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         const stale = isStaleElementError(msg);
 
         results.push(new ActionResult({
-          error: msg,
+          error: reason,
           isDone: false,
           includeInMemory: true,
           contractId,
@@ -1298,8 +1321,8 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           validated: 'failed',
           retryability: stale ? 'replan' : 'retry_reobserve',
           failureReason: stale
-            ? `${msg}. The page changed after this index was read; look at the current page and choose a current target instead of retrying the same index.`
-            : msg,
+            ? `${reason} The page changed after this index was read; look at the current page and choose a current target instead of retrying the same index.`
+            : reason,
           observationId: this.context.activeObservation?.id ?? null,
           targetFingerprint: targetFingerprintFromArgs(actionArgs),
           evidence: [{ kind: 'error', passed: false, message: msg }],

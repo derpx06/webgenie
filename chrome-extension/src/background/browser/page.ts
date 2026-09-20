@@ -402,7 +402,10 @@ export interface CoverBlocker {
  */
 export function coverBlocker(el: Element, isHover: boolean, checkCovered: boolean): CoverBlocker | null {
   if (!isHover && ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true')) {
-    return { message: 'The element is disabled' };
+    return {
+      message:
+        'The element is disabled: the page turns it on once what it waits for is done (a required field filled, an option chosen, a term accepted). Do that first, or use another element',
+    };
   }
   if (!checkCovered) return null;
   const rect = el.getBoundingClientRect();
@@ -482,6 +485,29 @@ export function coverBlocker(el: Element, isHover: boolean, checkCovered: boolea
     : `The element is covered by <${tag(layer)}>${what ? ` ${what}` : ''}`;
   return { covered: true, message, buttons, ...(!bar && !openDialog && !name && buttons.length === 0 && { clickThrough: true }) };
 }
+
+/**
+ * Whether the element's box moves from one animation frame to the next: a sliding panel, a carousel or a list still
+ * settling would take the click where the element was, not where it is. Runs in the page and must stay self-contained;
+ * a frame that never comes (a throttled background tab) counts as still, so nothing is refused for want of an answer.
+ */
+export function boxMoving(el: Element): Promise<boolean> {
+  const box = () => {
+    const rect = el.getBoundingClientRect();
+    return [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value)).join(',');
+  };
+  const before = box();
+  return new Promise(resolve => {
+    const giveUp = setTimeout(() => resolve(false), 250);
+    requestAnimationFrame(() => {
+      clearTimeout(giveUp);
+      resolve(box() !== before);
+    });
+  });
+}
+
+/** Animation frames a target may still be moving in before the gesture is refused (Playwright waits for the same). */
+const MOVING_CHECKS = 6;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -1790,6 +1816,20 @@ export default class Page {
       await restoreScroll();
       throw new Error(blocker.buttons ? `${blocker.message}${this._indexedButtons(blocker.buttons)}; close or move past it first` : blocker.message);
     }
+    // A target that is still sliding gets the gesture where it was, not where it is: give it a few frames to come to
+    // rest, and refuse rather than click whatever moved into that spot.
+    let moving = false;
+    for (let checks = 0; checks < MOVING_CHECKS; checks++) {
+      moving = (await target.evaluate(boxMoving).catch(() => false)) === true;
+      if (!moving) break;
+      await sleep(50);
+    }
+    if (moving) {
+      await restoreScroll();
+      throw new Error(
+        'The element is still moving (an animation, a sliding panel or a list still loading). Wait for the page to settle and try again; if it keeps moving, use a control that stands still.',
+      );
+    }
     const { x, y } = await target.clickablePoint(blocker?.offset).catch(async () => {
       await restoreScroll();
       // "Off the page" in the old wording sent the model scrolling for it; the action has already scrolled to it.
@@ -1965,8 +2005,13 @@ export default class Page {
     const field = await handle.evaluate(el => {
       const input = el as HTMLInputElement;
       const tag = el.tagName.toLowerCase();
-      if (input.disabled || el.getAttribute('aria-disabled') === 'true') return { error: 'The field is disabled' };
-      if (input.readOnly) return { error: 'The field is read-only' };
+      if (input.disabled || el.getAttribute('aria-disabled') === 'true')
+        return { error: 'The field is disabled: the page turns it on once what it waits for is filled or chosen; do that first' };
+      if (input.readOnly)
+        return {
+          error:
+            'The field is read-only: the page fills it through its own control (a picker, a list, a pair of buttons). Click the field or that control and choose the value there instead of typing',
+        };
       if (tag === 'input' && ['date', 'datetime-local', 'time', 'month', 'week', 'color', 'range'].includes(input.type)) {
         return { mode: 'setter', type: input.type, secret: false };
       }
