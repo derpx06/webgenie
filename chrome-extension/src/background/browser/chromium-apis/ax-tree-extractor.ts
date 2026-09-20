@@ -376,6 +376,8 @@ function layoutSignals(
     // Overflow on the root propagates to the viewport, so neither <html> nor <body> clips what it holds.
     const root = ROOT_TAGS.has((strings[nodeName[node]] ?? '').toLowerCase());
     // A fixed element is positioned against the viewport: no ancestor clips it.
+    // ponytail: an absolutely positioned element whose containing block sits outside the clipper escapes it too;
+    // that needs the position of every ancestor, so it waits until a page is seen to need it.
     const escapes = style(STYLE.position) === 'fixed';
     ownCut[node] = escapes || parent < 0 ? UNCLIPPED : innerCut[parent] ?? UNCLIPPED;
     ownPaint[node] = escapes || parent < 0 ? UNCLIPPED : innerPaint[parent] ?? UNCLIPPED;
@@ -482,6 +484,8 @@ export function coveringLayer(layout: DocumentLayout, backendNodeId: number): nu
  * box). A page's own scrollbar is not one of them, and neither is a scroller inside another: the outermost one is the
  * handle `scroll {index}` needs, and nested ones only lengthen the list.
  */
+// ponytail: vertical scrollers only, which is what `scroll` moves; a carousel that scrolls sideways is still read
+// through its own controls.
 function scrollContainers(doc: SnapshotDocument, strings: string[]): Map<number, { above: number; below: number }> {
   const found = new Map<number, { above: number; below: number }>();
   const { clientRects, scrollRects, styles, nodeIndex } = doc.layout;
