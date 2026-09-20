@@ -36,6 +36,7 @@
     "langsmith": "^0.6.3",
     "posthog-js": "^1.271.0",
     "puppeteer-core": "^24.31.0",
+    "tldts": "^7.4.13",
     "webextension-polyfill": "^0.12.0",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"

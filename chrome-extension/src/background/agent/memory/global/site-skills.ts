@@ -9,6 +9,7 @@
  * cannot keep sending the agent to them.
  */
 import { createLogger } from '../../../log';
+import { registrableDomain } from '../../../browser/util';
 import type { RouteStep } from './types';
 import type { LedgerEntry } from '../in-chat/ledger';
 
@@ -39,19 +40,12 @@ const SEARCH_PARAMS = ['q', 'query', 'search', 'search_query', 'searchterm', 'ke
 
 /** The registrable domain, as `sameSite` reckons it; empty when the address is not a web page. */
 export function domainOf(url: string): string {
-  let host: string;
   try {
     const parsed = new URL(url);
-    if (!/^https?:$/.test(parsed.protocol)) return '';
-    host = parsed.host.toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '');
+    return /^https?:$/.test(parsed.protocol) ? registrableDomain(parsed.host) : '';
   } catch {
     return '';
   }
-  if (/^[\d.]+$/.test(host) || !host.includes('.')) return host;
-  const labels = host.split('.');
-  // ponytail: no public-suffix list; two-part suffixes such as co.uk are guessed from their short labels, as sameSite does.
-  const take = labels.length > 2 && labels.at(-1)!.length === 2 && labels.at(-2)!.length <= 3 ? 3 : 2;
-  return labels.slice(-take).join('.');
 }
 
 /**
