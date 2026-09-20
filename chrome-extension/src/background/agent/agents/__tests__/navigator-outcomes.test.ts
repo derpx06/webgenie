@@ -282,6 +282,24 @@ describe('Verification challenges', () => {
   });
 });
 
+describe('A page that refuses the visitor', () => {
+  const home = { url: 'https://shop.test/', title: 'Shop', elements: [{ tag: 'a', text: 'Deals' }] };
+  const refused = { url: 'https://shop.test/deals', title: 'Access Denied', text: ['You don\'t have permission to access this resource.'] };
+
+  it('is reported the moment a navigation lands on it, not only at the end of the task', async () => {
+    const { sent } = await run([home, refused, refused], [click(0), done('Blocked', false)]);
+
+    expect(sent()).toContain('The page now refuses access ("Access Denied")');
+  });
+
+  it('does not end the task when the page in front of the agent shows no block any more', async () => {
+    const { h, sent } = await run([home, home], [done('The site blocked me with a CAPTCHA', false), done('Deals are listed')]);
+
+    expect(sent()).toContain('Not done: the page in front of you shows no block or verification challenge any more');
+    expect(h.llm.remaining('navigator')).toBe(0);
+  });
+});
+
 describe('Questions to the user', () => {
   it('are not asked again once answered', async () => {
     const { h, sent } = await run(

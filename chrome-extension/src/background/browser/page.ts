@@ -506,6 +506,18 @@ export function boxMoving(el: Element): Promise<boolean> {
   });
 }
 
+/**
+ * Whether a navigation is tried once more before anything reads the page: a transient network error, or a server
+ * answer of 429 or 5xx. A name that does not resolve or a refused address is not retried: the second try answers
+ * the same.
+ */
+export function needsReload(status?: number, errorMessage?: string): boolean {
+  if (errorMessage !== undefined) {
+    return /net::ERR_(CONNECTION_(RESET|CLOSED|ABORTED|TIMED_OUT)|TIMED_OUT|EMPTY_RESPONSE|NETWORK_CHANGED|HTTP2_PROTOCOL_ERROR|ADDRESS_UNREACHABLE|SOCKET_NOT_CONNECTED)/i.test(errorMessage);
+  }
+  return status === 429 || (status !== undefined && status >= 500 && status < 600);
+}
+
 /** Animation frames a target may still be moving in before the gesture is refused (Playwright waits for the same). */
 const MOVING_CHECKS = 6;
 
@@ -1557,13 +1569,33 @@ export default class Page {
     logger.info(label);
     this.invalidateCache();
     this._agentNavigating = true;
+    let failure: Error | null = null;
+    let status: number | undefined;
     try {
-      await navigation(this._puppeteerPage);
+      const response = (await navigation(this._puppeteerPage)) as { status?: () => number } | null;
+      status = typeof response?.status === 'function' ? response.status() : undefined;
     } catch (error) {
-      if (!(error instanceof Error && /timeout/i.test(error.message))) throw error;
-      logger.warning(`${label} timed out; continuing with the partly loaded page`);
+      if (!(error instanceof Error)) throw error;
+      if (/timeout/i.test(error.message)) logger.warning(`${label} timed out; continuing with the partly loaded page`);
+      else if (needsReload(undefined, error.message)) failure = error;
+      else throw error;
     } finally {
       this._agentNavigating = false;
+    }
+    // A network error or a 429/5xx answer is usually gone on the second try, and an agent that is shown the error
+    // page calls the task infeasible instead of retrying (WAREX). Reload once, before anything reads the page.
+    if (failure || needsReload(status)) {
+      logger.warning(`${label} met ${failure ? failure.message : `HTTP ${status}`}; reloading once before reading the page`);
+      this._agentNavigating = true;
+      try {
+        await sleep(status === 429 ? 1000 : 300);
+        await this._puppeteerPage.reload(NAVIGATION_OPTIONS);
+      } catch (error) {
+        if (failure) throw failure;
+        logger.warning(`the reload after HTTP ${status} failed: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        this._agentNavigating = false;
+      }
     }
     const url = this._puppeteerPage?.url();
     if (url) this.updateUrl(url);

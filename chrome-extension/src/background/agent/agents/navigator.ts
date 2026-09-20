@@ -23,7 +23,9 @@ import {
   actionSignature,
   addressKey,
   amountBefore,
+  blockedPage,
   challengeOnPage,
+  claimsBlocked,
   isChallengeElement,
   isChallengeQuestion,
   normalizeQuestion,
@@ -720,6 +722,17 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           }
         }
 
+        // An answer that reports a block rests on the page as it is now: a challenge that cleared, or a page that
+        // loaded after the refusal, ends the task wrongly. Read the page again before the answer stands, once.
+        if (actionName === 'done' && !this.context.blockedAnswerChecked && claimsBlocked(String((actionArgs as { text?: unknown }).text ?? ''))) {
+          this.context.blockedAnswerChecked = true;
+          const fresh = await browserContext.getState(false).catch(() => null);
+          if (fresh && !challengeOnPage(fresh) && !blockedPage(fresh)) {
+            refuse('blocked-answer', `Not done: the page in front of you shows no block or verification challenge any more (it is "${fresh.title}" at ${fresh.url}). Read it and go on with the task; report a block only while the current page still shows one.`);
+            break;
+          }
+        }
+
         const indexedNode = indexArg !== null ? beforeState.selectorMap.get((actionArgs as { index?: number }).index ?? -1) : undefined;
         chosenNode = indexedNode;
         chosenState = beforeState;
@@ -1152,6 +1165,12 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           if (held && typed && held.toLowerCase() !== typed.toLowerCase() && typedNode?.attributes.type !== 'password') {
             notes.push(`The field now holds "${held}", not "${typed}" as typed: check that this is the value the task asks for.`);
           }
+        }
+        // A refusal page (a CDN block, a country block) is read on every navigation, not only at the start and the end
+        // of a task: live runs spent thousands of seconds working on a site that had already refused them.
+        const blocked = mutating && !result.error ? blockedPage(postActionState) : null;
+        if (blocked && !blockedPage(beforeState)) {
+          notes.push(`The page now refuses access ("${blocked}"): the site is blocking this browser, and repeating the request will not change that. Reach the goal another way if you can; otherwise finish with done (success: false) and report that the site blocked access.`);
         }
         const challenge = mutating && !result.error ? challengeOnPage(postActionState) : null;
         if (challenge && !challengeOnPage(beforeState)) {

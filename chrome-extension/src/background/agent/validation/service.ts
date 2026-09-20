@@ -313,6 +313,26 @@ export function challengeOnPage(state: BrowserState): string | null {
   return CHALLENGE_PAGE.exec(visibleText(state))?.[0] ?? null;
 }
 
+/**
+ * Wording of a page that refuses this visitor outright: a CDN block, a country block, a refusal of permission. The
+ * challenge page has its own wording; this one cannot be passed at all.
+ */
+const REFUSAL_PAGE = /access denied|you don'?t have permission to access|not available in your (area|country|region)|coming from a country|the request could not be satisfied|request blocked|blocked by the (site|server|website)|403 forbidden|error 1015|too many requests/i;
+
+/**
+ * The refusal a page shows, or null. Judged on a short page only: an article mentioning the words is not a refusal,
+ * exactly as the harness decides it.
+ */
+export function blockedPage(state: BrowserState): string | null {
+  const text = visibleText(state);
+  return text.length < 3000 ? REFUSAL_PAGE.exec(`${state.title}\n${text}`)?.[0] ?? null : null;
+}
+
+/** Whether an answer reports that the site blocked the agent; such an answer is checked against the page as it is now. */
+export function claimsBlocked(text: string): boolean {
+  return /\b(captcha|bot (check|detection)|blocked|access denied|denied access|forbidden|not a robot|verification challenge|security check)\b/i.test(text);
+}
+
 /** Whether a question to the user is about a CAPTCHA or bot check. */
 export function isChallengeQuestion(question: string): boolean {
   return /captcha|not a robot|verification challenge|bot (check|detection)|security (check|challenge)|verify (that )?you('re| are) (a )?human|press (and|&) hold|human verification/i.test(question);

@@ -13,7 +13,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   };
 });
 
-import Page, { boxMoving, build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, settleSparseRead, toNativeInputValue, typingMethod } from '../page';
+import Page, { boxMoving, build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, needsReload, normalizeKeyCombo, pointerTarget, settleSparseRead, toNativeInputValue, typingMethod } from '../page';
 import { DOMElementNode } from '../dom/views';
 import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
@@ -157,6 +157,44 @@ describe('Page firewall', () => {
 
     await expect(page._updateState()).rejects.toBeInstanceOf(URLNotAllowedError);
     expect(goto).toHaveBeenCalledWith('about:blank');
+  });
+});
+
+describe('A navigation that met an error page', () => {
+  const navigating = (goto: ReturnType<typeof vi.fn>) => {
+    const page = new Page(1, 'https://ok.example/', 'OK', {}, { getTab: vi.fn().mockResolvedValue({ url: 'https://ok.example/' }) } as unknown as IBrowserAdapter);
+    const reload = vi.fn().mockResolvedValue(null);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _puppeteerPage: { goto, reload, url: () => 'https://ok.example/' },
+      ensurePuppeteerConnected: async () => undefined,
+    });
+    return { page, reload };
+  };
+
+  it('is reloaded once on a 503 and on a transient network error, before the model reads the page', async () => {
+    const server = navigating(vi.fn().mockResolvedValue({ status: () => 503 }));
+    await server.page.navigateTo('https://ok.example/');
+    expect(server.reload).toHaveBeenCalledTimes(1);
+
+    const network = navigating(vi.fn().mockRejectedValue(new Error('net::ERR_CONNECTION_RESET at https://ok.example/')));
+    await network.page.navigateTo('https://ok.example/');
+    expect(network.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('is left alone when the page answered normally, and the error stands when the reload fails too', async () => {
+    const ok = navigating(vi.fn().mockResolvedValue({ status: () => 200 }));
+    await ok.page.navigateTo('https://ok.example/');
+    expect(ok.reload).not.toHaveBeenCalled();
+
+    const broken = navigating(vi.fn().mockRejectedValue(new Error('net::ERR_CONNECTION_RESET')));
+    broken.reload.mockRejectedValue(new Error('net::ERR_CONNECTION_RESET'));
+    await expect(broken.page.navigateTo('https://ok.example/')).rejects.toThrow('ERR_CONNECTION_RESET');
+  });
+
+  it('never retries an address that answers the same way twice', () => {
+    expect(needsReload(undefined, 'net::ERR_NAME_NOT_RESOLVED')).toBe(false);
+    expect(needsReload(404)).toBe(false);
+    expect(needsReload(429)).toBe(true);
   });
 });
 

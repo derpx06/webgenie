@@ -163,6 +163,8 @@ export class AgentContext {
   leavingAppliedChecked = false;
   /** A completion reporting absence was sent back once to read the page first; once per task. */
   absenceChecked = false;
+  /** An answer reporting that the site blocked the agent was checked against the current page; once per task. */
+  blockedAnswerChecked = false;
   /**
    * One model call that fills what `extract` could not parse off the page, installed by the navigator: it takes the
    * caller's JSON Schema and the page text and returns whatever the model could read.
