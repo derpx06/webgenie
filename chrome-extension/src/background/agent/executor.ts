@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnread, answerGaps, doneEvidence, givesUpUnseen, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements, unbackedValues } from './validation/done-evidence';
+import { absenceUnderexplored, absenceUnread, answerGaps, doneEvidence, givesUpUnseen, inexactFilterEvidence, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements, unbackedValues } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -110,6 +110,10 @@ export class Executor {
   private answerGapRefused = false;
   /** A completion whose claims nothing in the task backed with page evidence was sent back once. */
   private unevidencedRefused = false;
+  /** An answer of absence resting on one kind of route was sent back once; once per task. */
+  private absenceRoutesRefused = false;
+  /** A range or superlative requirement whose evidence named no bound or sort was sent back once; once per task. */
+  private inexactEvidenceRefused = false;
   constructor(
     task: string,
     taskId: string,
@@ -187,6 +191,8 @@ export class Executor {
     this.context.requirementReopens.clear();
     this.context.leavingAppliedChecked = false;
     this.context.absenceChecked = false;
+    this.absenceRoutesRefused = false;
+    this.inexactEvidenceRefused = false;
     this.evidenceRechecked = false;
     this.searchEvidenceRefused = false;
     this.unseenGiveUpRefused = false;
@@ -241,10 +247,23 @@ export class Executor {
       this.searchEvidenceRefused = true;
       return this.refuseCompletion(planOutput, `Not done: the evidence for these applied requirements is the search or its results, not a filter or sort the site applied: ${searchOnly.map(item => `${item.requirement} (${item.evidence})`).join('; ')}. Search text does not filter results. Apply each with the site's filter or sort controls (open a collapsed filter section if needed) and record the selected option, chip, sort label or URL parameter as evidence; mark it not_available only when the site offers no such control.`);
     }
+    // A range or a superlative applied "about right": the evidence has to name the bounds themselves or the sort.
+    const inexact = this.inexactEvidenceRefused ? [] : inexactFilterEvidence(requirements);
+    if (inexact.length > 0) {
+      this.inexactEvidenceRefused = true;
+      return this.refuseCompletion(planOutput, `Not done: the evidence for these applied requirements does not show what was applied exactly: ${inexact.map(item => `${item.requirement} (${item.evidence || 'no evidence'})`).join('; ')}. A range must be evidenced by the bound values the control or the address now holds (the numbers themselves, as the page writes them), and a "cheapest/newest/highest" requirement by the sort control or sort parameter in effect. Check the current page, apply the exact bounds or the sort, and record what it shows; mark it not_available only when the site offers no such control.`);
+    }
     // "Not found" said about a results page nobody read.
     if (!context.absenceChecked && absenceUnread(context, answer, this.doneReportedFailure)) {
       context.absenceChecked = true;
       return this.refuseCompletion(planOutput, 'The answer says something is missing, but the current page was not read. Before concluding, read it: find_in_page with the key term of the task, or read_page, then decide from what it returns.');
+    }
+    // "Nothing like that exists" after one kind of route: a search that came back empty says something about that
+    // search. One send-back, then the answer stands however many routes were tried.
+    if (!this.absenceRoutesRefused && absenceUnderexplored(context, answer, context.options.absenceRouteKinds)) {
+      this.absenceRoutesRefused = true;
+      const tried = [...context.ledger.emptyRouteKinds()].join(', ') || 'none';
+      return this.refuseCompletion(planOutput, `Not done: the answer says nothing matches, but only ${tried} came back empty, which says something about that route and not about the site. Try one different kind of route for the same thing — the site's own categories or filters on a listing, a different search wording, the site's A-Z or sitemap, or a web search that names the site — and finish with absence only if that one comes back empty too, or a filtered listing states zero results.`);
     }
     // An answer that reports the search instead of what it found, or that leaves the value the task asks for unsaid.
     const gaps = this.answerGapRefused ? [] : answerGaps(this.tasks[this.tasks.length - 1] ?? '', answer);
@@ -281,7 +300,8 @@ export class Executor {
     const plan = planOutput.result;
     if (!plan || plan.done) return 'continue';
     const goal = plan.next_goal || plan.macro_objective;
-    const plans = this.goalRepeats.plan(goal);
+    // A goal that names a route this task already took is that route again, in whatever words the planner chose.
+    const plans = this.goalRepeats.plan(goal, this.context.ledger.routeNamedIn(goal));
     if (plans > 1) record({ level: 'info', kind: 'span', component: 'Executor', msg: 'goal repeated', data: { plans } });
     if (this.mustFinish) {
       throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'), `the plan kept repeating goals that made no progress: ${goal}`);
@@ -610,8 +630,14 @@ export class Executor {
         stalled = stepRecord.stalled;
         // Progress: a validated action this task had not done on that layout before, or a new finding. Repeating a
         // search or reopening a page validates too, but is not new.
+        const here = this.hereNow();
+        // The page a finding came off is worth returning to, and the route that led there gave something.
+        if (here && context.findings.length > findingsBefore) {
+          context.ledger.findingSaved(here.url, here.fingerprint, context.findings[context.findings.length - 1]);
+        }
         if ((navigatorStep.outcome === 'passed' && stepRecord.fresh) || context.findings.length > findingsBefore) {
           this.goalRepeats.progress();
+          context.ledger.progressed(context.nSteps);
           // Only progress refills the failure budget: a repeat that validates (a read, a scroll at the end) between
           // stalls kept the count at 1/3 and the task ran to its token limit.
           context.consecutiveFailures = 0;
@@ -887,6 +913,13 @@ export class Executor {
     return { stalled: this.stepKeys.slice(-6).filter(recent => recent === key).length >= 3, fresh };
   }
 
+  /** The page the task is on now, as a return point is recorded: its address and the fingerprint of what it shows. */
+  private hereNow(): { url: string; fingerprint: string } | null {
+    const observation = this.context.activeObservation;
+    const url = observation?.url || this.context.promptState?.url;
+    return url ? { url, fingerprint: observation?.contentFingerprint ?? observation?.layoutFingerprint ?? '' } : null;
+  }
+
   /**
    * After a plan: a requirement it newly marks applied, or a finding, is progress; one it moves from applied back to
    * pending keeps the interval re-plan on.
@@ -895,8 +928,15 @@ export class Executor {
     const statusBefore = new Map(before.map(item => [requirementKey(item.requirement), item.status]));
     const after = this.context.requirements;
     this.requirementReopened = after.some(item => item.status === 'pending' && statusBefore.get(requirementKey(item.requirement)) === 'applied');
-    const newlyApplied = after.some(item => item.status === 'applied' && statusBefore.get(requirementKey(item.requirement)) !== 'applied');
-    if (newlyApplied || this.context.findings.length > findingsBefore) this.goalRepeats.progress();
+    const applied = after.filter(item => item.status === 'applied' && statusBefore.get(requirementKey(item.requirement)) !== 'applied');
+    const newlyApplied = applied.length > 0;
+    // The page that shows a requirement applied is the state to come back to if a later step loses it.
+    const here = newlyApplied ? this.hereNow() : null;
+    if (here) this.context.ledger.returnPoint(here.url, here.fingerprint, `applied: ${applied.map(item => item.requirement).join('; ')}`);
+    if (newlyApplied || this.context.findings.length > findingsBefore) {
+      this.goalRepeats.progress();
+      this.context.ledger.progressed(this.context.nSteps);
+    }
   }
 
   /**
@@ -934,6 +974,8 @@ export class Executor {
       // The planner gets the page on every run, including the first; without it it plans blind.
       const planOutput = await this.planner.execute(await getState(), options);
       this.lastPlanningStep = this.context.nSteps;
+      // The next plan's progress block counts from here, after this call has read the previous one.
+      this.context.ledger.planned(this.context.nSteps, this.context.findings.length);
       // If planner returned an error (e.g., LLM API crash), treat it as an execution failure
       // so it counts toward consecutiveFailures and eventually stops the loop.
       if (planOutput.error) {

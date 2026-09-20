@@ -1,6 +1,7 @@
 import type { AgentContext } from '../types';
 import type { PlannerRequirement } from '../contracts/types';
 import { DOMElementNode } from '../../browser/dom/views';
+import type { BrowserState } from '../../browser/views';
 import { echoesActionResult } from './service';
 import { visibleText } from './observation';
 
@@ -66,6 +67,24 @@ export function absenceUnread(context: AgentContext, answer: string, reportedFai
   if (!reportedFailure && !ABSENCE.test(answer)) return false;
   if (context.pageRead?.url === state.url) return false;
   return !EMPTY_RESULTS.test(visibleText(state));
+}
+
+/**
+ * Whether an answer saying something does not exist rests on too few routes. Absence is credible when at least
+ * `minKinds` different kinds of route (the site's search, its filters, its categories, an address, a web search) came
+ * back empty, or when a filtered listing itself states zero results; one empty search is not evidence that a thing does
+ * not exist, it is evidence about that search. A task that searched nothing is not judged here: its answer is about the
+ * page in front of it, not about a search. Inviting absence costs more than refusing it once (WebArena's N/A hint made
+ * GPT-4 call 54.9% of feasible tasks impossible), so the caller sends such an answer back once and then accepts it.
+ */
+export function absenceUnderexplored(context: AgentContext, answer: string, minKinds: number): boolean {
+  if (minKinds < 2) return false;
+  if (!ABSENCE.test(answer) && !NONE_MATCHED.test(answer)) return false;
+  const routes = context.ledger?.routes() ?? [];
+  if (routes.length === 0) return false;
+  const empty = context.ledger.emptyRouteKinds();
+  // A listing filtered down to zero results has already answered the question for the criteria it was filtered on.
+  return !empty.has('facet') && empty.size < minKinds;
 }
 
 /** A word, number or amount of a quote, in any script. Built from a string: the compile target has no /u literals. */
@@ -167,6 +186,17 @@ export function requirementKey(requirement: string): string {
   return requirement.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+/** Evidence saying a value was typed somewhere. */
+const TYPED_EVIDENCE = /\b(typ(ed|ing)|enter(ed)?|input(ted)?|fill(ed)?|wrote|written|key(ed)?|search (box|bar|field|input)|into the (field|box|input))\b/i;
+/** Evidence saying the site itself took the value: a control set, a suggestion chosen, a parameter in the address. */
+const COMMITTED_EVIDENCE =
+  /\b(filter(s|ed)?|sort(ed)?|select(ed|ion)?|check(ed|box)?|chip|facet|option|toggle|suggestion|autocomplete|chose|chosen|click(ed)?|dropdown|radio|slider|url|address|parameter|applied by)\b|[\w-]+=\S/i;
+
+/** Whether the only thing this evidence says is that something was typed. */
+function typedOnlyEvidence(evidence: string): boolean {
+  return TYPED_EVIDENCE.test(evidence) && !COMMITTED_EVIDENCE.test(evidence);
+}
+
 /**
  * The plan's requirements with what is already applied kept applied. A plan that lists a requirement it had marked
  * applied as pending again has it restored, so the phase is not planned a second time; only evidence gone from the
@@ -179,6 +209,12 @@ export function mergeRequirements(context: AgentContext, incoming: PlannerRequir
   return incoming.map(item => {
     const key = requirementKey(item.requirement);
     const before = previous.get(key);
+    // Typing a value is not applying it: it counts once the site acts on it — a suggestion chosen, a control set, a
+    // parameter in the address. A criterion typed into a field and never committed is the most common silent wrong
+    // answer in the reviewed runs, and it reads as applied to the planner that typed it.
+    if (item.status === 'applied' && before?.status !== 'applied' && typedOnlyEvidence(item.evidence ?? '')) {
+      return { ...item, status: 'pending', evidence: `${item.evidence} (typing alone does not apply it)` };
+    }
     if (!before || before.status !== 'applied' || item.status !== 'pending') return item;
     if (gone.has(key) && !context.requirementReopens.has(key)) {
       context.requirementReopens.add(key);
@@ -186,6 +222,70 @@ export function mergeRequirements(context: AgentContext, incoming: PlannerRequir
     }
     return { ...item, status: 'applied', evidence: item.evidence ?? before.evidence };
   });
+}
+
+/** Roles and tags of a control a site filters, sorts or chooses with. */
+const CONTROL_ROLE = /^(checkbox|radio|combobox|listbox|option|switch|slider|spinbutton|menuitemcheckbox|menuitemradio|tab)$/;
+const CONTROL_TAG = /^(select|option|input|summary)$/;
+/** A requirement asking for the extreme of an ordering: a sort control answers it, whatever it is named. */
+const SUPERLATIVE = /\b(cheapest|lowest|highest|newest|latest|oldest|earliest|nearest|closest|largest|smallest|biggest|longest|shortest|fastest|best|top|most|least|max|maximum|min|minimum)\b/i;
+const SORT_CONTROL = /\b(sort|order by|ordering|relevance|ranking)\b/i;
+
+/**
+ * What the page offers to filter, sort or choose with: the controls themselves, the headers of collapsed filter
+ * sections (a facet nobody has opened yet is still offered), and short links and buttons, which is what many sites
+ * build their facets from. Long link texts are left out: an item's own title is not a control.
+ */
+function controlLabels(state: BrowserState): string {
+  const labels: string[] = [];
+  const stack: unknown[] = state.elementTree ? [state.elementTree] : [];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!(node instanceof DOMElementNode)) continue;
+    stack.push(...node.children);
+    const role = node.attributes.role ?? '';
+    const tag = node.tagName ?? '';
+    const label = [node.attributes['aria-label'], node.attributes.name, node.attributes.placeholder, node.attributes.title, node.getAllTextTillNextClickableElement(2)]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!label) continue;
+    const collapsed = node.attributes['aria-expanded'] === 'false';
+    const shortAction = /^(a|button)$/.test(tag) || /^(link|button)$/.test(role);
+    if (CONTROL_ROLE.test(role) || CONTROL_TAG.test(tag) || collapsed || (shortAction && label.length <= 40)) labels.push(label);
+  }
+  return labels.join('\n').toLowerCase();
+}
+
+/**
+ * Pending requirements that nothing on this page can apply: no control, collapsed filter header, short facet link or
+ * sort control shares a word or a number with them. It is the look-before-you-commit check that a world model would
+ * guess at — the page is there, it is cheap to read and it is never wrong about itself — and it only answers once the
+ * page has been in front of the agent (a read of it, or a step that landed on it), never on first sight.
+ *
+ * ponytail: word overlap against control labels; if a site names its facets in words no requirement uses, this reports
+ * a control it has. That is why the report is behind an option until a gate run measures it.
+ */
+export function unmatchedRequirements(context: AgentContext, requirements: PlannerRequirement[]): string[] {
+  const state = context.promptState;
+  const pending = requirements.filter(item => item.status === 'pending');
+  if (!state || state.unreadable || pending.length === 0) return [];
+  if (context.pageRead?.url !== state.url && !context.ledger?.landedOn(state.url)) return [];
+  const labels = controlLabels(state);
+  if (!labels) return [];
+  const labelWords = informationWords(labels);
+  const labelNumbers = numbersIn(labels);
+  const sorts = SORT_CONTROL.test(labels);
+  return pending
+    .filter(item => {
+      const words = [...informationWords(item.requirement)];
+      const numbers = [...numbersIn(item.requirement)];
+      if (words.length === 0 && numbers.length === 0) return false;
+      if (SUPERLATIVE.test(item.requirement) && sorts) return false;
+      return !words.some(word => labelWords.has(word)) && !numbers.some(number => labelNumbers.has(number));
+    })
+    .map(item => item.requirement);
 }
 
 /**
@@ -215,6 +315,34 @@ export function searchOnlyEvidence(requirements: PlannerRequirement[]): PlannerR
       /\b(search(es|ed|ing)?|results?|listings?|matches|titles?)\b/i.test(item.evidence) &&
       !/\b(filter(s|ed)?|sort(ed)?|selected|checked|chip|facet|option|toggle|refine(d|ment)?|url|parameter)\b|[\w-]+=\S/i.test(item.evidence),
   );
+}
+
+/** A requirement naming a range: a number with a bound word, or two numbers with a dash between them. */
+const RANGE =
+  /\b(under|below|over|above|between|less|fewer|more|greater|least|most|up to|starting|after|before|within|max|maximum|min|minimum|or (?:more|less|higher|lower|older|newer)|and up|plus)\b|\d\s*[-–—]\s*\d|\d\s*\+/i;
+/** Evidence that names the site's own ordering: a sort control, or a sort parameter in the address. */
+const SORT_EVIDENCE = /\b(sort(ed|ing)?|order(ed|ing)?|rank(ed|ing)?|relevance)\b|\b(sort|order|orderby|sortby)[\w-]*=/i;
+/** Evidence that names an address parameter, whatever it is called: the site applied something, and it is in the URL. */
+const URL_EVIDENCE = /[\w.[\]-]+=[^\s&,;)"”]+/;
+
+/**
+ * Applied requirements whose evidence does not show what was applied *exactly*: a range requirement whose evidence does
+ * not name its own bound values (nor an address parameter), or a superlative ("cheapest", "newest", "highest rated")
+ * whose evidence names no sort control and no address parameter. Online-Mind2Web's largest failure class is filters
+ * applied loosely — "2001 to 2012" accepted for "2004 to 2012" — and an evidence line that repeats the requirement in
+ * words is exactly what a loose filter looks like from here.
+ */
+export function inexactFilterEvidence(requirements: PlannerRequirement[]): PlannerRequirement[] {
+  return requirements.filter(item => {
+    if (item.status !== 'applied') return false;
+    const evidence = item.evidence ?? '';
+    if (URL_EVIDENCE.test(evidence)) return false;
+    if (SUPERLATIVE.test(item.requirement)) return !SORT_EVIDENCE.test(evidence);
+    const bounds = [...numbersIn(item.requirement)];
+    if (bounds.length === 0 || !RANGE.test(item.requirement)) return false;
+    const named = numbersIn(evidence);
+    return !bounds.every(bound => named.has(bound));
+  });
 }
 
 /**

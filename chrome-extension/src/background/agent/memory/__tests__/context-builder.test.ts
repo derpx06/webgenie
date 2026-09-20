@@ -5,6 +5,7 @@ import { MessageMetadata, type MessageHistory } from '../../messages/views';
 import { ActionResult, AgentContext } from '../../types';
 import type BrowserContext from '../../../browser/context';
 import type { EventManager } from '../../event/manager';
+import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import { ContextBuilder, localDateTime } from '../in-chat/context-builder';
 import { PlannerPrompt } from '../../prompts/planner';
 
@@ -124,6 +125,58 @@ describe('ContextBuilder packets', () => {
     context.validatedProgress = [{ status: 'completed', summary: 'click_element completed' } as AgentContext['validatedProgress'][number]];
     expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner').at(-1)!)).toContain('[VALIDATED PROGRESS]');
     expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'navigator').at(-1)!)).not.toContain('[VALIDATED PROGRESS]');
+  });
+
+  it('counts progress for the planner: steps, pages, findings, requirements and route kinds', () => {
+    const { context } = makeContext();
+    context.ledger.planned(2, 0);
+    context.ledger.visited('shop.test/search?q=kettle', 'Search');
+    context.ledger.recordRoute(
+      'click_element',
+      { url: 'https://shop.test/', text: '' },
+      { url: 'https://shop.test/search?q=kettle', text: 'No results found' },
+    );
+    context.ledger.progressed(3);
+    context.nSteps = 7;
+    context.findings = ['a price'];
+    context.requirements = [
+      { requirement: 'under £20', status: 'applied', evidence: 'price=0-20' },
+      { requirement: 'in blue', status: 'pending' },
+    ];
+
+    const planner = text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner').at(-1)!);
+    expect(planner).toContain(
+      '[PROGRESS]\nsteps since last plan 5; new pages 1; findings +1; requirements applied 1/2; steps without progress 4; route kinds tried: site_search x1 (1 empty)',
+    );
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'navigator').at(-1)!)).not.toContain('[PROGRESS]');
+  });
+
+  it('tells the planner what the page offers no control for, once the option is on', () => {
+    const { context } = makeContext();
+    const body = new DOMElementNode({ tagName: 'body', xpath: '/body', attributes: {}, children: [], isVisible: true });
+    const control = new DOMElementNode({ tagName: 'button', xpath: '/body/b', attributes: { role: 'checkbox' }, children: [], isVisible: true, parent: body });
+    control.children.push(new DOMTextNode('Brass', true, control));
+    body.children.push(control);
+    context.promptState = { elementTree: body, url: 'https://shop.test/search?q=lamp' } as unknown as AgentContext['promptState'];
+    context.pageRead = { url: 'https://shop.test/search?q=lamp', text: '' };
+    context.requirements = [{ requirement: 'free next-day delivery', status: 'pending' }];
+
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner').at(-1)!)).not.toContain('[PAGE CONTROLS]');
+    context.options.reportMissingControls = true;
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner').at(-1)!)).toContain(
+      '[PAGE CONTROLS]\nthis page offers no control for: free next-day delivery',
+    );
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'navigator').at(-1)!)).not.toContain('[PAGE CONTROLS]');
+  });
+
+  it('shows the planner the states it can return to, and the navigator none', () => {
+    const { context } = makeContext();
+    context.ledger.returnPoint('https://shop.test/search?q=kettle&price=0-20', 'fp1', 'applied: price under £20');
+
+    const planner = text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner').at(-1)!);
+    expect(planner).toContain('[RETURN POINTS]');
+    expect(planner).toContain('- https://shop.test/search?q=kettle&price=0-20 — applied: price under £20');
+    expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'navigator').at(-1)!)).not.toContain('[RETURN POINTS]');
   });
 
   it('keeps the system prompt and transcript prefix identical from one step to the next', () => {

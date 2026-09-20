@@ -9,7 +9,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import type { NextStepContract } from '../../contracts';
-import { absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, staleRequirements } from '../done-evidence';
+import { absenceUnderexplored, absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, inexactFilterEvidence, staleRequirements, unmatchedRequirements } from '../done-evidence';
 import { titleFromTask } from '../../../core/task-groups/manager';
 
 function contextOnPage(lines: string[]) {
@@ -42,6 +42,111 @@ describe('absenceUnread', () => {
     expect(absenceUnread(read, 'No brass lamp was found.', false)).toBe(false);
     expect(absenceUnread(on(['0 results for "brass lamp"']), 'No brass lamp was found.', false)).toBe(false);
     expect(absenceUnread(on([], 'about:blank'), 'No such thing exists.', false)).toBe(false);
+  });
+});
+
+describe('inexactFilterEvidence', () => {
+  it('refuses a range or a superlative whose evidence names neither the bounds nor the sort', () => {
+    const inexact = inexactFilterEvidence([
+      { requirement: 'built between 2004 and 2012', status: 'applied', evidence: 'Year filter applied' },
+      { requirement: 'the cheapest option', status: 'applied', evidence: 'the first result is the cheapest' },
+      { requirement: 'under $50', status: 'applied', evidence: 'the Price filter is set' },
+    ]).map(item => item.requirement);
+    expect(inexact).toEqual(['built between 2004 and 2012', 'the cheapest option', 'under $50']);
+  });
+
+  it('accepts evidence naming the bound values, a sort control or an address parameter', () => {
+    expect(
+      inexactFilterEvidence([
+        { requirement: 'built between 2004 and 2012', status: 'applied', evidence: 'Year from 2004 to 2012 selected' },
+        { requirement: 'the cheapest option', status: 'applied', evidence: 'Sort by: price low to high' },
+        { requirement: 'under $50', status: 'applied', evidence: 'price_max=50 in the address' },
+        { requirement: 'rated 4 stars and up', status: 'applied', evidence: '"4 Stars & Up" is checked' },
+        // Not a range and not a superlative: this check says nothing about it.
+        { requirement: 'in blue', status: 'applied', evidence: 'the Blue swatch is selected' },
+        { requirement: 'under $50', status: 'pending' },
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe('unmatchedRequirements', () => {
+  const pageWithControls = (controls: Array<{ tag?: string; role?: string; label: string; expanded?: string }>) => {
+    const context = contextOnPage([]);
+    const body = (context.promptState as BrowserState).elementTree as DOMElementNode;
+    for (const control of controls) {
+      const node = new DOMElementNode({
+        tagName: control.tag ?? 'button',
+        xpath: '/body/x',
+        attributes: { ...(control.role ? { role: control.role } : {}), ...(control.expanded ? { 'aria-expanded': control.expanded } : {}) },
+        children: [],
+        isVisible: true,
+        parent: body,
+      });
+      node.children.push(new DOMTextNode(control.label, true, node));
+      body.children.push(node);
+    }
+    (context.promptState as BrowserState).url = 'https://shop.test/search?q=lamp';
+    context.pageRead = { url: 'https://shop.test/search?q=lamp', text: '' };
+    return context;
+  };
+
+  it('names the pending requirements no control, collapsed section or sort on the page can apply', () => {
+    const context = pageWithControls([
+      { role: 'checkbox', label: 'Brass' },
+      // A filter section nobody has opened yet is still a control the page offers.
+      { label: 'Price', expanded: 'false' },
+      { tag: 'select', label: 'Sort by' },
+    ]);
+    const missing = unmatchedRequirements(context, [
+      { requirement: 'made of brass', status: 'pending' },
+      { requirement: 'price under 50', status: 'pending' },
+      { requirement: 'the cheapest one', status: 'pending' },
+      { requirement: 'free next-day delivery', status: 'pending' },
+      { requirement: 'in the Lighting department', status: 'applied', evidence: 'dept=lighting' },
+    ]);
+    expect(missing).toEqual(['free next-day delivery']);
+  });
+
+  it('says nothing about a page the task has neither read nor landed on', () => {
+    const context = pageWithControls([{ role: 'checkbox', label: 'Brass' }]);
+    context.pageRead = null;
+    expect(unmatchedRequirements(context, [{ requirement: 'free next-day delivery', status: 'pending' }])).toEqual([]);
+    context.ledger.visited('shop.test/search?q=lamp', 'Search');
+    expect(unmatchedRequirements(context, [{ requirement: 'free next-day delivery', status: 'pending' }])).toEqual(['free next-day delivery']);
+  });
+});
+
+describe('absenceUnderexplored', () => {
+  const searched = (url: string, text: string) => {
+    const context = contextOnPage([]);
+    context.ledger.recordRoute('click_element', { url: 'https://shop.test/', text: '' }, { url, text });
+    return context;
+  };
+
+  it('flags "nothing like that exists" when only one kind of route came back empty', () => {
+    const context = searched('https://shop.test/search?q=brass+lamp', 'No results found');
+    expect(absenceUnderexplored(context, 'No brass lamp was found on the site.', 2)).toBe(true);
+    expect(absenceUnderexplored(context, 'The brass lamp costs $40.', 2)).toBe(false);
+    // The threshold is an option; below two it is off.
+    expect(absenceUnderexplored(context, 'No brass lamp was found on the site.', 1)).toBe(false);
+  });
+
+  it('accepts absence after a second kind of route, after a filtered listing with zero results, or with no route at all', () => {
+    const two = searched('https://shop.test/search?q=brass+lamp', 'No results found');
+    two.ledger.recordRoute('click_element', { url: 'https://shop.test/', text: '' }, { url: 'https://shop.test/c/lamps', text: 'No matching items' });
+    expect(absenceUnderexplored(two, 'No brass lamp was found on the site.', 2)).toBe(false);
+
+    const filtered = searched('https://shop.test/search?q=lamp', '12 results');
+    filtered.ledger.recordRoute(
+      'click_element',
+      { url: 'https://shop.test/search?q=lamp', text: '12 results' },
+      { url: 'https://shop.test/search?q=lamp&material=brass', text: 'No results found' },
+    );
+    expect(absenceUnderexplored(filtered, 'No brass lamp was found on the site.', 2)).toBe(false);
+
+    // A task that searched nothing is answering about the page in front of it, not about a search.
+    expect(absenceUnderexplored(contextOnPage([]), 'No phone number is listed.', 2)).toBe(false);
   });
 });
 
@@ -153,6 +258,17 @@ describe('mergeRequirements', () => {
     context.requirements = [applied('most experienced', 'sort label "Sort: Experience, high to low"')];
     return context;
   };
+
+  it('does not let a requirement go applied on a typing action alone', () => {
+    const context = contextOnPage(['Results']);
+    const [typed, committed] = mergeRequirements(context, [
+      applied('within 10 miles of Springfield', 'typed "Springfield" into the location field'),
+      applied('most experienced', 'chose "Experience, high to low" in the sort dropdown'),
+    ]);
+    expect(typed).toMatchObject({ status: 'pending' });
+    expect(typed.evidence).toContain('typing alone does not apply it');
+    expect(committed.status).toBe('applied');
+  });
 
   it('keeps a requirement applied when a later plan lists it as pending again', () => {
     const context = sorted();

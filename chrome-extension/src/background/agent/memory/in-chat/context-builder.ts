@@ -2,6 +2,7 @@ import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage }
 import type { AgentContext } from '../../types';
 import type { TranscriptEntry } from '../../messages/service';
 import { defangTags } from '../../messages/utils';
+import { unmatchedRequirements } from '../../validation/done-evidence';
 import { renderTodos } from '../../types';
 
 /**
@@ -20,6 +21,8 @@ const NOTES_CHARS = 1200;
 const NOTES_KEPT = 20;
 /** The visited-and-dead-end ledger; about 400 tokens, the budget P3 sets for it. */
 const LEDGER_CHARS = 1600;
+/** The states the planner can return to with go_to_url. */
+const RETURN_POINTS_CHARS = 500;
 
 interface ToolTurn {
   kind: 'turn';
@@ -158,6 +161,24 @@ export class ContextBuilder {
       : '';
     if (validatedBlock) sections.push(validatedBlock);
 
+    // What this page cannot do: pending requirements no filter, sort or facet here matches, read off the page itself
+    // rather than guessed at. The route that led here keeps the same note, so it is still there after the page is left.
+    if (actor === 'planner' && context.options.reportMissingControls) {
+      const missing = unmatchedRequirements(context, context.requirements ?? []);
+      if (missing.length > 0) {
+        context.ledger?.noControl(context.promptState?.url ?? '', missing);
+        sections.push(`[PAGE CONTROLS]\nthis page offers no control for: ${missing.join('; ').slice(0, 400)}`);
+      }
+    }
+
+    // Is the task moving or going round: counted by the harness, because a model asked to judge its own progress
+    // cannot (Magentic-One asks the model; we answer it with numbers, which works whatever the model).
+    if (actor === 'planner' && context.ledger) {
+      const requirements = context.requirements ?? [];
+      const applied = requirements.filter(item => item.status === 'applied').length;
+      sections.push(`[PROGRESS]\n${context.ledger.progressLine(context.nSteps, (context.findings ?? []).length, applied, requirements.length)}`);
+    }
+
     // Saved findings, newest kept within the budget, shown oldest first.
     const findings: string[] = [];
     let used = 0;
@@ -182,6 +203,13 @@ export class ContextBuilder {
     // Where this task has already been and what it was refused: the block that stops it going round again.
     const ledger = context.ledger?.render(LEDGER_CHARS) ?? '';
     if (ledger) sections.push(`[ALREADY TRIED]\n${ledger}`);
+
+    // The states worth coming back to. An address is the one checkpoint a live tab has: a chain of go_back never
+    // returns to it (a reviewed run went back off the article with the answer and never found it again).
+    const returns = actor === 'planner' ? context.ledger?.renderReturnPoints(context.activeObservation ?? null, RETURN_POINTS_CHARS) ?? '' : '';
+    if (returns) {
+      sections.push(`[RETURN POINTS]\nReach one again with go_to_url, not with go_back, and check the page still shows what is named here.\n${returns}`);
+    }
 
     if (context.blockedState) sections.push(`[BLOCKED]\n${JSON.stringify(context.blockedState).slice(0, 700)}`);
     return sections;

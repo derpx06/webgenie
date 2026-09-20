@@ -46,6 +46,10 @@ export interface AgentOptions {
   enableBrowserDataTools: boolean;
   /** Accept the navigator's done without the planner's check when the evidence is complete (validation/done-evidence.ts). */
   acceptEvidencedDone: boolean;
+  /** How many kinds of route must have come back empty before an answer of absence is accepted; below 2 turns the check off. */
+  absenceRouteKinds: number;
+  /** Tell the planner which pending requirements the current page offers no control for (validation/done-evidence.ts). */
+  reportMissingControls: boolean;
 }
 
 export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
@@ -63,6 +67,8 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   captureSessions: false,
   enableBrowserDataTools: false,
   acceptEvidencedDone: false,
+  absenceRouteKinds: 2,
+  reportMissingControls: false,
 };
 
 /** One part of the task on the agent's to-do list. */

@@ -18,7 +18,7 @@ export { NavigatorActionRegistry };
 import { HistoryReplayer } from './navigator/replay';
 import { presenceMessage } from './navigator/presence';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
-import { appearedText, elementKey, ensureBrowserObservation, listElements, newElements, revealedControls } from '../validation/observation';
+import { appearedText, elementKey, ensureBrowserObservation, listElements, newElements, revealedControls, visibleText } from '../validation/observation';
 import {
   addressKey,
   amountBefore,
@@ -1096,6 +1096,15 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           addressKey(postActionState.url),
           changedPage ? postActionState.title : `${postActionState.title || 'no title'} (${actionName} changed nothing here)`,
         );
+        // How this action tried to reach what the task wants (a search, a filter, a category, an address) and what came
+        // of it: the route ledger is what stops the same dead route being planned again in other words.
+        if (!result.error) {
+          this.context.ledger.recordRoute(
+            actionName,
+            { url: beforeState.url, text: visibleText(beforeState) },
+            { url: postActionState.url, text: visibleText(postActionState) },
+          );
+        }
         this.context.scrollRun = actionName === 'scroll' ? this.context.scrollRun + 1 : 0;
         // A page scroll says whether it listed anything new; one that did (a page that loads more) starts the count again.
         if (actionName === 'scroll' && indexArg === null && !result.error) {

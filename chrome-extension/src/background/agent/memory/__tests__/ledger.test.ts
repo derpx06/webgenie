@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('webextension-polyfill', () => ({}));
 vi.mock('@extension/i18n', () => ({ t: (key: string) => key }));
 
-import { TaskLedger } from '../in-chat/ledger';
+import { TaskLedger, routeOf } from '../in-chat/ledger';
 import { call, createHarness, done, plan, settle, stubChrome, textOf, until, type PageSpec } from '../../__tests__/fakes';
 
 beforeEach(() => {
@@ -42,8 +42,99 @@ describe('the ledger itself', () => {
     expect(ledger.render(130).length).toBeLessThanOrEqual(130 + '- and 3 more pages seen once'.length);
   });
 
+  it('never drops a route or a dead end, however tight the budget', () => {
+    const ledger = new TaskLedger();
+    for (let i = 0; i < 6; i++) {
+      ledger.recordRoute(
+        'go_to_url',
+        { url: 'https://shop.test/', text: '' },
+        { url: `https://shop.test/search?q=query+number+${i}`, text: 'No results found' },
+      );
+      ledger.deadEnd(`shop.test/page-${i}`, 'you went back from it');
+      ledger.refused('click_element', 'the element has no visible area');
+      ledger.visited(`shop.test/seen-${i}`, 'a page');
+    }
+
+    const lines = ledger.render(300).split('\n');
+    expect(lines.filter(line => line.startsWith('- route'))).toHaveLength(6);
+    expect(lines.filter(line => line.startsWith('- dead end'))).toHaveLength(6);
+    // Tight budgets cost the notes and the pages, never the lessons.
+    expect(lines.some(line => line.includes('no results'))).toBe(false);
+    expect(lines[lines.length - 1]).toMatch(/^- and \d+ more entries$/);
+  });
+
   it('is empty until something happens', () => {
     expect(new TaskLedger().render(1600)).toBe('');
+  });
+});
+
+describe('the route ledger', () => {
+  const page = (url: string, text = '') => ({ url, text });
+
+  it('tells a site search, a filter, a category listing, an address and a web search apart', () => {
+    const home = page('https://shop.test/');
+    const results = page('https://shop.test/search?q=Blue+Kettle', '24 results');
+    expect(routeOf('click_element', home, results)).toMatchObject({ kind: 'site_search', place: 'shop.test/search', query: 'blue kettle', count: 24 });
+    expect(routeOf('click_element', results, page('https://shop.test/search?q=Blue+Kettle&colour=blue', '3 results'))).toMatchObject({
+      kind: 'facet',
+      params: 'colour=blue',
+      count: 3,
+    });
+    // A filter applied without a new address shows itself in the count the listing states.
+    expect(routeOf('click_element', page('https://shop.test/c/kettles', '24 items'), page('https://shop.test/c/kettles', '3 items'))).toMatchObject({ kind: 'facet' });
+    expect(routeOf('click_element', home, page('https://shop.test/c/kettles', '24 items'))).toMatchObject({ kind: 'category' });
+    expect(routeOf('go_to_url', home, page('https://shop.test/help'))).toMatchObject({ kind: 'url' });
+    expect(routeOf('search_web', home, page('https://duckduckgo.com/?q=blue+kettle'))).toMatchObject({ kind: 'web_search', query: 'blue kettle' });
+  });
+
+  it('is not a route when the page only scrolled, was read or was left', () => {
+    const results = page('https://shop.test/search?q=kettle', '24 results');
+    expect(routeOf('scroll', results, results)).toBeNull();
+    expect(routeOf('read_page', results, results)).toBeNull();
+    expect(routeOf('go_back', results, page('https://shop.test/'))).toBeNull();
+    // Opening an item is not a route: the page it opens states no result count.
+    expect(routeOf('click_element', results, page('https://shop.test/p/12345', 'Blue Kettle £20'))).toBeNull();
+  });
+
+  it('counts the same route again, keeps its newest outcome and renders it before everything else', () => {
+    const ledger = new TaskLedger();
+    ledger.visited('shop.test/', 'Home');
+    ledger.recordRoute('click_element', page('https://shop.test/'), page('https://shop.test/search?q=blue+kettle', 'No results found'));
+    ledger.recordRoute('go_to_url', page('https://shop.test/'), page('https://shop.test/search?q=blue%20kettle', 'No results found'));
+    ledger.recordRoute('click_element', page('https://shop.test/'), page('https://shop.test/c/kettles', '12 results'));
+
+    expect(ledger.routes()).toHaveLength(2);
+    expect(ledger.routes()[0]).toMatchObject({ kind: 'site_search', times: 2, count: 0 });
+    // A goal naming a route already tried keys the repeat count on that route, whatever words it uses.
+    expect(ledger.routeNamedIn('Look up blue kettle once more with the site search')).toBe('site_search|shop.test/search|blue kettle|');
+    expect(ledger.routeNamedIn('Open the kettles category page')).toBeUndefined();
+
+    const lines = ledger.render(1600).split('\n');
+    expect(lines[0]).toBe('- route site_search shop.test/search "blue kettle" x2: no results');
+    expect(lines[1]).toBe('- route category shop.test/c/kettles: 12 results');
+    expect(lines[2]).toContain('seen shop.test/');
+  });
+});
+
+describe('return points', () => {
+  it('keeps where a finding was saved and where a requirement was applied, newest first', () => {
+    const ledger = new TaskLedger();
+    ledger.recordRoute(
+      'click_element',
+      { url: 'https://shop.test/', text: '' },
+      { url: 'https://shop.test/search?q=kettle', text: '12 results' },
+    );
+    ledger.returnPoint('https://shop.test/search?q=kettle&price=0-20', 'fp1', 'applied: price under £20');
+    ledger.findingSaved('https://shop.test/p/12', 'fp2', 'the kettle costs £18');
+
+    expect(ledger.routes()[0].note).toBe('gave a finding');
+    expect(ledger.returnPoints()).toHaveLength(2);
+    expect(ledger.renderReturnPoints({ url: 'https://shop.test/p/12', fingerprint: 'fp2' }, 500).split('\n')).toEqual([
+      '- https://shop.test/p/12 — finding: the kettle costs £18 (you are here)',
+      '- https://shop.test/search?q=kettle&price=0-20 — applied: price under £20',
+    ]);
+    // Back at the address, but the page is not the page it was.
+    expect(ledger.renderReturnPoints({ url: 'https://shop.test/p/12', fingerprint: 'other' }, 500)).toContain('(you are here, and the page has changed since)');
   });
 });
 
@@ -82,6 +173,26 @@ describe('the agent writing to the ledger', () => {
     expect(deadEnds).toHaveLength(1);
     expect(deadEnds[0].subject).toContain('shop.test/a');
     expect(h.llm.requests.map(request => textOf(request.messages)).join('\n')).toContain('dead end shop.test/a');
+  });
+
+  it('records the route a search took and what it gave', async () => {
+    const h = createHarness({
+      pages: [
+        page('https://shop.test/', 'Shop'),
+        { url: 'https://shop.test/search?q=blue+kettle', title: 'Search', text: ['No results found'], elements: [{ text: 'Next' }] },
+      ],
+      planner: Array(6).fill(plan()),
+      navigator: [call('click_element', { index: 0, commits: 'none' }), done('Finished')],
+    });
+    const execution = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0);
+    await h.executor.cancel();
+    await settle(execution);
+
+    const routes = h.executor.getContext().ledger.routes();
+    expect(routes).toHaveLength(1);
+    expect(routes[0]).toMatchObject({ kind: 'site_search', query: 'blue kettle', count: 0 });
+    expect(h.llm.requests.map(request => textOf(request.messages)).join('\n')).toContain('route site_search shop.test/search "blue kettle": no results');
   });
 
   it('records a refused action with its reason', async () => {
