@@ -265,6 +265,39 @@ describe('native selects', () => {
   });
 });
 
+describe('cursor as a clickability signal', () => {
+  // Nodes: 0 body, 1 a div a framework made clickable (cursor: pointer), 2 the span inside it, which only inherits
+  // that cursor, 3 a control the page switched off with cursor: not-allowed.
+  const strings = ['BODY', 'DIV', 'SPAN', 'visible', 'static', 'auto', '0px', 'pointer', 'not-allowed'];
+  const style = (cursor: number) => [6, 3, 3, 5, 3, 4, cursor];
+  const doc = {
+    frameId: 0,
+    nodes: { nodeName: [0, 1, 2, 1], nodeType: [1, 1, 1, 1], backendNodeId: [10, 11, 12, 13], parentIndex: [-1, 0, 1, 0] },
+    layout: {
+      nodeIndex: [0, 1, 2, 3],
+      bounds: [[0, 0, 1264, 368], [8, 32, 100, 30], [8, 32, 68, 17], [8, 80, 100, 30]],
+      styles: [style(5), style(7), style(7), style(8)],
+      paintOrders: [1, 2, 2, 3],
+    },
+  };
+
+  it('treats an element that asks for a pointer as a target, but not what merely inherits it', () => {
+    const layout = documentLayout(doc as never, strings);
+    expect(layout.nodes.get(11)?.clickable).toBe(true);
+    expect(layout.nodes.get(12)?.clickable).toBe(false);
+  });
+
+  it('reads cursor: not-allowed as disabled', () => {
+    expect(documentLayout(doc as never, strings).nodes.get(13)?.attributes.disabled).toBe('true');
+    const nodes: AXNode[] = [
+      { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+      { nodeId: '2', role: { value: 'button' }, name: { value: 'Add to cart' }, backendDOMNodeId: 13 },
+    ];
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout: documentLayout(doc as never, strings) }], { width: 1000, height: 800 }));
+    expect(state.elementTree.clickableElementsToString()).toContain('disabled="true"');
+  });
+});
+
 describe('clipped and covered elements', () => {
   // Nodes: 0 body, 1 a collapsed panel (height 0, overflow hidden), 2 the button inside it, 3 a button lower down
   // the page, 4 a fixed cookie banner painted over it, 5 the banner's "Accept" button.

@@ -193,8 +193,14 @@ const INTERNAL_PROPERTIES = new Set(['focusable', 'focused', 'editable', 'settab
 const SNAPSHOT_ATTRIBUTES = new Set(['type', 'name', 'placeholder', 'draggable']);
 
 /** Computed styles asked of every layout node, in this order. */
-const SNAPSHOT_STYLES = ['border-top-left-radius', 'overflow-x', 'overflow-y', 'pointer-events', 'visibility', 'position'] as const;
-const STYLE = { radius: 0, overflowX: 1, overflowY: 2, pointerEvents: 3, visibility: 4, position: 5 };
+const SNAPSHOT_STYLES = ['border-top-left-radius', 'overflow-x', 'overflow-y', 'pointer-events', 'visibility', 'position', 'cursor'] as const;
+const STYLE = { radius: 0, overflowX: 1, overflowY: 2, pointerEvents: 3, visibility: 4, position: 5, cursor: 6 };
+
+/**
+ * Cursors a page gives what the user is meant to use. It is the one signal a framework cannot delegate away: React
+ * attaches its handlers to the root, so a div with an onClick has no listener of its own to find.
+ */
+const POINTER_CURSORS = /^(pointer|grab|move|[a-z]+-resize)$/;
 
 /**
  * A CSS length as the snapshot reports it, in CSS pixels; a percentage resolves against the element's shorter side,
@@ -259,7 +265,7 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
   const attributes = doc.nodes.attributes ?? [];
   const clickable = new Set(doc.nodes.isClickable?.index ?? []);
   const scrollers = scrollContainers(doc, strings);
-  const { clipped, layers } = clipAndLayers(doc, strings);
+  const { clipped, layers, pointerCursor, notAllowed } = layoutSignals(doc, strings);
   doc.layout.nodeIndex.forEach((nodeIndex, i) => {
     const id = backendNodeId[nodeIndex];
     const bounds = doc.layout.bounds[i];
@@ -271,12 +277,15 @@ export function documentLayout(doc: SnapshotDocument, strings: string[], scale =
       const name = strings[pairs[j]];
       if (SNAPSHOT_ATTRIBUTES.has(name)) selected[name] = strings[pairs[j + 1]] ?? '';
     }
+    // "not-allowed" is how a page shows a control it has switched off without marking it disabled.
+    if (notAllowed.has(nodeIndex)) selected.disabled = 'true';
     const width = bounds[2] / scale;
     const height = bounds[3] / scale;
     nodes.set(id, {
       tagName: (strings[nodeName[nodeIndex]] ?? '').toLowerCase(),
       attributes: selected,
-      clickable: clickable.has(nodeIndex),
+      // A pointer cursor is the page saying the element is there to be used, however its handler is attached.
+      clickable: clickable.has(nodeIndex) || pointerCursor.has(nodeIndex),
       x: bounds[0] / scale,
       y: bounds[1] / scale,
       width,
@@ -301,15 +310,24 @@ function intersect(clip: Clip, x1: number, y1: number, x2: number, y2: number): 
 const isEmpty = (clip: Clip) => clip[2] <= clip[0] || clip[3] <= clip[1];
 
 /**
- * What every ancestor that hides its overflow does to each box: an element cut away entirely sits in a closed panel
- * (an accordion at height 0, a carousel's other slides), and what is left of a box after scrollers and clips is what
- * the page actually paints there — the boxes `coveringLayer` hit-tests.
+ * One walk of the snapshot for what the styles say about each box: what every ancestor that hides its overflow does
+ * to it (an element cut away entirely sits in a closed panel — an accordion at height 0, a carousel's other slides),
+ * what is left of it once scrollers and clips are applied (the boxes `coveringLayer` hit-tests), and what its cursor
+ * says about using it.
  */
-function clipAndLayers(
+function layoutSignals(
   doc: SnapshotDocument,
   strings: string[],
-): { clipped: Set<number>; layers: { boxes: Map<number, Layer>; parents: Map<number, number> } } {
+): {
+  clipped: Set<number>;
+  layers: { boxes: Map<number, Layer>; parents: Map<number, number> };
+  pointerCursor: Set<number>;
+  notAllowed: Set<number>;
+} {
   const clipped = new Set<number>();
+  const pointerCursor = new Set<number>();
+  const notAllowed = new Set<number>();
+  const cursors: Array<string | undefined> = [];
   const boxes = new Map<number, Layer>();
   const parents = new Map<number, number>();
   const { styles, bounds, nodeIndex, paintOrders } = doc.layout;
@@ -337,6 +355,14 @@ function clipAndLayers(
     const escapes = style(STYLE.position) === 'fixed';
     ownCut[node] = escapes || parent < 0 ? UNCLIPPED : innerCut[parent] ?? UNCLIPPED;
     ownPaint[node] = escapes || parent < 0 ? UNCLIPPED : innerPaint[parent] ?? UNCLIPPED;
+    // Inherited unless the element has a box of its own to set it on; only an element that asks for a pointer itself
+    // is a target, or every span inside a link would become one.
+    const cursor = box === undefined ? cursors[parent] : style(STYLE.cursor);
+    cursors[node] = cursor;
+    if (box !== undefined && cursor !== undefined) {
+      if (cursor !== cursors[parent] && POINTER_CURSORS.test(cursor)) pointerCursor.add(node);
+      if (cursor === 'not-allowed') notAllowed.add(node);
+    }
     const rect = box === undefined ? undefined : bounds[box];
     if (!rect || root) {
       innerCut[node] = ownCut[node];
@@ -376,7 +402,7 @@ function clipAndLayers(
     }
     boxes.set(id, { id, paintOrder: paintOrders[box] ?? 0, x1: visible[0], y1: visible[1], x2: visible[2], y2: visible[3] });
   }
-  return { clipped, layers: { boxes, parents } };
+  return { clipped, layers: { boxes, parents }, pointerCursor, notAllowed };
 }
 
 /**
@@ -486,22 +512,21 @@ function labelHiddenChoices(doc: SnapshotDocument, strings: string[], nodes: Map
 
 /** Names a layer on top of an element by what it is, falling back to the first named thing it holds. */
 function describeLayer(layer: AXNode | undefined, nodesById: Map<string, AXNode>): string {
-  const named = (node: AXNode | undefined) => {
-    const role = String(node?.role?.value ?? '');
-    const name = String(node?.name?.value ?? '').trim();
-    return [UNNAMED_ROLES.has(role) || role === 'StaticText' ? '' : role, name].filter(Boolean).join(' ');
-  };
   const queue = layer ? [layer] : [];
+  let unnamed = '';
   for (let seen = 0; seen < 20 && queue.length; seen++) {
     const node = queue.shift()!;
-    const description = named(node);
-    if (description) return description.slice(0, 40);
+    const role = String(node.role?.value ?? '');
+    const name = String(node.name?.value ?? '').trim();
+    const kind = UNNAMED_ROLES.has(role) || role === 'StaticText' ? '' : role;
+    if (name) return [kind, name].filter(Boolean).join(' ').slice(0, 40);
+    if (!unnamed) unnamed = kind;
     for (const id of node.childIds ?? []) {
       const child = nodesById.get(id);
       if (child) queue.push(child);
     }
   }
-  return 'another layer';
+  return unnamed || 'another layer';
 }
 
 /** What a scroller's line says about the content outside it, e.g. "1 screen above, 2.5 screens below". */
