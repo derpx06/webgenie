@@ -135,9 +135,15 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
 
   // Done checks the evidence alone would have settled, and those where the planner then disagreed (a skip would be wrong).
   const skippable = records.filter(r => r.msg === 'verify.skippable' && r.data?.skippable);
-  // Where time goes besides useful work: waiting out rate limits, and calls that failed.
+  // Where time goes besides useful work: waiting out rate limits, holding calls back to stay under the rate the
+  // provider accepts, and calls that failed. Paced waits are the agent's own choice but they are still provider time:
+  // counted as the agent's thinking they made a run of ours look 90% slower than it was.
   const backoffMs = llm
     .map(r => /rate limited; retrying in ([\d.]+)s/.exec(String(r.msg)))
+    .filter(Boolean)
+    .reduce((n, match) => n + Number(match[1]) * 1000, 0);
+  const pacedMs = llm
+    .map(r => /pacing; waiting ([\d.]+)s/.exec(String(r.msg)))
     .filter(Boolean)
     .reduce((n, match) => n + Number(match[1]) * 1000, 0);
   const failedCallMs = llm.filter(r => r.level === 'error').reduce((n, r) => n + (r.durationMs ?? 0), 0);
@@ -152,6 +158,7 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
     verifySkippable: skippable.length,
     verifySkippableWrong: skippable.filter(r => !r.data?.plannerDone).length,
     backoffMs,
+    pacedMs,
     failedCallMs,
     hedgedCalls: llm.filter(r => r.msg === 'slow call; sending a duplicate request').length,
     screenshots: records.filter(r => r.msg === 'screenshot attached').length,
@@ -257,7 +264,7 @@ export function measurementIntegrity(results, run = {}) {
   for (const r of rows.filter(row => UNMEASURED.has(row.outcome))) excluded[r.outcome] = (excluded[r.outcome] ?? 0) + 1;
   const measured = rows.filter(row => !UNMEASURED.has(row.outcome));
   const providerTimeLostMs = rows.reduce(
-    (n, r) => n + (r.metrics?.backoffMs ?? 0) + (r.metrics?.failedCallMs ?? 0) + (r.provider?.rateLimitWaitMs ?? 0),
+    (n, r) => n + (r.metrics?.backoffMs ?? 0) + (r.metrics?.pacedMs ?? 0) + (r.metrics?.failedCallMs ?? 0) + (r.provider?.rateLimitWaitMs ?? 0),
     0,
   );
   return {
@@ -302,7 +309,11 @@ export function suiteHealth(results) {
       missedQuestions: rows.reduce((n, r) => n + Math.max(0, (r.questionsExpected ?? 0) - (r.questions?.length ?? 0)), 0),
       medianSeconds: median(rows.map(r => r.seconds ?? 0)),
       firstActionMedianMs: median(rows.map(r => r.metrics?.firstActionMs).filter(v => typeof v === 'number')),
-      backoffShare: +(rows.reduce((n, r) => n + (r.metrics?.backoffMs ?? 0) + (r.metrics?.failedCallMs ?? 0), 0) / 1000 / Math.max(1, totalSeconds)).toFixed(3),
+      backoffShare: +(
+        rows.reduce((n, r) => n + (r.metrics?.backoffMs ?? 0) + (r.metrics?.pacedMs ?? 0) + (r.metrics?.failedCallMs ?? 0), 0) /
+        1000 /
+        Math.max(1, totalSeconds)
+      ).toFixed(3),
       costUsd: +rows.reduce((n, r) => n + (r.metrics?.costUsd ?? 0), 0).toFixed(3),
       ...counters,
       /** Refusals per guard inside tasks that passed anyway, over the actions those tasks ran: each guard's false-refusal rate. */

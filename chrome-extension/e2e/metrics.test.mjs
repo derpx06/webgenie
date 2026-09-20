@@ -15,7 +15,7 @@ describe('memory mode', () => {
 
 describe('the measurement-integrity block', () => {
   const results = [
-    { attempt: 'T1', outcome: 'task.ok', pass: true, metrics: { backoffMs: 1_000, failedCallMs: 500 } },
+    { attempt: 'T1', outcome: 'task.ok', pass: true, metrics: { backoffMs: 1_000, pacedMs: 2_000, failedCallMs: 500 } },
     { attempt: 'T2', outcome: 'task.ok', pass: false, metrics: {} },
     { attempt: 'T3', outcome: 'site_down' },
     { attempt: 'T4', outcome: 'provider_down', provider: { rateLimitWaitMs: 8_500 } },
@@ -47,7 +47,8 @@ describe('the measurement-integrity block', () => {
       passed: 1,
       excluded: { site_down: 1, provider_down: 1, skipped_budget: 1 },
       harnessEnded: 2,
-      providerTimeLostMs: 10_000,
+      // Waiting to stay under the provider's rate is provider time too, not the agent thinking.
+      providerTimeLostMs: 12_000,
     });
     expect(integrity.excludedTasks).toEqual(['T3: site_down', 'T4: provider_down', 'T5: skipped_budget']);
   });
