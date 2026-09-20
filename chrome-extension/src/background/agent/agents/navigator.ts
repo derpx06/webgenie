@@ -18,7 +18,7 @@ export { NavigatorActionRegistry };
 import { HistoryReplayer } from './navigator/replay';
 import { presenceMessage } from './navigator/presence';
 import { handleAgentError, isFatalAgentError } from './utils/error-handler';
-import { appearedText, elementKey, ensureBrowserObservation, listElements, newElements, revealedControls } from '../validation/observation';
+import { appearedText, elementKey, elementLabel, ensureBrowserObservation, listElements, newElements, revealedControls } from '../validation/observation';
 import {
   actionSignature,
   addressKey,
@@ -44,6 +44,7 @@ import {
   normalizeIndexedAction,
   shouldStopAfterValidation,
   staleIndexResult,
+  suggestionCommitted,
   traceGuard,
   urlKey,
   userPersonalData,
@@ -104,12 +105,17 @@ const INTENT_CHECK_VALIDATORS = buildToolValidators([intentCheckSchema]);
 /** Text that appears after typing and reads as the field's complaint, not as content. */
 const FIELD_MESSAGE = /\b(must|required|invalid|please (select|choose|enter|pick)|select (one |an? |a valid )?\w* from|not (valid|found|recognized|recognised|available)|error|no (results|matches|suggestions))\b/i;
 
-/** Whether a field offers suggestions while typing (a combobox, an autocomplete list). */
+/**
+ * Whether a field offers suggestions while typing (a combobox, an autocomplete list, a field with a `list`): any
+ * autocomplete other than none, and any popup it owns, as Browser Use reads them.
+ */
 function offersSuggestions(node: DOMElementNode | undefined): boolean {
   const attributes = node?.attributes ?? {};
+  const popup = attributes['aria-haspopup'] ?? '';
   return attributes.role === 'combobox'
-    || /^(list|both|inline)$/.test(attributes['aria-autocomplete'] ?? '')
-    || attributes['aria-haspopup'] === 'listbox';
+    || attributes.list !== undefined
+    || !/^(none)?$/.test(attributes['aria-autocomplete'] ?? '')
+    || (popup !== '' && popup !== 'false');
 }
 
 /** Actions that still work while a JavaScript dialog blocks the page. */
@@ -1099,13 +1105,29 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         const revealed = mutating && !result.error ? newElements(beforeState, postActionState) : [];
         const controls = revealedControls(beforeState, revealed);
         const notes: string[] = appeared.length > 0 ? [`New text on the page: ${appeared.map(text => JSON.stringify(text)).join('; ')}.`] : [];
+        // Typed text in a suggestion field is not a value the site has taken: it holds it until a suggestion is chosen,
+        // until the list closes on an option's text, or until the address gains a parameter. Checked on the action
+        // after the typing, and said once when the agent moved on without it.
+        const pending = this.context.uncommittedField;
+        if (pending && !(actionName === 'input_text' && typedNode && elementKey(typedNode) === pending.key)) {
+          if (suggestionCommitted(pending, postActionState, indexedNode)) {
+            this.context.uncommittedField = null;
+          } else if (mutating && !result.error) {
+            notes.push(`The field "${pending.label}" still holds "${pending.text}" as typed text: no suggestion was chosen, so the site may ignore it or use a value of its own. Check the result against the task; if it is wrong, type it again and click the suggestion that matches.`);
+            this.context.uncommittedField = null;
+          }
+        }
         if (suggests && !result.error) {
           const shown = controls.options.length > 0
             ? controls.options
             : [...postActionState.selectorMap.values()].filter(node => /^(option|menuitem)$/.test(node.attributes.role ?? '') && node.isInViewport);
           notes.push(shown.length > 0
-            ? `Suggestions: ${listElements(shown)}. Click the one that matches instead of pressing Enter; if none matches, try a shorter or different form of the value once.`
+            ? `Suggestions: ${listElements(shown)}. The field holds typed text until you choose one: click the suggestion that matches instead of pressing Enter; if none matches, try a shorter or different form of the value once.`
             : 'No suggestions appeared for this text.');
+          const fieldKey = typedNode ? elementKey(typedNode) : null;
+          this.context.uncommittedField = shown.length > 0 && fieldKey
+            ? { key: fieldKey, label: elementLabel(typedNode!) || `[${(actionArgs as { index?: number }).index}]`, text: typed, options: shown.map(elementLabel), url: postActionState.url }
+            : null;
         } else if (controls.options.length > 0) {
           notes.push(`A menu or list opened: ${listElements(controls.options)}.`);
         }
@@ -1116,6 +1138,11 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           const key = typedNode ? elementKey(typedNode) : null;
           const field = key ? [...postActionState.selectorMap.values()].find(node => elementKey(node) === key) : undefined;
           if (field?.attributes['aria-invalid'] === 'true') notes.push('The field is now marked invalid.');
+          // What the field holds once the page has had its say (a reformat, an inline completion, a value it replaced).
+          const held = (field?.attributes.value ?? '').trim();
+          if (held && typed && held.toLowerCase() !== typed.toLowerCase() && typedNode?.attributes.type !== 'password') {
+            notes.push(`The field now holds "${held}", not "${typed}" as typed: check that this is the value the task asks for.`);
+          }
         }
         const challenge = mutating && !result.error ? challengeOnPage(postActionState) : null;
         if (challenge && !challengeOnPage(beforeState)) {

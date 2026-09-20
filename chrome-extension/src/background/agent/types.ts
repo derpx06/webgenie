@@ -25,6 +25,7 @@ import type {
   PlannerRequirement,
   ValidatedProgressRecord,
 } from './contracts/types';
+import type { UncommittedField } from './validation/service';
 import type { TaskCheckpointStore } from './contracts/checkpoint';
 import type { TraceStore } from './contracts/trace';
 
@@ -126,6 +127,8 @@ export class AgentContext {
   typedValues = new Map<string, string>();
   /** Overwrites of a field this task filled that were refused once (field key and new text); a repeat goes through. */
   overwriteChecked = new Set<string>();
+  /** Text typed into a suggestion field that the site has not taken yet (no suggestion chosen, no parameter gained). */
+  uncommittedField: UncommittedField | null = null;
   /** Refusals by action (name and arguments, memory aside): a model that repeats a refused action gets told plainly. */
   refusedActions = new Map<string, number>();
   /** Executed actions by name, page address before it and arguments: a model repeating one gets told from the third time. */

@@ -25,6 +25,7 @@ import {
   normalizeIndexedAction,
   sameSite,
   staleIndexResult,
+  suggestionCommitted,
   urlKey,
   userPersonalData,
   validateActionOutcome,
@@ -720,6 +721,28 @@ describe('verification challenges', () => {
     expect(isChallengeQuestion('Could you please solve the CAPTCHA in the browser?')).toBe(true);
     expect(isChallengeQuestion('Which size do you want?')).toBe(false);
     expect(normalizeQuestion('Which colour,  do you want?')).toBe(normalizeQuestion('which colour do you want'));
+  });
+});
+
+describe('Text typed into a field that offers suggestions', () => {
+  const field = (attributes: Record<string, string>) => element(1, { attributes: { role: 'combobox', 'aria-label': 'City', ...attributes } });
+  const entry = { key: ':101', label: 'City', text: 'Paris', options: ['Paris, France', 'Paris, Texas'], url: 'https://travel.test/search' };
+  const page = (node: DOMElementNode, url = entry.url) => state({ selectorMap: new Map([[1, node]]), url });
+
+  it('counts as taken once a suggestion is chosen', () => {
+    const option = element(2, { attributes: { role: 'option', 'aria-label': 'Paris, France' } });
+    expect(suggestionCommitted(entry, page(field({})), option)).toBe(true);
+    expect(suggestionCommitted(entry, page(field({})), element(3, { attributes: { 'aria-label': 'Search' } }))).toBe(false);
+  });
+
+  it('counts as taken when the list closed on an option, or the address gained a parameter', () => {
+    expect(suggestionCommitted(entry, page(field({ 'aria-expanded': 'false', value: 'Paris, France' })))).toBe(true);
+    expect(suggestionCommitted(entry, page(field({ 'aria-expanded': 'true', value: 'Paris, France' })))).toBe(false);
+    expect(suggestionCommitted(entry, page(field({ value: 'Paris' }), 'https://travel.test/search?city=paris'))).toBe(true);
+  });
+
+  it('stays untaken while the field only holds what was typed', () => {
+    expect(suggestionCommitted(entry, page(field({ value: 'Paris' })))).toBe(false);
   });
 });
 

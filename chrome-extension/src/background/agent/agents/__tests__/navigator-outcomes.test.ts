@@ -85,8 +85,35 @@ describe('Fields with suggestions', () => {
     // The suggestions stop the batch: the click on Search waits.
     expect(h.browser.actions.map(action => action.type)).toEqual(['input']);
     const text = sent();
-    expect(text).toContain('Suggestions: [2] "Paris, France", [3] "Paris, Texas". Click the one that matches instead of pressing Enter');
+    expect(text).toContain('Suggestions: [2] "Paris, France", [3] "Paris, Texas". The field holds typed text until you choose one: click the suggestion that matches instead of pressing Enter');
     expect(text).toContain('The page answered the typing with: "Please select a city from the suggestions"');
+  });
+
+  it('treat a field with aria-autocomplete as one, and say the typed text is not taken until a suggestion is chosen', async () => {
+    const field = { tag: 'input', attributes: { 'aria-autocomplete': 'list', 'aria-label': 'City' } };
+    const options = [
+      { tag: 'li', text: 'Paris, France', attributes: { role: 'option' } },
+      { tag: 'li', text: 'Paris, Texas', attributes: { role: 'option' } },
+    ];
+    const suggested = { url, title: 'Travel', elements: [field, search, ...options] };
+    const { sent } = await run(
+      [{ url, title: 'Travel', elements: [field, search] }, suggested, { url, title: 'Results', elements: [search] }],
+      [[typeText(0, 'Paris')], [click(1)], done('Searched')],
+    );
+
+    const text = sent();
+    expect(text).toContain('The field holds typed text until you choose one');
+    expect(text).toContain('The field "City" still holds "Paris" as typed text: no suggestion was chosen');
+  });
+
+  it('report what the field holds when the page changed the typed value', async () => {
+    const field = (value?: string) => ({ tag: 'input', attributes: { role: 'combobox', 'aria-label': 'City', ...(value ? { value } : {}) } });
+    const { sent } = await run(
+      [{ url, title: 'Travel', elements: [field()] }, { url, title: 'Travel', elements: [field('Paris, France')] }],
+      [typeText(0, 'Paris'), done('Typed')],
+    );
+
+    expect(sent()).toContain('The field now holds "Paris, France", not "Paris" as typed');
   });
 
   it('say when no suggestions appeared', async () => {

@@ -545,6 +545,39 @@ const MUTATING_ACTIONS = new Set([
   'handle_dialog',
 ]);
 
+/** Text typed into a field that offers suggestions, which the site has not taken yet. */
+export interface UncommittedField {
+  /** The field, by frame and node id. */
+  key: string;
+  label: string;
+  text: string;
+  /** The suggestions that came up for the text, as the page names them. */
+  options: string[];
+  /** The address the text was typed on; a parameter the site adds to it means it took the value. */
+  url: string;
+}
+
+/**
+ * Whether the site has taken the text typed into a suggestion field: a suggestion was chosen, the list is closed and
+ * the field now holds an option's text, or the address gained a parameter. Until then the field holds typed text
+ * only, which the site is free to ignore — the most common silent wrong-target failure in the benchmark.
+ */
+export function suggestionCommitted(entry: UncommittedField, state: BrowserState, clicked?: DOMElementNode): boolean {
+  const named = (text: string) => entry.options.some(option => option.toLowerCase() === text.trim().toLowerCase());
+  if (clicked && named(elementLabel(clicked))) return true;
+  const field = [...state.selectorMap.values()].find(node => elementKey(node) === entry.key);
+  if (field && field.attributes['aria-expanded'] !== 'true' && named(field.attributes.value ?? '')) return true;
+  try {
+    const before = new URL(entry.url).searchParams;
+    for (const [name, value] of new URL(state.url).searchParams) {
+      if (before.get(name) !== value) return true;
+    }
+  } catch {
+    // not a web address: the page state decides alone
+  }
+  return false;
+}
+
 /** Actions the loop detector counts by what they do rather than by their arguments. */
 const POINTING_TOOLS = new Set([...POINTER_ACTIONS, 'select_dropdown_option']);
 
