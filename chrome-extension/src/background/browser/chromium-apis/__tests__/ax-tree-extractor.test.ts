@@ -265,6 +265,45 @@ describe('native selects', () => {
   });
 });
 
+describe('native date and time inputs', () => {
+  // As Chrome reads <label>Start <input type=date value=2025-09-18></label>: the input's role is its internal name
+  // and its user-agent segments are spinbutton spans (a <span> takes no text).
+  const nodes: AXNode[] = [
+    { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] },
+    { nodeId: '2', role: { type: 'internalRole', value: 'Date' }, name: { value: 'Start' }, value: { value: '2025-09-18' }, backendDOMNodeId: 11, childIds: ['3', '9'] },
+    { nodeId: '3', ignored: true, role: { value: 'none' }, backendDOMNodeId: 12, childIds: ['4', '6', '8'] },
+    { nodeId: '4', role: { value: 'spinbutton' }, name: { value: 'Day Day' }, value: { value: 18 }, backendDOMNodeId: 15, childIds: ['5'] },
+    text('5', '18'),
+    { nodeId: '6', role: { value: 'spinbutton' }, name: { value: 'Month Month' }, value: { value: 9 }, backendDOMNodeId: 17, childIds: ['7'] },
+    text('7', '09'),
+    { nodeId: '8', role: { value: 'button' }, name: { value: 'Show date picker' }, backendDOMNodeId: 20 },
+    { nodeId: '9', role: { value: 'MenuListPopup' }, childIds: [] },
+  ];
+  const layout = layoutOf([[11, { tagName: 'input', attributes: { type: 'date' } }], [15, { tagName: 'span' }], [17, { tagName: 'span' }], [20, { tagName: 'div' }]]);
+
+  it('lists the input alone, with its ISO value and the format it takes, and never its segments', () => {
+    const state = pruneAXTree(buildDomState([{ key: 'main', nodes, layout }], { width: 1000, height: 800 }));
+    expect(state.selectorMap.size).toBe(1);
+    const field = state.selectorMap.get(0)!;
+    expect(field.tagName).toBe('input');
+    expect(field.attributes).toMatchObject({ type: 'date', value: '2025-09-18', format: 'YYYY-MM-DD' });
+    const serialized = state.elementTree.clickableElementsToString();
+    expect(serialized).toBe('[0]<input type="date" aria-label="Start" value="2025-09-18" format="YYYY-MM-DD" />');
+  });
+
+  it('collapses every date-family input, and shows no value for an empty one', () => {
+    for (const [type, format] of [['time', 'HH:MM'], ['datetime-local', 'YYYY-MM-DDTHH:MM'], ['month', 'YYYY-MM'], ['week', 'YYYY-Www']]) {
+      const empty = nodes.map(node => (node.nodeId === '2' ? { ...node, role: { type: 'internalRole', value: 'DateTime' }, value: undefined } : node));
+      const state = pruneAXTree(
+        buildDomState([{ key: 'main', nodes: empty, layout: layoutOf([[11, { tagName: 'input', attributes: { type } }], [15, { tagName: 'span' }]]) }], null),
+      );
+      expect(state.selectorMap.size).toBe(1);
+      expect(state.selectorMap.get(0)?.attributes).toMatchObject({ type, format });
+      expect(state.selectorMap.get(0)?.attributes.value).toBeUndefined();
+    }
+  });
+});
+
 describe('skip links', () => {
   it('drops keyboard skip links to a fragment of the same page, keeps other links', () => {
     const link = (id: string, name: string, url: string): AXNode => ({

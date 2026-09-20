@@ -10,6 +10,8 @@ export const DEFAULT_INCLUDE_ATTRIBUTES = [
   'name',
   'role',
   'value',
+  // The format a native date or time input takes, which its segments do not show.
+  'format',
   'placeholder',
   'data-date-format',
   'data-state',

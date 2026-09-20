@@ -107,12 +107,25 @@ const INTERACTIVE_ROLES = new Set([
   'spinbutton',
   'switch',
   'treeitem',
+  // Roles Chrome has no ARIA name for are reported as its internal name (a date input, a color well).
   'DisclosureTriangle',
-  'date',
-  'dateTime',
-  'inputTime',
-  'colorWell',
+  'Date',
+  'DateTime',
+  'InputTime',
+  'ColorWell',
 ]);
+
+/** Native date and time inputs: the value they take, which is never what their segments show. */
+const DATE_FORMATS: Record<string, string> = {
+  date: 'YYYY-MM-DD',
+  time: 'HH:MM',
+  'datetime-local': 'YYYY-MM-DDTHH:MM',
+  month: 'YYYY-MM',
+  week: 'YYYY-Www',
+};
+
+/** Chrome's internal roles for the same inputs, for a field the layout snapshot did not reach. */
+const DATE_ROLES = new Set(['Date', 'DateTime', 'InputTime']);
 
 /** Listener types that make an element a pointer target for the user. */
 const POINTER_EVENTS = new Set([
@@ -175,6 +188,9 @@ const ROLE_TAGS: Record<string, string> = {
   slider: 'input',
   spinbutton: 'input',
   switch: 'input',
+  Date: 'input',
+  DateTime: 'input',
+  InputTime: 'input',
   option: 'option',
   menuitem: 'li',
   menuitemcheckbox: 'li',
@@ -480,6 +496,16 @@ export function buildDomState(frames: FrameTree[], viewport: { width: number; he
       });
       if (interactive) selectorMap.set(selectorMap.size, element);
       into.children.push(element);
+
+      // A native date or time input is one element too: its user-agent segments are spinbutton spans that take no text
+      // (typing into one failed six times in a live run), while the input itself is set to a value in the format below.
+      const inputType = layout?.tagName === 'input' ? layout.attributes.type : undefined;
+      if (interactive && (DATE_ROLES.has(role) || (inputType !== undefined && inputType in DATE_FORMATS))) {
+        if (!element.attributes.value) delete element.attributes.value;
+        if (inputType) element.attributes.format = DATE_FORMATS[inputType];
+        delete element.attributes.role;
+        return false;
+      }
 
       // A native <select> is one element: its options become a count (or their names when few), not one element each
       // (a country list listed 240). select_dropdown_option picks by visible text.
