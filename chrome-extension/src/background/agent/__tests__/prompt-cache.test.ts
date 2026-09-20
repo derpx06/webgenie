@@ -49,7 +49,7 @@ describe('prompt caching, per provider', () => {
   });
 
   it('passes the key through to the request', async () => {
-    const invoke = vi.fn(async (_messages: unknown, _options?: Record<string, unknown>) => new AIMessage({ content: 'ok' }));
+    const invoke = vi.fn(async () => new AIMessage({ content: 'ok' }));
     const model = { invoke } as unknown as BaseChatModel;
 
     await invokeLLM(model, [new HumanMessage('do the task')], {
@@ -57,6 +57,6 @@ describe('prompt caching, per provider', () => {
       callOptions: promptCacheOptions({ nativeTools: true, forceToolChoice: true, promptCache: 'implicit-key' }, 'task-9', 'planner'),
     });
 
-    expect(invoke.mock.calls[0][1]).toMatchObject({ promptCacheKey: 'webgenie-task-9-planner' });
+    expect((invoke.mock.calls[0] as unknown[])[1]).toMatchObject({ promptCacheKey: 'webgenie-task-9-planner' });
   });
 });

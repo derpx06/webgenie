@@ -962,5 +962,11 @@
   },
   "options_advanced_browserDataTools_desc": {
     "message": "允許代理程式讀取及變更您的書籤、瀏覽紀錄、下載項目、閱讀清單、分頁群組、工作階段與擴充功能，並清除瀏覽資料。預設為關閉：網頁可能會試圖誘使代理程式使用這些工具。"
+  },
+  "options_advanced_advancedTools": {
+    "message": "進階工具"
+  },
+  "options_advanced_advancedTools_desc": {
+    "message": "允許代理程式在頁面中執行 JavaScript 運算式、讀取網站自己的 JSON 端點，並下載及讀取檔案（pdf、csv、xlsx、docx）。預設為關閉：較短的工具清單讓代理程式更準確，而這些工具會觸及頁面以外的範圍。"
   }
 }
