@@ -134,7 +134,7 @@ describe('absenceUnderexplored', () => {
 
   it('accepts absence after a second kind of route, after a filtered listing with zero results, or with no route at all', () => {
     const two = searched('https://shop.test/search?q=brass+lamp', 'No results found');
-    two.ledger.recordRoute('click_element', { url: 'https://shop.test/' }, { url: 'https://shop.test/c/lamps', text: 'No matching items' });
+    two.ledger.recordRoute('click_element', { url: 'https://shop.test/', text: '' }, { url: 'https://shop.test/c/lamps', text: 'No matching items' });
     expect(absenceUnderexplored(two, 'No brass lamp was found on the site.', 2)).toBe(false);
 
     const filtered = searched('https://shop.test/search?q=lamp', '12 results');
