@@ -111,6 +111,9 @@ export class Executor {
   private answerGapRefused = false;
   /** A completion whose claims nothing in the task backed with page evidence was sent back once. */
   private unevidencedRefused = false;
+  /** The done that ended the task was backed by the evidence, and no done was sent back on the way: what memory admits. */
+  private backedDone = false;
+  private doneSentBack = false;
   constructor(
     task: string,
     taskId: string,
@@ -587,6 +590,10 @@ export class Executor {
 
           // Check if task is complete after planner run
           let completion = this.checkTaskCompletion(latestPlanOutput);
+          // What this run may teach later tasks: the planner's done and the evidence verdict agreeing the answer was
+          // backed, with no done sent back and no goal the planner had to be told to stop repeating.
+          if (completion === 'complete') this.backedDone = evidence?.skippable === true && !this.doneSentBack && !this.mustFinish;
+          if (completion === 'refused') this.doneSentBack = true;
           if (completion === 'complete') break;
           if (completion === 'continue' && latestPlanOutput) completion = this.checkRepeatedGoal(latestPlanOutput);
           // A refused plan goes straight back to the planner with the reason; the navigator has nothing to do.
@@ -646,8 +653,12 @@ export class Executor {
         // Only the route is remembered across tasks: pages and kinds of elements, nothing the user wrote or the page said.
         if (context.taskStartUrl) {
           await RouteMemory.save(context.taskStartUrl, context.routeSteps);
-          // And the domain's playbook, taken from this run's own trace: its search address, its path and its traps.
-          await SiteSkills.record(context.taskStartUrl, { steps: context.routeSteps, urls: context.searchUrls, ledger: context.ledger.all() });
+          // And the domain's playbook, taken from this run's own trace: its search address, its path and its traps —
+          // only from a run whose answer the evidence backed, so a wrong answer cannot teach later tasks its route.
+          if (this.backedDone) {
+            await SiteSkills.record(context.taskStartUrl, { steps: context.routeSteps, urls: context.searchUrls, ledger: context.ledger.all() });
+          }
+          record({ level: 'info', kind: 'span', component: 'Executor', msg: 'memory.admission', data: { recorded: this.backedDone } });
         }
 
         // Emit final answer if available, otherwise use task ID
@@ -727,7 +738,7 @@ export class Executor {
         void analytics.trackTaskCancelled(this.context.taskId);
       } else {
         await this.saveCheckpoint(this.tasks[this.tasks.length - 1], 'failed');
-        await this.demoteSiteSkill();
+        await this.demoteSiteSkill(error);
         const errorMessage = formatExecutionError(error);
         const failText = t('exec_task_fail', [errorMessage]);
         await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, error instanceof MaxFailuresReachedError ? await this.withLastAnswer(failText, errorMessage) : failText);
@@ -1105,11 +1116,14 @@ export class Executor {
   }
 
   /**
-   * A task on this domain failed, so its playbook is no longer shown: a site that moved the control a skill names
-   * must not keep sending later tasks to it. One failure is enough; a later success writes the skill again.
+   * A failure counts against this domain's playbook only when the playbook was shown in this task and the failure is
+   * the agent's own (the step limit, the failure budget, a planner that kept repeating goals). A provider outage, an
+   * auth, billing or bad-request error, a rate limit or a cancelled task says nothing about the site.
    */
-  private async demoteSiteSkill(): Promise<void> {
-    if (this.context.taskStartUrl) await SiteSkills.demote(this.context.taskStartUrl).catch(() => undefined);
+  private async demoteSiteSkill(cause?: unknown): Promise<void> {
+    const agentsOwn = cause === undefined || cause instanceof MaxFailuresReachedError || cause instanceof MaxStepsReachedError;
+    if (!this.context.taskStartUrl || !this.context.siteSkillNote || !agentsOwn) return;
+    await SiteSkills.demote(this.context.taskStartUrl).catch(() => undefined);
   }
 
   isRunning(): boolean {

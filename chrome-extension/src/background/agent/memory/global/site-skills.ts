@@ -5,8 +5,9 @@
  * It is never hand-authored and never holds anything the user or the page wrote: the search address keeps the
  * parameter name and drops its value, the path keeps the kind of element and a path template (`agent/memory/global/
  * memory-store.ts` rules), and a trap is one of a fixed set of generic labels. A skill carries the date it was last
- * confirmed and stops being shown the first time a task on that domain fails, so a site that moved its controls
- * cannot keep sending the agent to them.
+ * confirmed, the number of runs whose answer was backed by evidence and the number of failures the agent itself
+ * caused on the domain; it is shown only while two more runs have confirmed it than have failed on it, so one lucky
+ * run cannot teach the agent a route and one bad task cannot throw a working one away.
  */
 import { createLogger } from '../../../log';
 import { registrableDomain } from '../../../browser/util';
@@ -32,9 +33,14 @@ export interface SiteSkill {
   /** Generic labels only: a consent wall, a login gate, a bot check. */
   traps: string[];
   verifiedAt: number;
-  /** 0 while the skill holds; 1 once a task on this domain has failed, after which it is no longer shown. */
+  /** Runs that ended on this domain with an answer the evidence backed; the skill is shown from the second. */
+  confirmations: number;
+  /** Runs the agent itself failed on this domain while the skill was shown. */
   failures: number;
 }
+
+/** Confirmations beyond failures a skill needs before it is shown: one run that worked is not yet a route. */
+const MIN_CONFIRMATIONS = 2;
 
 /** Query parameters that carry what was searched for; their values are never stored. */
 const SEARCH_PARAMS = ['q', 'query', 'search', 'search_query', 'searchterm', 'keyword', 'keywords', 'term', 'text', 'k', 's', 'wd'];
@@ -102,7 +108,10 @@ export function trapsFrom(entries: LedgerEntry[]): string[] {
 async function load(): Promise<SiteSkill[]> {
   const data = await chrome.storage.local.get(SKILLS_KEY);
   const skills: SiteSkill[] = Array.isArray(data[SKILLS_KEY]) ? data[SKILLS_KEY] : [];
-  return skills.filter(skill => Date.now() - skill.verifiedAt < MAX_AGE_MS);
+  // Skills written before the counts existed start at zero, so they are shown again only once new runs confirm them.
+  return skills
+    .filter(skill => Date.now() - skill.verifiedAt < MAX_AGE_MS)
+    .map(skill => ({ ...skill, confirmations: skill.confirmations ?? 0, failures: skill.failures ?? 0 }));
 }
 
 async function store(skills: SiteSkill[]): Promise<void> {
@@ -121,7 +130,10 @@ export interface SkillRun {
 }
 
 export const SiteSkills = {
-  /** Writes what worked on this domain, from the task's own trace. Called only after the planner confirms the task. */
+  /**
+   * Writes what worked on this domain, from the task's own trace. Called only for a run whose done the planner
+   * confirmed and the evidence backed, and each such run counts as one confirmation.
+   */
   async record(startUrl: string, run: SkillRun): Promise<void> {
     const domain = domainOf(startUrl);
     if (!domain) return;
@@ -129,32 +141,39 @@ export const SiteSkills = {
     const searchUrl = [...run.urls].map(searchPattern).find(pattern => pattern && domainOf(pattern) === domain);
     if (steps.length === 0 && !searchUrl) return;
     try {
-      const skills = (await load()).filter(skill => skill.domain !== domain);
-      skills.push({
+      const skills = await load();
+      const known = skills.find(skill => skill.domain === domain);
+      const rest = skills.filter(skill => skill.domain !== domain);
+      rest.push({
         domain,
         ...(searchUrl ? { searchUrl } : {}),
         steps,
         traps: trapsFrom(run.ledger),
         verifiedAt: Date.now(),
-        // A run that succeeded clears an earlier demotion: the site works again.
-        failures: 0,
+        confirmations: (known?.confirmations ?? 0) + 1,
+        // A run that worked pays back one failure: the site works again.
+        failures: Math.max(0, (known?.failures ?? 0) - 1),
       });
-      await store(skills);
+      await store(rest);
     } catch (error) {
       logger.error('Saving the site skill failed:', error);
     }
   },
 
-  /** A task on this domain failed: the skill is no longer shown until a later success confirms it again. */
+  /**
+   * A task the agent itself failed on this domain while the skill was shown: one failure against its confirmations,
+   * so a site that moved the control a skill names stops being quoted, while one bad task does not erase a route that
+   * has worked several times. Cause and use are the executor's call (`demoteSiteSkill`).
+   */
   async demote(startUrl: string): Promise<void> {
     const domain = domainOf(startUrl);
     if (!domain) return;
     try {
       const skills = await load();
       const skill = skills.find(entry => entry.domain === domain);
-      if (!skill || skill.failures > 0) return;
-      skill.failures = 1;
-      logger.info(`Site skill for ${domain} demoted after a failed task`);
+      if (!skill) return;
+      skill.failures++;
+      logger.info(`Site skill for ${domain} demoted after a failed task (confirmations ${skill.confirmations}, failures ${skill.failures})`);
       await store(skills);
     } catch (error) {
       logger.error('Demoting the site skill failed:', error);
@@ -170,7 +189,7 @@ export const SiteSkills = {
     const domain = domainOf(startUrl);
     if (!domain) return '';
     try {
-      const skill = (await load()).find(entry => entry.domain === domain && entry.failures === 0);
+      const skill = (await load()).find(entry => entry.domain === domain && entry.confirmations - entry.failures >= MIN_CONFIRMATIONS);
       if (!skill) return '';
       const on = new Date(skill.verifiedAt).toISOString().slice(0, 10);
       const alsoDid = skillSteps(routeSteps, domain).filter(line => !skill.steps.includes(line));
