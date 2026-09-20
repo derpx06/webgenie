@@ -9,7 +9,7 @@ import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnread, answerGaps, doneEvidence, givesUpUnseen, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements, unbackedValues } from './validation/done-evidence';
+import { absenceUnderexplored, absenceUnread, answerGaps, doneEvidence, givesUpUnseen, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements, unbackedValues } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -110,6 +110,8 @@ export class Executor {
   private answerGapRefused = false;
   /** A completion whose claims nothing in the task backed with page evidence was sent back once. */
   private unevidencedRefused = false;
+  /** An answer of absence resting on one kind of route was sent back once; once per task. */
+  private absenceRoutesRefused = false;
   constructor(
     task: string,
     taskId: string,
@@ -187,6 +189,7 @@ export class Executor {
     this.context.requirementReopens.clear();
     this.context.leavingAppliedChecked = false;
     this.context.absenceChecked = false;
+    this.absenceRoutesRefused = false;
     this.evidenceRechecked = false;
     this.searchEvidenceRefused = false;
     this.unseenGiveUpRefused = false;
@@ -245,6 +248,13 @@ export class Executor {
     if (!context.absenceChecked && absenceUnread(context, answer, this.doneReportedFailure)) {
       context.absenceChecked = true;
       return this.refuseCompletion(planOutput, 'The answer says something is missing, but the current page was not read. Before concluding, read it: find_in_page with the key term of the task, or read_page, then decide from what it returns.');
+    }
+    // "Nothing like that exists" after one kind of route: a search that came back empty says something about that
+    // search. One send-back, then the answer stands however many routes were tried.
+    if (!this.absenceRoutesRefused && absenceUnderexplored(context, answer, context.options.absenceRouteKinds)) {
+      this.absenceRoutesRefused = true;
+      const tried = [...context.ledger.emptyRouteKinds()].join(', ') || 'none';
+      return this.refuseCompletion(planOutput, `Not done: the answer says nothing matches, but only ${tried} came back empty, which says something about that route and not about the site. Try one different kind of route for the same thing — the site's own categories or filters on a listing, a different search wording, the site's A-Z or sitemap, or a web search that names the site — and finish with absence only if that one comes back empty too, or a filtered listing states zero results.`);
     }
     // An answer that reports the search instead of what it found, or that leaves the value the task asks for unsaid.
     const gaps = this.answerGapRefused ? [] : answerGaps(this.tasks[this.tasks.length - 1] ?? '', answer);

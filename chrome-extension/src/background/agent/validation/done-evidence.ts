@@ -68,6 +68,24 @@ export function absenceUnread(context: AgentContext, answer: string, reportedFai
   return !EMPTY_RESULTS.test(visibleText(state));
 }
 
+/**
+ * Whether an answer saying something does not exist rests on too few routes. Absence is credible when at least
+ * `minKinds` different kinds of route (the site's search, its filters, its categories, an address, a web search) came
+ * back empty, or when a filtered listing itself states zero results; one empty search is not evidence that a thing does
+ * not exist, it is evidence about that search. A task that searched nothing is not judged here: its answer is about the
+ * page in front of it, not about a search. Inviting absence costs more than refusing it once (WebArena's N/A hint made
+ * GPT-4 call 54.9% of feasible tasks impossible), so the caller sends such an answer back once and then accepts it.
+ */
+export function absenceUnderexplored(context: AgentContext, answer: string, minKinds: number): boolean {
+  if (minKinds < 2) return false;
+  if (!ABSENCE.test(answer) && !NONE_MATCHED.test(answer)) return false;
+  const routes = context.ledger?.routes() ?? [];
+  if (routes.length === 0) return false;
+  const empty = context.ledger.emptyRouteKinds();
+  // A listing filtered down to zero results has already answered the question for the criteria it was filtered on.
+  return !empty.has('facet') && empty.size < minKinds;
+}
+
 /** A word, number or amount of a quote, in any script. Built from a string: the compile target has no /u literals. */
 const EVIDENCE_TOKEN = new RegExp("[\\p{L}\\p{N}][\\p{L}\\p{N}'’.,%$€£-]*", 'gu');
 

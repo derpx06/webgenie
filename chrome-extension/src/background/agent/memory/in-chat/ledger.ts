@@ -210,6 +210,11 @@ export class TaskLedger {
       .sort((a, b) => b.query.length - a.query.length)[0]?.key;
   }
 
+  /** The kinds of route whose latest outcome was an empty listing. */
+  emptyRouteKinds(): Set<RouteKind> {
+    return new Set(this.routes().filter(route => route.count === 0).map(route => route.kind));
+  }
+
   /** The planner planned at `step`; the progress block counts from here. */
   planned(step: number, findings: number): void {
     this.planMark = { step, pages: this.visitCount(), findings };

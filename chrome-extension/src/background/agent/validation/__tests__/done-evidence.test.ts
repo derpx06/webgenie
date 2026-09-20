@@ -9,7 +9,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import type { NextStepContract } from '../../contracts';
-import { absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, staleRequirements } from '../done-evidence';
+import { absenceUnderexplored, absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, staleRequirements } from '../done-evidence';
 import { titleFromTask } from '../../../core/task-groups/manager';
 
 function contextOnPage(lines: string[]) {
@@ -42,6 +42,39 @@ describe('absenceUnread', () => {
     expect(absenceUnread(read, 'No brass lamp was found.', false)).toBe(false);
     expect(absenceUnread(on(['0 results for "brass lamp"']), 'No brass lamp was found.', false)).toBe(false);
     expect(absenceUnread(on([], 'about:blank'), 'No such thing exists.', false)).toBe(false);
+  });
+});
+
+describe('absenceUnderexplored', () => {
+  const searched = (url: string, text: string) => {
+    const context = contextOnPage([]);
+    context.ledger.recordRoute('click_element', { url: 'https://shop.test/', text: '' }, { url, text });
+    return context;
+  };
+
+  it('flags "nothing like that exists" when only one kind of route came back empty', () => {
+    const context = searched('https://shop.test/search?q=brass+lamp', 'No results found');
+    expect(absenceUnderexplored(context, 'No brass lamp was found on the site.', 2)).toBe(true);
+    expect(absenceUnderexplored(context, 'The brass lamp costs $40.', 2)).toBe(false);
+    // The threshold is an option; below two it is off.
+    expect(absenceUnderexplored(context, 'No brass lamp was found on the site.', 1)).toBe(false);
+  });
+
+  it('accepts absence after a second kind of route, after a filtered listing with zero results, or with no route at all', () => {
+    const two = searched('https://shop.test/search?q=brass+lamp', 'No results found');
+    two.ledger.recordRoute('click_element', { url: 'https://shop.test/' }, { url: 'https://shop.test/c/lamps', text: 'No matching items' });
+    expect(absenceUnderexplored(two, 'No brass lamp was found on the site.', 2)).toBe(false);
+
+    const filtered = searched('https://shop.test/search?q=lamp', '12 results');
+    filtered.ledger.recordRoute(
+      'click_element',
+      { url: 'https://shop.test/search?q=lamp', text: '12 results' },
+      { url: 'https://shop.test/search?q=lamp&material=brass', text: 'No results found' },
+    );
+    expect(absenceUnderexplored(filtered, 'No brass lamp was found on the site.', 2)).toBe(false);
+
+    // A task that searched nothing is answering about the page in front of it, not about a search.
+    expect(absenceUnderexplored(contextOnPage([]), 'No phone number is listed.', 2)).toBe(false);
   });
 });
 
