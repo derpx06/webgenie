@@ -91,6 +91,12 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
     const match = /Replan decision: true trigger=(\w+)/.exec(String(r.msg));
     if (match) replans[match[1]] = (replans[match[1]] ?? 0) + 1;
   }
+  // Every guard verdict, by guard: refusals inside a task that still passed are that guard's false refusals.
+  const guards = {};
+  for (const r of spans.filter(s => s.component === 'Guard')) {
+    const row = (guards[r.data?.guard ?? 'unknown'] ??= { refused: 0, allowed: 0, asked: 0 });
+    row[r.data?.verdict ?? 'refused'] = (row[r.data?.verdict ?? 'refused'] ?? 0) + 1;
+  }
   const dispatches = spans.filter(r => r.msg === 'input dispatch');
   const sum = key => calls.reduce((total, r) => total + (r.data?.usage?.[key] ?? 0), 0);
 
@@ -164,6 +170,7 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
     getStateCount: getState.length,
     getStateMs: getState,
     actionMs: actionDurations,
+    guards,
     validations,
     replans,
     dispatches: dispatches.length,
@@ -179,6 +186,20 @@ export function taskMetrics(records, events, { secret, taskText = '', storage } 
     storageLeaks: storageLeaks(storage, secret).length,
     storageLeakKeys: storageLeaks(storage, secret),
   };
+}
+
+/** Per guard: how often it refused in these tasks, and that as a share of the actions they attempted. */
+export function guardRates(rows) {
+  const attempts = rows.reduce((n, r) => n + Object.values(r.metrics?.actionMs ?? {}).reduce((k, list) => k + list.length, 0), 0);
+  const refused = {};
+  for (const r of rows) {
+    for (const [guard, counts] of Object.entries(r.metrics?.guards ?? {})) refused[guard] = (refused[guard] ?? 0) + (counts.refused ?? 0);
+  }
+  return Object.fromEntries(
+    Object.entries(refused)
+      .sort((a, b) => b[1] - a[1])
+      .map(([guard, n]) => [guard, { refused: n, perAction: +(n / Math.max(1, attempts + n)).toFixed(4) }]),
+  );
 }
 
 /** Actions, validations, replans and failures, one line each, for triaging a failed task. */
@@ -242,6 +263,8 @@ export function suiteHealth(results) {
       backoffShare: +(rows.reduce((n, r) => n + (r.metrics?.backoffMs ?? 0) + (r.metrics?.failedCallMs ?? 0), 0) / 1000 / Math.max(1, totalSeconds)).toFixed(3),
       costUsd: +rows.reduce((n, r) => n + (r.metrics?.costUsd ?? 0), 0).toFixed(3),
       ...counters,
+      /** Refusals per guard inside tasks that passed anyway, over the actions those tasks ran: each guard's false-refusal rate. */
+      guardFalseRefusals: guardRates(rows.filter(r => r.pass)),
       getStateMedianMs: median(all('getStateMs')),
       getStateP90Ms: percentile(all('getStateMs'), 90),
       clickMedianMs: median(actions('click_element')),

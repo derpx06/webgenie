@@ -1,10 +1,29 @@
 import { ActionResult } from '../types';
+import { record } from '@src/background/trace';
 import type { AgentContext } from '../types';
 import { resolveByIdentity, type DOMElementNode } from '../../browser/dom/views';
 import type { FormCommitInfo } from '../../browser/page';
 import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
 import { ensureBrowserObservation, visibleContentKey, visibleText } from './observation';
+
+/** What a guard decided about one action: it let it through, refused it, or put it to the user. */
+export type GuardVerdict = 'allowed' | 'refused' | 'asked';
+
+/**
+ * One guard's verdict on one action, as a trace span of its own. Every refusal carries the guard's name and its
+ * reason, so a run's traces give each guard's refusal count, and the refusals inside tasks that still passed are
+ * that guard's false refusals (Operator reports 46 of 13,704 benign screens that way).
+ */
+export function traceGuard(guard: string, verdict: GuardVerdict, actionName: string, reason = ''): void {
+  record({
+    level: verdict === 'allowed' ? 'info' : 'warning',
+    kind: 'span',
+    component: 'Guard',
+    msg: `guard ${guard}: ${verdict}`,
+    data: { guard, verdict, action: actionName, reason: reason.slice(0, 300) },
+  });
+}
 
 export interface NormalizedIndexedAction {
   ok: boolean;
@@ -473,6 +492,19 @@ function actionTargetFingerprint(actionArgs: unknown): TargetFingerprint | null 
  */
 export function isPageSideError(message: string): boolean {
   return /is covered by <|no visible area|net::ERR_(HTTP2_PROTOCOL_ERROR|CONNECTION_(RESET|CLOSED|REFUSED)|TIMED_OUT|EMPTY_RESPONSE|NETWORK_CHANGED)/i.test(message);
+}
+
+/**
+ * The guard that refused a dispatch, by the wording `page.ts` refuses it with, or null for any other failure: the
+ * name a trace needs to count how often each actionability check fires.
+ */
+export function dispatchGuard(message: string): string | null {
+  if (/is covered by/i.test(message)) return 'covered';
+  if (/no visible area/i.test(message)) return 'invisible';
+  if (/still moving/i.test(message)) return 'moving';
+  if (/is disabled/i.test(message)) return 'disabled';
+  if (/is read-only/i.test(message)) return 'read-only';
+  return isStaleElementError(message) ? 'stale-index' : null;
 }
 
 export function isStaleElementError(message: string): boolean {
