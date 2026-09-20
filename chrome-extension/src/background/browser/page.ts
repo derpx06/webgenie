@@ -1911,11 +1911,20 @@ export default class Page {
     const onTabCreated = (tab: chrome.tabs.Tab) => void createdTabs.push(tab);
     this._browserAdapter.addTabCreatedListener(onTabCreated);
     try {
+      // A link that opens in another tab is worth waiting for as much as a scripted window.open: without the wait the
+      // tab arrives after the check, the agent goes on working in the page it left, and the answer it needs is in a
+      // tab it never looked at.
+      const opensNewTab =
+        this._windowOpened ||
+        (await target.evaluate(el => {
+          const link = (el as HTMLElement).closest('a');
+          return link?.target === '_blank' || link?.hasAttribute('download') === true;
+        }).catch(() => false));
       const outcome = clickThrough ? await this._clickInPage(target) : await this._sendMouseEvents(client, kind, button, x, y, clickCount);
-      if (kind !== 'hover' && !outcome.dialog && this._windowOpened) {
+      if (kind !== 'hover' && !outcome.dialog && (opensNewTab || this._windowOpened)) {
         for (const startedAt = Date.now(); createdTabs.length === 0 && Date.now() - startedAt < NEW_TAB_WAIT_MS; ) await sleep(50);
       }
-      const opened = createdTabs.find(tab => tab.openerTabId === this._tabId) ?? (this._windowOpened ? createdTabs[0] : undefined);
+      const opened = createdTabs.find(tab => tab.openerTabId === this._tabId) ?? (opensNewTab || this._windowOpened ? createdTabs[0] : undefined);
       return opened?.id !== undefined ? { ...outcome, newTabId: opened.id } : outcome;
     } finally {
       this._browserAdapter.removeTabCreatedListener(onTabCreated);

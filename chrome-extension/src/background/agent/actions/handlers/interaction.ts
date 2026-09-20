@@ -66,7 +66,9 @@ export class InteractionHandler extends BaseHandler {
       notes.push('A file chooser opened: call upload_file on this element with a file the user attached (ask_human for the file when none is).');
     }
     if (!outcome.dialog) {
-      const newTabId = [...(await this.context.browserContext.getAllTabIds())].find(id => !tabsBefore.has(id));
+      // The gesture watched for the tab it opened and waited for it; the tab list is the fallback for one that arrived
+      // by another route. Either way the agent follows it: work left behind in the old tab is work on the wrong page.
+      const newTabId = outcome.newTabId ?? [...(await this.context.browserContext.getAllTabIds())].find(id => !tabsBefore.has(id));
       if (newTabId !== undefined) {
         notes.push(t('act_click_newTabOpened'));
         await this.context.browserContext.switchTab(newTabId);

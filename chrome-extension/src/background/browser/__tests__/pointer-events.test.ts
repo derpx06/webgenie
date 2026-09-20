@@ -36,7 +36,7 @@ describe('the mouse events a gesture sends', () => {
     page = new Page(7, 'https://example.com/', 'Example', {}, adapter);
     const target = {
       scrollIntoView: vi.fn().mockResolvedValue(undefined),
-      evaluate: vi.fn(async (fn: unknown) => (String(fn).includes('scrollX') ? [0, 0] : null)),
+      evaluate: vi.fn(async (fn: unknown) => (String(fn).includes('scrollX') ? [0, 0] : String(fn).includes('_blank') ? false : null)),
       boundingBox: vi.fn().mockResolvedValue({ x: 100, y: 200, width: 80, height: 30 }),
       clickablePoint: vi.fn().mockResolvedValue({ x: 140, y: 215 }),
     };
@@ -93,5 +93,65 @@ describe('the mouse events a gesture sends', () => {
   it('never sends a modifier the agent did not ask for', async () => {
     await page.clickNode(node());
     expect(mouse().every(event => event.modifiers === 0)).toBe(true);
+  });
+});
+
+/**
+ * A link that opens in another tab: the tab is created after the click is acknowledged, so a check made at that
+ * moment misses it and the agent keeps working in the page it just left, where the answer is not.
+ */
+describe('a click that opens another tab', () => {
+  const build = (targetBlank: boolean, arriveAfterMs: number, scripted = false) => {
+    let created: ((tab: chrome.tabs.Tab) => void) | undefined;
+    const adapter = {
+      addTabCreatedListener: vi.fn((listener: (tab: chrome.tabs.Tab) => void) => (created = listener)),
+      removeTabCreatedListener: vi.fn(),
+      sendTabMessage: vi.fn().mockResolvedValue(undefined),
+    } as unknown as IBrowserAdapter;
+    const page = new Page(7, 'https://example.com/', 'Example', {}, adapter);
+    const target = {
+      scrollIntoView: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn(async (fn: unknown) => {
+        if (String(fn).includes('scrollX')) return [0, 0];
+        if (String(fn).includes('_blank')) return targetBlank;
+        return null;
+      }),
+      boundingBox: vi.fn().mockResolvedValue({ x: 0, y: 0, width: 10, height: 10 }),
+      clickablePoint: vi.fn().mockResolvedValue({ x: 5, y: 5 }),
+    };
+    const handle = { evaluateHandle: vi.fn().mockResolvedValue({ asElement: () => target }) };
+    const client = {
+      send: vi.fn(async (_method: string, params: { type: string }) => {
+        if (params.type === 'mouseReleased') {
+          // window.open runs as the click is handled, before the tab itself exists.
+          if (scripted) (page as unknown as Record<string, unknown>)._windowOpened = true;
+          setTimeout(() => created?.({ id: 99, openerTabId: 7 } as chrome.tabs.Tab), arriveAfterMs);
+        }
+      }),
+    };
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _puppeteerPage: { evaluate: vi.fn().mockResolvedValue(undefined) },
+      _pageClient: () => client,
+      _requireHandle: vi.fn().mockResolvedValue(handle),
+    });
+    return page;
+  };
+
+  it('waits for the tab a target="_blank" link opens and reports it', async () => {
+    const outcome = await build(true, 120).clickNode(node('a'));
+    expect(outcome.newTabId).toBe(99);
+  });
+
+  it('reports a tab the page scripted open, which announces itself before it arrives', async () => {
+    // window.open sets the flag as the gesture runs; the wait then holds for the tab it promised.
+    const outcome = await build(false, 120, true).clickNode(node('a'));
+    expect(outcome.newTabId).toBe(99);
+  });
+
+  it('does not hold an ordinary click waiting for a tab that never comes', async () => {
+    const startedAt = Date.now();
+    const outcome = await build(false, 10_000).clickNode(node('button'));
+    expect(outcome.newTabId).toBeUndefined();
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
 });
