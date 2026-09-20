@@ -103,6 +103,35 @@ describe('ContextBuilder packets', () => {
     expect(finalMessage.endsWith('browser state 1')).toBe(true);
   });
 
+  /**
+   * An image is the most expensive thing in a prompt (about 1,861 tokens), and a screenshot of a page the agent has
+   * left says nothing about the page it is on. Only the step that asked for one carries it, in the last message;
+   * what an older step saw survives as its one-line receipt, and older results are never re-sent in full.
+   */
+  it('carries a screenshot only in the step that asked for one, and older steps only as their receipts', () => {
+    const { context, messageManager } = makeContext();
+    messageManager.addTask('read the chart');
+    const withImage = () =>
+      new HumanMessage({
+        content: [
+          { type: 'text', text: 'browser state with an image' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,c2hvdA==' } },
+        ],
+      });
+    const images = (packet: BaseMessage[]) =>
+      packet.flatMap(message =>
+        Array.isArray(message.content) ? message.content.filter(part => (part as { type?: string }).type === 'image_url') : [],
+      );
+
+    expect(images(ContextBuilder.buildContextPacket(context, system, withImage()))).toHaveLength(1);
+
+    // Later steps: the screenshot was never written to the transcript, so nothing carries it forward.
+    addTurns(messageManager, 1, 12);
+    const later = ContextBuilder.buildContextPacket(context, system, state(13));
+    expect(images(later)).toEqual([]);
+    expect(text(later[later.length - 1])).toContain('scroll {"text":"t1"} → result 1');
+  });
+
   it('only appends messages from one step to the next until the block boundary moves, so the prefix stays cacheable', () => {
     const { context, messageManager } = makeContext();
     messageManager.addTask('collect the prices');
