@@ -1,8 +1,21 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { errorHeaders, invokeLLM, invokeTools, isToolsUnsupportedError, rateLimitDelayMs, rateLimitHint, readFinish, retryDelayHint } from '../base';
+import {
+  callLatencyQuantile,
+  errorHeaders,
+  invokeLLM,
+  invokeTools,
+  isToolsUnsupportedError,
+  MIN_CALL_TIMEOUT_MS,
+  rateLimitDelayMs,
+  rateLimitHint,
+  readFinish,
+  recordCallLatency,
+  resetCallLatencies,
+  retryDelayHint,
+} from '../base';
 import { isAbortedError, isQuotaExhaustedError, isRateLimitError, ResponseParseError } from '../errors';
 import type { ToolDefinition } from '../../actions/builder';
 
@@ -175,6 +188,76 @@ describe('slow calls', () => {
     const { chatModel, stub } = stubModel([() => Promise.reject(new Error('400 Bad Request')), new AIMessage({ content: 'never' })]);
     await expect(invokeLLM(chatModel, packet, { component: 'test', timeoutMs: 5_000, hedgeAfterMs: 2_000 })).rejects.toThrow('400');
     expect(stub.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends no duplicate at all to a provider that serves one request at a time', async () => {
+    const { chatModel, stub } = stubModel([
+      (signal?: AbortSignal) =>
+        new Promise<AIMessage>(resolve => {
+          setTimeout(() => resolve(new AIMessage({ content: 'the only answer' })), 60);
+          signal?.addEventListener('abort', () => undefined);
+        }),
+      new AIMessage({ content: 'never' }),
+    ]);
+
+    const reply = await invokeLLM(chatModel, packet, { component: 'test', model: 'local-model', timeoutMs: 5_000, hedgeAfterMs: 10, hedge: 'off' });
+
+    expect(reply.text).toBe('the only answer');
+    expect(stub.invoke).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The fixed 25 s limit abandoned the slowest good calls of a slow model and waited 25 s on a fast one; the fixed 10 s
+ * hedge duplicated calls a fast model had not finished yet. Both now come from what this worker has seen the model do.
+ */
+describe('limits learned from the model', () => {
+  beforeEach(() => resetCallLatencies());
+
+  it('knows a quantile only once it has seen enough calls', () => {
+    for (let i = 0; i < 7; i++) recordCallLatency('learned', 1_000);
+    expect(callLatencyQuantile('learned', 0.99)).toBeNull();
+    recordCallLatency('learned', 1_000);
+    expect(callLatencyQuantile('learned', 0.99)).toBe(1_000);
+
+    for (let i = 0; i < 100; i++) recordCallLatency('learned', i * 100);
+    // Only the last 64 calls count, so a model that changes is followed rather than averaged over its whole history.
+    expect(callLatencyQuantile('learned', 0.5)).toBe(6_700);
+    expect(callLatencyQuantile('learned', 0.99)).toBe(9_900);
+  });
+
+  it('shortens the call limit to 1.5 x the observed p99, never below the floor or above the capability', async () => {
+    for (let i = 0; i < 20; i++) recordCallLatency('quick-model', 900);
+    const hang = (signal?: AbortSignal) =>
+      new Promise<AIMessage>((_, reject) => signal?.addEventListener('abort', () => reject(new Error('Aborted'))));
+    const { chatModel } = stubModel([hang, hang]);
+
+    const startedAt = Date.now();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const call = invokeLLM(chatModel, packet, { component: 'test', model: 'quick-model', timeoutMs: 60_000, hedgeAfterMs: 0 });
+    // The floor, not 1.35 s: a model is not abandoned the moment it is slower than usual.
+    await vi.advanceTimersByTimeAsync(MIN_CALL_TIMEOUT_MS + 10);
+    await vi.advanceTimersByTimeAsync(MIN_CALL_TIMEOUT_MS * 1.5 + 10);
+    await expect(call).rejects.toThrow('timed out');
+    vi.useRealTimers();
+    expect(Date.now() - startedAt).toBeLessThan(60_000);
+  });
+
+  it('duplicates a slow call at the model\'s own p95 instead of a fixed wait', async () => {
+    for (let i = 0; i < 20; i++) recordCallLatency('steady-model', 4_000);
+    const hang = (signal?: AbortSignal) =>
+      new Promise<AIMessage>((_, reject) => signal?.addEventListener('abort', () => reject(new Error('Aborted'))));
+    const { chatModel, stub } = stubModel([hang, new AIMessage({ content: 'from the duplicate' })]);
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const call = invokeLLM(chatModel, packet, { component: 'test', model: 'steady-model', timeoutMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(3_500);
+    expect(stub.invoke).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    vi.useRealTimers();
+
+    expect((await call).text).toBe('from the duplicate');
+    expect(stub.invoke).toHaveBeenCalledTimes(2);
   });
 });
 

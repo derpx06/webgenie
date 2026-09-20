@@ -17,7 +17,8 @@ import { isBadRequestError, isNetworkError, isRateLimitError, ResponseParseError
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type CallOptions = Record<string, any>;
 
-export type ToolMode = Pick<LlmCapabilities, 'nativeTools' | 'forceToolChoice'> & Partial<Pick<LlmCapabilities, 'callTimeoutMs'>>;
+export type ToolMode = Pick<LlmCapabilities, 'nativeTools' | 'forceToolChoice'> &
+  Partial<Pick<LlmCapabilities, 'callTimeoutMs' | 'hedge' | 'endpoints' | 'promptCache' | 'minCacheTokens' | 'rateLimitSignals'>>;
 
 export interface BaseAgentOptions {
   chatLLM: BaseChatModel;
@@ -74,6 +75,7 @@ export abstract class BaseAgent<M = unknown> {
         native: this.toolMode.nativeTools && typeof this.chatLLM.bindTools === 'function',
         forceToolChoice: this.toolMode.forceToolChoice,
         timeoutMs: this.toolMode.callTimeoutMs,
+        hedge: this.toolMode.hedge,
         component: this.id,
         model: this.modelName,
         signal: this.context.controller.signal,
@@ -131,6 +133,40 @@ export abstract class BaseAgent<M = unknown> {
 
 /** Limit for each attempt without a per-model limit: a response this slow is usually a one-off, so the retry starts fresh. */
 export const LLM_CALL_TIMEOUTS_MS = [25_000, 37_500];
+/**
+ * What this worker has seen each model take, newest last. The window follows a model that speeds up or slows down, and
+ * it is what the call limit and the hedge point are set from: a fixed 25 s limit abandons a model whose p99 is 40 s and
+ * waits 25 s for one whose p99 is 6 s (timeouts cost 18.2 s a task in run r3).
+ */
+const LATENCY_WINDOW = 64;
+/** Below this many samples the capability's own numbers are used: a handful of calls says nothing about a tail. */
+const MIN_LATENCY_SAMPLES = 8;
+/** No call is abandoned sooner than this, however fast the model has been. */
+export const MIN_CALL_TIMEOUT_MS = 10_000;
+/** No duplicate is sent sooner than this, however fast the model has been. */
+export const MIN_HEDGE_AFTER_MS = 3_000;
+const latencies = new Map<string, number[]>();
+
+/** Remembers how long one call took, for the model's own limits. */
+export function recordCallLatency(model: string, ms: number): void {
+  const samples = latencies.get(model) ?? [];
+  samples.push(ms);
+  if (samples.length > LATENCY_WINDOW) samples.shift();
+  latencies.set(model, samples);
+}
+
+/** The model's observed quantile in ms, or null while too little has been seen to know it. */
+export function callLatencyQuantile(model: string, quantile: number): number | null {
+  const samples = latencies.get(model);
+  if (!samples || samples.length < MIN_LATENCY_SAMPLES) return null;
+  const sorted = [...samples].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(quantile * sorted.length) - 1)];
+}
+
+/** Forgets every model's history; tests and a new worker start clean. */
+export function resetCallLatencies(): void {
+  latencies.clear();
+}
 /**
  * A call still running after this long gets a duplicate request, and the first answer wins. Provider latency has a
  * long tail unrelated to the request (flash: median 2-3 s, yet some calls take 25-36 s for 70 output tokens), and a
@@ -241,8 +277,10 @@ export interface InvokeLLMOptions {
   onUsage?: (usage: LLMUsage) => void;
   /** Fixed waits before each retry of a rate-limited call (tests); by default the provider's hint or jittered backoff. */
   rateLimitDelaysMs?: number[];
-  /** When to send a duplicate of a slow call (defaults to HEDGE_AFTER_MS); 0 never duplicates. */
+  /** When to send a duplicate of a slow call (defaults to the model's observed p95); 0 never duplicates. */
   hedgeAfterMs?: number;
+  /** From the capability table: `off` for a provider that serves one request at a time, where a duplicate only waits. */
+  hedge?: 'off' | 'auto';
 }
 
 export interface InvokeToolsOptions extends InvokeLLMOptions {
@@ -397,9 +435,18 @@ export async function invokeLLM(
   // A screenshot makes a call slower: V1's image call timed out four times at the text-only limits.
   const withImage = messages.some(message => Array.isArray(message.content) && message.content.some(part => (part as { type?: string }).type === 'image_url'));
   const scale = withImage ? 2 : 1;
-  const timeouts = (options.timeoutMs ? [options.timeoutMs, Math.round(options.timeoutMs * 1.5)] : LLM_CALL_TIMEOUTS_MS).map(ms => ms * scale);
-  if (withImage) options = { ...options, hedgeAfterMs: (options.hedgeAfterMs ?? HEDGE_AFTER_MS) * scale };
   const cooldownKey = options.model ?? 'default';
+  // The capability's limit is the ceiling; what this model is measured to need sets the limit under it.
+  const ceiling = options.timeoutMs ?? LLM_CALL_TIMEOUTS_MS[0];
+  const p99 = callLatencyQuantile(cooldownKey, 0.99);
+  const limit = p99 === null ? ceiling : Math.min(ceiling, Math.max(MIN_CALL_TIMEOUT_MS, Math.round(1.5 * p99)));
+  const timeouts = [limit, Math.round(limit * 1.5)].map(ms => ms * scale);
+  // A duplicate at the model's own p95 rather than a fixed 10 s, and none at all where a duplicate would only queue.
+  const hedgeAfterMs =
+    options.hedge === 'off'
+      ? 0
+      : (options.hedgeAfterMs ?? Math.max(MIN_HEDGE_AFTER_MS, callLatencyQuantile(cooldownKey, 0.95) ?? HEDGE_AFTER_MS)) * scale;
+  options = { ...options, hedgeAfterMs };
   let rateLimitRetries = 0;
   let rateLimitWaitedMs = 0;
   let transientRetries = 0;
@@ -529,6 +576,7 @@ async function invokeOnce(
     })) as AIMessage;
     const usage = readUsage(response);
     if (usage) options.onUsage?.(usage);
+    recordCallLatency(options.model ?? 'default', Date.now() - startedAt);
     record({
       level: 'info',
       kind: 'llm',
