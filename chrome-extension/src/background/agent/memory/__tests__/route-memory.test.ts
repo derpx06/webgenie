@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DOMElementNode } from '../../../browser/dom/views';
 import { RouteMemory, pathTemplate, routeStep, stepTarget } from '../global/memory-store';
+import { SiteSkills } from '../global/site-skills';
+import { clearAll } from '../global/clear';
 
 const store = new Map<string, unknown>();
 
@@ -81,6 +83,16 @@ describe('RouteMemory', () => {
     for (const word of ['blue', 'linen', 'shirt', 'jamie', 'example', '48213', 'q=']) expect(saved).not.toContain(word);
     expect(store.has('wg_mem:episodes')).toBe(false);
     expect(store.has('wg_mem:domains')).toBe(false);
+  });
+
+  it('forgets everything remembered across tasks, from every store, and nothing else', async () => {
+    await RouteMemory.save('https://shop.test/', steps());
+    await SiteSkills.record('https://shop.test/', { steps: steps(), urls: [], ledger: [] });
+    store.set('wg_mem:episodes', [{ intent: 'an older store' }]);
+    store.set('chat_sessions_meta', [{ id: 'keep me' }]);
+
+    expect(await clearAll()).toBe(3);
+    expect([...store.keys()]).toEqual(['chat_sessions_meta']);
   });
 
   it('forgets routes after 30 days, keeps at most 50, and clears on request', async () => {

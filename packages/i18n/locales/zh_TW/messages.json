@@ -962,5 +962,28 @@
   },
   "options_advanced_browserDataTools_desc": {
     "message": "允許代理程式讀取及變更您的書籤、瀏覽紀錄、下載項目、閱讀清單、分頁群組、工作階段與擴充功能，並清除瀏覽資料。預設為關閉：網頁可能會試圖誘使代理程式使用這些工具。"
+  },
+  "options_memory_title": {
+    "message": "網站記憶"
+  },
+  "options_memory_subtitle": {
+    "message": "代理在任務之間記住的內容"
+  },
+  "options_memory_desc": {
+    "message": "任務成功後，代理會記下它走過的路徑與所在網站：頁面與控制項的類型，絕不包含你輸入的內容或頁面顯示的文字。清除後會移除所有路徑與網站腳本。"
+  },
+  "options_memory_forget": {
+    "message": "清除網站記憶"
+  },
+  "options_memory_forgotten": {
+    "message": "網站記憶已清除。"
+  },
+  "options_memory_forgetFailed": {
+    "message": "無法清除網站記憶：$REASON$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
   }
 }

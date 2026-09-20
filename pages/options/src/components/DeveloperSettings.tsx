@@ -109,10 +109,10 @@ export const DeveloperSettings = ({ isDarkMode = false }: DeveloperSettingsProps
           {[
             {
               label: 'Clear site memory',
-              // Routes remembered from finished tasks, plus the stores older versions kept.
+              // Everything remembered across tasks: routes, site playbooks and the stores older versions kept.
               run: async () => {
-                await chrome.storage.local.remove(['wg_mem:routes', 'wg_mem:episodes', 'wg_mem:domains']);
-                setTraceStatus('Site memory cleared.');
+                const reply = await chrome.runtime.sendMessage({ type: 'forget_site_memory' });
+                setTraceStatus(reply?.ok ? `Site memory cleared (${reply.removed} entries).` : `Storage error: ${reply?.error ?? 'unknown'}`);
               },
             },
             {

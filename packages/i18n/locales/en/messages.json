@@ -962,5 +962,28 @@
   },
   "options_advanced_browserDataTools_desc": {
     "message": "Let the agent read and change your bookmarks, history, downloads, reading list, tab groups, sessions and extensions, and clear browsing data. Off by default: a web page could try to talk the agent into using them."
+  },
+  "options_memory_title": {
+    "message": "Site Memory"
+  },
+  "options_memory_subtitle": {
+    "message": "What the agent remembers between tasks"
+  },
+  "options_memory_desc": {
+    "message": "After a task succeeds, the agent keeps the route it took and the site it took it on: pages and kinds of controls, never what you wrote or what a page said. Forgetting it removes every route and every site playbook."
+  },
+  "options_memory_forget": {
+    "message": "Forget site memory"
+  },
+  "options_memory_forgotten": {
+    "message": "Site memory forgotten."
+  },
+  "options_memory_forgetFailed": {
+    "message": "Site memory could not be forgotten: $REASON$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
   }
 }

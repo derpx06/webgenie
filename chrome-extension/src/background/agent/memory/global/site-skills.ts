@@ -12,12 +12,13 @@
 import { createLogger } from '../../../log';
 import { registrableDomain } from '../../../browser/util';
 import { untrustedInline } from '../../messages/utils';
+import { MEMORY_KEY_PREFIX } from './clear';
 import type { RouteStep } from './types';
 import type { LedgerEntry } from '../in-chat/ledger';
 
 const logger = createLogger('SiteSkills');
 
-const SKILLS_KEY = 'wg_mem:site_skills';
+const SKILLS_KEY = `${MEMORY_KEY_PREFIX}site_skills`;
 const MAX_SKILLS = 30;
 const MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000;
 const MAX_STEPS = 10;

@@ -2,12 +2,13 @@ import { createLogger } from '../../../log';
 import type { DOMElementNode } from '../../../browser/dom/views';
 import type { RouteStep, SavedRoute } from './types';
 import { untrustedInline } from '../../messages/utils';
+import { MEMORY_KEY_PREFIX } from './clear';
 
 const logger = createLogger('RouteMemory');
 
-const ROUTES_KEY = 'wg_mem:routes';
+const ROUTES_KEY = `${MEMORY_KEY_PREFIX}routes`;
 /** Earlier memory stores kept task text and answers; they are removed on the next save or clear. */
-const LEGACY_KEYS = ['wg_mem:episodes', 'wg_mem:domains'];
+const LEGACY_KEYS = [`${MEMORY_KEY_PREFIX}episodes`, `${MEMORY_KEY_PREFIX}domains`];
 const MAX_ROUTES = 50;
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_STEPS = 12;
