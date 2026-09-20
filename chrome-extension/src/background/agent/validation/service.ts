@@ -1,10 +1,31 @@
 import { ActionResult } from '../types';
+import { record } from '@src/background/trace';
 import type { AgentContext } from '../types';
 import { resolveByIdentity, type DOMElementNode } from '../../browser/dom/views';
 import type { FormCommitInfo } from '../../browser/page';
 import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
-import { ensureBrowserObservation, visibleContentKey, visibleText } from './observation';
+import { elementKey, elementLabel, ensureBrowserObservation, listElements, visibleContentKey, visibleText } from './observation';
+import { routeKey } from '../memory/global/memory-store';
+import type { PlannerRequirement } from '../contracts/types';
+
+/** What a guard decided about one action: it let it through, refused it, or put it to the user. */
+export type GuardVerdict = 'allowed' | 'refused' | 'asked';
+
+/**
+ * One guard's verdict on one action, as a trace span of its own. Every refusal carries the guard's name and its
+ * reason, so a run's traces give each guard's refusal count, and the refusals inside tasks that still passed are
+ * that guard's false refusals (Operator reports 46 of 13,704 benign screens that way).
+ */
+export function traceGuard(guard: string, verdict: GuardVerdict, actionName: string, reason = ''): void {
+  record({
+    level: verdict === 'allowed' ? 'info' : 'warning',
+    kind: 'span',
+    component: 'Guard',
+    msg: `guard ${guard}: ${verdict}`,
+    data: { guard, verdict, action: actionName, reason: reason.slice(0, 300) },
+  });
+}
 
 export interface NormalizedIndexedAction {
   ok: boolean;
@@ -220,6 +241,24 @@ export function sameSite(a: string, b: string): boolean {
 }
 
 /**
+ * Whether the user's own messages name this site: its host, its domain, or its own label ("michaels" for
+ * shop.michaels.com or michaels.ca) as a word. Email addresses are removed first — writing an email address names
+ * no site. ponytail: the label is the second-to-last one, as `sameSite` reads it; a public-suffix version would be
+ * exact.
+ */
+export function taskNamesSite(host: string, userText: string): boolean {
+  const name = host.toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '');
+  if (!name || !userText) return false;
+  const text = userText.toLowerCase().replace(EMAIL, ' ');
+  const said = (needle: string) =>
+    needle.length >= 3
+    && new RegExp(`(^|[^\\p{L}\\p{N}.@-])${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}-])`, 'u').test(text);
+  const labels = name.split('.');
+  const brand = labels.length > 1 ? labels[labels.length - 2] : labels[0];
+  return said(name) || said(brand);
+}
+
+/**
  * Whether typing `next` into a field replaces `previous`, a value the user gave (it appears in their messages), with
  * one of the agent's own. A reformat (the same letters and digits in another order or with other punctuation) or a
  * value that also appears in the user's messages is not a replacement.
@@ -292,6 +331,26 @@ export function challengeOnPage(state: BrowserState): string | null {
   return CHALLENGE_PAGE.exec(visibleText(state))?.[0] ?? null;
 }
 
+/**
+ * Wording of a page that refuses this visitor outright: a CDN block, a country block, a refusal of permission. The
+ * challenge page has its own wording; this one cannot be passed at all.
+ */
+const REFUSAL_PAGE = /access denied|you don'?t have permission to access|not available in your (area|country|region)|coming from a country|the request could not be satisfied|request blocked|blocked by the (site|server|website)|403 forbidden|error 1015|too many requests/i;
+
+/**
+ * The refusal a page shows, or null. Judged on a short page only: an article mentioning the words is not a refusal,
+ * exactly as the harness decides it.
+ */
+export function blockedPage(state: BrowserState): string | null {
+  const text = visibleText(state);
+  return text.length < 3000 ? REFUSAL_PAGE.exec(`${state.title}\n${text}`)?.[0] ?? null : null;
+}
+
+/** Whether an answer reports that the site blocked the agent; such an answer is checked against the page as it is now. */
+export function claimsBlocked(text: string): boolean {
+  return /\b(captcha|bot (check|detection)|blocked|access denied|denied access|forbidden|not a robot|verification challenge|security check)\b/i.test(text);
+}
+
 /** Whether a question to the user is about a CAPTCHA or bot check. */
 export function isChallengeQuestion(question: string): boolean {
   return /captcha|not a robot|verification challenge|bot (check|detection)|security (check|challenge)|verify (that )?you('re| are) (a )?human|press (and|&) hold|human verification/i.test(question);
@@ -302,16 +361,33 @@ export function normalizeQuestion(question: string): string {
   return question.toLowerCase().replace(new RegExp('[^\\p{L}\\p{N}]+', 'gu'), ' ').trim();
 }
 
-export function staleIndexResult(index: number, observationId: string): ActionResult {
+/**
+ * Elements of a read that carry the same name as the one an action could not use: the copy that is visible, the
+ * button the page rendered again. They are the candidates the refusal hands back, so the next call needs no guess.
+ */
+export function namedLike(chosen: DOMElementNode | undefined, state: BrowserState | null | undefined, max = 5): DOMElementNode[] {
+  const wanted = chosen ? elementLabel(chosen).toLowerCase() : '';
+  if (!wanted || !state) return [];
+  const chosenKey = elementKey(chosen!);
+  return [...state.selectorMap.values()]
+    .filter(node => elementLabel(node).toLowerCase() === wanted && (chosenKey === null || elementKey(node) !== chosenKey))
+    .slice(0, max);
+}
+
+export function staleIndexResult(index: number, observationId: string, candidates: DOMElementNode[] = []): ActionResult {
+  // The page has been read again since this was chosen and the element is gone from it, so there is nothing to
+  // retry: name the fix and hand back what is on the page now rather than only that the index is stale.
+  const fix = candidates.length > 0
+    ? ` Elements named like it on the current page: ${listElements(candidates)}.`
+    : ' If what you want is not in it, open the section, menu or dialog that holds it first.';
+  const msg = `[${index}] is not on the current page; the list below is current.${fix}`;
   return new ActionResult({
     executed: false,
     executionStatus: 'not_attempted',
     validated: 'unknown',
     retryability: 'retry_reobserve',
-    // The page has been read again since this was chosen and the element is gone from it, so there is nothing to
-    // retry: say what to do instead rather than only that the index is stale.
-    failureReason: `Element index ${index} is no longer on the page, which has been read again since you chose it. Use an index from the new element list; if what you want is not in it, open the section, menu or dialog that holds it first.`,
-    extractedContent: `Element index ${index} is no longer on the page; use an index from the new element list.`,
+    failureReason: msg,
+    extractedContent: msg,
     includeInMemory: true,
     observationId,
   });
@@ -472,7 +548,20 @@ function actionTargetFingerprint(actionArgs: unknown): TargetFingerprint | null 
  * clicked), or the site's connection failed. Online-Mind2Web: 3 of 39 tasks ended on three of these within seconds.
  */
 export function isPageSideError(message: string): boolean {
-  return /is covered by <|no visible area|net::ERR_(HTTP2_PROTOCOL_ERROR|CONNECTION_(RESET|CLOSED|REFUSED)|TIMED_OUT|EMPTY_RESPONSE|NETWORK_CHANGED)/i.test(message);
+  return /is covered by <|no visible area|still moving|net::ERR_(HTTP2_PROTOCOL_ERROR|CONNECTION_(RESET|CLOSED|REFUSED)|TIMED_OUT|EMPTY_RESPONSE|NETWORK_CHANGED)/i.test(message);
+}
+
+/**
+ * The guard that refused a dispatch, by the wording `page.ts` refuses it with, or null for any other failure: the
+ * name a trace needs to count how often each actionability check fires.
+ */
+export function dispatchGuard(message: string): string | null {
+  if (/is covered by/i.test(message)) return 'covered';
+  if (/no visible area/i.test(message)) return 'invisible';
+  if (/still moving/i.test(message)) return 'moving';
+  if (/is disabled/i.test(message)) return 'disabled';
+  if (/is read-only/i.test(message)) return 'read-only';
+  return isStaleElementError(message) ? 'stale-index' : null;
 }
 
 export function isStaleElementError(message: string): boolean {
@@ -494,6 +583,134 @@ const MUTATING_ACTIONS = new Set([
   'select_dropdown_option',
   'handle_dialog',
 ]);
+
+/** Words that carry no value of their own in a requirement ("under $50" is about the 50, not about "under"). */
+const GENERIC_CRITERION_WORDS = new Set(
+  ('a an the of in on for to by with and or at least most under over below above less more than between from up within per'
+    + ' max min maximum minimum price priced cost costs rating rated star stars review reviews sort sorted order ordered'
+    + ' lowest highest cheapest newest oldest best top first only filter filtered show showing results result item items'
+    + ' is are be no not with without').split(' '),
+);
+
+/** Lowercased words of a text; single letters are dropped, digits kept (a size, a year, an amount). */
+function criterionWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(new RegExp('[^\\p{L}\\p{N}]+', 'u'))
+    .filter(word => word.length > 1 || /\d/.test(word));
+}
+
+/**
+ * The pending requirements whose value a search query repeats, when the query also names what is searched for: a
+ * criterion typed into a search box is not an applied filter, and the results may hold anything (11% of the first
+ * divergences in one benchmark round were exactly this).
+ */
+export function requirementsInQuery(query: string, requirements: PlannerRequirement[]): PlannerRequirement[] {
+  const asked = new Set(criterionWords(query));
+  if (asked.size === 0) return [];
+  const carried = requirements.filter(
+    item => item.status === 'pending' && criterionWords(item.requirement).some(word => !GENERIC_CRITERION_WORDS.has(word) && asked.has(word)),
+  );
+  const fromRequirements = new Set(carried.flatMap(item => criterionWords(item.requirement)));
+  // A query that is nothing but the criterion is the search itself, not a criterion smuggled into one.
+  return [...asked].some(word => !fromRequirements.has(word)) ? carried : [];
+}
+
+/** Text typed into a field that offers suggestions, which the site has not taken yet. */
+export interface UncommittedField {
+  /** The field, by frame and node id. */
+  key: string;
+  label: string;
+  text: string;
+  /** The suggestions that came up for the text, as the page names them. */
+  options: string[];
+  /** The address the text was typed on; a parameter the site adds to it means it took the value. */
+  url: string;
+}
+
+/**
+ * Whether the site has taken the text typed into a suggestion field: a suggestion was chosen, the list is closed and
+ * the field now holds an option's text, or the address gained a parameter. Until then the field holds typed text
+ * only, which the site is free to ignore — the most common silent wrong-target failure in the benchmark.
+ */
+export function suggestionCommitted(entry: UncommittedField, state: BrowserState, clicked?: DOMElementNode): boolean {
+  const named = (text: string) => entry.options.some(option => option.toLowerCase() === text.trim().toLowerCase());
+  if (clicked && named(elementLabel(clicked))) return true;
+  const field = [...state.selectorMap.values()].find(node => elementKey(node) === entry.key);
+  if (field && field.attributes['aria-expanded'] !== 'true' && named(field.attributes.value ?? '')) return true;
+  try {
+    const before = new URL(entry.url).searchParams;
+    for (const [name, value] of new URL(state.url).searchParams) {
+      if (before.get(name) !== value) return true;
+    }
+  } catch {
+    // not a web address: the page state decides alone
+  }
+  return false;
+}
+
+/** Actions the loop detector counts by what they do rather than by their arguments. */
+const POINTING_TOOLS = new Set([...POINTER_ACTIONS, 'select_dropdown_option']);
+
+/** The words of a text, lowercased and sorted: two searches for the same thing in another order are one move. */
+function sortedWords(text: string): string {
+  return text
+    .toLowerCase()
+    .split(new RegExp('[^\\p{L}\\p{N}]+', 'u'))
+    .filter(Boolean)
+    .sort()
+    .join(' ');
+}
+
+/**
+ * One action as the loop detector reads it: what it does, not how it was written. A click or selection is its
+ * element's role and name (not its index, which changes with every read), a navigation is its host and path
+ * template, and typing or searching is the sorted words of its text. 94 of 157 repeated failures in one live run
+ * were the identical action on the identical index.
+ */
+export function actionSignature(actionName: string, actionArgs: unknown, node?: DOMElementNode): string {
+  const args = isObject(actionArgs) ? actionArgs : {};
+  const target = node ? `${node.attributes.role || node.tagName || ''} ${elementLabel(node).toLowerCase()}` : `#${args.index ?? ''}`;
+  if (POINTING_TOOLS.has(actionName)) {
+    return `${actionName}|${target}|${sortedWords(String(args.text ?? ''))}`;
+  }
+  if (actionName === 'input_text' || actionName === 'fill_form') {
+    return `${actionName}|${target}|${sortedWords(String(args.text ?? JSON.stringify(args.fields ?? '')))}`;
+  }
+  if (actionName === 'search_web' || actionName === 'find_in_page' || actionName === 'scroll_to_text') {
+    return `${actionName}|${sortedWords(String(args.query ?? args.text ?? args.find ?? ''))}`;
+  }
+  if (typeof args.url === 'string' || typeof args.target === 'string') {
+    const url = String(args.url ?? args.target ?? '');
+    return `${actionName}|${routeKey(url) ?? url}`;
+  }
+  const rest = { ...args };
+  for (const stamp of ['memory', 'observationId', 'targetFingerprint']) delete rest[stamp];
+  return `${actionName}|${JSON.stringify(rest)}`;
+}
+
+/** Actions the loop detector keeps in view; browser-use uses the same window. */
+export const LOOP_WINDOW = 20;
+
+/**
+ * What to tell the model when the same move keeps coming back, or the page has not changed over a run of actions:
+ * a hint at 5, a plain warning at 8, and at 12 the instruction to stop. Null at every other count, so each threshold
+ * is said once instead of on every step.
+ */
+export function loopNudge(repeats: number, stagnant: number): string | null {
+  if (repeats === 5 || (repeats < 5 && stagnant === 5)) {
+    return repeats === 5
+      ? `That is the same move ${repeats} times in your last ${LOOP_WINDOW} actions (the same element or the same address, whatever index it has now). If it were going to work it would have worked: try another way to the goal.`
+      : `The page has not changed over your last ${stagnant} actions. What you are doing is not moving the task: try another route.`;
+  }
+  if (repeats === 8 || (repeats < 8 && stagnant === 8)) {
+    return `${repeats === 8 ? `That is ${repeats} times for the same move` : `The page has not changed over your last ${stagnant} actions`}. Change the approach: another element, the site's own search or filters, get_complete_page_content with find, or another page.`;
+  }
+  if (repeats === 12 || (repeats < 12 && stagnant === 12)) {
+    return `${repeats === 12 ? `${repeats} times for the same move` : `${stagnant} actions without a change on the page`}. Stop repeating it: take a completely different route, or finish with done (success: false) and say plainly what blocks you.`;
+  }
+  return null;
+}
 
 export interface ValidateActionOutcomeInput {
   actionName: string;

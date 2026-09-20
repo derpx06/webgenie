@@ -13,7 +13,7 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
   };
 });
 
-import Page, { build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, normalizeKeyCombo, pointerTarget, settleSparseRead, toNativeInputValue, typingMethod } from '../page';
+import Page, { boxMoving, build_initial_state, coverBlocker, getAdaptiveDomRetryDelayMs, needsReload, normalizeKeyCombo, pointerTarget, settleSparseRead, toNativeInputValue, typingMethod } from '../page';
 import { DOMElementNode } from '../dom/views';
 import { URLNotAllowedError } from '../views';
 import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
@@ -157,6 +157,44 @@ describe('Page firewall', () => {
 
     await expect(page._updateState()).rejects.toBeInstanceOf(URLNotAllowedError);
     expect(goto).toHaveBeenCalledWith('about:blank');
+  });
+});
+
+describe('A navigation that met an error page', () => {
+  const navigating = (goto: ReturnType<typeof vi.fn>) => {
+    const page = new Page(1, 'https://ok.example/', 'OK', {}, { getTab: vi.fn().mockResolvedValue({ url: 'https://ok.example/' }) } as unknown as IBrowserAdapter);
+    const reload = vi.fn().mockResolvedValue(null);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      _puppeteerPage: { goto, reload, url: () => 'https://ok.example/' },
+      ensurePuppeteerConnected: async () => undefined,
+    });
+    return { page, reload };
+  };
+
+  it('is reloaded once on a 503 and on a transient network error, before the model reads the page', async () => {
+    const server = navigating(vi.fn().mockResolvedValue({ status: () => 503 }));
+    await server.page.navigateTo('https://ok.example/');
+    expect(server.reload).toHaveBeenCalledTimes(1);
+
+    const network = navigating(vi.fn().mockRejectedValue(new Error('net::ERR_CONNECTION_RESET at https://ok.example/')));
+    await network.page.navigateTo('https://ok.example/');
+    expect(network.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('is left alone when the page answered normally, and the error stands when the reload fails too', async () => {
+    const ok = navigating(vi.fn().mockResolvedValue({ status: () => 200 }));
+    await ok.page.navigateTo('https://ok.example/');
+    expect(ok.reload).not.toHaveBeenCalled();
+
+    const broken = navigating(vi.fn().mockRejectedValue(new Error('net::ERR_CONNECTION_RESET')));
+    broken.reload.mockRejectedValue(new Error('net::ERR_CONNECTION_RESET'));
+    await expect(broken.page.navigateTo('https://ok.example/')).rejects.toThrow('ERR_CONNECTION_RESET');
+  });
+
+  it('never retries an address that answers the same way twice', () => {
+    expect(needsReload(undefined, 'net::ERR_NAME_NOT_RESOLVED')).toBe(false);
+    expect(needsReload(404)).toBe(false);
+    expect(needsReload(429)).toBe(true);
   });
 });
 
@@ -347,6 +385,28 @@ describe('Page click that opens a tab', () => {
     expect(scrolledTo).toEqual([[0, 1406]]);
   });
 
+  it('is refused while the target is still moving, and the scroll is put back', async () => {
+    const adapter = { addTabCreatedListener: vi.fn(), removeTabCreatedListener: vi.fn() };
+    const { page, handle } = clickable(() => undefined, adapter);
+    const target = (await handle.evaluateHandle()).asElement() as { evaluate: ReturnType<typeof vi.fn> };
+    const scrolledTo: number[][] = [];
+    target.evaluate = vi.fn(async (fn: unknown, ...args: unknown[]) => {
+      if (String(fn).includes('scrollX')) return [0, 40];
+      if (String(fn).includes('scrollTo')) {
+        scrolledTo.push(args as number[]);
+        return undefined;
+      }
+      // coverBlocker passes; the box keeps moving from frame to frame.
+      return String(fn).includes('requestAnimationFrame') ? true : null;
+    });
+    Object.assign(page, { _requireHandle: vi.fn().mockResolvedValue(handle) });
+
+    await expect(
+      page.clickNode(new DOMElementNode({ tagName: 'button', xpath: null, attributes: {}, children: [], isVisible: true })),
+    ).rejects.toThrow('still moving');
+    expect(scrolledTo).toEqual([[0, 40]]);
+  });
+
   it('does not wait after a click that opened nothing', async () => {
     const adapter = { addTabCreatedListener: vi.fn(), removeTabCreatedListener: vi.fn() };
     const { page, handle } = clickable(() => undefined, adapter);
@@ -465,6 +525,35 @@ describe('pointerTarget', () => {
     const { control } = tree({ name: 'page', kids: [{ name: 'wrapper', kids: [{ name: 'control', control: true }] }] });
     // Returned unchanged: the caller then reports that the element has no visible area.
     expect(pointerTarget(control)).toBe(control);
+  });
+});
+
+describe('boxMoving', () => {
+  const element = (boxes: number[][]) => {
+    let read = 0;
+    return {
+      getBoundingClientRect: () => {
+        const [left, top, width, height] = boxes[Math.min(read++, boxes.length - 1)];
+        return { left, top, width, height };
+      },
+    } as unknown as Element;
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reports a box that moved between two frames', async () => {
+    vi.stubGlobal('requestAnimationFrame', (fn: () => void) => setTimeout(fn, 0));
+    await expect(boxMoving(element([[0, 100, 200, 30], [0, 140, 200, 30]]))).resolves.toBe(true);
+    await expect(boxMoving(element([[0, 100, 200, 30]]))).resolves.toBe(false);
+  });
+
+  it('counts a frame that never comes as still, so nothing is refused for want of an answer', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', () => undefined);
+    const moving = boxMoving(element([[0, 100, 200, 30]]));
+    await vi.advanceTimersByTimeAsync(300);
+    await expect(moving).resolves.toBe(false);
+    vi.useRealTimers();
   });
 });
 

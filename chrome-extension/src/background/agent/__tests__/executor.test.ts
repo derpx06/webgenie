@@ -256,6 +256,50 @@ describe("The user's personal data", () => {
     const h = await run('Sign me up for the newsletter on this page with my email jamie@example.com.', true);
     expect(h.browser.actions).toEqual([{ type: 'input', index: 0, text: 'jamie@example.com' }]);
   });
+
+  it('is entered without a model call when the user gave it and named the site themselves', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Sign up on news.test with jamie@example.com.',
+      pages: [article],
+      planner: Array(6).fill(planner),
+      navigator: [typeText(0, 'jamie@example.com'), done('Signed up')],
+    });
+    await settle(h.executor.execute());
+
+    expect(h.browser.actions).toEqual([{ type: 'input', index: 0, text: 'jamie@example.com' }]);
+    expect(h.llm.requests.some(request => request.tools.some(tool => tool.function.name === 'intent_check'))).toBe(false);
+  });
+
+  it('is put to the user once when the check refuses it a second time, instead of failing again', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone() : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'My email is jamie@example.com. What is the title of this article?',
+      pages: [article],
+      planner: Array(8).fill(planner),
+      navigator: [
+        typeText(0, 'jamie@example.com'),
+        call('intent_check', { asked: false }),
+        typeText(0, 'jamie@example.com'),
+        typeText(0, 'jamie@example.com'),
+        done('Entered'),
+      ],
+    });
+
+    const run = h.executor.execute();
+    await until(() => asks(h).length > 0);
+    expect(asks(h)[0].data.details).toContain('May I enter jamie@example.com on news.test?');
+    await h.executor.submitHumanResponse('yes');
+    await settle(run);
+
+    // Nothing was typed until the user said yes, and the check was asked of the model only once.
+    expect(h.browser.actions).toEqual([{ type: 'input', index: 0, text: 'jamie@example.com' }]);
+    expect(h.llm.requests.filter(request => request.tools.some(tool => tool.function.name === 'intent_check'))).toHaveLength(1);
+  });
 });
 
 describe('Addresses the model opens', () => {

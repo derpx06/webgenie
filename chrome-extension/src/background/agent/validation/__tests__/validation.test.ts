@@ -17,10 +17,17 @@ import {
   commitTarget,
   echoesActionResult,
   currentIndexFor,
+  dispatchGuard,
   isApproval,
+  isPageSideError,
   mayCommitThroughForm,
+  namedLike,
   normalizeIndexedAction,
+  requirementsInQuery,
   sameSite,
+  staleIndexResult,
+  suggestionCommitted,
+  taskNamesSite,
   urlKey,
   userPersonalData,
   validateActionOutcome,
@@ -716,5 +723,94 @@ describe('verification challenges', () => {
     expect(isChallengeQuestion('Could you please solve the CAPTCHA in the browser?')).toBe(true);
     expect(isChallengeQuestion('Which size do you want?')).toBe(false);
     expect(normalizeQuestion('Which colour,  do you want?')).toBe(normalizeQuestion('which colour do you want'));
+  });
+});
+
+describe('A site the user named themselves', () => {
+  it('is recognised by its host, its domain or its own label, whatever suffix it wears', () => {
+    expect(taskNamesSite('shop.michaels.com', 'Sign up for Michaels rewards with my email')).toBe(true);
+    expect(taskNamesSite('www.michaels.ca', 'order from michaels.com')).toBe(true);
+    expect(taskNamesSite('help.test', 'Tell me what help.test says')).toBe(true);
+  });
+
+  it('is not recognised from an email address or from a site the user never mentions', () => {
+    expect(taskNamesSite('example.com', 'My email is jamie@example.com. What does this article say?')).toBe(false);
+    expect(taskNamesSite('collect.test', 'Tell me what the FAQ says')).toBe(false);
+  });
+});
+
+describe('A criterion typed into a search box', () => {
+  const pending = (requirement: string) => ({ requirement, status: 'pending' as const });
+
+  it('is reported for every pending requirement whose value the query repeats', () => {
+    const carried = requirementsInQuery('red running shoes under 50', [pending('price under $50'), pending('colour red'), pending('free delivery')]);
+    expect(carried.map(item => item.requirement)).toEqual(['price under $50', 'colour red']);
+  });
+
+  it('is not reported for a requirement already applied, nor for a query that is only the criterion', () => {
+    expect(requirementsInQuery('red running shoes', [{ requirement: 'colour red', status: 'applied' }])).toEqual([]);
+    expect(requirementsInQuery('4 stars', [pending('rating 4 stars and up')])).toEqual([]);
+    expect(requirementsInQuery('running shoes', [pending('price under $50')])).toEqual([]);
+  });
+});
+
+describe('Text typed into a field that offers suggestions', () => {
+  const field = (attributes: Record<string, string>) => element(1, { attributes: { role: 'combobox', 'aria-label': 'City', ...attributes } });
+  const entry = { key: ':101', label: 'City', text: 'Paris', options: ['Paris, France', 'Paris, Texas'], url: 'https://travel.test/search' };
+  const page = (node: DOMElementNode, url = entry.url) => state({ selectorMap: new Map([[1, node]]), url });
+
+  it('counts as taken once a suggestion is chosen', () => {
+    const option = element(2, { attributes: { role: 'option', 'aria-label': 'Paris, France' } });
+    expect(suggestionCommitted(entry, page(field({})), option)).toBe(true);
+    expect(suggestionCommitted(entry, page(field({})), element(3, { attributes: { 'aria-label': 'Search' } }))).toBe(false);
+  });
+
+  it('counts as taken when the list closed on an option, or the address gained a parameter', () => {
+    expect(suggestionCommitted(entry, page(field({ 'aria-expanded': 'false', value: 'Paris, France' })))).toBe(true);
+    expect(suggestionCommitted(entry, page(field({ 'aria-expanded': 'true', value: 'Paris, France' })))).toBe(false);
+    expect(suggestionCommitted(entry, page(field({ value: 'Paris' }), 'https://travel.test/search?city=paris'))).toBe(true);
+  });
+
+  it('stays untaken while the field only holds what was typed', () => {
+    expect(suggestionCommitted(entry, page(field({ value: 'Paris' })))).toBe(false);
+  });
+});
+
+describe('An action refused before it is dispatched', () => {
+  it('names the fix and hands back the elements named like the one it could not use', () => {
+    const current = state({
+      selectorMap: new Map([
+        [2, element(2, { attributes: { 'aria-label': 'Apply filters' } })],
+        [3, element(3, { attributes: { 'aria-label': 'Reset' } })],
+      ]),
+    });
+    const chosen = element(9, { attributes: { 'aria-label': 'Apply filters' } });
+
+    const candidates = namedLike(chosen, current);
+    expect(candidates.map(node => node.highlightIndex)).toEqual([2]);
+
+    const refusal = staleIndexResult(9, 'obs-1', candidates);
+    expect(refusal.extractedContent).toContain('[9] is not on the current page; the list below is current.');
+    expect(refusal.extractedContent).toContain('Elements named like it on the current page: [2] "Apply filters"');
+    expect(refusal.executed).toBe(false);
+  });
+
+  it('leaves the fix general when nothing on the page carries that name', () => {
+    expect(namedLike(element(9, { attributes: { 'aria-label': 'Apply filters' } }), state())).toEqual([]);
+    expect(staleIndexResult(9, 'obs-1').extractedContent).toContain('open the section, menu or dialog that holds it first');
+  });
+
+  it('names the guard behind every actionability refusal, and lets the rest through', () => {
+    expect(dispatchGuard('The element is covered by <div> "Cookie choices"')).toBe('covered');
+    expect(dispatchGuard('The element has no visible area: it is hidden')).toBe('invisible');
+    expect(dispatchGuard('The element is still moving (an animation, a sliding panel or a list still loading).')).toBe('moving');
+    expect(dispatchGuard('The element is disabled: the page turns it on once')).toBe('disabled');
+    expect(dispatchGuard('The field is read-only: the page fills it through its own control')).toBe('read-only');
+    expect(dispatchGuard('That element is no longer available: the page replaced it')).toBe('stale-index');
+    expect(dispatchGuard('net::ERR_CONNECTION_RESET')).toBeNull();
+  });
+
+  it("counts a target that will not hold still as the page's doing, not the agent's", () => {
+    expect(isPageSideError('The element is still moving (an animation, a sliding panel or a list still loading).')).toBe(true);
   });
 });

@@ -25,6 +25,7 @@ import type {
   PlannerRequirement,
   ValidatedProgressRecord,
 } from './contracts/types';
+import type { UncommittedField } from './validation/service';
 import type { TaskCheckpointStore } from './contracts/checkpoint';
 import type { TraceStore } from './contracts/trace';
 
@@ -120,6 +121,8 @@ export class AgentContext {
   declinedCommitKeys = new Set<string>();
   /** Page-blind decisions on whether the user's request asks for an action (entering personal data, opening an address). */
   intentDecisions = new Map<string, boolean>();
+  /** Intent checks already refused once; the second time the question goes to the user instead of refusing again. */
+  intentRefusals = new Set<string>();
   /** Pages this task has been on (host and path), so going back to one needs no check. */
   visitedUrls = new Set<string>();
   /** Passwords from the user's answers by placeholder, with the host they were given on; never sent to a model. */
@@ -132,10 +135,18 @@ export class AgentContext {
   typedValues = new Map<string, string>();
   /** Overwrites of a field this task filled that were refused once (field key and new text); a repeat goes through. */
   overwriteChecked = new Set<string>();
+  /** Text typed into a suggestion field that the site has not taken yet (no suggestion chosen, no parameter gained). */
+  uncommittedField: UncommittedField | null = null;
   /** Refusals by action (name and arguments, memory aside): a model that repeats a refused action gets told plainly. */
   refusedActions = new Map<string, number>();
   /** Executed actions by name, page address before it and arguments: a model repeating one gets told from the third time. */
   actionRepeats = new Map<string, number>();
+  /** The last executed actions as the loop detector reads them (element role and name, path template, sorted words). */
+  recentActions: string[] = [];
+  /** Executed actions in a row that changed nothing on the page. */
+  stagnantActions = 0;
+  /** The action that just failed and why, so an identical retry looks at the current page first. */
+  lastFailedAction: { key: string; reason: string } | null = null;
   /** Addresses opened with go_to_url or open_tab this task and how often; a fourth open of one is refused. */
   openedAddresses = new Map<string, number>();
   /** Entries of a list in the task that every value typed since the last other action comes from, and those values. */
@@ -160,6 +171,8 @@ export class AgentContext {
   leavingAppliedChecked = false;
   /** A completion reporting absence was sent back once to read the page first; once per task. */
   absenceChecked = false;
+  /** An answer reporting that the site blocked the agent was checked against the current page; once per task. */
+  blockedAnswerChecked = false;
   /**
    * One model call that fills what `extract` could not parse off the page, installed by the navigator: it takes the
    * caller's JSON Schema and the page text and returns whatever the model could read.

@@ -85,8 +85,35 @@ describe('Fields with suggestions', () => {
     // The suggestions stop the batch: the click on Search waits.
     expect(h.browser.actions.map(action => action.type)).toEqual(['input']);
     const text = sent();
-    expect(text).toContain('Suggestions: [2] "Paris, France", [3] "Paris, Texas". Click the one that matches instead of pressing Enter');
+    expect(text).toContain('Suggestions: [2] "Paris, France", [3] "Paris, Texas". The field holds typed text until you choose one: click the suggestion that matches instead of pressing Enter');
     expect(text).toContain('The page answered the typing with: "Please select a city from the suggestions"');
+  });
+
+  it('treat a field with aria-autocomplete as one, and say the typed text is not taken until a suggestion is chosen', async () => {
+    const field = { tag: 'input', attributes: { 'aria-autocomplete': 'list', 'aria-label': 'City' } };
+    const options = [
+      { tag: 'li', text: 'Paris, France', attributes: { role: 'option' } },
+      { tag: 'li', text: 'Paris, Texas', attributes: { role: 'option' } },
+    ];
+    const suggested = { url, title: 'Travel', elements: [field, search, ...options] };
+    const { sent } = await run(
+      [{ url, title: 'Travel', elements: [field, search] }, suggested, { url, title: 'Results', elements: [search] }],
+      [[typeText(0, 'Paris')], [click(1)], done('Searched')],
+    );
+
+    const text = sent();
+    expect(text).toContain('The field holds typed text until you choose one');
+    expect(text).toContain('The field "City" still holds "Paris" as typed text: no suggestion was chosen');
+  });
+
+  it('report what the field holds when the page changed the typed value', async () => {
+    const field = (value?: string) => ({ tag: 'input', attributes: { role: 'combobox', 'aria-label': 'City', ...(value ? { value } : {}) } });
+    const { sent } = await run(
+      [{ url, title: 'Travel', elements: [field()] }, { url, title: 'Travel', elements: [field('Paris, France')] }],
+      [typeText(0, 'Paris'), done('Typed')],
+    );
+
+    expect(sent()).toContain('The field now holds "Paris, France", not "Paris" as typed');
   });
 
   it('say when no suggestions appeared', async () => {
@@ -94,6 +121,34 @@ describe('Fields with suggestions', () => {
     const { sent } = await run([page, page], [typeText(0, 'Xyzzy'), done('Typed')]);
 
     expect(sent()).toContain('No suggestions appeared for this text.');
+  });
+});
+
+describe('A search that carries a criterion of the task', () => {
+  it('is told the requirement is still pending and belongs in the site\'s filter', async () => {
+    const url = 'https://shop.test/';
+    const box = { tag: 'input', attributes: { type: 'search', 'aria-label': 'Search' } };
+    const planner: Script[] = Array(12).fill(
+      plan({
+        macro_objective: 'SEARCH',
+        next_goal: 'Search for the shoes',
+        requirements: [{ requirement: 'price under $50', status: 'pending' }],
+      }),
+    );
+    const h = createHarness({
+      task: 'Find running shoes under $50',
+      pages: [{ url, title: 'Shop', elements: [box] }, { url: `${url}?q=shoes`, title: 'Results', elements: [box] }],
+      planner,
+      navigator: [call('input_text', { index: 0, text: 'running shoes under 50', submit: true }), done('Searched')],
+    });
+    const execution = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0);
+    await h.executor.cancel();
+    await settle(execution);
+
+    const sent = h.llm.requestsFor('navigator').map(request => textOf(request.messages)).join('\n');
+    expect(sent).toContain('The search text carries "price under $50", which is still pending');
+    expect(sent).toContain("Apply it with the site's own filter or sort control");
   });
 });
 
@@ -227,6 +282,24 @@ describe('Verification challenges', () => {
   });
 });
 
+describe('A page that refuses the visitor', () => {
+  const home = { url: 'https://shop.test/', title: 'Shop', elements: [{ tag: 'a', text: 'Deals' }] };
+  const refused = { url: 'https://shop.test/deals', title: 'Access Denied', text: ['You don\'t have permission to access this resource.'] };
+
+  it('is reported the moment a navigation lands on it, not only at the end of the task', async () => {
+    const { sent } = await run([home, refused, refused], [click(0), done('Blocked', false)]);
+
+    expect(sent()).toContain('The page now refuses access ("Access Denied")');
+  });
+
+  it('does not end the task when the page in front of the agent shows no block any more', async () => {
+    const { h, sent } = await run([home, home], [done('The site blocked me with a CAPTCHA', false), done('Deals are listed')]);
+
+    expect(sent()).toContain('Not done: the page in front of you shows no block or verification challenge any more');
+    expect(h.llm.remaining('navigator')).toBe(0);
+  });
+});
+
 describe('Questions to the user', () => {
   it('are not asked again once answered', async () => {
     const { h, sent } = await run(
@@ -265,6 +338,6 @@ describe('An element the cached read has lost', () => {
     await settle(execution);
 
     expect(h.browser.actions.map(action => action.type)).toContain('click');
-    expect(h.llm.requestsFor('navigator').map(request => textOf(request.messages)).join('\n')).not.toContain('is no longer on the page');
+    expect(h.llm.requestsFor('navigator').map(request => textOf(request.messages)).join('\n')).not.toContain('is not on the current page');
   });
 });
