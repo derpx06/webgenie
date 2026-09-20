@@ -153,21 +153,68 @@ const cooldownUntil = new Map<string, number>();
 export const NO_HEDGE_AFTER_RATE_LIMIT_MS = 60_000;
 const rateLimitedAt = new Map<string, number>();
 
-/** A wait the provider asked for: Google's retryDelay ("30s") or a Retry-After value in seconds. */
+/**
+ * The response headers an error carries, however the adapter wrapped them (a `Headers` object, a plain object, on the
+ * error, its response or its cause). Lower-cased, so a caller reads one spelling.
+ */
+export function errorHeaders(error: unknown): Record<string, string> {
+  const source = error as { headers?: unknown; response?: { headers?: unknown }; cause?: { headers?: unknown } } | null;
+  for (const raw of [source?.headers, source?.response?.headers, source?.cause?.headers]) {
+    if (!raw || typeof raw !== 'object') continue;
+    const headers: Record<string, string> = {};
+    if (typeof (raw as Headers).forEach === 'function' && typeof (raw as Headers).get === 'function') {
+      (raw as Headers).forEach((value, key) => {
+        headers[key.toLowerCase()] = String(value);
+      });
+    } else {
+      for (const [key, value] of Object.entries(raw as Record<string, unknown>)) headers[key.toLowerCase()] = String(value);
+    }
+    if (Object.keys(headers).length > 0) return headers;
+  }
+  return {};
+}
+
+/**
+ * A wait the provider asked for, from the error object first: OpenAI and Anthropic send `retry-after` as a header and
+ * only the header is authoritative, while Gemini puts a `retryDelay` in the body and Vertex sends nothing at all.
+ * Falls back to the message text, which is where these values landed before adapters passed the headers through.
+ */
 export function retryDelayHint(error: unknown): number | null {
+  const header = errorHeaders(error)['retry-after'];
+  if (header !== undefined) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+    // HTTP-date form: what matters is how long from now.
+    const at = Date.parse(header);
+    if (!Number.isNaN(at)) return Math.max(0, at - Date.now());
+  }
   const text = error instanceof Error ? `${error.message} ${JSON.stringify((error as { cause?: unknown }).cause ?? '')}` : String(error);
   const google = /retryDelay\\?"?\s*:\s*\\?"(\d+(?:\.\d+)?)s/.exec(text);
   if (google) return Math.round(Number(google[1]) * 1000);
-  const header = /retry-after\\?"?\s*[:=]\s*\\?"?(\d+)/i.exec(text);
-  return header ? Number(header[1]) * 1000 : null;
+  const inText = /retry-after\\?"?\s*[:=]\s*\\?"?(\d+)/i.exec(text);
+  return inText ? Number(inText[1]) * 1000 : null;
 }
 
-/** The wait before rate-limit retry `attempt` (0-based): the provider's hint, else exponential backoff with jitter. */
+/** The request rate this provider says it allows, per minute, when it sends one; null when it does not. */
+export function rateLimitHint(error: unknown): number | null {
+  const headers = errorHeaders(error);
+  for (const name of ['x-ratelimit-limit-requests', 'anthropic-ratelimit-requests-limit', 'ratelimit-limit']) {
+    const value = Number(headers[name]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+/**
+ * The wait before rate-limit retry `attempt` (0-based): the provider's hint, else exponential backoff with **full**
+ * jitter, `rand(0, ceiling)`. AWS measured every jittered variant against 100 contending clients: full jitter finished
+ * first, and equal jitter — half the ceiling plus a random half, which this was — was "significantly slower".
+ */
 export function rateLimitDelayMs(error: unknown, attempt: number, random: () => number = Math.random): number {
   const hint = retryDelayHint(error);
   if (hint !== null) return Math.min(hint, 30_000);
   const ceiling = Math.min(30_000, 2_000 * 3 ** attempt);
-  return Math.round(ceiling / 2 + random() * (ceiling / 2));
+  return Math.round(random() * ceiling);
 }
 const DEFAULT_MAX_REASKS = 2;
 

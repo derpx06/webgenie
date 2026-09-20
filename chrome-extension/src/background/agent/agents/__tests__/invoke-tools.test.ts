@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { invokeLLM, invokeTools, isToolsUnsupportedError, rateLimitDelayMs, readFinish, retryDelayHint } from '../base';
+import { errorHeaders, invokeLLM, invokeTools, isToolsUnsupportedError, rateLimitDelayMs, rateLimitHint, readFinish, retryDelayHint } from '../base';
 import { isAbortedError, isQuotaExhaustedError, isRateLimitError, ResponseParseError } from '../errors';
 import type { ToolDefinition } from '../../actions/builder';
 
@@ -179,15 +179,49 @@ describe('slow calls', () => {
 });
 
 describe('rate limits and quotas', () => {
-  it("waits as long as the provider asks, capped at 30 s, and otherwise backs off with jitter", () => {
+  it("waits as long as the provider asks, capped at 30 s, and otherwise backs off with full jitter", () => {
     expect(retryDelayHint(new Error('429 {"error":{"details":[{"retryDelay":"12s"}]}}'))).toBe(12_000);
     expect(retryDelayHint(new Error('429 Too Many Requests; Retry-After: 7'))).toBe(7_000);
     expect(retryDelayHint(new Error('429 Resource exhausted'))).toBeNull();
     expect(rateLimitDelayMs(new Error('429 {"retryDelay":"90s"}'), 0)).toBe(30_000);
-    expect(rateLimitDelayMs(new Error('429'), 0, () => 0)).toBe(1_000);
+    // Full jitter: the whole range from 0 to the ceiling, which AWS measured as the fastest of the jittered variants.
+    expect(rateLimitDelayMs(new Error('429'), 0, () => 0)).toBe(0);
     expect(rateLimitDelayMs(new Error('429'), 0, () => 1)).toBe(2_000);
-    expect(rateLimitDelayMs(new Error('429'), 3, () => 0)).toBe(15_000);
+    expect(rateLimitDelayMs(new Error('429'), 3, () => 0.5)).toBe(15_000);
     expect(rateLimitDelayMs(new Error('429'), 5, () => 1)).toBe(30_000);
+  });
+
+  /**
+   * OpenAI and Anthropic answer a refusal with `retry-after` and their remaining-capacity headers, and their docs say
+   * a retry before that time "will fail" and still spends quota. The value is on the error object, not in its message.
+   */
+  it('reads the wait and the allowed rate off the error, whatever shape the adapter wrapped them in', () => {
+    const withHeaders = Object.assign(new Error('429 Too Many Requests'), {
+      headers: { 'Retry-After': '9', 'X-RateLimit-Limit-Requests': '120' },
+    });
+    expect(retryDelayHint(withHeaders)).toBe(9_000);
+    expect(rateLimitHint(withHeaders)).toBe(120);
+
+    const onResponse = Object.assign(new Error('429'), {
+      response: { headers: new Headers({ 'retry-after': '3', 'anthropic-ratelimit-requests-limit': '50' }) },
+    });
+    expect(retryDelayHint(onResponse)).toBe(3_000);
+    expect(rateLimitHint(onResponse)).toBe(50);
+
+    // A header beats the message text, and an absent one falls back to it.
+    expect(retryDelayHint(Object.assign(new Error('Retry-After: 30'), { headers: { 'retry-after': '2' } }))).toBe(2_000);
+    expect(rateLimitHint(new Error('429 Resource exhausted'))).toBeNull();
+    expect(errorHeaders(new Error('plain'))).toEqual({});
+  });
+
+  it('never retries a spend cap, which no wait can clear', async () => {
+    const capped = new Error('429 rate_limit_error: enforced spending limit reached for this organization');
+    expect(isQuotaExhaustedError(capped)).toBe(true);
+    expect(isRateLimitError(capped)).toBe(false);
+
+    const { chatModel, stub } = stubModel([() => Promise.reject(capped), new AIMessage({ content: 'never' })]);
+    await expect(invokeLLM(chatModel, packet, { component: 'test', rateLimitDelaysMs: [1, 1] })).rejects.toThrow('spending limit');
+    expect(stub.invoke).toHaveBeenCalledTimes(1);
   });
 
   it('treats a spent billing or daily quota as final, and a per-minute limit as a rate limit', async () => {

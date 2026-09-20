@@ -220,10 +220,14 @@ export function isRateLimitError(error: unknown): boolean {
   return /\b429\b|too many requests|rate.?limit|resource.?exhausted|quota/.test(msg);
 }
 
-/** A spent billing or daily quota: waiting will not help, so the task ends with the provider's message. */
+/**
+ * A spent billing or daily quota, or a spend cap the account set: waiting will not help, so the task ends with the
+ * provider's message instead of retrying. A spend-cap refusal arrives as a 429 like any other rate limit and carries
+ * no retry hint, so it has to be recognised by what it says.
+ */
 export function isQuotaExhaustedError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  return /exceeded your current quota|insufficient_quota|billing|per.?day|daily (limit|quota)|quota exceeded for .*per day/i.test(error.message);
+  return /exceeded your current quota|insufficient_quota|billing|per.?day|daily (limit|quota)|quota exceeded for .*per day|spend(ing)?[ _-]?(limit|cap)|credit balance is too low/i.test(error.message);
 }
 
 /**
