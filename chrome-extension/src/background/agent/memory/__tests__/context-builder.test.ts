@@ -84,7 +84,7 @@ describe('ContextBuilder packets', () => {
 
   const addTurns = (messageManager: MessageManager, from: number, to: number) => {
     for (let i = from; i <= to; i++) {
-      messageManager.addToolTurn([call(`c${i}`, 'scroll_to_text', { text: `t${i}` })], [new ActionResult({ extractedContent: `result ${i}` })]);
+      messageManager.addToolTurn([call(`c${i}`, 'scroll', { text: `t${i}` })], [new ActionResult({ extractedContent: `result ${i}` })]);
     }
   };
 
@@ -97,7 +97,7 @@ describe('ContextBuilder packets', () => {
 
     expect(toolCallIds(packet)).toEqual(['c9', 'c10', 'c11', 'c12']);
     expect(finalMessage).toContain('[Earlier steps]');
-    expect(finalMessage).toContain('scroll_to_text {"text":"t1"} → result 1');
+    expect(finalMessage).toContain('scroll {"text":"t1"} → result 1');
     expect(finalMessage).toContain('(memory: memory c8)');
     expect(finalMessage).not.toContain('result 9');
     expect(finalMessage.endsWith('browser state 1')).toBe(true);

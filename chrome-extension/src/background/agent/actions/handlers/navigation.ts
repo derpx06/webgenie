@@ -1,5 +1,5 @@
 import { ActionResult } from '@src/background/agent/types';
-import type { searchWebActionSchema, goToUrlActionSchema, waitActionSchema, waitForActionSchema } from '../schemas';
+import type { searchWebActionSchema, goToUrlActionSchema, goBackActionSchema, waitForActionSchema } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
@@ -60,41 +60,50 @@ export class NavigationHandler extends BaseHandler {
     });
   }
 
+  /** Opens an address, in this tab or in a new one that becomes the current tab. */
   async handleGoToUrl(input: z.infer<typeof goToUrlActionSchema.schema>): Promise<ActionResult> {
-    const intent = t('act_goToUrl_start', [input.url]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+    const url = input.url.trim();
+    const newTab = input.new_tab === true;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t(newTab ? 'act_openTab_start' : 'act_goToUrl_start', [url]));
+    if (newTab && (!url || url.toLowerCase().startsWith('chrome://'))) {
+      const error = `go_to_url opens web addresses only; "${url}" cannot be opened. Open an https:// address, or use search_web to search.`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, error);
+      return new ActionResult({ error, includeInMemory: true });
+    }
 
-    await this.context.browserContext.navigateTo(input.url);
-    const msg = t('act_goToUrl_ok', [input.url]);
+    if (newTab) {
+      const page = await this.context.browserContext.openTab(url);
+      const msg = t('act_openTab_ok', [url]);
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+      return new ActionResult({
+        extractedContent: `${msg} in new tab ${page.tabId}, now the current tab.${redirectNote(url, page.url())}`,
+        includeInMemory: true,
+      });
+    }
+
+    await this.context.browserContext.navigateTo(url);
+    const msg = t('act_goToUrl_ok', [url]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     const landed = await this.context.browserContext.getCurrentPage().then(page => page.url(), () => '');
     return new ActionResult({
-      extractedContent: `${msg}${redirectNote(input.url, landed)}`,
+      extractedContent: `${msg}${redirectNote(url, landed)}`,
       includeInMemory: true,
     });
   }
 
-  async handleGoBack(): Promise<ActionResult> {
-    const intent = t('act_goBack_start');
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-
+  /** One step through the tab's history, back by default and forward after a go_back. */
+  async handleGoBack(input: z.infer<typeof goBackActionSchema.schema>): Promise<ActionResult> {
+    const forward = input?.forward === true;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t(forward ? 'act_goForward_start' : 'act_goBack_start'));
     const page = await this.context.browserContext.getCurrentPage();
-    await page.goBack();
-    const msg = t('act_goBack_ok');
+    if (forward) await page.goForward();
+    else await page.goBack();
+    const msg = t(forward ? 'act_goForward_ok' : 'act_goBack_ok');
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     return new ActionResult({
       extractedContent: msg,
       includeInMemory: true,
     });
-  }
-
-  async handleGoForward(): Promise<ActionResult> {
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_goForward_start'));
-    const page = await this.context.browserContext.getCurrentPage();
-    await page.goForward();
-    const msg = t('act_goForward_ok');
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }
 
   /** Sleeps, and returns early when the task is cancelled. */
@@ -109,28 +118,21 @@ export class NavigationHandler extends BaseHandler {
     });
   }
 
-  /** A fixed wait for nothing in particular; cancelling ends it. Anything nameable goes through wait_for. */
-  async handleWait(input: z.infer<typeof waitActionSchema.schema>): Promise<ActionResult> {
-    const seconds = Math.min(Math.max(input.seconds ?? 3, 1), 10);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t('act_wait_start', [seconds.toString()]));
-    await this.sleep(seconds * 1000);
-    const msg = `${t('act_wait_ok', [seconds.toString()])} Nothing was checked: wait_for names what you are waiting for and returns as soon as it happens.`;
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    return new ActionResult({ extractedContent: msg, includeInMemory: true });
-  }
-
   /**
    * Waits for a named condition and returns as soon as it holds. Blind waits were 107 wasted steps across the reviewed
    * tasks, and a `text_gone` that resolved instantly was read as proof a blocker had cleared, so a condition that was
    * already true when the wait started says so instead of reporting a wait.
    */
   async handleWaitFor(input: z.infer<typeof waitForActionSchema.schema>): Promise<ActionResult> {
-    const seconds = Math.min(Math.max(input.seconds ?? 10, 1), 30);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Waiting for ${input.condition}`);
+    // A wait with nothing named is a wait for the page to stop loading, and it returns the moment it has: a blind
+    // sleep spent its whole budget every time (0 of 63 returned early in the r3 run, median 3.00 s).
+    const condition = input.condition ?? 'network_idle';
+    const seconds = Math.min(Math.max(input.seconds ?? (input.condition ? 10 : 3), 1), 30);
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Waiting for ${condition}`);
     const page = await this.context.browserContext.getCurrentPage();
 
     let wanted = input.text?.trim() ?? '';
-    if (input.condition === 'element_gone') {
+    if (condition === 'element_gone') {
       const node = input.index === undefined ? undefined : (await this.context.browserContext.getCachedState()).selectorMap.get(input.index);
       const label = node ? (node.getAllTextTillNextClickableElement(2) || node.attributes['aria-label'] || '').replace(/\s+/g, ' ').trim() : '';
       if (!label) {
@@ -143,7 +145,7 @@ export class NavigationHandler extends BaseHandler {
       wanted = label;
     }
 
-    if (input.condition === 'network_idle') {
+    if (condition === 'network_idle') {
       await Promise.race([this.context.browserContext.waitForPageAndFramesLoad(), this.sleep(seconds * 1000)]);
       const msg = 'The page and its frames finished loading. If what you expect is still missing, it is drawn after loading: wait_for the text itself.';
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
@@ -151,13 +153,13 @@ export class NavigationHandler extends BaseHandler {
     }
 
     if (!wanted) {
-      const msg = `Not waited: ${input.condition} needs the text to wait for.`;
+      const msg = `Not waited: ${condition} needs the text to wait for.`;
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
       return new ActionResult({ error: msg, includeInMemory: true });
     }
 
-    const gone = input.condition !== 'text';
-    const what = input.condition === 'element_gone' ? `[${input.index}] "${wanted}"` : `"${wanted}"`;
+    const gone = condition !== 'text';
+    const what = condition === 'element_gone' ? `[${input.index}] "${wanted}"` : `"${wanted}"`;
     const signal = this.context.controller.signal;
     const startedAt = Date.now();
     let msg: string;

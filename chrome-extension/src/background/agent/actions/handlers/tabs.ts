@@ -1,44 +1,25 @@
 import { ActionResult } from '@src/background/agent/types';
-import type { switchTabActionSchema, openTabActionSchema, closeTabActionSchema } from '../schemas';
+import type { switchTabActionSchema } from '../schemas';
 import type { z } from 'zod';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
-import { redirectNote } from './navigation';
 
 export class TabHandler extends BaseHandler {
+  /** One verb for the tab list the state already shows: switch to a tab, or close it. */
   async handleSwitchTab(input: z.infer<typeof switchTabActionSchema.schema>): Promise<ActionResult> {
-    const intent = t('act_switchTab_start', [input.tab_id.toString()]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+    const id = input.tab_id;
+    const close = input.action === 'close';
+    this.context.emitEvent(
+      Actors.NAVIGATOR,
+      ExecutionState.ACT_START,
+      t(close ? 'act_closeTab_start' : 'act_switchTab_start', [id.toString()]),
+    );
 
-    await this.context.browserContext.switchTab(input.tab_id);
-    const msg = t('act_switchTab_ok', [input.tab_id.toString()]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    return new ActionResult({ extractedContent: msg, includeInMemory: true });
-  }
+    if (close) await this.context.browserContext.closeTab(id);
+    else await this.context.browserContext.switchTab(id);
 
-  async handleOpenTab(input: z.infer<typeof openTabActionSchema.schema>): Promise<ActionResult> {
-    const url = input.url.trim();
-    const intent = t('act_openTab_start', [url]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-    if (!url || url.toLowerCase().startsWith('chrome://')) {
-      const error = `open_tab opens web addresses only; "${url}" cannot be opened. Open an https:// address, or use search_web to search.`;
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, error);
-      return new ActionResult({ error, includeInMemory: true });
-    }
-
-    const page = await this.context.browserContext.openTab(url);
-    const msg = t('act_openTab_ok', [url]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-    return new ActionResult({ extractedContent: `${msg} in new tab ${page.tabId}, now the current tab.${redirectNote(url, page.url())}`, includeInMemory: true });
-  }
-
-  async handleCloseTab(input: z.infer<typeof closeTabActionSchema.schema>): Promise<ActionResult> {
-    const intent = t('act_closeTab_start', [input.tab_id.toString()]);
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-
-    await this.context.browserContext.closeTab(input.tab_id);
-    const msg = t('act_closeTab_ok', [input.tab_id.toString()]);
+    const msg = t(close ? 'act_closeTab_ok' : 'act_switchTab_ok', [id.toString()]);
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     return new ActionResult({ extractedContent: msg, includeInMemory: true });
   }

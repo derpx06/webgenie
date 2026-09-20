@@ -130,7 +130,7 @@ export class AgentContext {
   refusedActions = new Map<string, number>();
   /** Executed actions by name, page address before it and arguments: a model repeating one gets told from the third time. */
   actionRepeats = new Map<string, number>();
-  /** Addresses opened with go_to_url or open_tab this task and how often; a fourth open of one is refused. */
+  /** Addresses opened with go_to_url this task and how often; a fourth open of one is refused. */
   openedAddresses = new Map<string, number>();
   /** Entries of a list in the task that every value typed since the last other action comes from, and those values. */
   entryCandidates: { entries: Array<{ index: number; text: string }>; values: string[]; url: string } | null = null;
@@ -159,7 +159,7 @@ export class AgentContext {
    * caller's JSON Schema and the page text and returns whatever the model could read.
    */
   extractWithModel?: (schema: Record<string, unknown>, text: string) => Promise<unknown>;
-  /** The last page read (read_page, find_in_page, extract or get_complete_page_content) and the address it was read on. */
+  /** The last page read (read_page, find_in_page or extract) and the address it was read on. */
   pageRead: { url: string; text: string } | null = null;
   /** The page read shown to the models this step; element indexes in their actions refer to it. */
   promptState?: BrowserState;

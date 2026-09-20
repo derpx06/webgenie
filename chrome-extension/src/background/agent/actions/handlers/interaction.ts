@@ -1,12 +1,9 @@
 import { ActionResult } from '@src/background/agent/types';
 import type {
   clickElementActionSchema,
-  dragElementActionSchema,
   fillFormActionSchema,
   handleDialogActionSchema,
-  hoverElementActionSchema,
   inputTextActionSchema,
-  rightClickElementActionSchema,
   selectDropdownOptionActionSchema,
   uploadFileActionSchema,
 } from '../schemas';
@@ -81,7 +78,27 @@ export class InteractionHandler extends BaseHandler {
     return new ActionResult({ extractedContent: ownAction(`You ${verb} [${index}] "${describe(node)}"`) + extra, includeInMemory: true });
   }
 
+  /** One pointer verb: a click, or the gesture an option names (double, right, hover, drag and drop). */
   async handleClickElement(input: z.infer<typeof clickElementActionSchema.schema>): Promise<ActionResult> {
+    if (input.drop_on !== undefined) return this.dragOnto(input.index, input.drop_on);
+    if (input.hover) {
+      return this.pointerAction(
+        input.index,
+        `Hovering over element ${input.index}`,
+        (page, node) => page.hoverNode(node),
+        node => `Hovered over element ${input.index}: ${describe(node)}`,
+        'hovered over',
+      );
+    }
+    if (input.right) {
+      return this.pointerAction(
+        input.index,
+        `Right clicking element ${input.index}`,
+        (page, node) => page.rightClickNode(node),
+        node => `Right clicked element ${input.index}: ${describe(node)}`,
+        'right-clicked',
+      );
+    }
     return this.pointerAction(
       input.index,
       t('act_click_start', [input.index.toString()]),
@@ -112,35 +129,15 @@ export class InteractionHandler extends BaseHandler {
     });
   }
 
-  async handleHoverElement(input: z.infer<typeof hoverElementActionSchema.schema>): Promise<ActionResult> {
-    return this.pointerAction(
-      input.index,
-      `Hovering over element ${input.index}`,
-      (page, node) => page.hoverNode(node),
-      node => `Hovered over element ${input.index}: ${describe(node)}`,
-      'hovered over',
-    );
-  }
-
-  async handleRightClickElement(input: z.infer<typeof rightClickElementActionSchema.schema>): Promise<ActionResult> {
-    return this.pointerAction(
-      input.index,
-      `Right clicking element ${input.index}`,
-      (page, node) => page.rightClickNode(node),
-      node => `Right clicked element ${input.index}: ${describe(node)}`,
-      'right-clicked',
-    );
-  }
-
-  async handleDragElement(input: z.infer<typeof dragElementActionSchema.schema>): Promise<ActionResult> {
-    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Dragging element ${input.index} onto ${input.target_index}`);
-    const { page, node } = await this.resolveIndex(input.index);
-    const { node: target } = await this.resolveIndex(input.target_index);
+  private async dragOnto(index: number, targetIndex: number): Promise<ActionResult> {
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, `Dragging element ${index} onto ${targetIndex}`);
+    const { page, node } = await this.resolveIndex(index);
+    const { node: target } = await this.resolveIndex(targetIndex);
     await page.dragNode(node, target);
-    const msg = `Dragged element ${input.index} (${describe(node)}) onto element ${input.target_index} (${describe(target)})`;
+    const msg = `Dragged element ${index} (${describe(node)}) onto element ${targetIndex} (${describe(target)})`;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     return new ActionResult({
-      extractedContent: ownAction(`You dragged [${input.index}] "${describe(node)}" onto [${input.target_index}] "${describe(target)}"`),
+      extractedContent: ownAction(`You dragged [${index}] "${describe(node)}" onto [${targetIndex}] "${describe(target)}"`),
       includeInMemory: true,
     });
   }

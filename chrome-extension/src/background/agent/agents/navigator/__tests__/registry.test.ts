@@ -30,7 +30,7 @@ describe('NavigatorActionRegistry tools', () => {
     const names = (enabled: boolean) => defaultRegistry(enabled).getTools().map(tool => tool.function.name);
 
     expect(names(false).filter(name => name.startsWith('manage_'))).toEqual([]);
-    expect(names(false)).toEqual(expect.arrayContaining(['scroll', 'go_forward', 'save_findings', 'send_keys', 'input_text']));
+    expect(names(false)).toEqual(expect.arrayContaining(['scroll', 'go_back', 'save_findings', 'send_keys', 'input_text']));
     expect(names(false)).not.toEqual(expect.arrayContaining(['search_google']));
     expect(names(true).filter(name => name.startsWith('manage_'))).toHaveLength(10);
   });

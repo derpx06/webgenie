@@ -170,12 +170,30 @@ export interface PageSpec {
 }
 
 export interface BrowserAction {
-  type: 'click' | 'double_click' | 'hover' | 'right_click' | 'input' | 'send_keys' | 'navigate' | 'go_back' | 'upload' | 'scroll_to_text';
+  type:
+    | 'click'
+    | 'double_click'
+    | 'hover'
+    | 'right_click'
+    | 'drag'
+    | 'input'
+    | 'send_keys'
+    | 'navigate'
+    | 'go_back'
+    | 'go_forward'
+    | 'open_tab'
+    | 'close_tab'
+    | 'switch_tab'
+    | 'upload'
+    | 'scroll_to_text';
   index?: number;
   /** The element's text, as the model saw it. */
   label?: string;
   text?: string;
   url?: string;
+  /** The tab a tab action acts on, and the element a drag is dropped on. */
+  tabId?: number;
+  target?: number;
 }
 
 /** The box of element `index`: 200x30 at x=20, stacked every 40 pixels down the page. */
@@ -270,6 +288,8 @@ export class FakeBrowserContext {
       this.pointer(clickCount === 2 ? 'double_click' : 'click', node),
     hoverNode: async (node: DOMElementNode) => this.pointer('hover', node),
     rightClickNode: async (node: DOMElementNode) => this.pointer('right_click', node),
+    dragNode: async (node: DOMElementNode, target: DOMElementNode) =>
+      this.act({ type: 'drag', index: node.highlightIndex ?? undefined, target: target.highlightIndex ?? undefined }),
     inputTextNode: async (node: DOMElementNode, text: string) => {
       this.act({ type: 'input', index: node.highlightIndex ?? undefined, text });
       return { matched: true, secret: false, actualLength: text.length, actual: text };
@@ -297,6 +317,7 @@ export class FakeBrowserContext {
     /** [scrollY, viewport height, page height]: the page always fits the viewport. */
     getScrollInfo: async () => [0, 1000, 1000],
     goBack: async () => this.act({ type: 'go_back' }),
+    goForward: async () => this.act({ type: 'go_forward' }),
     removeHighlight: async () => {},
     invalidateCache: () => {},
     setScreenshotOptions: (options: ScreenshotOptions | null) => {
@@ -331,6 +352,12 @@ export class FakeBrowserContext {
   getTabInfos = async () => [{ id: 1, url: this.current.url, title: this.current.title ?? '' }];
   getAllTabIds = async () => new Set([1]);
   navigateTo = async (url: string) => this.act({ type: 'navigate', url });
+  openTab = async (url: string) => {
+    this.act({ type: 'open_tab', url });
+    return this.page as unknown as Page;
+  };
+  closeTab = async (tabId: number) => this.act({ type: 'close_tab', tabId });
+  switchTab = async (tabId: number) => this.act({ type: 'switch_tab', tabId });
   removeHighlight = async () => {};
   invalidateCache = async () => {};
   waitForPageAndFramesLoad = async () => {};

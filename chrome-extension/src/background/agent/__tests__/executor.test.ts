@@ -1259,7 +1259,7 @@ describe('An answer read from off-screen page text', () => {
       task,
       pages: [{ title: 'Kettle', ...page }],
       planner: [plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the weight', final_phase: true }), planDone()],
-      navigator: [call('get_complete_page_content', { find: 'weight' }), done('The kettle weighs 2.35 kg.')],
+      navigator: [call('find_in_page', { query: 'weight' }), done('The kettle weighs 2.35 kg.')],
     });
 
   it('is scrolled into view before the task finishes, without a model call', async () => {
@@ -1458,7 +1458,7 @@ describe('The planning interval', () => {
     // Six steps that all validate, more than the interval: the doubling keeps the planner out until the done.
     expect(loading.llm.requests.map(request => request.agent)).toEqual(['planner', ...Array(7).fill('navigator'), 'planner']);
 
-    const read = call('get_complete_page_content', {});
+    const read = call('read_page', { mode: 'full' });
     const reading = createHarness({
       task: 'Read the notes',
       pages: [form],

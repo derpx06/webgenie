@@ -49,40 +49,35 @@ export const searchWebActionSchema: ActionSchema = {
 
 export const goToUrlActionSchema: ActionSchema = {
   name: 'go_to_url',
-  description: 'Open a URL in the current tab.',
+  description: 'Open a URL in the current tab, or in a new tab that becomes the current one.',
   schema: z.object({
     url: z.string().describe('absolute URL, including https://'),
+    new_tab: z.boolean().optional().describe('true to open it in a new tab, keeping this one; defaults to false'),
   }),
 };
 
 export const goBackActionSchema: ActionSchema = {
   name: 'go_back',
-  description: 'Go back to the previous page.',
-  schema: z.object({}),
-};
-
-export const goForwardActionSchema: ActionSchema = {
-  name: 'go_forward',
-  description: 'Go forward again after go_back.',
-  schema: z.object({}),
+  description: 'Go back to the previous page, or forward again after going back.',
+  schema: z.object({
+    forward: z.boolean().optional().describe('true to go forward again after a go_back; defaults to false'),
+  }),
 };
 
 export const clickElementActionSchema: ActionSchema = {
   name: 'click_element',
-  description: 'Click an element by index.',
+  description:
+    'Click an element by index. One option changes the gesture: double, right for its context menu, hover to only point at it, drop_on to drag it onto another element.',
   schema: z.object({
     index: elementIndex,
     double: z.boolean().optional().describe('true for a double-click; two separate calls are not one'),
+    right: z.boolean().optional().describe('true to right-click it and open its context menu'),
+    hover: z
+      .boolean()
+      .optional()
+      .describe('true to only move the pointer onto it, revealing a hidden menu or tooltip, without clicking'),
+    drop_on: z.number().int().optional().describe('index of the element to drag this one onto and drop it there'),
     commits: commitsField,
-  }),
-};
-
-export const dragElementActionSchema: ActionSchema = {
-  name: 'drag_element',
-  description: 'Drag an element by index and drop it onto another.',
-  schema: z.object({
-    index: elementIndex,
-    target_index: z.number().int().describe('where to drop it'),
   }),
 };
 
@@ -93,22 +88,6 @@ export const handleDialogActionSchema: ActionSchema = {
   schema: z.object({
     accept: z.boolean().describe('true for OK/accept, false for Cancel/dismiss'),
     prompt_text: z.string().optional().describe('text to enter before accepting a prompt'),
-  }),
-};
-
-export const hoverElementActionSchema: ActionSchema = {
-  name: 'hover_element',
-  description: 'Hover an element by index to reveal a hidden menu or tooltip.',
-  schema: z.object({
-    index: elementIndex,
-  }),
-};
-
-export const rightClickElementActionSchema: ActionSchema = {
-  name: 'right_click_element',
-  description: 'Right-click an element by index to open its context menu.',
-  schema: z.object({
-    index: elementIndex,
   }),
 };
 
@@ -176,25 +155,10 @@ export const uploadFileActionSchema: ActionSchema = {
 // Tab Management Actions
 export const switchTabActionSchema: ActionSchema = {
   name: 'switch_tab',
-  description: 'Switch to a tab by id.',
+  description: 'Switch to a tab by id, or close it.',
   schema: z.object({
-    tab_id: z.number().int().describe('tab to switch to'),
-  }),
-};
-
-export const openTabActionSchema: ActionSchema = {
-  name: 'open_tab',
-  description: 'Open an address in a new tab, which becomes the current tab. Not for chrome:// pages.',
-  schema: z.object({
-    url: z.string().describe('absolute URL, including https://'),
-  }),
-};
-
-export const closeTabActionSchema: ActionSchema = {
-  name: 'close_tab',
-  description: 'Close a tab by id.',
-  schema: z.object({
-    tab_id: z.number().int().describe('tab to close'),
+    tab_id: z.number().int().describe('the tab to act on'),
+    action: z.enum(['switch', 'close']).optional().describe("'switch' to it (default) or 'close' it"),
   }),
 };
 
@@ -247,20 +211,10 @@ export const scrollActionSchema: ActionSchema = {
     direction: z.enum(['down', 'up', 'top', 'bottom']).describe('down or up by pages, or to an end'),
     pages: z.number().optional().describe('screens to scroll, 0.1-10; defaults to 1'),
     index: optionalElementIndex,
-  }),
-};
-
-export const scrollToTextActionSchema: ActionSchema = {
-  name: 'scroll_to_text',
-  description: 'Scroll the nth match of a text (case-insensitive, all frames) into view; reports whether it was found.',
-  schema: z.object({
-    text: z.string().describe('text to scroll to'),
-    nth: z
-      .number()
-      .int()
-      .min(1)
+    text: z
+      .string()
       .optional()
-      .describe('which occurrence, from 1; defaults to 1'),
+      .describe('scroll the first match of this text into view instead (case-insensitive, all frames); reports whether it was found'),
   }),
 };
 
@@ -286,23 +240,15 @@ export const selectDropdownOptionActionSchema: ActionSchema = {
   }),
 };
 
-export const waitActionSchema: ActionSchema = {
-  name: 'wait',
-  description:
-    'Wait a fixed number of seconds, for nothing in particular. Use wait_for instead whenever you can name what you are waiting for: it returns as soon as it happens.',
-  schema: z.object({
-    seconds: z.number().int().optional().describe('seconds to wait, 1-10; defaults to 3'),
-  }),
-};
-
 export const waitForActionSchema: ActionSchema = {
   name: 'wait_for',
   description:
-    'Wait until the page reaches a state and return as soon as it does: a text appears or is gone, an element by index is gone, or loading and its requests have finished.',
+    'Wait until the page reaches a state and return as soon as it does: a text appears or is gone, an element by index is gone, or loading and its requests have finished (the default).',
   schema: z.object({
     condition: z
       .enum(['text', 'text_gone', 'element_gone', 'network_idle'])
-      .describe('text appears / text is gone / the element at index is gone / loading finished'),
+      .optional()
+      .describe('text appears / text is gone / the element at index is gone / loading finished, which is the default'),
     text: z.string().optional().describe('the text, for text and text_gone; matched as whole words, case-insensitive'),
     index: z.number().int().optional().describe('the element, for element_gone'),
     seconds: z.number().int().optional().describe('longest wait, 1-30; defaults to 10'),
@@ -336,15 +282,6 @@ export const askHumanActionSchema: ActionSchema = {
       .string()
       .optional()
       .describe('the kind of action a confirmation is for, so the user can choose not to be asked again'),
-  }),
-};
-
-export const getCompletePageContentActionSchema: ActionSchema = {
-  name: 'get_complete_page_content',
-  description: 'Deprecated, use read_page (or find_in_page for find); this calls them.',
-  schema: z.object({
-    find: z.string().optional().describe('return only the passages containing this text, with their surroundings'),
-    start_char: z.number().int().optional().describe('offset to continue a truncated read from; defaults to 0'),
   }),
 };
 

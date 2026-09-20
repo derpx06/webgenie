@@ -277,7 +277,7 @@ abstract class BasePrompt {
       formattedElementsText = `${scrollInfo}[Start of page]\n${elementsText}\n[End of page]\n`;
     } else if (browserState.unreadable) {
       formattedElementsText =
-        'The page could not be read in time (it is very large or still busy); it is not empty. Read it again with wait, or read its text with read_page, before leaving it.';
+        'The page could not be read in time (it is very large or still busy); it is not empty. Read it again with wait_for, or read its text with read_page, before leaving it.';
     } else {
       formattedElementsText = 'empty page';
     }
