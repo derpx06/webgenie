@@ -427,6 +427,7 @@ function layoutSignals(
     // Only what a click can land on: an element, painted, and taking pointer events.
     if (
       id === undefined ||
+      box === undefined ||
       nodeType[node] !== 1 ||
       paintOrders === undefined ||
       isEmpty(visible) ||
