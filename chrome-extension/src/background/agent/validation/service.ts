@@ -684,7 +684,8 @@ export function actionSignature(actionName: string, actionArgs: unknown, node?: 
     const url = String(args.url ?? args.target ?? '');
     return `${actionName}|${routeKey(url) ?? url}`;
   }
-  const { memory: _memory, observationId: _observation, targetFingerprint: _target, ...rest } = args;
+  const rest = { ...args };
+  for (const stamp of ['memory', 'observationId', 'targetFingerprint']) delete rest[stamp];
   return `${actionName}|${JSON.stringify(rest)}`;
 }
 

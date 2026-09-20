@@ -5,7 +5,7 @@ vi.mock('@extension/i18n', () => ({ t: (key: string) => key }));
 
 const traced = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 vi.mock('@src/background/trace', async importOriginal => {
-  const actual = await importOriginal<typeof import('../../../trace')>();
+  const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, record: (entry: Record<string, unknown>) => void traced.push(entry) };
 });
 
