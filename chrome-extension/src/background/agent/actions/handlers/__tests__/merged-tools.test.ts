@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('webextension-polyfill', () => ({}));
 vi.mock('@extension/i18n', () => ({ t: (key: string) => key }));
 
-import { call, createHarness, done, plan, settle, stubChrome, until, type PageSpec } from '../../../__tests__/fakes';
+import { call, createHarness, done, plan, settle, stubChrome, textOf, until, type PageSpec } from '../../../__tests__/fakes';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -59,6 +59,57 @@ describe('the gestures folded into click_element', () => {
     expect(await run('click_element', { index: 1, double: true, commits: 'none' })).toEqual([
       { type: 'double_click', index: 1, label: 'Basket' },
     ]);
+  });
+});
+
+/**
+ * Skyvern's `desired_state`: a filter or option the task wants set is often set already, and clicking it then turns
+ * it off — the wrong move, and one the agent has to notice and undo. The state the call asks for is what it gets.
+ */
+describe('a checkbox, switch or radio with desired_state', () => {
+  const toggles: PageSpec = {
+    url: 'https://shop.test/filters',
+    title: 'Filters',
+    elements: [
+      { tag: 'input', text: 'In stock', attributes: { type: 'checkbox', 'aria-checked': 'true' } },
+      { tag: 'input', text: 'On sale', attributes: { type: 'checkbox', 'aria-checked': 'false' } },
+      { text: 'Apply' },
+    ],
+  };
+
+  async function click(args: Record<string, unknown>) {
+    const h = createHarness({
+      task: 'Filter the list',
+      pages: [toggles],
+      planner: Array(6).fill(plan()),
+      navigator: [call('click_element', args), done('Filtered')],
+    });
+    const execution = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0);
+    await h.executor.cancel();
+    await settle(execution);
+    return { actions: h.browser.actions, said: h.llm.requestsFor('navigator').map(request => textOf(request.messages)).join('\n') };
+  }
+
+  it('leaves one already in that state alone, and says so', async () => {
+    const { actions, said } = await click({ index: 0, desired_state: 'checked', commits: 'none' });
+    expect(actions).toEqual([]);
+    expect(said).toContain('is already checked; it was left as it is');
+  });
+
+  it('clicks one that is not in that state yet', async () => {
+    const { actions } = await click({ index: 1, desired_state: 'checked', commits: 'none' });
+    expect(actions).toEqual([{ type: 'click', index: 1, label: 'On sale' }]);
+  });
+
+  it('clicks a checked one when the state asked for is the other one', async () => {
+    const { actions } = await click({ index: 0, desired_state: 'unchecked', commits: 'none' });
+    expect(actions).toEqual([{ type: 'click', index: 0, label: 'In stock' }]);
+  });
+
+  it('clicks an element that is not a toggle, whatever the state says', async () => {
+    const { actions } = await click({ index: 2, desired_state: 'checked', commits: 'none' });
+    expect(actions).toEqual([{ type: 'click', index: 2, label: 'Apply' }]);
   });
 });
 

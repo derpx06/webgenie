@@ -700,6 +700,9 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
   }
 
   if (POINTER_ACTIONS.includes(actionName)) {
+    // A toggle already in the state the call asked for: the handler read the control, and nothing was meant to change.
+    const settled = result.evidence.find(item => item.kind === 'target_state' && item.passed);
+    if (settled && args.desired_state) return cloneWithValidation(result, 'passed', 'none', [settled]);
     // hover, right-click and drag are options of click_element; only a plain click opens the link it points to.
     const plainClick = actionName === 'click_element' && !args.hover && !args.right && args.drop_on === undefined;
     const intercepted = plainClick && index !== undefined ? interceptedLink(before, after, index, actionArgs) : null;

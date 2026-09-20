@@ -21,6 +21,19 @@ function describe(node: DOMElementNode): string {
   return node.getAllTextTillNextClickableElement(2) || node.attributes['aria-label'] || node.tagName || 'element';
 }
 
+/** Whether an element is a two-state control: a checkbox, a switch or a radio button. */
+function isToggle(node: DOMElementNode): boolean {
+  const { role = '', type = '' } = node.attributes;
+  return ['checkbox', 'switch', 'radio'].includes(role) || ['checkbox', 'radio'].includes(type.toLowerCase());
+}
+
+/** Whether a toggle is on, as the accessibility tree reports it; null when the element does not say. */
+function toggleState(node: DOMElementNode): boolean | null {
+  const { attributes: a } = node;
+  const value = a['aria-checked'] ?? a.checked;
+  return value === 'true' || value === '' ? true : value === 'false' ? false : null;
+}
+
 /**
  * What the model reads back about its own action. The side panel keeps its wording; the model gets a note in its
  * own voice, because "Clicked button with index 2: Remove" was reported as the page's message (C7, C13).
@@ -81,6 +94,10 @@ export class InteractionHandler extends BaseHandler {
   /** One pointer verb: a click, or the gesture an option names (double, right, hover, drag and drop). */
   async handleClickElement(input: z.infer<typeof clickElementActionSchema.schema>): Promise<ActionResult> {
     if (input.drop_on !== undefined) return this.dragOnto(input.index, input.drop_on);
+    if (input.desired_state) {
+      const settled = await this.alreadyInState(input.index, input.desired_state);
+      if (settled) return settled;
+    }
     if (input.hover) {
       return this.pointerAction(
         input.index,
@@ -126,6 +143,24 @@ export class InteractionHandler extends BaseHandler {
     return new ActionResult({
       extractedContent: ownAction(`You uploaded ${input.file} (${kb} KB) to [${input.index}] "${describe(node)}" ${how}`),
       includeInMemory: true,
+    });
+  }
+
+  /**
+   * A checkbox, switch or radio the call asked for a state that it already has: clicking it would turn it off, which
+   * is the opposite of what was asked. The result says so and counts as done, so the step is not spent and not undone.
+   */
+  private async alreadyInState(index: number, desired: 'checked' | 'unchecked'): Promise<ActionResult | null> {
+    const { node } = await this.resolveIndex(index);
+    if (!isToggle(node)) return null;
+    const state = toggleState(node);
+    if (state === null || state !== (desired === 'checked')) return null;
+    const msg = `[${index}] "${describe(node)}" is already ${desired}; it was left as it is, because clicking it would turn it ${desired === 'checked' ? 'off' : 'on'}.`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+    return new ActionResult({
+      extractedContent: msg,
+      includeInMemory: true,
+      evidence: [{ kind: 'target_state', passed: true, message: msg, after: { checked: state } }],
     });
   }
 

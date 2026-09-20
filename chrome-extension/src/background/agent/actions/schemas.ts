@@ -99,6 +99,10 @@ export const clickElementActionSchema: ActionSchema = {
       .optional()
       .describe('true to only move the pointer onto it, revealing a hidden menu or tooltip, without clicking'),
     drop_on: z.number().int().optional().describe('index of the element to drag this one onto and drop it there'),
+    desired_state: z
+      .enum(['checked', 'unchecked'])
+      .optional()
+      .describe('for a checkbox, switch or radio: the state you want. One already in it is left alone, never toggled off'),
     commits: commitsField,
   }),
 };
