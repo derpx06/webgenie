@@ -7,6 +7,7 @@ import { PlannerAgent, type PlannerOutput } from './agents/planner';
 import type { ToolMode } from './agents/base';
 import { NavigatorPrompt } from './prompts/navigator';
 import { PlannerPrompt } from './prompts/planner';
+import { screenshotParts } from './prompts/base';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
 import { absenceUnread, answerGaps, doneEvidence, givesUpUnseen, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements, unbackedValues } from './validation/done-evidence';
@@ -539,12 +540,7 @@ export class Executor {
             const seen = await getStepState();
             const shot = typeof seen.content === 'string' ? (await context.browserContext.getCachedState(true)).screenshot : null;
             if (typeof seen.content === 'string' && shot) {
-              const withShot = new HumanMessage({
-                content: [
-                  { type: 'text', text: seen.content },
-                  { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${shot}` } },
-                ],
-              });
+              const withShot = new HumanMessage({ content: [{ type: 'text', text: seen.content }, ...screenshotParts(shot)] });
               stepState = Promise.resolve(withShot);
               record({ level: 'info', kind: 'span', component: 'Executor', msg: 'look before asking', data: { question: latestPlanOutput.result.next_goal, imageChars: shot.length } });
               // The planner writes its plan into the context as it returns; a discarded look must leave the question's plan there.
