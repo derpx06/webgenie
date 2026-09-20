@@ -23,6 +23,7 @@ import {
   mayCommitThroughForm,
   namedLike,
   normalizeIndexedAction,
+  requirementsInQuery,
   sameSite,
   staleIndexResult,
   suggestionCommitted,
@@ -721,6 +722,21 @@ describe('verification challenges', () => {
     expect(isChallengeQuestion('Could you please solve the CAPTCHA in the browser?')).toBe(true);
     expect(isChallengeQuestion('Which size do you want?')).toBe(false);
     expect(normalizeQuestion('Which colour,  do you want?')).toBe(normalizeQuestion('which colour do you want'));
+  });
+});
+
+describe('A criterion typed into a search box', () => {
+  const pending = (requirement: string) => ({ requirement, status: 'pending' as const });
+
+  it('is reported for every pending requirement whose value the query repeats', () => {
+    const carried = requirementsInQuery('red running shoes under 50', [pending('price under $50'), pending('colour red'), pending('free delivery')]);
+    expect(carried.map(item => item.requirement)).toEqual(['price under $50', 'colour red']);
+  });
+
+  it('is not reported for a requirement already applied, nor for a query that is only the criterion', () => {
+    expect(requirementsInQuery('red running shoes', [{ requirement: 'colour red', status: 'applied' }])).toEqual([]);
+    expect(requirementsInQuery('4 stars', [pending('rating 4 stars and up')])).toEqual([]);
+    expect(requirementsInQuery('running shoes', [pending('price under $50')])).toEqual([]);
   });
 });
 

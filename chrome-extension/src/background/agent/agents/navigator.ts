@@ -50,6 +50,7 @@ import {
   userPersonalData,
   inventedPersonalData,
   personalDataSources,
+  requirementsInQuery,
   validateActionOutcome,
 } from '../validation/service';
 import { ProgressLedger } from '../contracts';
@@ -1138,6 +1139,14 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           const key = typedNode ? elementKey(typedNode) : null;
           const field = key ? [...postActionState.selectorMap.values()].find(node => elementKey(node) === key) : undefined;
           if (field?.attributes['aria-invalid'] === 'true') notes.push('The field is now marked invalid.');
+          // A criterion typed into the search box is not a filter the site applied: the requirement stays pending, and
+          // it belongs in the site's own filter or sort control.
+          if ((actionArgs as { submit?: unknown }).submit === true && isSearchField) {
+            const carried = requirementsInQuery(typed, this.context.requirements);
+            if (carried.length > 0) {
+              notes.push(`The search text carries ${carried.map(item => JSON.stringify(item.requirement)).join(', ')}, which ${carried.length === 1 ? 'is' : 'are'} still pending: words in a query do not apply a criterion, so the results may hold anything. Apply it with the site's own filter or sort control, and check the results against it.`);
+            }
+          }
           // What the field holds once the page has had its say (a reformat, an inline completion, a value it replaced).
           const held = (field?.attributes.value ?? '').trim();
           if (held && typed && held.toLowerCase() !== typed.toLowerCase() && typedNode?.attributes.type !== 'password') {

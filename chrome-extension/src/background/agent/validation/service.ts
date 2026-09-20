@@ -7,6 +7,7 @@ import type { BrowserState } from '../../browser/views';
 import type { BrowserObservation, Retryability, TargetFingerprint, ValidationEvidence, ValidationStatus } from './types';
 import { elementKey, elementLabel, ensureBrowserObservation, listElements, visibleContentKey, visibleText } from './observation';
 import { routeKey } from '../memory/global/memory-store';
+import type { PlannerRequirement } from '../contracts/types';
 
 /** What a guard decided about one action: it let it through, refused it, or put it to the user. */
 export type GuardVerdict = 'allowed' | 'refused' | 'asked';
@@ -544,6 +545,38 @@ const MUTATING_ACTIONS = new Set([
   'select_dropdown_option',
   'handle_dialog',
 ]);
+
+/** Words that carry no value of their own in a requirement ("under $50" is about the 50, not about "under"). */
+const GENERIC_CRITERION_WORDS = new Set(
+  ('a an the of in on for to by with and or at least most under over below above less more than between from up within per'
+    + ' max min maximum minimum price priced cost costs rating rated star stars review reviews sort sorted order ordered'
+    + ' lowest highest cheapest newest oldest best top first only filter filtered show showing results result item items'
+    + ' is are be no not with without').split(' '),
+);
+
+/** Lowercased words of a text; single letters are dropped, digits kept (a size, a year, an amount). */
+function criterionWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(new RegExp('[^\\p{L}\\p{N}]+', 'u'))
+    .filter(word => word.length > 1 || /\d/.test(word));
+}
+
+/**
+ * The pending requirements whose value a search query repeats, when the query also names what is searched for: a
+ * criterion typed into a search box is not an applied filter, and the results may hold anything (11% of the first
+ * divergences in one benchmark round were exactly this).
+ */
+export function requirementsInQuery(query: string, requirements: PlannerRequirement[]): PlannerRequirement[] {
+  const asked = new Set(criterionWords(query));
+  if (asked.size === 0) return [];
+  const carried = requirements.filter(
+    item => item.status === 'pending' && criterionWords(item.requirement).some(word => !GENERIC_CRITERION_WORDS.has(word) && asked.has(word)),
+  );
+  const fromRequirements = new Set(carried.flatMap(item => criterionWords(item.requirement)));
+  // A query that is nothing but the criterion is the search itself, not a criterion smuggled into one.
+  return [...asked].some(word => !fromRequirements.has(word)) ? carried : [];
+}
 
 /** Text typed into a field that offers suggestions, which the site has not taken yet. */
 export interface UncommittedField {

@@ -124,6 +124,34 @@ describe('Fields with suggestions', () => {
   });
 });
 
+describe('A search that carries a criterion of the task', () => {
+  it('is told the requirement is still pending and belongs in the site\'s filter', async () => {
+    const url = 'https://shop.test/';
+    const box = { tag: 'input', attributes: { type: 'search', 'aria-label': 'Search' } };
+    const planner: Script[] = Array(12).fill(
+      plan({
+        macro_objective: 'SEARCH',
+        next_goal: 'Search for the shoes',
+        requirements: [{ requirement: 'price under $50', status: 'pending' }],
+      }),
+    );
+    const h = createHarness({
+      task: 'Find running shoes under $50',
+      pages: [{ url, title: 'Shop', elements: [box] }, { url: `${url}?q=shoes`, title: 'Results', elements: [box] }],
+      planner,
+      navigator: [call('input_text', { index: 0, text: 'running shoes under 50', submit: true }), done('Searched')],
+    });
+    const execution = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0);
+    await h.executor.cancel();
+    await settle(execution);
+
+    const sent = h.llm.requestsFor('navigator').map(request => textOf(request.messages)).join('\n');
+    expect(sent).toContain('The search text carries "price under $50", which is still pending');
+    expect(sent).toContain("Apply it with the site's own filter or sort control");
+  });
+});
+
 describe('Clicks that change nothing useful', () => {
   it('are not passed when only the address fragment changed', async () => {
     const page = { url: 'https://news.test/article', title: 'Article', text: ['Story'], elements: [{ text: 'Next story' }] };
