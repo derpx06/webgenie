@@ -84,6 +84,10 @@ describe('the route ledger', () => {
 
     expect(ledger.routes()).toHaveLength(2);
     expect(ledger.routes()[0]).toMatchObject({ kind: 'site_search', times: 2, count: 0 });
+    // A goal naming a route already tried keys the repeat count on that route, whatever words it uses.
+    expect(ledger.routeNamedIn('Look up blue kettle once more with the site search')).toBe('site_search|shop.test/search|blue kettle|');
+    expect(ledger.routeNamedIn('Open the kettles category page')).toBeUndefined();
+
     const lines = ledger.render(1600).split('\n');
     expect(lines[0]).toBe('- route site_search shop.test/search "blue kettle" x2: no results');
     expect(lines[1]).toBe('- route category shop.test/c/kettles: 12 results');

@@ -281,7 +281,8 @@ export class Executor {
     const plan = planOutput.result;
     if (!plan || plan.done) return 'continue';
     const goal = plan.next_goal || plan.macro_objective;
-    const plans = this.goalRepeats.plan(goal);
+    // A goal that names a route this task already took is that route again, in whatever words the planner chose.
+    const plans = this.goalRepeats.plan(goal, this.context.ledger.routeNamedIn(goal));
     if (plans > 1) record({ level: 'info', kind: 'span', component: 'Executor', msg: 'goal repeated', data: { plans } });
     if (this.mustFinish) {
       throw new MaxFailuresReachedError(t('exec_errors_maxFailuresReached'), `the plan kept repeating goals that made no progress: ${goal}`);

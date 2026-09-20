@@ -69,17 +69,25 @@ function sameGoal(a: Set<string>, b: Set<string>): boolean {
  * that route had already failed.
  */
 export class GoalRepeats {
-  private goals: Array<{ goal: string; words: Set<string>; plans: number }> = [];
+  private goals: Array<{ goal: string; words: Set<string>; route?: string; plans: number }> = [];
 
-  /** Records a planned goal; returns how many times it has now been planned without progress. */
-  plan(goal: string): number {
+  /**
+   * Records a planned goal, with the route it names if that route was already tried (`TaskLedger.routeNamedIn`), and
+   * returns how many times it has now been planned without progress. The route decides when it is known: a goal
+   * reworded around the same dead route stops escaping the count, and a genuinely different route stops being counted
+   * as a repeat because its words happen to match. Goal words are the fallback when no route is named.
+   */
+  plan(goal: string, route?: string): number {
     const words = goalWords(goal);
-    const known = this.goals.find(entry => sameGoal(entry.words, words));
+    const known = this.goals.find(entry =>
+      route && entry.route ? entry.route === route : sameGoal(entry.words, words),
+    );
     if (known) {
       known.goal = goal;
+      known.route ??= route;
       return ++known.plans;
     }
-    this.goals.push({ goal, words, plans: 1 });
+    this.goals.push({ goal, words, route, plans: 1 });
     return 1;
   }
 

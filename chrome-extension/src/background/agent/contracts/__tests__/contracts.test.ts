@@ -206,6 +206,16 @@ describe('P1 replanning and progress', () => {
     expect(goals.plan('Find the delivery date')).toBe(1);
   });
 
+  it('counts a goal on a route already tried as that route again, however it is worded', () => {
+    const goals = new GoalRepeats();
+    // The same dead route, reworded every time: goal words alone would see three different goals.
+    expect(goals.plan('Search for "blue kettle" in the shop search box', 'site_search|shop.test/search|blue kettle|')).toBe(1);
+    expect(goals.plan('Use the site search to look up blue kettles again', 'site_search|shop.test/search|blue kettle|')).toBe(2);
+    expect(goals.plan('Type blue kettle into the search field and submit', 'site_search|shop.test/search|blue kettle|')).toBe(3);
+    // Similar words, a different route: a new route is not a repeat.
+    expect(goals.plan('Search for "blue kettle" in the shop search box', 'category|shop.test/c/kettles||')).toBe(1);
+  });
+
   it('does not replan after a single unvalidated step', () => {
     expect(decide({ unvalidatedSteps: 1 }).shouldReplan).toBe(false);
   });

@@ -196,6 +196,17 @@ export class TaskLedger {
     return [...this.routeEntries.values()];
   }
 
+  /**
+   * The route already tried that a goal names — by its search text or, for an address, by the address itself — longest
+   * query first. A goal is the same goal as an earlier one when it names the same route, whatever words it uses.
+   */
+  routeNamedIn(goal: string): string | undefined {
+    const text = goal.toLowerCase().replace(/\s+/g, ' ');
+    return this.routes()
+      .filter(route => (route.query.length >= 3 && text.includes(route.query)) || (route.kind === 'url' && text.includes(route.address)))
+      .sort((a, b) => b.query.length - a.query.length)[0]?.key;
+  }
+
   /** Every visit, refusal and dead end, newest first within its kind; for tests, traces and the site playbook. */
   all(): LedgerEntry[] {
     return [...this.entries.values()];
