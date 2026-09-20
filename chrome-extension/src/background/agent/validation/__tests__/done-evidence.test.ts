@@ -259,6 +259,17 @@ describe('mergeRequirements', () => {
     return context;
   };
 
+  it('does not let a requirement go applied on a typing action alone', () => {
+    const context = contextOnPage(['Results']);
+    const [typed, committed] = mergeRequirements(context, [
+      applied('within 10 miles of Springfield', 'typed "Springfield" into the location field'),
+      applied('most experienced', 'chose "Experience, high to low" in the sort dropdown'),
+    ]);
+    expect(typed).toMatchObject({ status: 'pending' });
+    expect(typed.evidence).toContain('typing alone does not apply it');
+    expect(committed.status).toBe('applied');
+  });
+
   it('keeps a requirement applied when a later plan lists it as pending again', () => {
     const context = sorted();
     expect(mergeRequirements(context, [pending('most experienced')])).toEqual([

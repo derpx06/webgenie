@@ -186,6 +186,17 @@ export function requirementKey(requirement: string): string {
   return requirement.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+/** Evidence saying a value was typed somewhere. */
+const TYPED_EVIDENCE = /\b(typ(ed|ing)|enter(ed)?|input(ted)?|fill(ed)?|wrote|written|key(ed)?|search (box|bar|field|input)|into the (field|box|input))\b/i;
+/** Evidence saying the site itself took the value: a control set, a suggestion chosen, a parameter in the address. */
+const COMMITTED_EVIDENCE =
+  /\b(filter(s|ed)?|sort(ed)?|select(ed|ion)?|check(ed|box)?|chip|facet|option|toggle|suggestion|autocomplete|chose|chosen|click(ed)?|dropdown|radio|slider|url|address|parameter|applied by)\b|[\w-]+=\S/i;
+
+/** Whether the only thing this evidence says is that something was typed. */
+function typedOnlyEvidence(evidence: string): boolean {
+  return TYPED_EVIDENCE.test(evidence) && !COMMITTED_EVIDENCE.test(evidence);
+}
+
 /**
  * The plan's requirements with what is already applied kept applied. A plan that lists a requirement it had marked
  * applied as pending again has it restored, so the phase is not planned a second time; only evidence gone from the
@@ -198,6 +209,12 @@ export function mergeRequirements(context: AgentContext, incoming: PlannerRequir
   return incoming.map(item => {
     const key = requirementKey(item.requirement);
     const before = previous.get(key);
+    // Typing a value is not applying it: it counts once the site acts on it — a suggestion chosen, a control set, a
+    // parameter in the address. A criterion typed into a field and never committed is the most common silent wrong
+    // answer in the reviewed runs, and it reads as applied to the planner that typed it.
+    if (item.status === 'applied' && before?.status !== 'applied' && typedOnlyEvidence(item.evidence ?? '')) {
+      return { ...item, status: 'pending', evidence: `${item.evidence} (typing alone does not apply it)` };
+    }
     if (!before || before.status !== 'applied' || item.status !== 'pending') return item;
     if (gone.has(key) && !context.requirementReopens.has(key)) {
       context.requirementReopens.add(key);
