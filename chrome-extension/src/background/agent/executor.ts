@@ -62,6 +62,18 @@ function formatExecutionError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Whether the step keys so far (actions plus the layout they ran on, oldest first) show the task going nowhere: the
+ * newest key three times in the last six — in a row or alternating with something else — or the last four keys being
+ * two keys taken in turn (x, y, x, y), which is a click/go_back cycle and would otherwise take six steps to see.
+ */
+export function stalledOn(keys: string[]): boolean {
+  const last = keys[keys.length - 1];
+  if (keys.slice(-6).filter(key => key === last).length >= 3) return true;
+  const [first, second, third, fourth] = keys.slice(-4);
+  return keys.length >= 4 && first === third && second === fourth && first !== second;
+}
+
 /** One navigator step as the loop sees it: completion claimed, no usable action, and the last validation outcome. */
 interface NavigatorStep {
   done: boolean;
@@ -906,8 +918,7 @@ export class Executor {
   }
 
   /**
-   * Records this step's actions and resulting layout. The same actions on the same layout three times within the last
-   * six steps are a stall, whether in a row or alternating with something else (A, B, A, B, A).
+   * Records this step's actions and resulting layout, and reports whether they stall (see `stalledOn`).
    */
   private recordStep(): { stalled: boolean; fresh: boolean } {
     const record = this.context.history.history[this.context.history.history.length - 1];
@@ -921,7 +932,7 @@ export class Executor {
     const key = `${actions}|${this.context.activeObservation?.layoutFingerprint ?? ''}`;
     const fresh = !this.stepKeys.includes(key);
     this.stepKeys.push(key);
-    return { stalled: this.stepKeys.slice(-6).filter(recent => recent === key).length >= 3, fresh };
+    return { stalled: stalledOn(this.stepKeys), fresh };
   }
 
   /** The page the task is on now, as a return point is recorded: its address and the fingerprint of what it shows. */

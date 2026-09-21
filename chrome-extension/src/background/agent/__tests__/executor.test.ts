@@ -8,6 +8,7 @@ import { ExecutionState } from '../event/types';
 import { askHuman, call, click, createHarness, done, plan, planDone, settle, stubChrome, textOf, typeText, until , MemoryStorage } from './fakes';
 import type { LLMRequest, ToolCall } from './fakes';
 import { DEFAULT_GENERAL_SETTINGS } from '@extension/storage';
+import { stalledOn } from '../executor';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -699,6 +700,23 @@ describe('An element the page replaced', () => {
     expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
     expect(h.states()).not.toContain(ExecutionState.TASK_FAIL);
     expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain('look at the current page');
+  });
+});
+
+describe('stalledOn', () => {
+  it('sees a two-action cycle on the fourth step', () => {
+    expect(stalledOn(['A', 'B', 'A'])).toBe(false);
+    expect(stalledOn(['A', 'B', 'A', 'B'])).toBe(true);
+  });
+
+  it('does not call three different actions a cycle', () => {
+    expect(stalledOn(['A', 'B', 'C', 'B'])).toBe(false);
+    expect(stalledOn(['A', 'A', 'A', 'A'])).toBe(true);
+  });
+
+  it('still stalls on the same key three times in the last six', () => {
+    expect(stalledOn(['A', 'B', 'A', 'C', 'D', 'A'])).toBe(true);
+    expect(stalledOn(['A', 'B', 'C', 'D', 'E', 'A'])).toBe(false);
   });
 });
 
@@ -1575,10 +1593,11 @@ describe('The planning interval', () => {
       task: 'Read the notes',
       pages: [form],
       planner: [plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the notes' }), plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Report the notes' }), planDone()],
-      navigator: [read, call('scroll', { direction: 'down' }), read, call('scroll', { direction: 'down' }), read, done('Notes')],
+      navigator: [read, call('scroll', { direction: 'down' }), read, call('scroll', { direction: 'down' }), read],
     });
     await settle(reading.executor.execute());
-    expect(reading.llm.requests.map(request => request.agent)).toEqual(['planner', ...Array(5).fill('navigator'), 'planner', 'navigator', 'planner']);
+    // read, scroll, read, scroll on one page is a two-action cycle: it is seen on the fourth step, before the interval.
+    expect(reading.llm.requests.map(request => request.agent)).toEqual(['planner', ...Array(4).fill('navigator'), 'planner', 'navigator', 'planner']);
   });
 });
 
