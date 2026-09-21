@@ -142,11 +142,13 @@ function evidenceValues(evidence: string): string[] {
 export function staleRequirements(context: AgentContext, requirements: PlannerRequirement[]): PlannerRequirement[] {
   const page = evidenceHaystack(context);
   if (page === null) return [];
-  return requirements.filter(item => {
-    if (item.status !== 'applied' || !item.evidence) return false;
-    const values = evidenceValues(item.evidence);
-    return values.length > 0 && !values.some(value => page.includes(value));
-  });
+  return requirements.filter(item => isStale(page, item));
+}
+
+function isStale(page: string, item: PlannerRequirement): boolean {
+  if (item.status !== 'applied' || !item.evidence) return false;
+  const values = evidenceValues(item.evidence);
+  return values.length > 0 && !values.some(value => page.includes(value));
 }
 
 /**
@@ -308,12 +310,15 @@ export function appliedOnPage(context: AgentContext, requirements: PlannerRequir
  * both applied because "Search results show" them.
  */
 export function searchOnlyEvidence(requirements: PlannerRequirement[]): PlannerRequirement[] {
-  return requirements.filter(
-    item =>
-      item.status === 'applied' &&
-      !!item.evidence &&
-      /\b(search(es|ed|ing)?|results?|listings?|matches|titles?)\b/i.test(item.evidence) &&
-      !/\b(filter(s|ed)?|sort(ed)?|selected|checked|chip|facet|option|toggle|refine(d|ment)?|url|parameter)\b|[\w-]+=\S/i.test(item.evidence),
+  return requirements.filter(isSearchOnly);
+}
+
+function isSearchOnly(item: PlannerRequirement): boolean {
+  return (
+    item.status === 'applied' &&
+    !!item.evidence &&
+    /\b(search(es|ed|ing)?|results?|listings?|matches|titles?)\b/i.test(item.evidence) &&
+    !/\b(filter(s|ed)?|sort(ed)?|selected|checked|chip|facet|option|toggle|refine(d|ment)?|url|parameter)\b|[\w-]+=\S/i.test(item.evidence)
   );
 }
 
@@ -333,15 +338,50 @@ const URL_EVIDENCE = /[\w.[\]-]+=[^\s&,;)"”]+/;
  * words is exactly what a loose filter looks like from here.
  */
 export function inexactFilterEvidence(requirements: PlannerRequirement[]): PlannerRequirement[] {
-  return requirements.filter(item => {
-    if (item.status !== 'applied') return false;
-    const evidence = item.evidence ?? '';
-    if (URL_EVIDENCE.test(evidence)) return false;
-    if (SUPERLATIVE.test(item.requirement)) return !SORT_EVIDENCE.test(evidence);
-    const bounds = [...numbersIn(item.requirement)];
-    if (bounds.length === 0 || !RANGE.test(item.requirement)) return false;
-    const named = numbersIn(evidence);
-    return !bounds.every(bound => named.has(bound));
+  return requirements.filter(isInexact);
+}
+
+function isInexact(item: PlannerRequirement): boolean {
+  if (item.status !== 'applied') return false;
+  const evidence = item.evidence ?? '';
+  if (URL_EVIDENCE.test(evidence)) return false;
+  if (SUPERLATIVE.test(item.requirement)) return !SORT_EVIDENCE.test(evidence);
+  const bounds = [...numbersIn(item.requirement)];
+  if (bounds.length === 0 || !RANGE.test(item.requirement)) return false;
+  const named = numbersIn(evidence);
+  return !bounds.every(bound => named.has(bound));
+}
+
+/** One thing wrong with an applied requirement's evidence, in the order `requirementProblem` reports them. */
+export type RequirementProblem = 'stale' | 'search-only' | 'inexact';
+
+/** What one applied requirement is a problem for, on a page already read; null when it is not. */
+function problemOn(page: string | null, item: PlannerRequirement): RequirementProblem | null {
+  if (page !== null && isStale(page, item)) return 'stale';
+  if (isSearchOnly(item)) return 'search-only';
+  if (isInexact(item)) return 'inexact';
+  // Gate 1's `unconfirmed` goes here, last: a requirement with any of the problems above reports that one instead.
+  return null;
+}
+
+/**
+ * The first problem with one applied requirement's evidence, or null when it has none. First problem wins — the page
+ * no longer showing the evidence before the evidence being only the search, and that before the evidence not naming
+ * the exact bounds or sort — so a single bad filter costs the task one send-back and not three.
+ */
+export function requirementProblem(context: AgentContext, item: PlannerRequirement): RequirementProblem | null {
+  return problemOn(evidenceHaystack(context), item);
+}
+
+/** Every requirement with a problem, each with the first problem it has. The page is read once for all of them. */
+export function requirementProblems(
+  context: AgentContext,
+  requirements: PlannerRequirement[],
+): { item: PlannerRequirement; problem: RequirementProblem }[] {
+  const page = evidenceHaystack(context);
+  return requirements.flatMap(item => {
+    const problem = problemOn(page, item);
+    return problem ? [{ item, problem }] : [];
   });
 }
 

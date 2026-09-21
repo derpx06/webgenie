@@ -10,7 +10,7 @@ import { PlannerPrompt } from './prompts/planner';
 import { screenshotParts } from './prompts/base';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnderexplored, absenceUnread, answerGaps, doneEvidence, givesUpUnseen, inexactFilterEvidence, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements, unbackedValues } from './validation/done-evidence';
+import { absenceUnderexplored, absenceUnread, answerGaps, doneEvidence, givesUpUnseen, type RequirementProblem, requirementProblems, reportedValues, requirementKey, unbackedValues } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -74,6 +74,27 @@ export function stalledOn(keys: string[]): boolean {
   return keys.length >= 4 && first === third && second === fourth && first !== second;
 }
 
+/**
+ * What to tell the planner about each kind of problem an applied requirement's evidence can have. One send-back names
+ * every problem requirement, grouped by problem, so the model still gets the advice specific to each.
+ */
+const REQUIREMENT_PROBLEM_NOTES: Record<RequirementProblem, (named: string) => string> = {
+  stale: named => `the current page no longer shows the evidence recorded for these applied requirements: ${named}. Every applied filter or sort must still be in effect on the CURRENT page (the selected option, the checked control, the sort label or the URL parameter); a later go_back, reload or new search can remove it. Check the current page state: apply again what is missing, or mark it pending or not_available.`,
+  'search-only': named => `the evidence for these applied requirements is the search or its results, not a filter or sort the site applied: ${named}. Search text does not filter results. Apply each with the site's filter or sort controls (open a collapsed filter section if needed) and record the selected option, chip, sort label or URL parameter as evidence; mark it not_available only when the site offers no such control.`,
+  inexact: named => `the evidence for these applied requirements does not show what was applied exactly: ${named}. A range must be evidenced by the bound values the control or the address now holds (the numbers themselves, as the page writes them), and a "cheapest/newest/highest" requirement by the sort control or sort parameter in effect. Check the current page, apply the exact bounds or the sort, and record what it shows; mark it not_available only when the site offers no such control.`,
+};
+
+function requirementProblemNote(problems: { item: PlannerRequirement; problem: RequirementProblem }[]): string {
+  const parts = (Object.keys(REQUIREMENT_PROBLEM_NOTES) as RequirementProblem[]).flatMap(kind => {
+    const named = problems
+      .filter(entry => entry.problem === kind)
+      .map(entry => `${entry.item.requirement} (${entry.item.evidence || 'no evidence'})`)
+      .join('; ');
+    return named ? [REQUIREMENT_PROBLEM_NOTES[kind](named)] : [];
+  });
+  return `Not done: ${parts.join(' ')}`;
+}
+
 /** One navigator step as the loop sees it: completion claimed, no usable action, and the last validation outcome. */
 interface NavigatorStep {
   done: boolean;
@@ -114,10 +135,8 @@ export class Executor {
   private unpassedSinceLastPlan = 0;
   /** The last plan moved a requirement from applied back to pending. */
   private requirementReopened = false;
-  /** A done whose applied requirements the current page no longer shows was sent back once. */
-  private evidenceRechecked = false;
-  /** Whether a done was already sent back for requirements "applied" only through the search text. */
-  private searchEvidenceRefused = false;
+  /** A done whose applied requirements the evidence does not back was sent back once, for all of them together. */
+  private requirementProblemRefused = false;
   private unseenGiveUpRefused = false;
   /** A done whose answer did not carry what the task asked for was sent back once; once per task. */
   private answerGapRefused = false;
@@ -125,8 +144,6 @@ export class Executor {
   private unevidencedRefused = false;
   /** An answer of absence resting on one kind of route was sent back once; once per task. */
   private absenceRoutesRefused = false;
-  /** A range or superlative requirement whose evidence named no bound or sort was sent back once; once per task. */
-  private inexactEvidenceRefused = false;
   /** The done that ended the task was backed by the evidence, and no done was sent back on the way: what memory admits. */
   private backedDone = false;
   private doneSentBack = false;
@@ -208,9 +225,7 @@ export class Executor {
     this.context.leavingAppliedChecked = false;
     this.context.absenceChecked = false;
     this.absenceRoutesRefused = false;
-    this.inexactEvidenceRefused = false;
-    this.evidenceRechecked = false;
-    this.searchEvidenceRefused = false;
+    this.requirementProblemRefused = false;
     this.unseenGiveUpRefused = false;
     this.answerGapRefused = false;
     this.unevidencedRefused = false;
@@ -251,23 +266,13 @@ export class Executor {
       context.requirementRefusals++;
       return this.refuseCompletion(planOutput, `Not done: these requirements are still pending: ${pending.join('; ')}. Apply each with the site's sort or filter controls and check that the page shows it applied, or mark it not_available with the reason.`);
     }
-    // A filter recorded as applied that a later action removed (going back, a new search): the page must still show it.
-    const stale = this.evidenceRechecked ? [] : staleRequirements(context, requirements);
-    if (stale.length > 0) {
-      this.evidenceRechecked = true;
-      return this.refuseCompletion(planOutput, `Not done: the current page no longer shows the evidence recorded for these applied requirements: ${stale.map(item => `${item.requirement} (${item.evidence})`).join('; ')}. Every applied filter or sort must still be in effect on the CURRENT page (the selected option, the checked control, the sort label or the URL parameter); a later go_back, reload or new search can remove it. Check the current page state: apply again what is missing, or mark it pending or not_available.`);
-    }
-    // Criteria typed into a search box and "confirmed" by the results' own text were never applied by the site.
-    const searchOnly = this.searchEvidenceRefused ? [] : searchOnlyEvidence(requirements);
-    if (searchOnly.length > 0) {
-      this.searchEvidenceRefused = true;
-      return this.refuseCompletion(planOutput, `Not done: the evidence for these applied requirements is the search or its results, not a filter or sort the site applied: ${searchOnly.map(item => `${item.requirement} (${item.evidence})`).join('; ')}. Search text does not filter results. Apply each with the site's filter or sort controls (open a collapsed filter section if needed) and record the selected option, chip, sort label or URL parameter as evidence; mark it not_available only when the site offers no such control.`);
-    }
-    // A range or a superlative applied "about right": the evidence has to name the bounds themselves or the sort.
-    const inexact = this.inexactEvidenceRefused ? [] : inexactFilterEvidence(requirements);
-    if (inexact.length > 0) {
-      this.inexactEvidenceRefused = true;
-      return this.refuseCompletion(planOutput, `Not done: the evidence for these applied requirements does not show what was applied exactly: ${inexact.map(item => `${item.requirement} (${item.evidence || 'no evidence'})`).join('; ')}. A range must be evidenced by the bound values the control or the address now holds (the numbers themselves, as the page writes them), and a "cheapest/newest/highest" requirement by the sort control or sort parameter in effect. Check the current page, apply the exact bounds or the sort, and record what it shows; mark it not_available only when the site offers no such control.`);
+    // Every applied requirement whose evidence does not back it, each with its first problem, in one send-back: a
+    // filter that is both search-only and inexact must not eat three of the task's refusals.
+    const problems = this.requirementProblemRefused ? [] : requirementProblems(context, requirements);
+    if (problems.length > 0) {
+      this.requirementProblemRefused = true;
+      record({ level: 'info', kind: 'span', component: 'Executor', msg: 'requirement.problem', data: { problems: problems.map(entry => entry.problem) } });
+      return this.refuseCompletion(planOutput, requirementProblemNote(problems));
     }
     // "Not found" said about a results page nobody read.
     if (!context.absenceChecked && absenceUnread(context, answer, this.doneReportedFailure)) {

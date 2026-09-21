@@ -1569,6 +1569,29 @@ describe('An applied requirement the current page no longer shows', () => {
   });
 });
 
+describe('Applied requirements the evidence does not back', () => {
+  const results = { url: 'https://shop.test/search?q=lamp', title: 'Lamps', text: ['Results for lamp', 'Brass lamp $40'] };
+  const finish = call('plan', {
+    ...planDone('The cheapest lamp is the Brass lamp at $40').args,
+    requirements: [
+      { requirement: 'a lamp', status: 'applied', evidence: 'the search results list lamps' },
+      { requirement: 'under $50', status: 'applied', evidence: 'the Price filter is set' },
+    ],
+  });
+
+  it('sends the done back once, naming every problem requirement with the advice for its own problem', async () => {
+    const h = createHarness({ task: 'Find the cheapest lamp under $50', pages: [results], planner: [finish, finish] });
+    await settle(h.executor.execute());
+
+    // One send-back for both, not one each: a requirement with several problems must not eat the task's refusals.
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner']);
+    const replan = textOf(h.llm.requestsFor('planner')[1].messages);
+    expect(replan).toContain('is the search or its results, not a filter or sort the site applied: a lamp');
+    expect(replan).toContain('does not show what was applied exactly: under $50 (the Price filter is set)');
+    expect(h.last().state).toBe(ExecutionState.TASK_OK);
+  });
+});
+
 describe('The planning interval', () => {
   const form = { url: 'https://forms.test/', title: 'Form', text: ['Notes'], elements: [{ tag: 'input', attributes: { 'aria-label': 'Note' } }] };
 
