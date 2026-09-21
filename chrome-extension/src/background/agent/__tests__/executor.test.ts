@@ -8,6 +8,7 @@ import { ExecutionState } from '../event/types';
 import { askHuman, call, click, createHarness, done, plan, planDone, settle, stubChrome, textOf, typeText, until , MemoryStorage } from './fakes';
 import type { LLMRequest, ToolCall } from './fakes';
 import { DEFAULT_GENERAL_SETTINGS } from '@extension/storage';
+import { stalledOn } from '../executor';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -702,19 +703,57 @@ describe('An element the page replaced', () => {
   });
 });
 
+describe('stalledOn', () => {
+  it('sees a two-action cycle on the fourth step', () => {
+    expect(stalledOn(['A', 'B', 'A'])).toBe(false);
+    expect(stalledOn(['A', 'B', 'A', 'B'])).toBe(true);
+  });
+
+  it('does not call three different actions a cycle', () => {
+    expect(stalledOn(['A', 'B', 'C', 'B'])).toBe(false);
+    expect(stalledOn(['A', 'A', 'A', 'A'])).toBe(true);
+  });
+
+  it('still stalls on the same key three times in the last six', () => {
+    expect(stalledOn(['A', 'B', 'A', 'C', 'D', 'A'])).toBe(true);
+    expect(stalledOn(['A', 'B', 'C', 'D', 'E', 'A'])).toBe(false);
+  });
+});
+
 describe('Stalls', () => {
-  it('end the task when the same action keeps validating on an unchanged page', async () => {
-    const h = createHarness({
+  it('count on their own and do not end the task: a stall is a route that is not working, not a failed action', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('Found it') : plannerUntil('never')(request));
+    h = createHarness({
       task: 'Find the opening hours',
       pages: [{ url: 'https://shop.test/', title: 'Shop', elements: [{ text: 'Home' }] }],
-      planner: Array(12).fill(plan({ macro_objective: 'EXPLORE_PAGE', next_goal: 'Scroll to find the opening hours' })),
-      navigator: Array(12).fill(call('scroll', { direction: 'down' })),
+      planner: Array(24).fill(planner),
+      // Steps 3, 4, 5 and 6 are stalls: the scroll at the bottom validates each time but is never new.
+      navigator: [...Array(6).fill(call('scroll', { direction: 'down' })), done('Found it')],
     });
     await settle(h.executor.execute());
 
-    // Steps 3, 4 and 5 are stalls; the scroll at the bottom validates each time but no longer refills the budget.
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+    expect(h.executor.getContext().stalls).toBeGreaterThanOrEqual(3);
+    expect(h.executor.getContext().consecutiveFailures).toBe(0);
+  });
+
+  it('still end the task after three actions that executed and failed', async () => {
+    const h = createHarness({
+      task: 'Open the Stores page',
+      pages: [{ url: 'https://shop.test/', title: 'Shop', elements: [{ text: 'Home' }, { text: 'Stores' }, { text: 'Deals' }, { text: 'Help' }] }],
+      planner: Array(12).fill(plannerUntil('never')),
+      navigator: [click(1), click(2), click(3), click(0)],
+    });
+    const page = (h.browser as unknown as { page: { clickNode: (...args: unknown[]) => Promise<unknown> } }).page;
+    page.clickNode = async () => {
+      throw new Error('The page threw while handling the click');
+    };
+    await settle(h.executor.execute());
+
     expect(h.last()).toMatchObject({ state: ExecutionState.TASK_FAIL });
-    expect(h.llm.requestsFor('navigator')).toHaveLength(5);
+    expect(h.llm.requestsFor('navigator')).toHaveLength(3);
   });
 });
 
@@ -741,16 +780,17 @@ describe('A target the page covers or hides', () => {
     return h;
   };
 
-  it('costs half a failure, so three refused clicks on different targets do not end the task', async () => {
+  it('costs no failure budget, because the guard refused the dispatch before anything ran', async () => {
     const h = run([2, 3, 0]);
     await settle(h.executor.execute());
     expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+    expect(h.executor.getContext().consecutiveFailures).toBe(0);
   });
 
-  it('still ends a task that keeps pointing at hidden targets', async () => {
+  it('does not end the task even after a long run of refusals', async () => {
     const h = run([2, 3, 0, 2, 3, 0, 2, 3]);
     await settle(h.executor.execute());
-    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_FAIL });
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
   });
 });
 
@@ -1529,6 +1569,57 @@ describe('An applied requirement the current page no longer shows', () => {
   });
 });
 
+describe('Applied requirements the evidence does not back', () => {
+  const results = { url: 'https://shop.test/search?q=lamp', title: 'Lamps', text: ['Results for lamp', 'Brass lamp $40'] };
+  const finish = call('plan', {
+    ...planDone('The cheapest lamp is the Brass lamp at $40').args,
+    requirements: [
+      { requirement: 'a lamp', status: 'applied', evidence: 'the search results list lamps' },
+      { requirement: 'under $50', status: 'applied', evidence: 'the Price filter is set' },
+    ],
+  });
+
+  it('sends the done back once, naming every problem requirement with the advice for its own problem', async () => {
+    const h = createHarness({ task: 'Find the cheapest lamp under $50', pages: [results], planner: [finish, finish] });
+    await settle(h.executor.execute());
+
+    // One send-back for both, not one each: a requirement with several problems must not eat the task's refusals.
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner']);
+    const replan = textOf(h.llm.requestsFor('planner')[1].messages);
+    expect(replan).toContain('is the search or its results, not a filter or sort the site applied: a lamp');
+    expect(replan).toContain('does not show what was applied exactly: under $50 (the Price filter is set)');
+    expect(h.last().state).toBe(ExecutionState.TASK_OK);
+  });
+});
+
+describe('Deterministic completion checks are advisory', () => {
+  // They are about 84% precise but only about 56% recall, so one must never be able to fail a task that is done.
+  const results = { url: 'https://shop.test/search?q=lamp', title: 'Lamps', text: ['Results for lamp', 'Brass lamp $40'] };
+  const searchOnly = call('plan', {
+    ...planDone('The page lists a Brass lamp.').args,
+    requirements: [{ requirement: 'a lamp', status: 'applied', evidence: 'the search results list lamps' }],
+  });
+
+  it('completes on the second done although the same check fails both times', async () => {
+    const h = createHarness({ task: 'Find a lamp', pages: [results], planner: [searchOnly, searchOnly] });
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner']);
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The page lists a Brass lamp.' } });
+  });
+
+  it('names in the answer what the site could not do', async () => {
+    const unavailable = call('plan', {
+      ...planDone('The page lists a Brass lamp.').args,
+      requirements: [{ requirement: 'sorted by price', status: 'not_available', evidence: 'the site offers no sort control' }],
+    });
+    const h = createHarness({ task: 'Find the cheapest lamp', pages: [results], planner: Array(3).fill(unavailable) });
+    await settle(h.executor.execute());
+
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The page lists a Brass lamp.\n\nexec_requirements_notApplied' } });
+  });
+});
+
 describe('The planning interval', () => {
   const form = { url: 'https://forms.test/', title: 'Form', text: ['Notes'], elements: [{ tag: 'input', attributes: { 'aria-label': 'Note' } }] };
 
@@ -1553,10 +1644,11 @@ describe('The planning interval', () => {
       task: 'Read the notes',
       pages: [form],
       planner: [plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Read the notes' }), plan({ macro_objective: 'EXTRACT_DATA', next_goal: 'Report the notes' }), planDone()],
-      navigator: [read, call('scroll', { direction: 'down' }), read, call('scroll', { direction: 'down' }), read, done('Notes')],
+      navigator: [read, call('scroll', { direction: 'down' }), read, call('scroll', { direction: 'down' }), read],
     });
     await settle(reading.executor.execute());
-    expect(reading.llm.requests.map(request => request.agent)).toEqual(['planner', ...Array(5).fill('navigator'), 'planner', 'navigator', 'planner']);
+    // read, scroll, read, scroll on one page is a two-action cycle: it is seen on the fourth step, before the interval.
+    expect(reading.llm.requests.map(request => request.agent)).toEqual(['planner', ...Array(4).fill('navigator'), 'planner', 'navigator', 'planner']);
   });
 });
 

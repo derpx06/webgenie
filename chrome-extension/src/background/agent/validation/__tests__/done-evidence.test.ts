@@ -9,7 +9,7 @@ import { DOMElementNode, DOMTextNode } from '../../../browser/dom/views';
 import type MessageManager from '../../messages/service';
 import type { EventManager } from '../../event/manager';
 import type { NextStepContract } from '../../contracts';
-import { absenceUnderexplored, absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, searchOnlyEvidence, inexactFilterEvidence, staleRequirements, unmatchedRequirements } from '../done-evidence';
+import { absenceUnderexplored, absenceUnread, answerGaps, appliedOnPage, doneEvidence, mergeRequirements, requirementKey, requirementProblem, requirementProblems, searchOnlyEvidence, inexactFilterEvidence, staleRequirements, unmatchedRequirements } from '../done-evidence';
 import { titleFromTask } from '../../../core/task-groups/manager';
 
 function contextOnPage(lines: string[]) {
@@ -221,6 +221,36 @@ describe('staleRequirements', () => {
         applied('4 stars and up', 'the rating filter is selected'),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe('requirementProblem', () => {
+  const onResults = () => {
+    const context = contextOnPage(['Results for "under $50 lamp"']);
+    (context.promptState as BrowserState).url = 'https://shop.test/search?q=under+%2450+lamp';
+    return context;
+  };
+
+  it('reports one problem per requirement, the first that applies', () => {
+    const context = onResults();
+    // Both search-only (the evidence is the results) and inexact (a range whose bound is not named): search-only wins.
+    const both = { requirement: 'under $50', status: 'applied' as const, evidence: 'the search results show cheap lamps' };
+    expect(searchOnlyEvidence([both])).toEqual([both]);
+    expect(inexactFilterEvidence([both])).toEqual([both]);
+    expect(requirementProblem(context, both)).toBe('search-only');
+    expect(requirementProblems(context, [both])).toEqual([{ item: both, problem: 'search-only' }]);
+  });
+
+  it('reports the page having lost the evidence before anything else', () => {
+    const context = onResults();
+    const gone = { requirement: 'under $50', status: 'applied' as const, evidence: 'the search results for "brass lamps" list them' };
+    expect(requirementProblem(context, gone)).toBe('stale');
+  });
+
+  it('says nothing about a requirement whose evidence backs it, or one that is not applied', () => {
+    const context = onResults();
+    expect(requirementProblem(context, { requirement: 'in blue', status: 'applied', evidence: 'the Blue swatch is selected' })).toBeNull();
+    expect(requirementProblem(context, { requirement: 'under $50', status: 'pending' })).toBeNull();
   });
 });
 

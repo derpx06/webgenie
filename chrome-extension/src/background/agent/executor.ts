@@ -10,7 +10,7 @@ import { PlannerPrompt } from './prompts/planner';
 import { screenshotParts } from './prompts/base';
 import { createLogger } from '@src/background/log';
 import { record, redactSecrets, registerSecret, setTraceContext } from '@src/background/trace';
-import { absenceUnderexplored, absenceUnread, answerGaps, doneEvidence, givesUpUnseen, inexactFilterEvidence, reportedValues, requirementKey, searchOnlyEvidence, staleRequirements, unbackedValues } from './validation/done-evidence';
+import { absenceUnderexplored, absenceUnread, answerGaps, doneEvidence, givesUpUnseen, type RequirementProblem, requirementProblems, reportedValues, requirementKey, unbackedValues } from './validation/done-evidence';
 import MessageManager from './messages/service';
 import type BrowserContext from '../browser/context';
 import { ActionBuilder } from './actions/builder';
@@ -49,7 +49,7 @@ import {
   type TaskCheckpoint,
 } from './contracts';
 import { ensureBrowserObservation, viewportText } from './validation/observation';
-import { echoesActionResult, hostOf, inventedPersonalData, isApproval, personalDataSources, isPageSideError, isStaleElementError } from './validation/service';
+import { dispatchGuard, echoesActionResult, hostOf, inventedPersonalData, isApproval, personalDataSources, isPageSideError, isStaleElementError } from './validation/service';
 import type { ValidationStatus } from './validation/types';
 
 const logger = createLogger('Executor');
@@ -60,6 +60,39 @@ function formatExecutionError(error: unknown): string {
     return `${error.message}: ${cause}`;
   }
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Whether the step keys so far (actions plus the layout they ran on, oldest first) show the task going nowhere: the
+ * newest key three times in the last six — in a row or alternating with something else — or the last four keys being
+ * two keys taken in turn (x, y, x, y), which is a click/go_back cycle and would otherwise take six steps to see.
+ */
+export function stalledOn(keys: string[]): boolean {
+  const last = keys[keys.length - 1];
+  if (keys.slice(-6).filter(key => key === last).length >= 3) return true;
+  const [first, second, third, fourth] = keys.slice(-4);
+  return keys.length >= 4 && first === third && second === fourth && first !== second;
+}
+
+/**
+ * What to tell the planner about each kind of problem an applied requirement's evidence can have. One send-back names
+ * every problem requirement, grouped by problem, so the model still gets the advice specific to each.
+ */
+const REQUIREMENT_PROBLEM_NOTES: Record<RequirementProblem, (named: string) => string> = {
+  stale: named => `the current page no longer shows the evidence recorded for these applied requirements: ${named}. Every applied filter or sort must still be in effect on the CURRENT page (the selected option, the checked control, the sort label or the URL parameter); a later go_back, reload or new search can remove it. Check the current page state: apply again what is missing, or mark it pending or not_available.`,
+  'search-only': named => `the evidence for these applied requirements is the search or its results, not a filter or sort the site applied: ${named}. Search text does not filter results. Apply each with the site's filter or sort controls (open a collapsed filter section if needed) and record the selected option, chip, sort label or URL parameter as evidence; mark it not_available only when the site offers no such control.`,
+  inexact: named => `the evidence for these applied requirements does not show what was applied exactly: ${named}. A range must be evidenced by the bound values the control or the address now holds (the numbers themselves, as the page writes them), and a "cheapest/newest/highest" requirement by the sort control or sort parameter in effect. Check the current page, apply the exact bounds or the sort, and record what it shows; mark it not_available only when the site offers no such control.`,
+};
+
+function requirementProblemNote(problems: { item: PlannerRequirement; problem: RequirementProblem }[]): string {
+  const parts = (Object.keys(REQUIREMENT_PROBLEM_NOTES) as RequirementProblem[]).flatMap(kind => {
+    const named = problems
+      .filter(entry => entry.problem === kind)
+      .map(entry => `${entry.item.requirement} (${entry.item.evidence || 'no evidence'})`)
+      .join('; ');
+    return named ? [REQUIREMENT_PROBLEM_NOTES[kind](named)] : [];
+  });
+  return `Not done: ${parts.join(' ')}`;
 }
 
 /** One navigator step as the loop sees it: completion claimed, no usable action, and the last validation outcome. */
@@ -102,10 +135,8 @@ export class Executor {
   private unpassedSinceLastPlan = 0;
   /** The last plan moved a requirement from applied back to pending. */
   private requirementReopened = false;
-  /** A done whose applied requirements the current page no longer shows was sent back once. */
-  private evidenceRechecked = false;
-  /** Whether a done was already sent back for requirements "applied" only through the search text. */
-  private searchEvidenceRefused = false;
+  /** A done whose applied requirements the evidence does not back was sent back once, for all of them together. */
+  private requirementProblemRefused = false;
   private unseenGiveUpRefused = false;
   /** A done whose answer did not carry what the task asked for was sent back once; once per task. */
   private answerGapRefused = false;
@@ -113,8 +144,6 @@ export class Executor {
   private unevidencedRefused = false;
   /** An answer of absence resting on one kind of route was sent back once; once per task. */
   private absenceRoutesRefused = false;
-  /** A range or superlative requirement whose evidence named no bound or sort was sent back once; once per task. */
-  private inexactEvidenceRefused = false;
   /** The done that ended the task was backed by the evidence, and no done was sent back on the way: what memory admits. */
   private backedDone = false;
   private doneSentBack = false;
@@ -196,9 +225,7 @@ export class Executor {
     this.context.leavingAppliedChecked = false;
     this.context.absenceChecked = false;
     this.absenceRoutesRefused = false;
-    this.inexactEvidenceRefused = false;
-    this.evidenceRechecked = false;
-    this.searchEvidenceRefused = false;
+    this.requirementProblemRefused = false;
     this.unseenGiveUpRefused = false;
     this.answerGapRefused = false;
     this.unevidencedRefused = false;
@@ -222,7 +249,7 @@ export class Executor {
     const requirements = planOutput.result.requirements ?? context.requirements;
     const pending = requirements.filter(item => item.status === 'pending').map(item => item.requirement);
     // Told to finish after a goal kept failing: the done ends the task, with what was not applied named below.
-    if (this.mustFinish) return this.acceptCompletion(answer, pending);
+    if (this.mustFinish) return this.acceptCompletion(answer, requirements);
     // Given up before looking: once, the planner has to look at what the site offers first.
     if (!this.unseenGiveUpRefused && givesUpUnseen(context, answer)) {
       this.unseenGiveUpRefused = true;
@@ -239,23 +266,13 @@ export class Executor {
       context.requirementRefusals++;
       return this.refuseCompletion(planOutput, `Not done: these requirements are still pending: ${pending.join('; ')}. Apply each with the site's sort or filter controls and check that the page shows it applied, or mark it not_available with the reason.`);
     }
-    // A filter recorded as applied that a later action removed (going back, a new search): the page must still show it.
-    const stale = this.evidenceRechecked ? [] : staleRequirements(context, requirements);
-    if (stale.length > 0) {
-      this.evidenceRechecked = true;
-      return this.refuseCompletion(planOutput, `Not done: the current page no longer shows the evidence recorded for these applied requirements: ${stale.map(item => `${item.requirement} (${item.evidence})`).join('; ')}. Every applied filter or sort must still be in effect on the CURRENT page (the selected option, the checked control, the sort label or the URL parameter); a later go_back, reload or new search can remove it. Check the current page state: apply again what is missing, or mark it pending or not_available.`);
-    }
-    // Criteria typed into a search box and "confirmed" by the results' own text were never applied by the site.
-    const searchOnly = this.searchEvidenceRefused ? [] : searchOnlyEvidence(requirements);
-    if (searchOnly.length > 0) {
-      this.searchEvidenceRefused = true;
-      return this.refuseCompletion(planOutput, `Not done: the evidence for these applied requirements is the search or its results, not a filter or sort the site applied: ${searchOnly.map(item => `${item.requirement} (${item.evidence})`).join('; ')}. Search text does not filter results. Apply each with the site's filter or sort controls (open a collapsed filter section if needed) and record the selected option, chip, sort label or URL parameter as evidence; mark it not_available only when the site offers no such control.`);
-    }
-    // A range or a superlative applied "about right": the evidence has to name the bounds themselves or the sort.
-    const inexact = this.inexactEvidenceRefused ? [] : inexactFilterEvidence(requirements);
-    if (inexact.length > 0) {
-      this.inexactEvidenceRefused = true;
-      return this.refuseCompletion(planOutput, `Not done: the evidence for these applied requirements does not show what was applied exactly: ${inexact.map(item => `${item.requirement} (${item.evidence || 'no evidence'})`).join('; ')}. A range must be evidenced by the bound values the control or the address now holds (the numbers themselves, as the page writes them), and a "cheapest/newest/highest" requirement by the sort control or sort parameter in effect. Check the current page, apply the exact bounds or the sort, and record what it shows; mark it not_available only when the site offers no such control.`);
+    // Every applied requirement whose evidence does not back it, each with its first problem, in one send-back: a
+    // filter that is both search-only and inexact must not eat three of the task's refusals.
+    const problems = this.requirementProblemRefused ? [] : requirementProblems(context, requirements);
+    if (problems.length > 0) {
+      this.requirementProblemRefused = true;
+      record({ level: 'info', kind: 'span', component: 'Executor', msg: 'requirement.problem', data: { problems: problems.map(entry => entry.problem) } });
+      return this.refuseCompletion(planOutput, requirementProblemNote(problems));
     }
     // "Not found" said about a results page nobody read.
     if (!context.absenceChecked && absenceUnread(context, answer, this.doneReportedFailure)) {
@@ -282,15 +299,24 @@ export class Executor {
       this.unevidencedRefused = true;
       return this.refuseCompletion(planOutput, `Not done: the answer states ${unbacked.slice(0, 5).map(value => JSON.stringify(value)).join(', ')}, which the current page does not show, and no claim in this task was ever checked against a page. Go to the page that shows each value, read it (read_page or find_in_page) and call assert with the claim and the page's own words for it; report nothing an assert did not pass.`);
     }
-    return this.acceptCompletion(answer, pending);
+    return this.acceptCompletion(answer, requirements);
   }
 
-  private acceptCompletion(answer: string, pending: string[]): 'complete' {
+  /**
+   * The done ends the task. Every deterministic check above is advisory: each refuses once and then accepts, because
+   * they are about 84% precise but only about 56% recall, so a check that keeps firing must never be able to fail a
+   * task that is in fact done. What it did not get is said in the answer instead.
+   */
+  private acceptCompletion(answer: string, requirements: PlannerRequirement[]): 'complete' {
     const context = this.context;
     logger.info('✅ Planner confirms task completion');
-    // The navigator's done text is the provisional answer; a planner final_answer replaces it. Requirements still
-    // pending after the refusals are named, so the answer never implies they were applied.
-    const notApplied = pending.length > 0 ? `\n\n${t('exec_requirements_notApplied', [pending.join('; ')])}` : '';
+    // The navigator's done text is the provisional answer; a planner final_answer replaces it. What was not applied is
+    // named so the answer never implies it was: what is still pending after the refusals, and what the site could not
+    // do at all (not_available, with the reason the planner recorded).
+    const unmet = requirements
+      .filter(item => item.status === 'pending' || item.status === 'not_available')
+      .map(item => (item.status === 'not_available' ? `${item.requirement} (not available on this site${item.evidence ? `: ${item.evidence}` : ''})` : item.requirement));
+    const notApplied = unmet.length > 0 ? `\n\n${t('exec_requirements_notApplied', [unmet.join('; ')])}` : '';
     context.finalAnswer = answer ? `${answer}${notApplied}` : null;
     return 'complete';
   }
@@ -646,8 +672,12 @@ export class Executor {
           context.consecutiveFailures = 0;
         }
         if (stalled) {
-          context.consecutiveFailures++;
-          logger.warning(`Progress stalled: the same actions repeated on an unchanged page (failures ${context.consecutiveFailures}/${context.options.maxFailures})`);
+          // A stall is a route that is not working, not an action that failed: it forces a re-plan (getReplanDecision)
+          // and asks for a screenshot, and leaves the failure budget alone. Charging it here ended tasks before the
+          // re-plan the stall itself triggered could take effect.
+          context.stalls++;
+          record({ level: 'info', kind: 'span', component: 'Executor', msg: 'stall', data: { stalls: context.stalls, maxStalls: context.options.maxStalls } });
+          logger.warning(`Progress stalled: the same actions repeated on an unchanged page (stalls ${context.stalls}/${context.options.maxStalls})`);
         }
         await this.saveCheckpoint(taskText, context.waitingForHuman ? 'waiting_human' : 'running');
 
@@ -902,8 +932,7 @@ export class Executor {
   }
 
   /**
-   * Records this step's actions and resulting layout. The same actions on the same layout three times within the last
-   * six steps are a stall, whether in a row or alternating with something else (A, B, A, B, A).
+   * Records this step's actions and resulting layout, and reports whether they stall (see `stalledOn`).
    */
   private recordStep(): { stalled: boolean; fresh: boolean } {
     const record = this.context.history.history[this.context.history.history.length - 1];
@@ -917,7 +946,7 @@ export class Executor {
     const key = `${actions}|${this.context.activeObservation?.layoutFingerprint ?? ''}`;
     const fresh = !this.stepKeys.includes(key);
     this.stepKeys.push(key);
-    return { stalled: this.stepKeys.slice(-6).filter(recent => recent === key).length >= 3, fresh };
+    return { stalled: stalledOn(this.stepKeys), fresh };
   }
 
   /** The page the task is on now, as a return point is recorded: its address and the fingerprint of what it shows. */
@@ -1072,10 +1101,14 @@ export class Executor {
       } else if (outcome === 'failed' && latest?.executionStatus === 'threw' && isStaleElementError(latest.error ?? '')) {
         // The page replaced the element after it was read: not the agent's failure, so it costs nothing from the failure budget.
         logger.info(`Target changed under the action; re-reading the page: ${latest.error}`);
+      } else if (outcome === 'failed' && latest?.executionStatus === 'threw' && dispatchGuard(latest.error ?? '')) {
+        // An actionability guard refused the dispatch (covered, hidden, moving, disabled, read-only): nothing reached
+        // the page, so nothing executed and failed. The model is told what blocked it and picks another way.
+        logger.info(`Action refused before dispatch (${dispatchGuard(latest.error ?? '')}): ${latest.error}`);
       } else if (outcome === 'failed') {
         const failureDetail = latest?.failureReason ?? latest?.error ?? 'failed';
-        // A covered or hidden target, or the site's connection failing, costs half: the model gets room to try another
-        // way, and six in a row still end the task.
+        // The site's connection failing costs half: the model gets room to try another way, and six in a row still
+        // end the task.
         context.consecutiveFailures += latest?.executionStatus === 'threw' && isPageSideError(latest.error ?? '') ? 0.5 : 1;
         logger.warning(`Navigator action failed (${context.consecutiveFailures}/${context.options.maxFailures}): ${failureDetail}`);
         if (context.consecutiveFailures >= context.options.maxFailures) {
