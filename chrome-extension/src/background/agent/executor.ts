@@ -49,7 +49,7 @@ import {
   type TaskCheckpoint,
 } from './contracts';
 import { ensureBrowserObservation, viewportText } from './validation/observation';
-import { echoesActionResult, hostOf, inventedPersonalData, isApproval, personalDataSources, isPageSideError, isStaleElementError } from './validation/service';
+import { dispatchGuard, echoesActionResult, hostOf, inventedPersonalData, isApproval, personalDataSources, isPageSideError, isStaleElementError } from './validation/service';
 import type { ValidationStatus } from './validation/types';
 
 const logger = createLogger('Executor');
@@ -646,8 +646,12 @@ export class Executor {
           context.consecutiveFailures = 0;
         }
         if (stalled) {
-          context.consecutiveFailures++;
-          logger.warning(`Progress stalled: the same actions repeated on an unchanged page (failures ${context.consecutiveFailures}/${context.options.maxFailures})`);
+          // A stall is a route that is not working, not an action that failed: it forces a re-plan (getReplanDecision)
+          // and asks for a screenshot, and leaves the failure budget alone. Charging it here ended tasks before the
+          // re-plan the stall itself triggered could take effect.
+          context.stalls++;
+          record({ level: 'info', kind: 'span', component: 'Executor', msg: 'stall', data: { stalls: context.stalls, maxStalls: context.options.maxStalls } });
+          logger.warning(`Progress stalled: the same actions repeated on an unchanged page (stalls ${context.stalls}/${context.options.maxStalls})`);
         }
         await this.saveCheckpoint(taskText, context.waitingForHuman ? 'waiting_human' : 'running');
 
@@ -1072,10 +1076,14 @@ export class Executor {
       } else if (outcome === 'failed' && latest?.executionStatus === 'threw' && isStaleElementError(latest.error ?? '')) {
         // The page replaced the element after it was read: not the agent's failure, so it costs nothing from the failure budget.
         logger.info(`Target changed under the action; re-reading the page: ${latest.error}`);
+      } else if (outcome === 'failed' && latest?.executionStatus === 'threw' && dispatchGuard(latest.error ?? '')) {
+        // An actionability guard refused the dispatch (covered, hidden, moving, disabled, read-only): nothing reached
+        // the page, so nothing executed and failed. The model is told what blocked it and picks another way.
+        logger.info(`Action refused before dispatch (${dispatchGuard(latest.error ?? '')}): ${latest.error}`);
       } else if (outcome === 'failed') {
         const failureDetail = latest?.failureReason ?? latest?.error ?? 'failed';
-        // A covered or hidden target, or the site's connection failing, costs half: the model gets room to try another
-        // way, and six in a row still end the task.
+        // The site's connection failing costs half: the model gets room to try another way, and six in a row still
+        // end the task.
         context.consecutiveFailures += latest?.executionStatus === 'threw' && isPageSideError(latest.error ?? '') ? 0.5 : 1;
         logger.warning(`Navigator action failed (${context.consecutiveFailures}/${context.options.maxFailures}): ${failureDetail}`);
         if (context.consecutiveFailures >= context.options.maxFailures) {

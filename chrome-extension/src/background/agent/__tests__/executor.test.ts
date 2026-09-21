@@ -703,18 +703,39 @@ describe('An element the page replaced', () => {
 });
 
 describe('Stalls', () => {
-  it('end the task when the same action keeps validating on an unchanged page', async () => {
-    const h = createHarness({
+  it('count on their own and do not end the task: a stall is a route that is not working, not a failed action', async () => {
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('Found it') : plannerUntil('never')(request));
+    h = createHarness({
       task: 'Find the opening hours',
       pages: [{ url: 'https://shop.test/', title: 'Shop', elements: [{ text: 'Home' }] }],
-      planner: Array(12).fill(plan({ macro_objective: 'EXPLORE_PAGE', next_goal: 'Scroll to find the opening hours' })),
-      navigator: Array(12).fill(call('scroll', { direction: 'down' })),
+      planner: Array(24).fill(planner),
+      // Steps 3, 4, 5 and 6 are stalls: the scroll at the bottom validates each time but is never new.
+      navigator: [...Array(6).fill(call('scroll', { direction: 'down' })), done('Found it')],
     });
     await settle(h.executor.execute());
 
-    // Steps 3, 4 and 5 are stalls; the scroll at the bottom validates each time but no longer refills the budget.
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+    expect(h.executor.getContext().stalls).toBeGreaterThanOrEqual(3);
+    expect(h.executor.getContext().consecutiveFailures).toBe(0);
+  });
+
+  it('still end the task after three actions that executed and failed', async () => {
+    const h = createHarness({
+      task: 'Open the Stores page',
+      pages: [{ url: 'https://shop.test/', title: 'Shop', elements: [{ text: 'Home' }, { text: 'Stores' }, { text: 'Deals' }, { text: 'Help' }] }],
+      planner: Array(12).fill(plannerUntil('never')),
+      navigator: [click(1), click(2), click(3), click(0)],
+    });
+    const page = (h.browser as unknown as { page: { clickNode: (...args: unknown[]) => Promise<unknown> } }).page;
+    page.clickNode = async () => {
+      throw new Error('The page threw while handling the click');
+    };
+    await settle(h.executor.execute());
+
     expect(h.last()).toMatchObject({ state: ExecutionState.TASK_FAIL });
-    expect(h.llm.requestsFor('navigator')).toHaveLength(5);
+    expect(h.llm.requestsFor('navigator')).toHaveLength(3);
   });
 });
 
@@ -741,16 +762,17 @@ describe('A target the page covers or hides', () => {
     return h;
   };
 
-  it('costs half a failure, so three refused clicks on different targets do not end the task', async () => {
+  it('costs no failure budget, because the guard refused the dispatch before anything ran', async () => {
     const h = run([2, 3, 0]);
     await settle(h.executor.execute());
     expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
+    expect(h.executor.getContext().consecutiveFailures).toBe(0);
   });
 
-  it('still ends a task that keeps pointing at hidden targets', async () => {
+  it('does not end the task even after a long run of refusals', async () => {
     const h = run([2, 3, 0, 2, 3, 0, 2, 3]);
     await settle(h.executor.execute());
-    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_FAIL });
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
   });
 });
 

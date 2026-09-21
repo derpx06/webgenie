@@ -33,6 +33,8 @@ export interface AgentOptions {
   maxSteps: number;
   maxActionsPerStep: number;
   maxFailures: number;
+  /** Stalls (the same actions on an unchanged page) a task may make before the loop gives up on the route. */
+  maxStalls: number;
   retryDelay: number;
   maxInputTokens: number;
   maxErrorLength: number;
@@ -59,6 +61,7 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   maxSteps: 100,
   maxActionsPerStep: 5,
   maxFailures: 3,
+  maxStalls: 6,
   retryDelay: 10,
   maxInputTokens: 128000,
   maxErrorLength: 400,
@@ -220,6 +223,11 @@ export class AgentContext {
   downloads = new Map<number, string>();
   /** The next page state carries a screenshot (the model asked for one, or the task is stuck); only with useVision. */
   screenshotWanted = false;
+  /**
+   * Steps that repeated what had already been done on an unchanged page. Kept apart from `consecutiveFailures`, which
+   * counts only actions that executed and failed: a stall is a reason to re-plan, not a reason to end the task.
+   */
+  stalls = 0;
 
   constructor(
     taskId: string,
