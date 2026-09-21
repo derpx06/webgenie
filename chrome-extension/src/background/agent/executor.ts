@@ -249,7 +249,7 @@ export class Executor {
     const requirements = planOutput.result.requirements ?? context.requirements;
     const pending = requirements.filter(item => item.status === 'pending').map(item => item.requirement);
     // Told to finish after a goal kept failing: the done ends the task, with what was not applied named below.
-    if (this.mustFinish) return this.acceptCompletion(answer, pending);
+    if (this.mustFinish) return this.acceptCompletion(answer, requirements);
     // Given up before looking: once, the planner has to look at what the site offers first.
     if (!this.unseenGiveUpRefused && givesUpUnseen(context, answer)) {
       this.unseenGiveUpRefused = true;
@@ -299,15 +299,24 @@ export class Executor {
       this.unevidencedRefused = true;
       return this.refuseCompletion(planOutput, `Not done: the answer states ${unbacked.slice(0, 5).map(value => JSON.stringify(value)).join(', ')}, which the current page does not show, and no claim in this task was ever checked against a page. Go to the page that shows each value, read it (read_page or find_in_page) and call assert with the claim and the page's own words for it; report nothing an assert did not pass.`);
     }
-    return this.acceptCompletion(answer, pending);
+    return this.acceptCompletion(answer, requirements);
   }
 
-  private acceptCompletion(answer: string, pending: string[]): 'complete' {
+  /**
+   * The done ends the task. Every deterministic check above is advisory: each refuses once and then accepts, because
+   * they are about 84% precise but only about 56% recall, so a check that keeps firing must never be able to fail a
+   * task that is in fact done. What it did not get is said in the answer instead.
+   */
+  private acceptCompletion(answer: string, requirements: PlannerRequirement[]): 'complete' {
     const context = this.context;
     logger.info('✅ Planner confirms task completion');
-    // The navigator's done text is the provisional answer; a planner final_answer replaces it. Requirements still
-    // pending after the refusals are named, so the answer never implies they were applied.
-    const notApplied = pending.length > 0 ? `\n\n${t('exec_requirements_notApplied', [pending.join('; ')])}` : '';
+    // The navigator's done text is the provisional answer; a planner final_answer replaces it. What was not applied is
+    // named so the answer never implies it was: what is still pending after the refusals, and what the site could not
+    // do at all (not_available, with the reason the planner recorded).
+    const unmet = requirements
+      .filter(item => item.status === 'pending' || item.status === 'not_available')
+      .map(item => (item.status === 'not_available' ? `${item.requirement} (not available on this site${item.evidence ? `: ${item.evidence}` : ''})` : item.requirement));
+    const notApplied = unmet.length > 0 ? `\n\n${t('exec_requirements_notApplied', [unmet.join('; ')])}` : '';
     context.finalAnswer = answer ? `${answer}${notApplied}` : null;
     return 'complete';
   }

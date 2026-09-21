@@ -1592,6 +1592,34 @@ describe('Applied requirements the evidence does not back', () => {
   });
 });
 
+describe('Deterministic completion checks are advisory', () => {
+  // They are about 84% precise but only about 56% recall, so one must never be able to fail a task that is done.
+  const results = { url: 'https://shop.test/search?q=lamp', title: 'Lamps', text: ['Results for lamp', 'Brass lamp $40'] };
+  const searchOnly = call('plan', {
+    ...planDone('The page lists a Brass lamp.').args,
+    requirements: [{ requirement: 'a lamp', status: 'applied', evidence: 'the search results list lamps' }],
+  });
+
+  it('completes on the second done although the same check fails both times', async () => {
+    const h = createHarness({ task: 'Find a lamp', pages: [results], planner: [searchOnly, searchOnly] });
+    await settle(h.executor.execute());
+
+    expect(h.llm.requests.map(request => request.agent)).toEqual(['planner', 'planner']);
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The page lists a Brass lamp.' } });
+  });
+
+  it('names in the answer what the site could not do', async () => {
+    const unavailable = call('plan', {
+      ...planDone('The page lists a Brass lamp.').args,
+      requirements: [{ requirement: 'sorted by price', status: 'not_available', evidence: 'the site offers no sort control' }],
+    });
+    const h = createHarness({ task: 'Find the cheapest lamp', pages: [results], planner: Array(3).fill(unavailable) });
+    await settle(h.executor.execute());
+
+    expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK, data: { details: 'The page lists a Brass lamp.\n\nexec_requirements_notApplied' } });
+  });
+});
+
 describe('The planning interval', () => {
   const form = { url: 'https://forms.test/', title: 'Form', text: ['Notes'], elements: [{ tag: 'input', attributes: { 'aria-label': 'Note' } }] };
 
