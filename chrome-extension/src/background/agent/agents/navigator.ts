@@ -457,15 +457,21 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
    * script (a settings page, a tab mid-navigation) simply ignores it.
    */
   private showOnPage(actionName: string, node: DOMElementNode | undefined): void {
-    try {
-      const browserContext = this.context.browserContext;
-      const tabId = browserContext.getCurrentTabId();
-      if (tabId === null) return;
-      const message = presenceMessage(actionName, node, this.context.currentContract?.goal);
-      void browserContext.browser.sendTabMessage(tabId, message).catch(() => undefined);
-    } catch {
-      // Decoration must never cost the agent an action.
-    }
+    const browserContext = this.context.browserContext;
+    const tabId = browserContext.getCurrentTabId();
+    if (tabId === null) return;
+    const goal = this.context.currentContract?.goal;
+    // Where the element is now, not where the read that named it found it: the read can be several actions old, and the
+    // page has scrolled since. The gesture corrects it again once it has scrolled to the element; this is for the
+    // actions that never dispatch a gesture at all (a scroll, a read, a value set directly).
+    void (async () => {
+      try {
+        const fresh = node ? await (await browserContext.getCurrentPage()).viewportBoxOf(node) : null;
+        await browserContext.browser.sendTabMessage(tabId, presenceMessage(actionName, node, goal, fresh ?? undefined));
+      } catch {
+        // Decoration must never cost the agent an action.
+      }
+    })();
   }
 
   private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {

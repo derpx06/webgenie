@@ -2029,6 +2029,19 @@ export default class Page {
     return named.length > 0 ? `; its buttons: ${[...new Set(named)].join(', ')}` : '';
   }
 
+  /**
+   * Where an element is on screen right now, in top-level viewport pixels, or null when it has no box. For the on-page
+   * cursor: the page read it was aimed from can be several actions old, and by then the page has scrolled.
+   */
+  async viewportBoxOf(node: DOMElementNode): Promise<{ x: number; y: number; w: number; h: number } | null> {
+    try {
+      const box = await (await this._requireHandle(node)).boundingBox();
+      return box && box.width > 0 && box.height > 0 ? { x: box.x, y: box.y, w: box.width, h: box.height } : null;
+    } catch {
+      return null;
+    }
+  }
+
   async clickNode(node: DOMElementNode, clickCount = 1): Promise<MouseOutcome> {
     return this._dispatchMouse(await this._requireHandle(node), 'click', { clickCount });
   }
