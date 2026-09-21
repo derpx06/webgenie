@@ -358,8 +358,16 @@ function savedResult(runDir, task) {
  */
 async function agentPage(harness) {
   const pages = await harness.webPages();
+  // The tab the agent drives is the one it has the debugger attached to. Asking which tab is *active* instead put a
+  // task's whole trajectory on the page the agent had left: it worked in a second tab and every screenshot showed the
+  // first. Activity is the fallback, for the moment before the debugger attaches.
   const url = await harness.ctl
-    .evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.url)
+    .evaluate(async () => {
+      const targets = await new Promise(resolve => chrome.debugger.getTargets(resolve));
+      const attached = targets.filter(target => target.attached && target.type === 'page' && target.tabId !== undefined);
+      if (attached.length > 0) return attached.at(-1).url;
+      return (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.url;
+    })
     .catch(() => null);
   return pages.filter(page => page.url() === url).at(-1) ?? pages.at(-1);
 }
