@@ -138,6 +138,15 @@ export function redactArgs(actionName: string, args: unknown): Record<string, un
       rest[field] = `<${(rest[field] as string).length} characters>`;
     }
   }
+  // fill_form carries a whole form at once — a name, an address, an email, a card number. Only the lengths are logged.
+  if (actionName === 'fill_form' && Array.isArray(rest.fields)) {
+    rest.fields = (rest.fields as unknown[]).map(entry => {
+      if (!entry || typeof entry !== 'object') return entry;
+      const field = { ...(entry as Record<string, unknown>) };
+      if (typeof field.value === 'string') field.value = `<${field.value.length} characters>`;
+      return field;
+    });
+  }
   return rest;
 }
 
@@ -408,7 +417,8 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
       return await page.formCommitInfo(node);
     } catch (error) {
       logger.warning(`Could not inspect the form: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
+      // Not the same as "there is no form": an unread form is one the gate must assume can take the user's money.
+      return { inForm: true, isSubmitter: true, paymentFields: false, submitLabels: [], unreadable: true };
     }
   }
 

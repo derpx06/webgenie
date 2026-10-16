@@ -14,6 +14,7 @@ import {
   noteCallRefused,
   noteCallStarted,
   paceKey,
+  MIN_RATE_LIMIT_DELAY_MS,
   rateLimitDelayMs,
   rateLimitHint,
   readFinish,
@@ -382,6 +383,14 @@ describe('rate limits and quotas', () => {
     expect(rateLimitDelayMs(new Error('429'), 0, () => 1)).toBe(2_000);
     expect(rateLimitDelayMs(new Error('429'), 3, () => 0.5)).toBe(15_000);
     expect(rateLimitDelayMs(new Error('429'), 5, () => 1)).toBe(30_000);
+  });
+
+  it('waits a second even when the provider says to retry at once', () => {
+    // A hint of zero spent the whole rate-limit budget in a tight loop of round trips and never recovered.
+    expect(rateLimitDelayMs(new Error('429 Too Many Requests; Retry-After: 0'), 0)).toBe(MIN_RATE_LIMIT_DELAY_MS);
+    expect(rateLimitDelayMs(new Error('429 {"retryDelay":"0s"}'), 0)).toBe(MIN_RATE_LIMIT_DELAY_MS);
+    // A real hint is still honoured exactly.
+    expect(rateLimitDelayMs(new Error('429 Too Many Requests; Retry-After: 7'), 0)).toBe(7_000);
   });
 
   /**

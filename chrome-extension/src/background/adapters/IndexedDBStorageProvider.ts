@@ -33,7 +33,9 @@ export class IndexedDBStorageProvider implements IStorageProvider {
     try {
       await this.db.keyValues.put({ key, value });
     } catch (error) {
+      // Resuming a task rests on this write. Swallowing it reported a checkpoint that does not exist.
       console.error(`[IndexedDBStorageProvider] Failed to set key: ${key}`, error);
+      throw error;
     }
   }
 

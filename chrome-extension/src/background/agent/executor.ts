@@ -678,6 +678,13 @@ export class Executor {
           context.stalls++;
           record({ level: 'info', kind: 'span', component: 'Executor', msg: 'stall', data: { stalls: context.stalls, maxStalls: context.options.maxStalls } });
           logger.warning(`Progress stalled: the same actions repeated on an unchanged page (stalls ${context.stalls}/${context.options.maxStalls})`);
+          // The budget a stall does spend. Without this the loop the stall detected simply ran on to the step limit,
+          // which on a live run cost whole tasks their remaining budget for nothing. The task finishes with the best
+          // answer it has rather than being cut off: mustFinish makes the next done stand.
+          if (context.stalls >= context.options.maxStalls) {
+            this.mustFinish = true;
+            logger.warning('Too many stalls: the task must finish with the best answer it has.');
+          }
         }
         await this.saveCheckpoint(taskText, context.waitingForHuman ? 'waiting_human' : 'running');
 

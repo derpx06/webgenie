@@ -316,6 +316,9 @@ export function rateLimitHint(error: unknown): number | null {
   return null;
 }
 
+/** However soon a provider says to retry, a rate-limited call waits this long first. */
+export const MIN_RATE_LIMIT_DELAY_MS = 1_000;
+
 /**
  * The wait before rate-limit retry `attempt` (0-based): the provider's hint, else exponential backoff with **full**
  * jitter, `rand(0, ceiling)`. AWS measured every jittered variant against 100 contending clients: full jitter finished
@@ -323,7 +326,9 @@ export function rateLimitHint(error: unknown): number | null {
  */
 export function rateLimitDelayMs(error: unknown, attempt: number, random: () => number = Math.random): number {
   const hint = retryDelayHint(error);
-  if (hint !== null) return Math.min(hint, 30_000);
+  // A hint of zero is a provider saying "immediately", which spends the whole rate-limit budget in a tight loop of
+  // round trips and never recovers. Wait at least a second however eager the hint.
+  if (hint !== null) return Math.min(Math.max(hint, MIN_RATE_LIMIT_DELAY_MS), 30_000);
   const ceiling = Math.min(30_000, 2_000 * 3 ** attempt);
   return Math.round(random() * ceiling);
 }

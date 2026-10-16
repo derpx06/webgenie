@@ -118,7 +118,10 @@ export function commitTarget(
   node?: DOMElementNode,
   form?: FormCommitInfo | null,
 ): CommitTarget | null {
-  const commitsForm = !!form?.inForm && (form.paymentFields || form.submitLabels.some(isCommitLabel));
+  // A form the page would not let us read is treated as one that may commit: this is the gate that protects the
+  // user's money, and the only safe direction for it to fail is closed. `null` is different — it means the tool
+  // cannot commit through a form at all, so nothing was inspected.
+  const commitsForm = !!form?.unreadable || (!!form?.inForm && (form.paymentFields || form.submitLabels.some(isCommitLabel)));
   const modelSaysCommit = typeof args.commits === 'string' && args.commits !== 'none';
   let label: string | undefined;
   if (CLICKING_TOOLS.has(actionName)) {

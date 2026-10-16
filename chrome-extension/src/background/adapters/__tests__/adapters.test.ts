@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { IndexedDBStorageProvider } from '../IndexedDBStorageProvider';
 import { ChromeBrowserAdapter } from '../ChromeBrowserAdapter';
 import { ChromeStorageProvider } from '../ChromeStorageProvider';
 
@@ -267,5 +268,37 @@ describe('ChromeBrowserAdapter callback errors', () => {
     vi.stubGlobal('chrome', { runtime: {}, });
 
     await expect(new ChromeBrowserAdapter().queryReadingList()).rejects.toThrow('chrome.readingList API not available');
+  });
+});
+
+/**
+ * Resuming a task rests on this write. It used to swallow its own failure, so a checkpoint that was never stored was
+ * reported — and traced — as saved, and the task resumed from nothing.
+ */
+describe('IndexedDBStorageProvider', () => {
+  const provider = () => {
+    const store = new IndexedDBStorageProvider();
+    const table = { get: vi.fn(), put: vi.fn(), delete: vi.fn() };
+    (store as unknown as { db: { keyValues: typeof table } }).db = { keyValues: table };
+    return { store, table };
+  };
+
+  it('reports a write it could not make', async () => {
+    const { store, table } = provider();
+    table.put.mockRejectedValue(new Error('QuotaExceededError'));
+    await expect(store.set('checkpoint', { step: 3 })).rejects.toThrow('QuotaExceededError');
+  });
+
+  it('stays quiet when the write succeeds', async () => {
+    const { store, table } = provider();
+    table.put.mockResolvedValue('checkpoint');
+    await expect(store.set('checkpoint', { step: 3 })).resolves.toBeUndefined();
+    expect(table.put).toHaveBeenCalledWith({ key: 'checkpoint', value: { step: 3 } });
+  });
+
+  it('still answers null for a read it could not make, since a missing value is a normal answer', async () => {
+    const { store, table } = provider();
+    table.get.mockRejectedValue(new Error('InvalidStateError'));
+    await expect(store.get('checkpoint')).resolves.toBeNull();
   });
 });

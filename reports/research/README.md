@@ -36,6 +36,12 @@ Scoped under decision D5: every recommendation must hold across models and provi
 | [11 Frontier agent teardowns](11-frontier-agent-teardowns.md) | Operator/Atlas, Mariner/Gemini Computer Use, Claude in Chrome, Browser Use, Stagehand, Skyvern, Magentic, Nova Act, Manus, Agent S, Surfer-H | Tool set, verification, cross-system patterns |
 | [12 Task robustness and answers](12-task-robustness-and-answers.md) | Live-benchmark failure taxonomies, forms and autocomplete, consent walls, answer completeness, false refusals | Wrong target 11%, guards 9%, answer quality |
 
+## Round 3 — the comparable projects, read from their code (2026-10-16)
+
+| Brief | Covers | Attacks |
+| --- | --- | --- |
+| [14 Comparable solutions](14-comparable-solutions.md) | nanobrowser 0.3 (we are a fork of it), Browser Use, Stagehand, Skyvern, Playwright MCP, Chrome DevTools MCP, the Chrome platform (Prompt API, `chrome.automation`, WebMCP, Chrome 155 debugger policy) | Postconditions, a code-gated `done`, durable element ids and diffs, batch policy, a model-free fixture suite |
+
 ## What the research agrees on
 
 Findings that at least two independent briefs reached from different sources:

@@ -739,6 +739,27 @@ describe('Stalls', () => {
     expect(h.executor.getContext().consecutiveFailures).toBe(0);
   });
 
+  it('stop the task once the budget they do have runs out, with the best answer it has', async () => {
+    // Before this bound existed, a loop the stall detector had already seen simply ran on to the step limit.
+    // eslint-disable-next-line prefer-const
+    let h: ReturnType<typeof createHarness>;
+    const planner = (request: LLMRequest) => (h.llm.remaining('navigator') === 0 ? planDone('The opening hours are 9 to 5') : plannerUntil('never')(request));
+    h = createHarness({
+      task: 'Find the opening hours',
+      pages: [{ url: 'https://shop.test/', title: 'Shop', elements: [{ text: 'Home' }] }],
+      planner: Array(40).fill(planner),
+      navigator: [...Array(20).fill(call('scroll', { direction: 'down' })), done('The opening hours are 9 to 5')],
+      extraArgs: { agentOptions: { maxStalls: 3 } },
+    });
+    await settle(h.executor.execute());
+
+    const context = h.executor.getContext();
+    expect(context.stalls).toBeGreaterThanOrEqual(3);
+    // It finished rather than grinding to the step limit: far fewer navigator calls than the 20 scrolls queued.
+    expect(h.llm.requestsFor('navigator').length).toBeLessThan(12);
+    expect(context.consecutiveFailures).toBe(0);
+  });
+
   it('still end the task after three actions that executed and failed', async () => {
     const h = createHarness({
       task: 'Open the Stores page',

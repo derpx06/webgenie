@@ -32,3 +32,24 @@ describe('offersToRetry', () => {
     expect(offersToRetry('Would you like me to try another shipping address?')).toBe(false);
   });
 });
+
+describe('what reaches the console and the trace store', () => {
+  it('logs the length of each form value, never the value', () => {
+    const redacted = redactArgs('fill_form', {
+      fields: [
+        { index: 3, value: '4242 4242 4242 4242' },
+        { index: 4, value: 'ada@example.com' },
+        { index: 5, select: 'Germany' },
+      ],
+      observationId: 'obs-1',
+    });
+    expect(JSON.stringify(redacted)).not.toContain('4242');
+    expect(JSON.stringify(redacted)).not.toContain('ada@example.com');
+    expect(redacted.fields).toEqual([
+      { index: 3, value: '<19 characters>' },
+      { index: 4, value: '<15 characters>' },
+      { index: 5, select: 'Germany' },
+    ]);
+    expect(redacted.observationId).toBeUndefined();
+  });
+});

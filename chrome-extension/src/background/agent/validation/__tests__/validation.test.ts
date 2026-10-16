@@ -489,6 +489,15 @@ describe('committing actions', () => {
     commitTarget('click_element', { index: 1, ...args }, 'https://shop.test/checkout?step=2', node, form);
   const noForm: FormCommitInfo = { inForm: false, isSubmitter: false, paymentFields: false, submitLabels: [] };
 
+  it('asks when the page would not let the form be read, and not when there was no form to read', () => {
+    const unreadable: FormCommitInfo = { inForm: true, isSubmitter: true, paymentFields: false, submitLabels: [], unreadable: true };
+    // The gate protects the user's money: a form it could not inspect is one that may take it.
+    expect(click(button('Continue'), {}, unreadable)).not.toBeNull();
+    // `null` is the other case entirely: this tool cannot commit through a form, so nothing was inspected.
+    expect(click(button('Continue'), {}, null)).toBeNull();
+    expect(click(button('Continue'), {}, noForm)).toBeNull();
+  });
+
   it('recognises orders, payments, subscriptions and account deletion by the element label', () => {
     for (const label of ['Place order', 'Submit order', 'Buy now', 'Pay $40.00', 'Complete purchase', 'Confirm order', 'Subscribe', 'Delete account']) {
       expect(click(button(label))?.label).toBe(label);

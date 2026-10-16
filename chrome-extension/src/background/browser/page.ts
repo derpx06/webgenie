@@ -202,6 +202,8 @@ export interface FormCommitInfo {
   /** The form asks for payment card or bank details. */
   paymentFields: boolean;
   submitLabels: string[];
+  /** The page would not let the form be read. The commit gate treats that as "this may commit": it fails closed. */
+  unreadable?: boolean;
 }
 
 /** Runs in the page: must stay self-contained. Without a start element, follows focus into shadow roots and same-origin frames. */
