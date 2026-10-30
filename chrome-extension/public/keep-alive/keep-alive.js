@@ -1,7 +1,11 @@
 // This script runs inside the invisible offscreen document.
 // It opens a continuous WebSocket-like port connection to the Service Worker.
-// In Chrome 116+, an active port connection from an offscreen document
-// legally suspends both the 30-second and 5-minute Service Worker termination limits.
+// What this actually buys, per Chrome's own documentation, because the comment here used to overstate it:
+//   - Chrome 109: a message *from* an offscreen document resets the worker's idle timer.
+//   - Chrome 114: sending a message over a long-lived port resets it. Holding a port open does not; only traffic
+//     counts, which is why this pings rather than merely connecting.
+// It does NOT lift the per-invocation five-minute limit on a single event or API call, and it does not help a
+// fetch() whose response takes over 30 seconds — that one kills the worker regardless. Keep work below those.
 
 const KEEP_ALIVE_INTERVAL_MS = 20000; // 20 seconds
 let keepAlivePort = null;

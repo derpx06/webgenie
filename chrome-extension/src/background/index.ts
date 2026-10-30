@@ -748,7 +748,14 @@ chrome.runtime.onConnect.addListener(port => {
 });
 
 // Context Menu integration
+// A worker that died with a task running leaves the keep-alive document open, and it has no lifetime of its own.
+// Startup is the one moment we know no task of ours is in flight.
+chrome.runtime.onStartup.addListener(() => {
+  void keepAliveManager.sweepOrphan();
+});
+
 chrome.runtime.onInstalled.addListener(() => {
+  void keepAliveManager.sweepOrphan();
   logger.info('onInstalled fired, creating context menus...');
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({

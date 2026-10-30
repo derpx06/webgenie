@@ -128,15 +128,23 @@ describe('offline gate', () => {
    * made every "does the page back this?" check answer about a page that no longer exists.
    */
   it('re-reads the page before accepting a finish', async () => {
-    const h = createHarness({
-      task: 'Read the results count',
-      pages: [listPage, { ...listPage, text: ['42 results'] }],
-      planner: [plan({ next_goal: 'Read it' }), plan({ done: true, final_answer: '42 results' })],
-      navigator: [done('42 results')],
-    });
-    const readsBefore = h.browser.reads;
-    await drive(h);
-    expect(h.browser.reads).toBeGreaterThan(readsBefore);
-    expect(h.has('task.ok' as never) || h.states().some(state => String(state).startsWith('task.'))).toBe(true);
+    // Measured as a difference, because a run reads the page for its own reasons. The same scripted steps, once
+    // ending in a planner `done` and once cancelled before one: the extra read belongs to the completion check.
+    const scenario = (finish: boolean) =>
+      createHarness({
+        task: 'Read the results count',
+        pages: [listPage, { ...listPage, text: ['42 results'] }],
+        planner: finish
+          ? [plan({ next_goal: 'Read it' }), plan({ done: true, final_answer: '42 results' })]
+          : [plan({ next_goal: 'Read it' }), plan({ next_goal: 'Keep reading' })],
+        navigator: [done('42 results')],
+      });
+
+    const finishing = scenario(true);
+    await drive(finishing);
+    const unfinished = scenario(false);
+    await drive(unfinished);
+
+    expect(finishing.browser.reads).toBeGreaterThan(unfinished.browser.reads);
   });
 });
