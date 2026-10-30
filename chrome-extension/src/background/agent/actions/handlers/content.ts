@@ -8,6 +8,7 @@ import type {
   viewScreenshotActionSchema,
 } from '../schemas';
 import type { z } from 'zod';
+import { jsonrepair } from 'jsonrepair';
 import { t } from '@extension/i18n';
 import { Actors, ExecutionState } from '../../event/types';
 import { BaseHandler } from './base';
@@ -139,6 +140,18 @@ function passageLine(text: string, { start, end, row, header }: Passage): string
 const MODEL_EXTRACT_CHARS = 30000;
 
 /** The part of the page an `extract` scope names: a section of the outline, else the text around the first mention. */
+/**
+ * Strips a code fence a model wrapped around a JSON argument: ```json ... ``` or ''' ... '''.
+ * jsonrepair treats the fence as content and fails on it, and the saved runs show models adding one.
+ */
+export function unfence(text: string): string {
+  return text
+    .trim()
+    .replace(/^(?:```|''')\s*[a-zA-Z]*\s*/, '')
+    .replace(/(?:```|''')$/, '')
+    .trim();
+}
+
 export function scopeOf(markdown: string, scope?: string): string {
   if (!scope?.trim()) return markdown;
   const section = findSection(outlineOf(markdown), scope);
@@ -392,23 +405,52 @@ export class ContentHandler extends BaseHandler {
     return added.trim() ? added : null;
   }
 
+  /**
+   * `extract` asked for the page's content in a shape we cannot use. Return the content anyway.
+   *
+   * An `error` result ends the action batch and charges the failure budget, so a stray backslash in
+   * a hand-written schema used to end whole runs three failures later. The model wanted what is on
+   * the page; unparsed text is a worse answer than typed rows and a far better one than nothing.
+   */
+  private async readInsteadOfExtract(
+    input: z.infer<typeof extractActionSchema.schema>,
+    why: string,
+  ): Promise<ActionResult> {
+    const page = (await this.context.browserContext.getCurrentPage()) as unknown as ReadablePage;
+    const { url, markdown } = await this.readDocument(page, 'main');
+    this.context.pageRead = { url, text: markdown };
+    const scoped = scopeOf(markdown, input.scope);
+    const note = `extract could not use that schema (${why}), so here is the page itself. For typed rows send plain JSON Schema — {"type":"array","items":{"type":"object","properties":{"name":{"type":"string"}}}} — with no selectors, patterns or attributes inside it.`;
+    this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, note);
+    const body = `${note}\n\nRead from ${url}${input.scope ? ` (scope: ${input.scope})` : ''}\n${scoped}`;
+    return new ActionResult({
+      extractedContent: wrapUntrustedContent(
+        body.length > MAX_READ_CHARS ? `${body.slice(0, MAX_READ_CHARS)}\n[truncated]` : body,
+        false,
+      ),
+      includeInMemory: true,
+    });
+  }
+
   async handleExtract(input: z.infer<typeof extractActionSchema.schema>): Promise<ActionResult> {
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, 'Extracting the requested fields');
-    let schema: Record<string, unknown>;
+    // Models write JSON Schema by hand and get it wrong in three ways the saved runs show: \' escapes
+    // carried in from a CSS selector, single-quoted objects, and raw regex backslashes in `pattern`.
+    // jsonrepair handles all three, and it is already how we parse model JSON elsewhere.
+    let schema: Record<string, unknown> | null = null;
     try {
       schema = JSON.parse(input.schema) as Record<string, unknown>;
-    } catch (error) {
-      const msg = `schema is not valid JSON (${error instanceof Error ? error.message : String(error)}). Send a JSON Schema, for example {"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"price":{"type":"number"}}}}.`;
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
-      return new ActionResult({ error: msg, includeInMemory: true });
+    } catch {
+      try {
+        schema = JSON.parse(jsonrepair(unfence(input.schema))) as Record<string, unknown>;
+      } catch {
+        schema = null;
+      }
     }
+    if (!schema) return this.readInsteadOfExtract(input, 'it is not valid JSON, even after repair');
 
     const { many, fields, required } = schemaFields(schema);
-    if (fields.length === 0) {
-      const msg = 'schema names no fields: give an object schema with properties, or an array of such objects.';
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
-      return new ActionResult({ error: msg, includeInMemory: true });
-    }
+    if (fields.length === 0) return this.readInsteadOfExtract(input, 'it names no fields');
 
     try {
       const page = (await this.context.browserContext.getCurrentPage()) as unknown as ReadablePage;

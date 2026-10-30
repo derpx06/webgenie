@@ -345,6 +345,40 @@ export const useModelSettings = (_isDarkMode: boolean) => {
     };
   };
 
+  /**
+   * Give both roles a model the first time a provider is saved.
+   *
+   * Saving a key used to configure nothing, so a new user reached a welcome screen that never went away: the agent
+   * refuses to start without a planner and a navigator, and nothing in the UI said so. A role the user has already
+   * chosen is never overwritten.
+   */
+  const assignDefaultModels = async (provider: string, config: ProviderConfig) => {
+    const names = config.modelNames ?? [];
+    if (names.length === 0) return;
+    for (const agentName of [AgentNameEnum.Navigator, AgentNameEnum.Planner]) {
+      try {
+        if (await agentModelStore.getAgentModel(agentName)) continue;
+        const modelName = names[0];
+        const effort = reasoningEffortSupported(`${provider}>${modelName}`)
+          ? getLlmCapabilities(config.type ?? provider, modelName).reasoning === 'openai_effort' &&
+            agentName === AgentNameEnum.Navigator
+            ? 'minimal'
+            : 'low'
+          : undefined;
+        await agentModelStore.setAgentModel(agentName, {
+          provider,
+          modelName,
+          parameters: modelParameters[agentName],
+          reasoningEffort: effort,
+        });
+        setSelectedModels(prev => ({ ...prev, [agentName]: `${provider}>${modelName}` }));
+        setReasoningEffort(prev => ({ ...prev, [agentName]: effort }));
+      } catch (error) {
+        console.error(`Could not assign a default model for ${agentName}:`, error);
+      }
+    }
+  };
+
   const handleSave = async (provider: string) => {
     try {
       // Spaces are now allowed in custom provider names as we use stable unique IDs
@@ -382,6 +416,7 @@ export const useModelSettings = (_isDarkMode: boolean) => {
       setModifiedProviders(prev => { const n = new Set(prev); n.delete(provider); return n; });
       const models = await getAvailableModelsCallback();
       setAvailableModels(models);
+      await assignDefaultModels(provider, configToSave);
     } catch (error) {
       console.error('Error saving API key:', error);
       alert(getErrorMessage(error));

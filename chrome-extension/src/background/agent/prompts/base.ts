@@ -332,10 +332,28 @@ abstract class BasePrompt {
     // Titles and addresses are written by sites: data, never instructions.
     const currentTab = `{id: ${browserState.tabId}, url: ${defangTags(browserState.url)}, title: ${untrustedInline(browserState.title)}}`;
     const allOtherTabs = browserState.tabs.filter(tab => tab.id !== browserState.tabId && !deadTab(tab.url));
-    const otherTabs = allOtherTabs
+    // The task's own tabs in full, so a job spanning several of them stays legible across steps.
+    const myTabs = allOtherTabs.filter(tab => tab.mine);
+    const otherTabs = myTabs
       .slice(0, MAX_OTHER_TABS)
       .map(tab => `- {id: ${tab.id}, url: ${defangTags(clip(tab.url, 120))}, title: ${untrustedInline(clip(tab.title, 80))}}`);
-    if (allOtherTabs.length > MAX_OTHER_TABS) otherTabs.push(`- ...and ${allOtherTabs.length - MAX_OTHER_TABS} more tabs`);
+    if (myTabs.length > MAX_OTHER_TABS) otherTabs.push(`- ...and ${myTabs.length - MAX_OTHER_TABS} more of your tabs`);
+
+    // The user's own tabs by host only. Their full addresses and titles are the user's browsing, and they went to the
+    // model on every step of every task. A host is enough to say "switch to the tab on example.com" and no more.
+    const theirHosts = [...new Set(
+      allOtherTabs.filter(tab => !tab.mine).map(tab => {
+        try {
+          return new URL(tab.url).host;
+        } catch {
+          return '';
+        }
+      }).filter(Boolean),
+    )];
+    const theirTabs = allOtherTabs.filter(tab => !tab.mine);
+    const theirs = theirTabs.length
+      ? `The user also has ${theirTabs.length} tab${theirTabs.length === 1 ? '' : 's'} open that you did not open, on: ${theirHosts.slice(0, MAX_OTHER_TABS).join(', ')}${theirHosts.length > MAX_OTHER_TABS ? ', and others' : ''}. Their addresses and titles are the user's own; switch to one only if the task needs it.`
+      : '';
 
     // Notes shown above the page: what earlier tasks learned here, the navigator's memory.
     const durableMemory = context.messageManager.getWorkingMemory();
@@ -352,9 +370,9 @@ abstract class BasePrompt {
 
     const stateDescription = `${reflectionPrefix}[Current browser state]
 Current tab: ${currentTab}
-Other open tabs:
+Your other tabs:
 ${otherTabs.join('\n') || '(none)'}
-${dialogNotice}Interactive elements of the current page (offscreen elements are marked; links on the current site show their path, so the full address is the current tab's origin plus that path):
+${theirs ? `${theirs}\n` : ''}${dialogNotice}Interactive elements of the current page (offscreen elements are marked; links on the current site show their path, so the full address is the current tab's origin plus that path):
 ${formattedElementsText}
 ${stepInfoDescription}
 ${actionResultsDescription ? `Results of your last actions:${actionResultsDescription}` : ''}`.trim();

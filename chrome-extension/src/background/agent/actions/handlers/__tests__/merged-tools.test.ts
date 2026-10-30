@@ -23,13 +23,19 @@ const page: PageSpec = {
 };
 
 /** Runs one action and returns what the browser was asked to do. */
-async function run(name: string, args: Record<string, unknown>, task = 'Use the page') {
+async function run(
+  name: string,
+  args: Record<string, unknown>,
+  task = 'Use the page',
+  seed?: (h: ReturnType<typeof createHarness>) => void,
+) {
   const h = createHarness({
     task,
     pages: [page],
     planner: Array(6).fill(plan()),
     navigator: [call(name, args), done('Used')],
   });
+  seed?.(h);
   const execution = h.executor.execute();
   await until(() => h.llm.remaining('navigator') === 0);
   await h.executor.cancel();
@@ -128,8 +134,31 @@ describe('the options that replaced a tool of their own', () => {
   });
 
   it('switches to a tab, or closes it', async () => {
-    expect(await run('switch_tab', { tab_id: 7 })).toEqual([{ type: 'switch_tab', tabId: 7 }]);
-    expect(await run('switch_tab', { tab_id: 7, action: 'close' })).toEqual([{ type: 'close_tab', tabId: 7 }]);
+    const seed = (h: { browser: { tabs: Array<{ id: number; url: string; title: string; mine?: boolean }> } }) =>
+      h.browser.tabs.push({ id: 7, url: 'https://other.test/', title: 'Other', mine: true });
+    expect(await run('switch_tab', { tab_id: 7 }, 'Use the page', seed)).toEqual([{ type: 'switch_tab', tabId: 7 }]);
+    expect(await run('switch_tab', { tab_id: 7, action: 'close' }, 'Use the page', seed)).toEqual([
+      { type: 'close_tab', tabId: 7 },
+    ]);
+  });
+
+  // The ids are the one thing the model cannot guess, so a wrong one comes back with the list, the way a stale
+  // element index comes back with the current elements.
+  it('names the open tabs when asked for one that is not there', async () => {
+    const h = createHarness({
+      task: 'Use the page',
+      pages: [page],
+      planner: Array(6).fill(plan()),
+      navigator: [call('switch_tab', { tab_id: 99 }), done('Used')],
+    });
+    const execution = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0);
+    await h.executor.cancel();
+    await settle(execution);
+    expect(h.browser.actions).toEqual([]);
+    const said = h.events.map(event => String(event.data?.details ?? '')).join('\n');
+    expect(said).toContain('There is no tab 99');
+    expect(said).toContain('Open tab ids: 1');
   });
 
   it('scrolls to a text instead of by screens when one is named', async () => {

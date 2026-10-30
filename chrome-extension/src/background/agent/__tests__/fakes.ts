@@ -9,7 +9,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type BrowserContext from '../../browser/context';
 import type Page from '../../browser/page';
 import type { FormCommitInfo } from '../../browser/page';
-import { DEFAULT_BROWSER_CONTEXT_CONFIG, type BrowserContextConfig, type BrowserState, type PageDialog } from '../../browser/views';
+import { DEFAULT_BROWSER_CONTEXT_CONFIG, type BrowserContextConfig, type BrowserState, type PageDialog, type TabInfo } from '../../browser/views';
 import { DOMElementNode, DOMTextNode } from '../../browser/dom/views';
 import type { CoordinateSet } from '../../browser/dom/history/view';
 import type { ScreenshotOptions } from '../../browser/page';
@@ -270,6 +270,13 @@ export class FakeBrowserContext {
     actionPollIntervalMs: 50,
     waitBetweenActions: 0,
   };
+  /**
+   * The tabs this fake browser has open, so a task spanning several of them can be driven with no browser at all.
+   * `mine` mirrors the real context: the tab the agent attached to and every tab it opened or switched to.
+   */
+  tabs: TabInfo[] = [{ id: 1, url: '', title: '', mine: true }];
+  currentTabId = 1;
+  private nextTabId = 2;
   private readonly pages: PageSpec[];
   private index = 0;
   private readonly doms = new Map<PageSpec, Pick<BrowserState, 'elementTree' | 'selectorMap'>>();
@@ -345,19 +352,33 @@ export class FakeBrowserContext {
 
   // BrowserContext surface used by the agent.
   getConfig = () => this.config;
-  getCurrentTabId = () => 1;
+  getCurrentTabId = () => this.currentTabId;
   getCurrentPage = async () => this.page as unknown as Page;
   getCachedState = async (useVision = false) => ({ ...this.read(), screenshot: useVision ? 'c2NyZWVuc2hvdA==' : null });
   getState = async () => this.read();
-  getTabInfos = async () => [{ id: 1, url: this.current.url, title: this.current.title ?? '' }];
-  getAllTabIds = async () => new Set([1]);
+  /** The current tab reports the page being served; the others keep whatever they were opened on. */
+  getTabInfos = async () =>
+    this.tabs.map(tab =>
+      tab.id === this.currentTabId ? { ...tab, url: this.current.url, title: this.current.title ?? tab.title } : tab,
+    );
+  getAllTabIds = async () => new Set(this.tabs.map(tab => tab.id));
   navigateTo = async (url: string) => this.act({ type: 'navigate', url });
   openTab = async (url: string) => {
+    const id = this.nextTabId++;
+    this.tabs.push({ id, url, title: url, mine: true });
+    this.currentTabId = id;
     this.act({ type: 'open_tab', url });
     return this.page as unknown as Page;
   };
-  closeTab = async (tabId: number) => this.act({ type: 'close_tab', tabId });
-  switchTab = async (tabId: number) => this.act({ type: 'switch_tab', tabId });
+  closeTab = async (tabId: number) => {
+    this.tabs = this.tabs.filter(tab => tab.id !== tabId);
+    if (this.currentTabId === tabId) this.currentTabId = this.tabs[0]?.id ?? 1;
+    this.act({ type: 'close_tab', tabId });
+  };
+  switchTab = async (tabId: number) => {
+    if (this.tabs.some(tab => tab.id === tabId)) this.currentTabId = tabId;
+    this.act({ type: 'switch_tab', tabId });
+  };
   removeHighlight = async () => {};
   invalidateCache = async () => {};
   waitForPageAndFramesLoad = async () => {};

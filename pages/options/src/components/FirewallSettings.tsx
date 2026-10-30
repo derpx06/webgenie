@@ -61,10 +61,16 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
       <div className={`flex items-center justify-between rounded-2xl border p-6 transition-all duration-300 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-200 bg-white'}`}>
         <div>
           <h3 className={`font-outfit text-base font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            Firewall Protection
+            Site rules
           </h3>
           <p className="mt-1 text-xs text-slate-400 opacity-80">
-            Toggle domain access filtering on or off
+            {!isEnabled
+              ? 'Off. The agent can open any site you could open yourself.'
+              : allowList.length > 0
+                ? `On. The agent can open only the ${allowList.length} allowed ${allowList.length === 1 ? 'site' : 'sites'}${denyList.length > 0 ? `, minus ${denyList.length} blocked` : ''}.`
+                : denyList.length > 0
+                  ? `On. The agent can open any site except the ${denyList.length} blocked ${denyList.length === 1 ? 'one' : 'ones'}.`
+                  : 'On, but no rules are set, so the agent can open any site. Add a rule below to limit it.'}
           </p>
         </div>
         <label className="group relative inline-flex shrink-0 cursor-pointer items-center">

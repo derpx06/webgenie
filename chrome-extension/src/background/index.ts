@@ -140,6 +140,9 @@ async function loadSavedTask(taskId?: string): Promise<TaskCheckpoint | null> {
   const id = taskId ?? (await chrome.storage.session.get(ACTIVE_TASK_KEY))[ACTIVE_TASK_KEY]?.taskId;
   if (!id) return null;
   const checkpoint = await checkpointStore.load(id);
+  // A store we could not read is not an empty store. Say so, rather than letting the user believe there was
+  // nothing to resume.
+  if (checkpointStore.loadFailed) logger.error(`Could not read the saved task ${id}; not offering to resume it.`);
   return isCheckpointResumable(checkpoint) ? checkpoint : null;
 }
 

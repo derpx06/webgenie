@@ -26,6 +26,13 @@ function sleep(ms: number): Promise<void> {
 export default class BrowserContext {
   private _config: BrowserContextConfig;
   private _currentTabId: number | null = null;
+  /**
+   * Tabs this task is working in: the one it attached to, the ones it opened, and any it deliberately switched to.
+   *
+   * Two things depend on it. The model is shown these in full and the user's other tabs by host only, so a task
+   * spanning several tabs stays legible without every open tab's address and title going to the provider.
+   */
+  private _agentTabIds = new Set<number>();
   /** One Page per tab, attached or not: a tab that cannot be attached still has a Page, so actions can say why. */
   private _pages: Map<number, Page> = new Map();
   private _browserAdapter: IBrowserAdapter;
@@ -176,6 +183,7 @@ export default class BrowserContext {
     }
     logger.info('active tab', tab.id, tab.url, tab.title);
     this._currentTabId = tab.id;
+    this._agentTabIds.add(tab.id);
     return this._getPage(tab);
   }
 
@@ -225,6 +233,8 @@ export default class BrowserContext {
     await this.waitForTabEvents(tabId).catch(() => logger.warning(`switchTab: tab ${tabId} is still loading, continuing`));
     const page = await this._getPage(await this._browserAdapter.getTab(tabId));
     this._currentTabId = tabId;
+    // Switching to a tab on purpose brings it into the working set, so later steps can see it in full.
+    this._agentTabIds.add(tabId);
     return page;
   }
 
@@ -267,6 +277,7 @@ export default class BrowserContext {
 
     const page = await this._getPage(await this._browserAdapter.getTab(tab.id));
     this._currentTabId = tab.id;
+    this._agentTabIds.add(tab.id);
     return page;
   }
 
@@ -275,6 +286,7 @@ export default class BrowserContext {
     if (this._currentTabId === tabId) {
       this._currentTabId = null;
     }
+    this._agentTabIds.delete(tabId);
     await this.detachPage(tabId);
     await this._browserAdapter.removeTab(tabId);
   }
@@ -282,6 +294,7 @@ export default class BrowserContext {
   /** Forgets a closed tab's page without detaching (the session is already gone). */
   public removeAttachedPage(tabId: number): void {
     this._pages.delete(tabId);
+    this._agentTabIds.delete(tabId);
     if (this._currentTabId === tabId) {
       this._currentTabId = null;
     }
@@ -293,7 +306,7 @@ export default class BrowserContext {
     // "the page did not visibly change".
     return tabs.flatMap(tab => {
       const url = tab.url || tab.pendingUrl || (tab.status === 'loading' ? 'about:blank' : '');
-      return tab.id && url ? [{ id: tab.id, url, title: tab.title || url }] : [];
+      return tab.id && url ? [{ id: tab.id, url, title: tab.title || url, mine: this._agentTabIds.has(tab.id) }] : [];
     });
   }
 

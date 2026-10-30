@@ -33,7 +33,7 @@ describe('prompts for the registered tools', () => {
       expect(prompt).not.toContain('[[');
       expect(prompt).toContain('Web search is not available');
     }
-    expect(navigator).toContain('6. Web search is not available');
+    expect(navigator).toContain('7. Web search is not available');
     expect(navigator).toContain('Never open chrome:// URLs.');
   });
 

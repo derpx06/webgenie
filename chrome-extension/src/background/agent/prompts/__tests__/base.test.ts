@@ -397,10 +397,14 @@ describe('the tab list', () => {
       scrollHeight: 800,
       visualViewportHeight: 800,
       tabs: [
-        { id: 7, url: 'https://example.com/', title: 'Example' },
-        { id: 8, url: 'about:blank', title: 'New Tab' },
+        { id: 7, url: 'https://example.com/', title: 'Example', mine: true },
+        { id: 8, url: 'about:blank', title: 'New Tab', mine: true },
         { id: 9, url: 'chrome-extension://abcdefghijklmnop/side-panel/index.html', title: 'WebGenie' },
-        { id: 10, url: 'https://other.test/', title: 'Other' },
+        // A tab the agent opened: the task may span it, so it is shown in full.
+        { id: 10, url: 'https://other.test/compare?id=4', title: 'Other', mine: true },
+        // The user's own tabs. Their addresses, paths, queries and titles are not the agent's business.
+        { id: 11, url: 'https://bank.example/accounts/12345?token=secret', title: 'My statement' },
+        { id: 12, url: 'https://bank.example/transfers', title: 'Transfers' },
       ],
     };
     const context = {
@@ -414,6 +418,14 @@ describe('the tab list', () => {
 
     expect(content).not.toContain('about:blank');
     expect(content).not.toContain('chrome-extension://');
-    expect(content).toContain('https://other.test/');
+    // The agent's own tab, in full.
+    expect(content).toContain('https://other.test/compare?id=4');
+    // The user's tabs: the host, once, and nothing else. Two tabs on one host collapse to one mention.
+    expect(content).toContain('2 tabs open that you did not open');
+    expect(content).toContain('bank.example');
+    expect(content).not.toContain('/accounts/12345');
+    expect(content).not.toContain('token=secret');
+    expect(content).not.toContain('My statement');
+    expect(content).not.toContain('/transfers');
   });
 });

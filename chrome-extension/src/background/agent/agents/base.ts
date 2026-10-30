@@ -105,7 +105,10 @@ export abstract class BaseAgent<M = unknown> {
         msg: 'provider rejected tools; using prompt-rendered tools for this task',
         data: { model: this.modelName, error },
       });
-      this.toolMode = { nativeTools: false, forceToolChoice: false };
+      // Spread, not replace: `callTimeoutMs`, `hedge`, `promptCache`, `minCacheTokens`, `endpoints` and
+      // `rateLimitSignals` all live here. Replacing the object dropped them, so a local model that needs 90 s got
+      // the 25 s default and was hedged into its own single-slot queue — only on the providers that take this path.
+      this.toolMode = { ...this.toolMode, nativeTools: false, forceToolChoice: false };
       return this.recordSession(messages, await run());
     }
   }

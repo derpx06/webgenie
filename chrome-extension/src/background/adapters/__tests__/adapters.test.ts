@@ -296,9 +296,18 @@ describe('IndexedDBStorageProvider', () => {
     expect(table.put).toHaveBeenCalledWith({ key: 'checkpoint', value: { step: 3 } });
   });
 
-  it('still answers null for a read it could not make, since a missing value is a normal answer', async () => {
+  it('answers null for a value that is not there', async () => {
+    const { store, table } = provider();
+    table.get.mockResolvedValue(undefined);
+    await expect(store.get('checkpoint')).resolves.toBeNull();
+  });
+
+  // A read that failed is not a value that is absent. Returning null for both made a blocked or corrupt store
+  // indistinguishable from "no saved task", so the user was silently offered no resume. The checkpoint store
+  // catches this and records that it could not tell.
+  it('reports a read it could not make, rather than calling it empty', async () => {
     const { store, table } = provider();
     table.get.mockRejectedValue(new Error('InvalidStateError'));
-    await expect(store.get('checkpoint')).resolves.toBeNull();
+    await expect(store.get('checkpoint')).rejects.toThrow('InvalidStateError');
   });
 });

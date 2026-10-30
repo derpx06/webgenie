@@ -138,6 +138,8 @@ export interface TabInfo {
   id: number;
   url: string;
   title: string;
+  /** The agent opened this tab, or switched to it on purpose: it is part of the task's working set. */
+  mine?: boolean;
 }
 
 export interface BrowserState extends PageState {

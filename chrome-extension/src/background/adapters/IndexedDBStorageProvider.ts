@@ -24,8 +24,10 @@ export class IndexedDBStorageProvider implements IStorageProvider {
       const record = await this.db.keyValues.get(key);
       return record ? (record.value as T) : null;
     } catch (error) {
+      // A read that failed is not an absent value. Returning null made a blocked or corrupt store
+      // indistinguishable from "no saved task", so the user was silently offered no resume.
       console.error(`[IndexedDBStorageProvider] Failed to get key: ${key}`, error);
-      return null;
+      throw error;
     }
   }
 

@@ -128,7 +128,10 @@ describe('Commit confirmations', () => {
     await until(() => h.has(ExecutionState.ACT_ASK_HUMAN));
     const question = JSON.parse(asks(h)[0].data.details);
     expect(question).toMatchObject({ type: 'confirmation', options: ['Yes', 'No'] });
-    expect(question.question).toContain('"Place order" on shop.test/checkout (amount shown: $40.00)');
+    // The element is described from its markup, the wording is attributed to the page, and there is no amount:
+    // the figure used to be scraped from page text, where a hidden "$0.00" could set it.
+    expect(question.question).toContain('a button on shop.test/checkout that the page labels "Place order"');
+    expect(question.question).not.toMatch(/[$€£¥₹]/);
     expect(h.browser.actions).toEqual([]);
 
     await h.executor.submitHumanResponse('Yes');

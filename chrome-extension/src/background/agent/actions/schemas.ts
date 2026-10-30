@@ -187,9 +187,10 @@ export const uploadFileActionSchema: ActionSchema = {
 export const switchTabActionSchema: ActionSchema = {
   name: 'switch_tab',
   irreversible: 'never',
-  description: 'Switch to a tab by id, or close it.',
+  description:
+    'Switch to a tab by id, or close it. Work across several tabs by opening them with go_to_url (new_tab) and switching between them; each tab keeps its own page, scroll position and form state.',
   schema: z.object({
-    tab_id: z.number().int().describe('the tab to act on'),
+    tab_id: z.number().int().describe('the tab to act on, from the id shown in the browser state'),
     action: z.enum(['switch', 'close']).optional().describe("'switch' to it (default) or 'close' it"),
   }),
 };

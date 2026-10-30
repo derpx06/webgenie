@@ -58,23 +58,49 @@ function labelParts(node: DOMElementNode | undefined): string[] {
 }
 
 /**
- * A link to another address, or a control that opens a menu or dialog: activating it only shows a page or a form, so
- * its wording alone does not gate it ("Order now" linking to a menu, "Subscribe" opening a sign-up dialog). The submit
- * that follows is gated.
+ * A link to another address, or a control that opens a menu or dialog: activating it may only show a page or a form
+ * ("Order now" linking to a menu, "Subscribe" opening a sign-up dialog).
+ *
+ * This softens the question; it never skips the gate. Markup is the page's to write, and a page that wants a click
+ * ungated only has to add `aria-expanded="false"` to its buy button or make the submit a GET link. Commit wording
+ * wins over markup, always.
  */
-function onlyOpens(node: DOMElementNode | undefined): boolean {
+function mayOnlyOpen(node: DOMElementNode | undefined): boolean {
   if (!node) return false;
   const { href, 'aria-haspopup': popup, 'aria-expanded': expanded } = node.attributes;
   const link = node.tagName?.toLowerCase() === 'a' && !!href && !/^\s*(#|javascript:)/i.test(href);
   return link || (!!popup && popup !== 'false') || expanded !== undefined;
 }
 
+/** An address that commits by being fetched: one-click reorder, confirm-by-link, unsubscribe, delete-by-link. */
+const COMMIT_HREF = /\/(?:checkout|order|orders|payment|pay|purchase|buy|subscribe|unsubscribe|cancel|delete|close-account|transfer)(?:[/?#]|$)|[?&](?:confirm|place_?order|buy_?now|do_?delete)=/i;
+
+/** What the element is, from its markup rather than its words: the page writes the words, not the tag. */
+function describeNode(node: DOMElementNode | undefined): string {
+  if (!node) return 'a control';
+  const tag = node.tagName?.toLowerCase() ?? '';
+  const role = node.attributes.role?.toLowerCase();
+  const type = node.attributes.type?.toLowerCase();
+  if (tag === 'a') return 'a link';
+  if (tag === 'input') return type ? `an input of type ${type}` : 'an input field';
+  if (tag === 'button') return type === 'submit' ? 'a submit button' : 'a button';
+  if (role) return `an element with role ${role}`;
+  return tag ? `a <${tag}>` : 'a control';
+}
+
 export interface CommitTarget {
   /** Identifies the confirmation: the same action on the same page needs the same approval. */
   key: string;
+  /** The page's own wording for the control. Shown as the page's words, never as our own claim. */
   label: string;
   /** Host and path, as shown to the user. */
   place: string;
+  /** What the element is, read from its markup. */
+  what: string;
+  /** The control may only disclose a page or form, so the question asks rather than asserts. */
+  opens?: boolean;
+  /** `label` is the page's own wording for an element. Without this it is a phrase the system composed. */
+  pageWords?: boolean;
 }
 
 const PRESSES_ENTER = /enter|return/i;
@@ -126,7 +152,11 @@ export function commitTarget(
   let label: string | undefined;
   if (CLICKING_TOOLS.has(actionName)) {
     const parts = labelParts(node);
-    label = onlyOpens(node) ? undefined : parts.find(isCommitLabel);
+    // Commit wording gates whatever the markup says. A link reading "Place your order" is gated, and so is a buy
+    // button carrying `aria-expanded="false"`; `mayOnlyOpen` only softens how the question is worded.
+    label = parts.find(isCommitLabel);
+    // An address that commits by being fetched: the words can be innocuous while the href is the order submit.
+    if (!label && node?.attributes.href && COMMIT_HREF.test(node.attributes.href)) label = parts[0] ?? 'this link';
     if (!label && ((form?.isSubmitter && commitsForm) || modelSaysCommit)) label = parts[0] ?? form?.submitLabels[0] ?? 'this button';
   } else if (actionName === 'send_keys' || actionName === 'input_text' || actionName === 'fill_form') {
     // Typing with submit presses Enter, so it is gated exactly like the key press.
@@ -147,20 +177,34 @@ export function commitTarget(
     // not a web address: show it as it is
   }
   label = label.slice(0, 80);
-  return { key: `${place}|${label.toLowerCase()}`, label, place };
+  return {
+    key: `${place}|${label.toLowerCase()}`,
+    label,
+    place,
+    what: describeNode(node),
+    ...(CLICKING_TOOLS.has(actionName) ? { pageWords: true } : {}),
+    ...(CLICKING_TOOLS.has(actionName) && mayOnlyOpen(node) ? { opens: true } : {}),
+  };
 }
 
-const AMOUNT = /[$€£¥₹]\s?\d[\d.,]*|\d[\d.,]*\s?(?:[$€£¥₹]|\b(?:EUR|USD|GBP|INR|JPY|CHF)\b)/g;
-
-/** The last amount of money the page shows before the element with this index (anywhere on the page without one). */
-export function amountBefore(pageText: string, index?: number): string | null {
-  const end = index === undefined ? -1 : pageText.indexOf(`[${index}]`);
-  return (end >= 0 ? pageText.slice(0, end) : pageText).match(AMOUNT)?.at(-1)?.trim() ?? null;
-}
-
-/** The question the system asks before a commit; no model writes it, so a page cannot word it. */
-export function commitQuestion(target: CommitTarget, amount: string | null): string {
-  return `Confirm before I continue: "${target.label}" on ${target.place}${amount ? ` (amount shown: ${amount})` : ''}. This may place an order, make a payment, or change an account or your data. Should I do it?`;
+/**
+ * The question the system asks before a commit. No model writes it, and every fact in it that the page could choose
+ * is attributed to the page.
+ *
+ * There is deliberately no amount. It used to be the last currency-looking string before the element in the page
+ * text, which a hidden `$0.00` ahead of the submit button could set — so the figure in the gate that protects the
+ * user's money was the page's to choose. An amount we cannot vouch for is worse than none: it invites the user to
+ * approve a charge against a number we made up on the page's behalf.
+ */
+export function commitQuestion(target: CommitTarget): string {
+  // Only wording the page supplied is attributed to the page. The typing branch's label is a phrase this file
+  // composed ("Enter, which submits ..."), and quoting that as the page's words would be a lie in the user's favour.
+  const subject = target.pageWords
+    ? `${target.what} on ${target.place} that the page labels "${target.label}"`
+    : `"${target.label}" on ${target.place}`;
+  return target.opens
+    ? `Confirm before I continue: ${subject}. That wording can mean placing an order, paying, subscribing or changing an account, though this control may only open a page. Should I use it?`
+    : `Confirm before I continue: ${subject}. This may place an order, make a payment, or change an account or your data. Should I do it?`;
 }
 
 const EMAIL = /[^\s@<>"'(),;:]+@[^\s@<>"'(),;:]+\.[a-z]{2,}/gi;

@@ -480,11 +480,32 @@ describe('ContentHandler extract', () => {
     expect(result.extractedContent).toContain('does not match the schema: result.sku: missing');
   });
 
-  it('refuses a schema that is not JSON or names no fields', async () => {
+  // An `error` result ends the action batch and charges the failure budget, so three unusable
+  // schemas in a row ended the task. Eleven distinct malformed schemas appear in the saved runs.
+  it('repairs a schema the models broke, rather than failing', async () => {
+    const { handler } = handlerFor(cataloguePage(), { extractWithModel: vi.fn(async () => null) });
+
+    // A CSS selector carries \' into the JSON string — the commonest break, 136 occurrences.
+    const withEscapes = String.raw`{"type":"object","properties":{"sku":{"type":"string","selector":"a[href*=\'sku\']"}}}`;
+    const repaired = await handler.handleExtract({ schema: withEscapes });
+    expect(repaired.error).toBeFalsy();
+    expect(repaired.extractedContent).toContain('sku=');
+
+    // Single-quoted, and fenced the way a model wraps a code block.
+    const quoted = await handler.handleExtract({ schema: "```json\n{'type':'object','properties':{'sku':{'type':'string'}}}\n```" });
+    expect(quoted.error).toBeFalsy();
+    expect(quoted.extractedContent).toContain('sku=');
+  });
+
+  it('returns the page itself when the schema cannot be used at all', async () => {
     const { handler } = handlerFor(cataloguePage());
 
-    expect((await handler.handleExtract({ schema: '{not json' })).error).toContain('schema is not valid JSON');
-    expect((await handler.handleExtract({ schema: '{"type":"object"}' })).error).toContain('schema names no fields');
+    for (const schema of ['{not json', '{"type":"object"}', 'describe the products']) {
+      const result = await handler.handleExtract({ schema });
+      expect(result.error).toBeFalsy();
+      expect(result.extractedContent).toContain('extract could not use that schema');
+      expect(result.extractedContent).toContain('Read from');
+    }
   });
 });
 

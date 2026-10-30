@@ -231,13 +231,20 @@ describe('BrowserContext with Adapter Dependency Injection', () => {
     expect(mockAdapter.removeTab).toHaveBeenCalledWith(3);
   });
 
-  it('gets tab infos matching IBrowserAdapter wrapper output', async () => {
+  // `mine` marks the task's working set: the tab it attached to, the ones it opened, and any it switched to on
+  // purpose. The model is shown those in full and the user's remaining tabs by host only.
+  it('gets tab infos matching IBrowserAdapter wrapper output, marking whose tab each is', async () => {
     tabsMap.set(2, { id: 2, url: 'https://foo.com', title: 'Foo' } as any);
-    const tabInfos = await context.getTabInfos();
-    expect(tabInfos).toEqual([
-      { id: 1, url: 'https://example.com', title: 'Example' },
-      { id: 2, url: 'https://foo.com', title: 'Foo' },
+    const before = await context.getTabInfos();
+    expect(before).toEqual([
+      { id: 1, url: 'https://example.com', title: 'Example', mine: false },
+      { id: 2, url: 'https://foo.com', title: 'Foo', mine: false },
     ]);
+
+    await context.switchTab(2);
+    const after = await context.getTabInfos();
+    expect(after.find(tab => tab.id === 2)?.mine).toBe(true);
+    expect(after.find(tab => tab.id === 1)?.mine).toBe(false);
   });
 
   it('lists a tab that is still opening by its pending URL', async () => {
@@ -245,8 +252,8 @@ describe('BrowserContext with Adapter Dependency Injection', () => {
     tabsMap.set(3, { id: 3, url: '', status: 'loading' } as any);
     const tabInfos = await context.getTabInfos();
     expect(tabInfos.slice(1)).toEqual([
-      { id: 2, url: 'https://foo.com/item', title: 'https://foo.com/item' },
-      { id: 3, url: 'about:blank', title: 'about:blank' },
+      { id: 2, url: 'https://foo.com/item', title: 'https://foo.com/item', mine: false },
+      { id: 3, url: 'about:blank', title: 'about:blank', mine: false },
     ]);
   });
 

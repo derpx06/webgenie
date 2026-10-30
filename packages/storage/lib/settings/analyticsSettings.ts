@@ -23,9 +23,10 @@ function generateAnonymousUserId(): string {
   return 'anon_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
-// Default settings - enabled by default as per requirements
+// Off until the user turns it on. Nothing about where the user browses leaves the machine before they have
+// seen a settings screen and chosen it.
 export const DEFAULT_ANALYTICS_SETTINGS: AnalyticsSettingsConfig = {
-  enabled: true,
+  enabled: false,
   anonymousUserId: '',
   totalInputTokens: 0,
   totalOutputTokens: 0,
@@ -49,22 +50,17 @@ export const analyticsSettingsStore: AnalyticsSettingsStorage = {
   },
   async getSettings() {
     const settings = await storage.get();
+    const merged = { ...DEFAULT_ANALYTICS_SETTINGS, ...settings };
 
-    // If no anonymousUserId exists, generate one
-    if (!settings?.anonymousUserId) {
-      const newSettings = {
-        ...DEFAULT_ANALYTICS_SETTINGS,
-        ...settings,
-        anonymousUserId: generateAnonymousUserId(),
-      };
-      await storage.set(newSettings);
-      return newSettings;
+    // The identifier is minted only once the user has turned analytics on. Reading the settings used to mint and
+    // persist one, so a stable id existed for every install that had never opened a settings screen.
+    if (merged.enabled && !merged.anonymousUserId) {
+      const withId = { ...merged, anonymousUserId: generateAnonymousUserId() };
+      await storage.set(withId);
+      return withId;
     }
 
-    return {
-      ...DEFAULT_ANALYTICS_SETTINGS,
-      ...settings,
-    };
+    return merged;
   },
   async resetToDefaults() {
     // Keep the same user ID when resetting to defaults

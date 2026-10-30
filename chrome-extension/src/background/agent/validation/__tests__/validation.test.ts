@@ -5,7 +5,6 @@ import type { BrowserState } from '../../../browser/views';
 import { appearedText, createBrowserObservation, listElements, revealedControls } from '../observation';
 import type { ValidationEvidence } from '../types';
 import {
-  amountBefore,
   challengeOnPage,
   changesUserValue,
   isChallengeElement,
@@ -513,22 +512,43 @@ describe('committing actions', () => {
     expect(mayCommitThroughForm('download', { index: 1 })).toBe(true);
   });
 
-  it('does not gate by wording a link to another page or a control that opens a menu or dialog', () => {
+  // Markup is the page's to write. A page that wanted a click ungated only had to make the submit a GET link or
+  // put aria-expanded="false" on the buy button. Commit wording now wins over markup; the markup only softens
+  // how the question is worded.
+  it('gates commit wording whatever the markup says, and softens rather than skips for a link', () => {
     const link = element(1, { tagName: 'a', attributes: { href: 'https://order.shop.test/' } });
     link.getAllTextTillNextClickableElement = () => 'Order Now';
-    expect(click(link, { commits: 'none' }, noForm)).toBeNull();
-    expect(click(element(1, { tagName: 'button', attributes: { 'aria-label': 'Subscribe', 'aria-haspopup': 'dialog' } }), {}, noForm)).toBeNull();
-    // A script link and a plain button still gate by wording; a form submit and the model's flag gate whatever the element.
-    expect(click(element(1, { tagName: 'a', attributes: { href: '#', 'aria-label': 'Place order' } }), {}, noForm)?.label).toBe('Place order');
+    const gatedLink = click(link, { commits: 'none' }, noForm);
+    expect(gatedLink?.label).toBe('Order Now');
+    expect(gatedLink?.opens).toBe(true);
+    expect(gatedLink?.what).toBe('a link');
+
+    // "Place your order" as an <a href>, which the previous gate let through entirely.
+    const orderLink = element(1, { tagName: 'a', attributes: { href: '/cart/submit', 'aria-label': 'Place your order' } });
+    expect(click(orderLink, { commits: 'none' }, noForm)?.label).toBe('Place your order');
+
+    // aria-expanded="false" on a buy button: disclosure markup on a control that charges.
+    const expanded = element(1, { tagName: 'button', attributes: { 'aria-label': 'Buy now', 'aria-expanded': 'false' } });
+    expect(click(expanded, { commits: 'none' }, noForm)?.label).toBe('Buy now');
+
+    // An address that commits by being fetched, with innocuous wording.
+    const getCommit = element(1, { tagName: 'a', attributes: { href: '/orders/confirm?confirm=yes', 'aria-label': 'Continue' } });
+    expect(click(getCommit, { commits: 'none' }, noForm)?.label).toBe('Continue');
+
+    // Ordinary navigation is still ungated: no commit wording, no commit address.
+    const plain = element(1, { tagName: 'a', attributes: { href: '/help', 'aria-label': 'Help centre' } });
+    expect(click(plain, { commits: 'none' }, noForm)).toBeNull();
+    expect(click(element(1, { tagName: 'button', attributes: { 'aria-label': 'Filters', 'aria-haspopup': 'dialog' } }), {}, noForm)).toBeNull();
+
+    // A plain button still gates by wording; a payment form gates whatever the element.
     expect(click(element(1, { tagName: 'button', attributes: { 'aria-label': 'Subscribe' } }), {}, noForm)?.label).toBe('Subscribe');
     const paymentForm: FormCommitInfo = { inForm: true, isSubmitter: true, paymentFields: true, submitLabels: ['Pay now'] };
     expect(click(element(1, { tagName: 'button', attributes: { 'aria-label': 'Pay now', 'aria-expanded': 'false' } }), {}, paymentForm)?.label).toBe('Pay now');
-    expect(click(link, { commits: 'order' }, noForm)?.label).toBe('Order Now');
   });
 
   it('keys a commit by page and label, so the same button needs the same approval', () => {
     const target = click(button('Place order'));
-    expect(target).toEqual({ key: 'shop.test/checkout|place order', label: 'Place order', place: 'shop.test/checkout' });
+    expect(target).toEqual({ key: 'shop.test/checkout|place order', label: 'Place order', place: 'shop.test/checkout', what: 'a button', pageWords: true });
   });
 
   it('tests each label part on its own, so a long accessible name cannot hide the commit wording', () => {
@@ -573,13 +593,25 @@ describe('committing actions', () => {
     expect(type({ commits: 'order' }, noForm)).toBeNull();
   });
 
-  it('asks with the amount shown before the button, in words no page can write', () => {
-    const page = '[0]<a>Cart</a>\nAlex — $30.00\n[1]<button>Place order</button>\nSam — 20,00 €\n[2]<button>Place order</button>';
-    expect(amountBefore(page, 1)).toBe('$30.00');
-    expect(amountBefore(page, 2)).toBe('20,00 €');
-    expect(amountBefore('no prices', 1)).toBeNull();
-    const question = commitQuestion({ key: 'k', label: 'Place order', place: 'shop.test/checkout' }, '$40.00');
-    expect(question).toContain('"Place order" on shop.test/checkout (amount shown: $40.00)');
+  it('asks in words no page can write, and never quotes an amount it cannot vouch for', () => {
+    const question = commitQuestion({ key: 'k', label: 'Place order', place: 'shop.test/checkout', what: 'a submit button', pageWords: true });
+    expect(question).toContain('a submit button on shop.test/checkout that the page labels "Place order"');
+    // The label is the page's and is attributed to the page; the identity is read from the markup.
+    expect(question).toContain('the page labels');
+    // No amount, ever. It used to be the last currency string before the element in the page text, so a hidden
+    // "$0.00" ahead of the button made the gate offer a $4,000 order as free.
+    expect(question).not.toMatch(/[$€£¥₹]/);
+    expect(question).not.toContain('amount shown');
+
+    // A control that may only disclose asks rather than asserts, but it still asks.
+    const softened = commitQuestion({ key: 'k', label: 'Order now', place: 'shop.test/menu', what: 'a link', opens: true, pageWords: true });
+
+    // A phrase the system composed is not attributed to the page.
+    const composed = commitQuestion({ key: 'k', label: 'Enter, which submits "Place order"', place: 'shop.test/checkout', what: 'an input field' });
+    expect(composed).not.toContain('the page labels');
+    expect(composed).toContain('"Enter, which submits "Place order"" on shop.test/checkout');
+    expect(softened).toContain('may only open a page');
+    expect(softened).toContain('Order now');
   });
 
   it("finds the user's own emails and phone or card numbers in an action, whatever their formatting", () => {
