@@ -1,6 +1,14 @@
 /**
- * Security patterns for detecting and preventing common threats
- * These patterns are designed to be simple and effective
+ * Delimiter integrity for untrusted page content.
+ *
+ * What earns its place here is keeping a page from forging the markers that separate its words from the user's: the
+ * nano_* tags, the XML shapes that imitate them. The phrase matching alongside it is kept because it is cheap, not
+ * because it is measured — published detectors of this kind score 0.0-0.08 true-positive rate on injections that
+ * carry no explicit instruction, and this one reads English only against a threat written in eighty languages. The
+ * defense that does the work is the delimiting itself, plus restating the user's request after the page.
+ *
+ * Nothing here may rewrite content that is not a forged delimiter. This filter runs over the user's own task text as
+ * well as over pages.
  */
 
 import type { SecurityPattern } from './types';
@@ -56,21 +64,9 @@ const SECURITY_PATTERNS: SecurityPattern[] = [
     replacement: '',
   },
   {
-    pattern: /\buntrusted[-_]+content\b/gi,
-    type: ThreatType.PROMPT_INJECTION,
-    description: 'Reference to untrusted content',
-    replacement: '',
-  },
-  {
     pattern: /\bnano[-_]+attached[-_]+files\b/gi,
     type: ThreatType.PROMPT_INJECTION,
     description: 'Reference to attached files',
-    replacement: '',
-  },
-  {
-    pattern: /\buser[-_]+request\b/gi,
-    type: ThreatType.PROMPT_INJECTION,
-    description: 'Reference to user request',
     replacement: '',
   },
 
@@ -88,19 +84,11 @@ const SECURITY_PATTERNS: SecurityPattern[] = [
     replacement: '',
   },
 
-  // Sensitive data patterns (basic)
-  {
-    pattern: /\b\d{3}-\d{2}-\d{4}\b/g, // SSN pattern
-    type: ThreatType.SENSITIVE_DATA,
-    description: 'Potential SSN detected',
-    replacement: '[REDACTED_SSN]',
-  },
-  {
-    pattern: /\b(?:\d{4}[\s-]?){3}\d{4}\b/g, // Credit card pattern
-    type: ThreatType.SENSITIVE_DATA,
-    description: 'Potential credit card number',
-    replacement: '[REDACTED_CC]',
-  },
+  // No content redaction here. This filter also runs over the user's own task text (MessageManager.addTask and
+  // addHumanAnswer), so a 16-digit pattern rewrote the order number, tracking number or card the user deliberately
+  // gave the agent, and a 3-2-4 pattern rewrote any date or reference shaped like one. Redacting page content is in
+  // any case not a defense against injection: what the page says is data either way. Secrets the user supplies are
+  // handled where they belong, as {{secret_N}} placeholders the model never sees.
 ];
 
 /**

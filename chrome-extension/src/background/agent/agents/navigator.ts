@@ -33,6 +33,7 @@ import {
   loopNudge,
   LOOP_WINDOW,
   commitQuestion,
+  handoverNotice,
   commitTarget,
   currentIndexFor,
   dispatchGuard,
@@ -960,6 +961,28 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         if (commit && this.context.approvedCommitKey !== commit.key) {
           if (this.context.declinedCommitKeys.has(commit.key)) {
             refuse('commit-declined', `The user declined "${commit.label}": it was not done and must not be done. Report that to the user.`);
+            break;
+          }
+          // Orders, payments and new accounts are not ours to make. The agent gets the page ready and stops; the
+          // user finishes it themselves. This is a refusal, not a question, so there is nothing for a page to word
+          // its way through and nothing for the user to approve on the strength of our word.
+          if (commit.handover) {
+            const notice = handoverNotice(commit);
+            traceGuard('commit-handover', 'refused', actionName, commit.label);
+            this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, notice);
+            this.context.guardRefused = true;
+            results.push(new ActionResult({
+              executed: false,
+              executionStatus: 'not_attempted',
+              validated: 'not_applicable',
+              retryability: 'replan',
+              failureReason: notice,
+              extractedContent: `${notice} Do not try another route to the same action. Finish with done and tell the user the page is ready for them, naming what is on it.`,
+              includeInMemory: true,
+              contractId,
+              actionId,
+              validationId,
+            }));
             break;
           }
           const question = commitQuestion(commit);

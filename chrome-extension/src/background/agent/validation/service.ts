@@ -46,7 +46,18 @@ function isObject(value: unknown): value is Record<string, unknown> {
  */
 const COMMIT_LABEL = /^((place|submit) (my |the |your )?order|order now|buy (it )?now|purchase( now)?$|pay( now)?( \S*\d\S*)?$|complete (purchase|order|payment|checkout)|confirm (and pay|order|purchase|payment)|submit (order and )?payment|subscribe( now)?$|start (my |your |a )?(free )?(trial|subscription)|(delete|close) (my |your )?account|transfer (funds|money)|donate( now)?$)/i;
 
+/**
+ * The part of the above that spends money or opens an account in the user's name.
+ *
+ * These the agent does not do at all — it goes as far as the decision and hands the browser back. A confirmation
+ * dialog puts the liability on one click of the user's, on wording the page chose, after the agent has already got
+ * the details right or wrong; a refusal does not, and it is a claim we can make in a store listing without an
+ * asterisk. It also makes cross-frame card detection a question about the page rather than about one form.
+ */
+const HANDOVER_LABEL = /^((place|submit) (my |the |your )?order|order now|buy (it )?now|purchase( now)?$|pay( now)?( \S*\d\S*)?$|complete (purchase|order|payment|checkout)|confirm (and pay|order|purchase|payment)|submit (order and )?payment|transfer (funds|money)|donate( now)?$)/i;
+
 const isCommitLabel = (text: string) => text.length <= 60 && COMMIT_LABEL.test(text.trim());
+const isHandoverLabel = (text: string) => text.length <= 60 && HANDOVER_LABEL.test(text.trim());
 
 /** The element's names, each on its own: a long combined label must not hide a commit wording. */
 function labelParts(node: DOMElementNode | undefined): string[] {
@@ -101,6 +112,11 @@ export interface CommitTarget {
   opens?: boolean;
   /** `label` is the page's own wording for an element. Without this it is a phrase the system composed. */
   pageWords?: boolean;
+  /**
+   * This spends money or opens an account. The agent stops and gives the browser back to the user rather than
+   * asking them to approve it.
+   */
+  handover?: boolean;
 }
 
 const PRESSES_ENTER = /enter|return/i;
@@ -147,7 +163,12 @@ export function commitTarget(
   // A form the page would not let us read is treated as one that may commit: this is the gate that protects the
   // user's money, and the only safe direction for it to fail is closed. `null` is different — it means the tool
   // cannot commit through a form at all, so nothing was inspected.
-  const commitsForm = !!form?.unreadable || (!!form?.inForm && (form.paymentFields || form.submitLabels.some(isCommitLabel)));
+  // `paymentContext` is the page-level answer: on a hosted checkout the card field is in a frame nobody can read, so
+  // the form's own controls say nothing and the submit's wording is often just "Continue".
+  const commitsForm =
+    !!form?.unreadable ||
+    !!form?.paymentContext ||
+    (!!form?.inForm && (form.paymentFields || form.submitLabels.some(isCommitLabel)));
   const modelSaysCommit = typeof args.commits === 'string' && args.commits !== 'none';
   let label: string | undefined;
   if (CLICKING_TOOLS.has(actionName)) {
@@ -159,8 +180,10 @@ export function commitTarget(
     if (!label && node?.attributes.href && COMMIT_HREF.test(node.attributes.href)) label = parts[0] ?? 'this link';
     if (!label && ((form?.isSubmitter && commitsForm) || modelSaysCommit)) label = parts[0] ?? form?.submitLabels[0] ?? 'this button';
   } else if (actionName === 'send_keys' || actionName === 'input_text' || actionName === 'fill_form') {
+    // A card, CVC or bank field: the typing itself is the thing, with or without a submit after it.
+    if (form?.targetIsPaymentField) label = 'the payment details on this page';
     // Typing with submit presses Enter, so it is gated exactly like the key press.
-    if (commitsForm && pressesEnter(actionName, args)) label = `Enter, which submits "${form?.submitLabels[0] ?? 'the form'}"`;
+    else if (commitsForm && pressesEnter(actionName, args)) label = `Enter, which submits "${form?.submitLabels[0] ?? 'the form'}"`;
     else if (modelSaysCommit && actionName === 'send_keys') label = String(args.keys);
     else if (modelSaysCommit && args.submit === true) label = 'Enter after typing, which submits the form';
   } else if (actionName === 'manage_privacy' && args.action === 'clearData') {
@@ -177,11 +200,20 @@ export function commitTarget(
     // not a web address: show it as it is
   }
   label = label.slice(0, 80);
+  // Money, by the wording, by the form's own card fields, or by the page being a payment context at all. The last of
+  // those is the one that catches a hosted checkout, where the card field is in a frame nobody can read.
+  const handover =
+    isHandoverLabel(label) ||
+    (!!form?.paymentContext && CLICKING_TOOLS.has(actionName)) ||
+    (!!form?.paymentFields && !!form?.isSubmitter) ||
+    // Typing a card number, CVC or bank detail is itself in the class the agent does not do.
+    !!form?.targetIsPaymentField;
   return {
     key: `${place}|${label.toLowerCase()}`,
     label,
     place,
     what: describeNode(node),
+    ...(handover ? { handover: true } : {}),
     ...(CLICKING_TOOLS.has(actionName) ? { pageWords: true } : {}),
     ...(CLICKING_TOOLS.has(actionName) && mayOnlyOpen(node) ? { opens: true } : {}),
   };
@@ -196,6 +228,11 @@ export function commitTarget(
  * user's money was the page's to choose. An amount we cannot vouch for is worse than none: it invites the user to
  * approve a charge against a number we made up on the page's behalf.
  */
+/** What the user is told when the agent stops at something it does not do. No model writes it. */
+export function handoverNotice(target: CommitTarget): string {
+  return `I have stopped at ${target.what} on ${target.place} that the page labels "${target.label}". I do not place orders, make payments or open accounts — the browser is yours from here, and the page is ready for you. Tell me what to do next once you have decided.`;
+}
+
 export function commitQuestion(target: CommitTarget): string {
   // Only wording the page supplied is attributed to the page. The typing branch's label is a phrase this file
   // composed ("Enter, which submits ..."), and quoting that as the page's words would be a lie in the user's favour.

@@ -13,6 +13,7 @@ import {
   taskEntriesWith,
   inventedPersonalData,
   commitQuestion,
+  handoverNotice,
   commitTarget,
   echoesActionResult,
   currentIndexFor,
@@ -548,7 +549,15 @@ describe('committing actions', () => {
 
   it('keys a commit by page and label, so the same button needs the same approval', () => {
     const target = click(button('Place order'));
-    expect(target).toEqual({ key: 'shop.test/checkout|place order', label: 'Place order', place: 'shop.test/checkout', what: 'a button', pageWords: true });
+    // "Place order" spends money, so it is a handover rather than a question.
+    expect(target).toEqual({
+      key: 'shop.test/checkout|place order',
+      label: 'Place order',
+      place: 'shop.test/checkout',
+      what: 'a button',
+      handover: true,
+      pageWords: true,
+    });
   });
 
   it('tests each label part on its own, so a long accessible name cannot hide the commit wording', () => {
@@ -591,6 +600,35 @@ describe('committing actions', () => {
     expect(type({}, orderForm)).toBeNull();
     expect(type({ submit: true, commits: 'order' }, noForm)?.label).toBe('Enter after typing, which submits the form');
     expect(type({ commits: 'order' }, noForm)).toBeNull();
+  });
+
+  /**
+   * Two classes, because they carry different liabilities. Spending money or opening an account the agent does not do
+   * at all; other account changes are a question the user may well want to answer yes to.
+   */
+  it('separates what it hands back from what it asks about', () => {
+    for (const words of ['Place order', 'Buy now', 'Pay now', 'Complete purchase', 'Confirm and pay', 'Transfer funds']) {
+      expect(click(button(words), { commits: 'none' }, noForm)?.handover).toBe(true);
+    }
+    for (const words of ['Subscribe', 'Start free trial', 'Delete my account']) {
+      const target = click(button(words), { commits: 'none' }, noForm);
+      expect(target?.label).toBe(words);
+      expect(target?.handover).toBeUndefined();
+    }
+  });
+
+  /** A hosted checkout keeps its card field in a frame nobody can read, and labels the submit "Continue". */
+  it('hands back on a payment page even with no card field and no commit wording', () => {
+    const hosted: FormCommitInfo = {
+      inForm: true,
+      isSubmitter: true,
+      paymentFields: false,
+      submitLabels: ['Continue'],
+      paymentContext: true,
+    };
+    const target = click(button('Continue'), { commits: 'none' }, hosted);
+    expect(target?.handover).toBe(true);
+    expect(handoverNotice(target!)).toContain('I do not place orders, make payments or open accounts');
   });
 
   it('asks in words no page can write, and never quotes an amount it cannot vouch for', () => {

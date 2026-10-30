@@ -112,61 +112,117 @@ const plannerUntil = (finished: string) => (request: LLMRequest) =>
   textOf(request.messages.at(-1)!).includes(finished) ? planDone() : plan({ macro_objective: 'FORM_FILL', next_goal: `Carry on with the task, part ${++plannedGoals}` });
 const asks = (h: ReturnType<typeof createHarness>) => h.events.filter(event => event.state === ExecutionState.ACT_ASK_HUMAN);
 
-describe('Commit confirmations', () => {
+describe('Orders, payments and accounts', () => {
   const checkout = { url: 'https://shop.test/checkout', title: 'Checkout', text: ['Total $40.00'], elements: [{ text: 'Place order' }] };
 
-  it('asks the user itself before an order, and a yes allows exactly that one click', async () => {
-    const placed = { ...checkout, text: ['Order placed: #1042'] };
+  /**
+   * The agent does not place orders. It gets the page ready and gives the browser back.
+   *
+   * A confirmation dialog puts the liability on one click of the user's, on wording the page chose, after the agent
+   * has already got the details right or wrong. A refusal does not, it is a claim that survives a store listing
+   * without an asterisk, and it makes cross-frame card detection a question about the page rather than one form.
+   */
+  it('stops at an order and hands the browser back, without asking the user to approve it', async () => {
     const h = createHarness({
       task: 'Place the order for my cart',
-      pages: [checkout, placed],
-      planner: Array(6).fill(plannerUntil('Order placed')),
-      navigator: [click(0), click(0), done('Order placed: #1042')],
+      pages: [checkout],
+      planner: Array(6).fill(plannerUntil('I have stopped at')),
+      navigator: [click(0), done('The page is ready for you to place the order.', false)],
+    });
+
+    const run = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0 || !!h.last()?.state?.startsWith('task.'));
+    await h.executor.cancel();
+    await settle(run);
+
+    // Nothing was clicked, and nothing was asked: there is no question for a page to word its way through.
+    expect(h.browser.actions).toEqual([]);
+    expect(asks(h)).toHaveLength(0);
+    const said = h.events.map(event => String(event.data?.details ?? '')).join('\n');
+    expect(said).toContain('I do not place orders, make payments or open accounts');
+    expect(said).toContain('a button on shop.test/checkout that the page labels "Place order"');
+    expect(said).not.toMatch(/[$€£¥₹]/);
+  });
+
+  /**
+   * Hosted-field checkouts put the card input in a cross-origin iframe, so it is never among the form's own
+   * controls: the form-level check was blind on exactly the pages it was written for. The page as a whole answers.
+   */
+  it('hands back on a checkout whose card field is in a frame it cannot read', async () => {
+    const hosted = {
+      url: 'https://shop.test/pay',
+      title: 'Payment',
+      elements: [{ text: 'Continue' }],
+    };
+    const h = createHarness({
+      task: 'Finish the purchase',
+      pages: [hosted],
+      planner: Array(6).fill(plannerUntil('I have stopped at')),
+      navigator: [click(0), done('The payment page is ready for you.', false)],
+    });
+    // No card field in the form, and no commit wording on the button: only the payment context says what this is.
+    h.browser.formFor = () => ({ inForm: true, isSubmitter: true, paymentFields: false, submitLabels: ['Continue'], paymentContext: true });
+
+    const run = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0 || !!h.last()?.state?.startsWith('task.'));
+    await h.executor.cancel();
+    await settle(run);
+
+    expect(h.browser.actions).toEqual([]);
+    expect(h.events.map(event => String(event.data?.details ?? '')).join('\n')).toContain('I do not place orders');
+  });
+
+  /** An account change is still a question: the user may well want it done, and it spends no money. */
+  it('still asks before an account change, and a yes allows exactly that one click', async () => {
+    const settings = { url: 'https://shop.test/settings', title: 'Settings', elements: [{ text: 'Subscribe' }] };
+    const done1 = { ...settings, text: ['Subscribed'] };
+    const h = createHarness({
+      task: 'Subscribe me to the newsletter',
+      pages: [settings, done1],
+      planner: Array(6).fill(plannerUntil('Subscribed')),
+      navigator: [click(0), click(0), done('Subscribed')],
     });
 
     const run = h.executor.execute();
     await until(() => h.has(ExecutionState.ACT_ASK_HUMAN));
     const question = JSON.parse(asks(h)[0].data.details);
     expect(question).toMatchObject({ type: 'confirmation', options: ['Yes', 'No'] });
-    // The element is described from its markup, the wording is attributed to the page, and there is no amount:
-    // the figure used to be scraped from page text, where a hidden "$0.00" could set it.
-    expect(question.question).toContain('a button on shop.test/checkout that the page labels "Place order"');
-    expect(question.question).not.toMatch(/[$€£¥₹]/);
+    expect(question.question).toContain('a button on shop.test/settings that the page labels "Subscribe"');
     expect(h.browser.actions).toEqual([]);
 
     await h.executor.submitHumanResponse('Yes');
     await settle(run);
 
-    expect(h.browser.actions).toEqual([{ type: 'click', index: 0, label: 'Place order' }]);
+    expect(h.browser.actions).toEqual([{ type: 'click', index: 0, label: 'Subscribe' }]);
     expect(asks(h)).toHaveLength(1);
-    expect(h.last().state).toBe(ExecutionState.TASK_OK);
     expect(h.executor.getContext().approvedCommitKey).toBeNull();
   });
 
   it.each([
     ['typing with submit', call('input_text', { index: 0, text: 'SAVE10', submit: true })],
     ['Enter in an element', call('send_keys', { keys: 'Enter', index: 0, commits: 'none' })],
-  ])('asks before %s submits an order form, reading the form around that element', async (_, action) => {
-    const promo = { url: 'https://shop.test/checkout', title: 'Checkout', elements: [{ tag: 'input', attributes: { 'aria-label': 'Promo code' } }, { text: 'Place order' }] };
+  ])('asks before %s submits a form that changes an account, reading the form around that element', async (_, action) => {
+    const promo = { url: 'https://shop.test/settings', title: 'Settings', elements: [{ tag: 'input', attributes: { 'aria-label': 'Promo code' } }, { text: 'Subscribe' }] };
     const h = createHarness({ task: 'Apply the promo code SAVE10', pages: [promo], planner: Array(6).fill(plannerUntil('never')), navigator: [action] });
-    // Only the promo field's own form orders: the gate must read the form of the element the action names.
-    h.browser.formFor = node => (node?.highlightIndex === 0 ? { inForm: true, isSubmitter: false, paymentFields: false, submitLabels: ['Place order'] } : null);
+    // Only the promo field's own form commits: the gate must read the form of the element the action names.
+    h.browser.formFor = node => (node?.highlightIndex === 0 ? { inForm: true, isSubmitter: false, paymentFields: false, submitLabels: ['Subscribe'] } : null);
 
     const run = h.executor.execute();
     await until(() => h.has(ExecutionState.ACT_ASK_HUMAN));
-    expect(JSON.parse(asks(h)[0].data.details).question).toContain('"Enter, which submits "Place order"" on shop.test/checkout');
+    expect(JSON.parse(asks(h)[0].data.details).question).toContain('"Enter, which submits "Subscribe"" on shop.test/settings');
     expect(h.browser.actions).toEqual([]);
 
     await h.executor.cancel();
     await settle(run);
   });
 
-  it('refuses the declined action without asking again', async () => {
+  it('refuses the declined account change without asking again', async () => {
+    const settings = { url: 'https://shop.test/settings', title: 'Settings', elements: [{ text: 'Subscribe' }] };
     const h = createHarness({
-      task: 'Place the order for my cart',
-      pages: [checkout],
+      task: 'Subscribe me to the newsletter',
+      pages: [settings],
       planner: Array(6).fill(plannerUntil('The user declined')),
-      navigator: [click(0), click(0), done('The order was not placed: you declined it.', false)],
+      navigator: [click(0), click(0), done('Not subscribed: you declined it.', false)],
     });
 
     const run = h.executor.execute();
@@ -176,35 +232,10 @@ describe('Commit confirmations', () => {
 
     expect(h.browser.actions).toEqual([]);
     expect(asks(h)).toHaveLength(1);
-    // The refusal reaches the model. Which agent reads it last depends on the replan: a guard refusal now forces
-    // one immediately, so the planner usually ends the task rather than spending another navigator step on a route
-    // the harness has closed.
-    const seen = [...h.llm.requestsFor('navigator'), ...h.llm.requestsFor('planner')].map(request =>
-      textOf(request.messages),
-    );
-    expect(seen.some(text => text.includes('The user declined "Place order"'))).toBe(true);
-  });
-
-  it('needs a new yes for a second order with the same button', async () => {
-    const two = { url: 'https://shop.test/orders', title: 'Orders', text: ['Alex $30.00'], elements: [{ text: 'Place order' }, { text: 'Place order' }] };
-    const h = createHarness({
-      task: 'Place both orders',
-      pages: [two],
-      planner: Array(10).fill(plannerUntil('never')).map((reply, i) => (i < 9 ? reply : planDone())),
-      navigator: [click(0), click(0), click(1), click(1), done('Both orders placed')],
-    });
-
-    const run = h.executor.execute();
-    await until(() => asks(h).length === 1);
-    await h.executor.submitHumanResponse('Yes');
-    await until(() => asks(h).length === 2);
-    expect(h.browser.actions).toHaveLength(1);
-    await h.executor.submitHumanResponse('Yes');
-    await until(() => h.browser.actions.length === 2);
-    await h.executor.cancel();
-    await settle(run);
-
-    expect(h.browser.actions.map(action => action.index)).toEqual([0, 1]);
+    // A guard refusal forces a replan at once, so the planner usually ends the task rather than spending another
+    // navigator step on a route the harness has closed.
+    const seen = [...h.llm.requestsFor('navigator'), ...h.llm.requestsFor('planner')].map(request => textOf(request.messages));
+    expect(seen.some(text => text.includes('The user declined "Subscribe"'))).toBe(true);
   });
 });
 

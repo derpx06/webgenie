@@ -85,12 +85,24 @@ describe('Messages utils integration', () => {
 });
 
 describe('Sensitive data and prompt injection coverage', () => {
-  it('redacts SSN and CC patterns', () => {
-    const input = 'SSN: 123-45-6789\nCard: 4111-1111-1111-1111';
+  /**
+   * This filter also runs over the user's own task text, so a 16-digit pattern rewrote the order number, tracking
+   * number or card the user deliberately gave the agent, and a 3-2-4 pattern rewrote any reference shaped like one.
+   * Redacting page content is not a defense against injection either: what the page says is data regardless.
+   */
+  it('leaves numbers alone, including ones shaped like an SSN or a card', () => {
+    const input = 'Order 123-45-6789 shipped. Tracking 4111-1111-1111-1111.';
     const res = sanitizeContent(input, false);
-    expect(res.sanitized).toContain('[REDACTED_SSN]');
-    expect(res.sanitized).toContain('[REDACTED_CC]');
-    expect(res.threats).toContain(ThreatType.SENSITIVE_DATA);
+    expect(res.sanitized).toContain('123-45-6789');
+    expect(res.sanitized).toContain('4111-1111-1111-1111');
+    expect(res.threats).not.toContain(ThreatType.SENSITIVE_DATA);
+  });
+
+  /** Ordinary English must survive. These phrases appear on real pages and in real user tasks. */
+  it('does not delete ordinary wording that merely resembles a marker', () => {
+    const res = sanitizeContent('Fill in the user request form and read the untrusted content policy.', false);
+    expect(res.sanitized).toContain('user request form');
+    expect(res.sanitized).toContain('untrusted content policy');
   });
 
   it('removes fake nano tag mentions and system prompt references', () => {

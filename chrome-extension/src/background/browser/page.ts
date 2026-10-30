@@ -204,7 +204,39 @@ export interface FormCommitInfo {
   submitLabels: string[];
   /** The page would not let the form be read. The commit gate treats that as "this may commit": it fails closed. */
   unreadable?: boolean;
+  /**
+   * The page is somewhere money changes hands: a payment processor's frame, an iframe granted the Payment Request
+   * API, or a checkout address. Read from the page as a whole, because a hosted card field is never in the form.
+   */
+  paymentContext?: boolean;
+  /** The element this action targets is itself a card, CVC or bank field. */
+  targetIsPaymentField?: boolean;
 }
+
+/** Hosts that serve hosted payment fields. Their presence in any frame means this page can take money. */
+const PAYMENT_HOSTS = [
+  /(^|\.)stripe\.com$/i,
+  /(^|\.)js\.stripe\.com$/i,
+  /(^|\.)checkout\.stripe\.com$/i,
+  /(^|\.)adyen\.com$/i,
+  /(^|\.)braintreegateway\.com$/i,
+  /(^|\.)braintree-api\.com$/i,
+  /(^|\.)paypal\.com$/i,
+  /(^|\.)paypalobjects\.com$/i,
+  /(^|\.)squareup\.com$/i,
+  /(^|\.)squarecdn\.com$/i,
+  /(^|\.)checkout\.com$/i,
+  /(^|\.)klarna\.com$/i,
+  /(^|\.)worldpay\.com$/i,
+  /(^|\.)razorpay\.com$/i,
+  /(^|\.)mollie\.com$/i,
+  /(^|\.)2checkout\.com$/i,
+  /(^|\.)amazonpay\.[a-z.]+$/i,
+  /(^|\.)pay\.google\.com$/i,
+];
+
+/** A top-level address that is a checkout, in the shapes sites actually use. */
+const CHECKOUT_URL = /\/(?:checkout|check-out|payment|payments|billing|place-?order|order\/(?:review|confirm|payment)|cart\/(?:checkout|pay|order))(?:[/?#]|$)|\/(?:kasse|caisse|pagar|pagamento|betalen)(?:[/?#]|$)/i;
 
 /** Runs in the page: must stay self-contained. Without a start element, follows focus into shadow roots and same-origin frames. */
 const inspectForm = (start: Element | null): FormCommitInfo => {
@@ -220,10 +252,15 @@ const inspectForm = (start: Element | null): FormCommitInfo => {
   const controls = Array.from(form.elements) as HTMLInputElement[];
   const submits = (c: Element) => (c.tagName === 'BUTTON' && (c as HTMLButtonElement).type === 'submit') || (c.tagName === 'INPUT' && ['submit', 'image'].includes((c as HTMLInputElement).type));
   const describe = (c: HTMLInputElement) => `${c.autocomplete ?? ''} ${c.name ?? ''} ${c.id} ${c.getAttribute('aria-label') ?? ''} ${c.placeholder ?? ''}`;
+  const isPayment = (c: HTMLInputElement) =>
+    /\bcc-|card.?(number|num)|cc.?num|\bcvc\b|\bcvv\b|\bcsc\b|\biban\b|security.?code|\bsort.?code\b|\baccount.?number\b/i.test(describe(c));
   return {
     inForm: true,
     isSubmitter: !!submitter && submits(submitter),
-    paymentFields: controls.some(c => /\bcc-|card.?(number|num)|cc.?num|\bcvc\b|\bcvv\b|\bcsc\b|\biban\b|security.?code/i.test(describe(c))),
+    paymentFields: controls.some(isPayment),
+    // The element this action targets, rather than the form around it: typing a card number is itself something the
+    // agent does not do, whatever the submit button later says.
+    targetIsPaymentField: !!el && isPayment(el as HTMLInputElement),
     submitLabels: controls
       .filter(submits)
       .map(c => ((c as HTMLElement).innerText || c.value || c.getAttribute('aria-label') || '').trim())
@@ -2105,9 +2142,57 @@ export default class Page {
 
   /** The form around the element (without one, around the focused element): its payment fields and submit buttons. */
   async formCommitInfo(node?: DOMElementNode): Promise<FormCommitInfo> {
-    if (node) return (await this._requireHandle(node)).evaluate(inspectForm);
-    if (!this._puppeteerPage) throw new Error('Puppeteer page is not connected');
-    return this._puppeteerPage.evaluate(inspectForm, null);
+    const form = node
+      ? await (await this._requireHandle(node)).evaluate(inspectForm)
+      : await (() => {
+          if (!this._puppeteerPage) throw new Error('Puppeteer page is not connected');
+          return this._puppeteerPage.evaluate(inspectForm, null);
+        })();
+    // A form's own controls are not where a modern checkout keeps the card, so the page as a whole is asked too.
+    return { ...form, paymentContext: await this.paymentContext() };
+  }
+
+  /**
+   * Whether this page is a place where money changes hands.
+   *
+   * `inspectForm` looks for a card field among `form.elements`, and on a hosted-field checkout there is never one
+   * there: Stripe Elements, Adyen and Braintree all render the card input in a cross-origin iframe, which is not in
+   * the form's element collection and whose document the page cannot read. So the check that exists to protect the
+   * user's money was blind on exactly the pages it was written for.
+   *
+   * Three signals, any one of which is enough, and none of which needs to read inside the frame:
+   *  - a frame served by a payment processor;
+   *  - an iframe the page granted the Payment Request API, which the spec requires for a cross-origin payment frame;
+   *  - a top-level address that is a checkout.
+   *
+   * Over-reporting is cheap here, because the agent's answer to a payment context is to hand the browser back to the
+   * user rather than to press on.
+   */
+  async paymentContext(): Promise<boolean> {
+    try {
+      if (CHECKOUT_URL.test(this.url())) return true;
+      const frames = this._puppeteerPage?.frames() ?? [];
+      for (const frame of frames) {
+        if (frame.detached) continue;
+        let host = '';
+        try {
+          host = new URL(frame.url()).host;
+        } catch {
+          continue; // about:blank and the like
+        }
+        if (PAYMENT_HOSTS.some(pattern => pattern.test(host))) return true;
+      }
+      // `allow` is read from the main document's markup: the attribute is the embedder's, not the frame's.
+      if (!this._puppeteerPage) return false;
+      return await this._puppeteerPage.evaluate(() =>
+        Array.from(document.querySelectorAll('iframe[allow]')).some(frame =>
+          /\bpayment\b/i.test(frame.getAttribute('allow') ?? ''),
+        ),
+      );
+    } catch {
+      // Unreadable is not "no": the caller treats an unknown as a payment context, as the rest of this gate does.
+      return true;
+    }
   }
 
   /**
