@@ -443,6 +443,50 @@ const COMPLEX = [
     },
   },
   {
+    // CDP auto-attach reaches a target's immediate children only, so perception that arms it once on the top frame
+    // sees the middle frame and stops. Hosted checkout widgets nest exactly like this, which is why a card field can
+    // be present on the page and invisible to the agent. Three origins, three processes.
+    id: 'C37',
+    title: 'Three levels of cross-origin iframe',
+    url: fixtures => fixtures.nestedFramesUrl,
+    task: 'This page embeds a frame which embeds another frame. Find the "Deep frame token" value and tell me exactly what it is.',
+    check: ({ answer }) => ({
+      pass: has(answer, 'ZEVVOHRA-7731'),
+      detail: 'the token lives three cross-origin frames deep',
+    }),
+    oracle: async () => ({ answer: 'The deep frame token is ZEVVOHRA-7731.' }),
+  },
+  {
+    // The same chain, acted on rather than read: the deepest frame must be reachable by a click, not only by a read.
+    id: 'C38',
+    title: 'Acting in the deepest cross-origin frame',
+    url: fixtures => fixtures.nestedFramesUrl,
+    task: 'Two frames down inside this page there is a "Confirm deep value" button. Press it and tell me what the status text says afterwards.',
+    check: async ({ answer, evalOn, fixtures }) => {
+      // The inner frame reports upward, the way a hosted payment widget does, so the top document holds the proof.
+      const reported = await evalOn(new URL(fixtures.nestedFramesUrl).host, () =>
+        document.querySelector('#deep-report')?.textContent?.trim(),
+      );
+      return {
+        pass: reported === 'deep value confirmed' && has(answer, 'deep value confirmed'),
+        detail: `deep report=${reported}`,
+      };
+    },
+    // Presses the button through the frame chain, so the checker is exercised against a page that really changed.
+    // The page is handed over at domcontentloaded, which is before a frame three origins deep has committed.
+    oracle: async ({ page }) => {
+      let inner;
+      for (let attempt = 0; attempt < 40 && !inner; attempt++) {
+        inner = page.frames().find(frame => frame.url().includes('/inner'));
+        if (!inner) await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      if (!inner) return { answer: 'the inner frame never loaded' };
+      await inner.waitForSelector('#deep-ok', { timeout: 10_000 });
+      await inner.click('#deep-ok');
+      return { answer: 'The status says: deep value confirmed.' };
+    },
+  },
+  {
     id: 'C14',
     title: 'Infinite scroll',
     url: 'https://quotes.toscrape.com/scroll',

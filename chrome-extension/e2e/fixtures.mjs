@@ -587,7 +587,44 @@ const hostHtml = editorUrl => `<!doctype html>
 <title>Frame host</title>
 <h1>Frame host page</h1>
 <p>The editor below is served from another site.</p>
-<iframe src="${editorUrl}" title="Embedded editor" style="width:640px;height:340px;border:1px solid #444"></iframe>`;
+<iframe src="${editorUrl}" title="Embedded editor" style="width:640px;height:340px;border:1px solid #444"></iframe>
+<p id="deep-report">nothing reported</p>
+<script>
+  addEventListener('message', event => {
+    if (event.data?.deep) document.getElementById('deep-report').textContent = event.data.deep;
+  });
+</script>`;
+
+/**
+ * Three origins deep: host -> middle -> inner, each a separate process. CDP auto-attach reaches a target's immediate
+ * children only, so a perception layer that arms it once on the top frame sees the middle frame and stops. Hosted
+ * checkout widgets nest exactly like this, which is why a card field can be present and invisible.
+ */
+const nestedMiddleHtml = innerUrl => `<!doctype html>
+<meta charset="utf-8">
+<title>Middle frame</title>
+<h2>Middle frame</h2>
+<iframe src="${innerUrl}" title="Inner frame" style="width:520px;height:200px;border:1px solid #888"></iframe>
+<script>
+  // Hosted payment widgets report upward like this, so the state ends up readable in the top document.
+  addEventListener('message', event => { if (event.data?.deep) parent.postMessage(event.data, '*'); });
+</script>`;
+
+const nestedInnerHtml = `<!doctype html>
+<meta charset="utf-8">
+<title>Inner frame</title>
+<h3>Inner frame</h3>
+<p>Deep frame token: ${'ZEVVOHRA-7731'}</p>
+<label for="card">Card number</label>
+<input id="card" name="cardnumber" autocomplete="cc-number" placeholder="4242 4242 4242 4242">
+<button id="deep-ok" type="button">Confirm deep value</button>
+<p id="deep-status">not confirmed</p>
+<script>
+  document.getElementById('deep-ok').addEventListener('click', () => {
+    document.getElementById('deep-status').textContent = 'deep value confirmed';
+    parent.postMessage({ deep: 'deep value confirmed' }, '*');
+  });
+</script>`;
 
 function listen(handler) {
   const server = http.createServer(handler);
@@ -601,7 +638,14 @@ const send = (res, html) => {
 };
 
 export async function startFixtures() {
-  const editorServer = await listen((req, res) => (req.url.startsWith('/editor') ? send(res, EDITOR_HTML) : res.writeHead(404).end()));
+  // A third origin, so the nested chain crosses a process boundary at every level.
+  const innerServer = await listen((req, res) => (req.url.startsWith('/inner') ? send(res, nestedInnerHtml) : res.writeHead(404).end()));
+  const innerOrigin = `http://127.0.0.2:${innerServer.address().port}`;
+  const editorServer = await listen((req, res) => {
+    if (req.url.startsWith('/editor')) return send(res, EDITOR_HTML);
+    if (req.url.startsWith('/middle')) return send(res, nestedMiddleHtml(`${innerOrigin}/inner`));
+    return res.writeHead(404).end();
+  });
   const editorOrigin = `http://localhost:${editorServer.address().port}`;
   let hits = [];
   let orders = 1041;
@@ -635,6 +679,7 @@ export async function startFixtures() {
       return res.end('region,total\nnorth,1200\nsouth,950\n');
     }
     if (pathname.startsWith('/oopif')) return send(res, hostHtml(`${editorOrigin}/editor`));
+    if (pathname.startsWith('/nested-frames')) return send(res, hostHtml(`${editorOrigin}/middle`));
     if (PAGES[pathname]) return send(res, PAGES[pathname]);
     return res.writeHead(404).end();
   });
@@ -643,6 +688,8 @@ export async function startFixtures() {
     hostOrigin,
     editorOrigin,
     oopifUrl: `${hostOrigin}/oopif`,
+    /** host -> localhost -> 127.0.0.2, three processes deep. */
+    nestedFramesUrl: `${hostOrigin}/nested-frames`,
     /** Requests the agent's actions sent to a tracked path (/order, /exfil) since the task started. */
     hits: path => hits.filter(hit => hit.path === path),
     resetHits: () => {
@@ -651,6 +698,7 @@ export async function startFixtures() {
     wizard: { pages: WIZARD_PAGES, longPages: LONG_WIZARD_PAGES, fields: WIZARD_FIELDS },
     inbox: INBOX,
     catalog: CATALOG,
-    close: () => Promise.all([editorServer, hostServer].map(server => new Promise(resolve => server.close(resolve)))),
+    close: () =>
+      Promise.all([editorServer, hostServer, innerServer].map(server => new Promise(resolve => server.close(resolve)))),
   };
 }
