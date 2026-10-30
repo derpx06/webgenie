@@ -176,7 +176,13 @@ describe('Commit confirmations', () => {
 
     expect(h.browser.actions).toEqual([]);
     expect(asks(h)).toHaveLength(1);
-    expect(textOf(h.llm.requestsFor('navigator').at(-1)!.messages)).toContain('The user declined "Place order"');
+    // The refusal reaches the model. Which agent reads it last depends on the replan: a guard refusal now forces
+    // one immediately, so the planner usually ends the task rather than spending another navigator step on a route
+    // the harness has closed.
+    const seen = [...h.llm.requestsFor('navigator'), ...h.llm.requestsFor('planner')].map(request =>
+      textOf(request.messages),
+    );
+    expect(seen.some(text => text.includes('The user declined "Place order"'))).toBe(true);
   });
 
   it('needs a new yes for a second order with the same button', async () => {

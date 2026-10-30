@@ -709,6 +709,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           const times = (this.context.refusedActions.get(refusalKey) ?? 0) + 1;
           this.context.refusedActions.set(refusalKey, times);
           this.context.ledger.refused(actionName, reason);
+          this.context.guardRefused = true;
           traceGuard(guard, 'refused', actionName, reason);
           const msg = times > 1
             ? `${reason} You have tried this exact action ${times} times and it is refused every time. Do something different; if the task cannot go on without it, finish with done (success: false) and explain what blocks it.`
@@ -751,6 +752,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           refuse('identical-repeat', `Not done: you have already done exactly this ${MAX_IDENTICAL_ACTIONS} times on this page and nothing on it changed, so this one is refused. Do something else: another element, a collapsed section or menu that may hold what you look for, find_in_page, another route, or finish with done (success: false) and say what blocks you.`);
           break;
         }
+
 
         // Going back off a page that shows an applied filter or sort removes it (two live runs went back "to verify the
         // applied filters" and lost the sort each time, then applied it again). What is applied is read on the page in
@@ -803,6 +805,19 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         chosenState = beforeState;
 
         // CAPTCHAs and bot checks are the user's to pass: live runs clicked "I'm not a robot" boxes and challenge widgets.
+        // The same move, however it is written. The key above is the exact arguments, and an element's index changes
+        // with every page read, so clicking "Next" four times as [12], [31], [12], [9] slipped past it: it fired 17
+        // times against 1,682 repeats the signature detector could already see. This is that detector, used as a gate
+        // rather than as advice.
+        if (!UNCOUNTED_REPEATS.has(actionName)) {
+          const signature = actionSignature(actionName, actionArgs, indexedNode);
+          const sameMove = this.context.actionSignatures.get(signature) ?? 0;
+          if (sameMove >= MAX_IDENTICAL_ACTIONS) {
+            refuse('repeat-signature', `Not done: this is the same move for the ${sameMove + 1}th time on this page — the same element or the same text, whatever index it has now — and the page has not changed. Take a different route: another element, a collapsed section or menu, find_in_page for the value, a different address, or finish with done (success: false) and say what blocks you.`);
+            break;
+          }
+        }
+
         if (actionName !== 'scroll' && isChallengeElement(indexedNode)) {
           refuse('challenge-element', this.answeredQuestions().some(entry => isChallengeQuestion(entry.question))
             ? `Not done: [${indexArg}] is part of a verification challenge, and the user was already asked to complete it. Do not interact with verification challenges: finish with done (success: false) and report that the site blocks automated access.`
@@ -1358,8 +1373,13 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           const nudge = loopNudge(recent.filter(entry => entry === signature).length, this.context.stagnantActions);
           if (nudge) result = new ActionResult({ ...result, extractedContent: `${result.extractedContent ?? ''} ${nudge}`.trim() });
         }
-        if (changedPage) this.context.actionRepeats.clear();
+        if (changedPage) {
+          this.context.actionRepeats.clear();
+          this.context.actionSignatures.clear();
+        }
         if (!UNCOUNTED_REPEATS.has(actionName)) {
+          const signature = actionSignature(actionName, actionArgs, indexedNode);
+          this.context.actionSignatures.set(signature, (this.context.actionSignatures.get(signature) ?? 0) + 1);
           const times = this.countRepeat(actionName, actionArgs, beforeState.url);
           if (times >= MAX_IDENTICAL_ACTIONS) {
             result = new ActionResult({

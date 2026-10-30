@@ -10,6 +10,8 @@ export interface ReplanDecisionInput {
   waitingForHuman: boolean;
   /** The planner's last plan was sent back (a pending requirement, an unread page, a goal repeated without progress). */
   completionRefused?: boolean;
+  /** A guard refused an action last step: the route the plan chose is closed, whatever the step count says. */
+  guardRefused?: boolean;
   /** Consecutive steps whose last page-changing action validated failed or unknown. */
   unvalidatedSteps: number;
   /** The same actions were repeated on an unchanged page. */
@@ -31,6 +33,9 @@ export function getReplanDecision(input: ReplanDecisionInput): ReplanDecision {
   if (input.completionRefused) return replan('completion_refused', 'The last plan was sent back; the planner plans again with the reason.');
   if (input.navigatorDone) return replan('contract_complete', 'The navigator reported completion; the planner verifies it.');
   if (input.navigatorErrored) return replan('navigator_error', 'The navigator could not produce a valid action.');
+  // A refusal is the harness saying this route is closed. Waiting for a second one spends a step re-deciding against
+  // the same closed route, and measured 3.8M tokens in one run.
+  if (input.guardRefused) return replan('validation', 'A guard refused the last action; the plan needs another route.');
   if (input.unvalidatedSteps >= 2) {
     return replan('validation', `${input.unvalidatedSteps} consecutive steps did not validate.`);
   }

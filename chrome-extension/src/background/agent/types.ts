@@ -147,6 +147,18 @@ export class AgentContext {
   refusedActions = new Map<string, number>();
   /** Executed actions by name, page address before it and arguments: a model repeating one gets told from the third time. */
   actionRepeats = new Map<string, number>();
+  /**
+   * The same move counted by what it does — the element's role and name, the path template, the sorted words of a
+   * text — rather than by the arguments it was written with. An index changes on every page read, so the exact-args
+   * key caught 17 repeats where this one sees 1,682.
+   */
+  actionSignatures = new Map<string, number>();
+  /**
+   * A guard refused an action this step, so the plan's route is blocked and the planner must hear about it now.
+   * Without this a refusal only raised the unvalidated count, which replans on the second one: the navigator spent
+   * a whole step retrying a route the harness had already closed.
+   */
+  guardRefused = false;
   /** The last executed actions as the loop detector reads them (element role and name, path template, sorted words). */
   recentActions: string[] = [];
   /** Executed actions in a row that changed nothing on the page. */

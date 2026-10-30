@@ -242,6 +242,27 @@ export class Executor {
    * action result, a requirement is still pending, or it reports absence without the page having been read. Each
    * refusal is capped, so a planner that keeps finishing the same way finishes.
    */
+  /**
+   * Re-read the page before deciding the task is finished.
+   *
+   * Every check in `checkTaskCompletion` that asks "does the page back this?" — unbacked values, an absence claimed
+   * about an unread page, a requirement whose evidence has gone — reads `context.promptState`, which is the page as
+   * it was when this step's prompt was built, before the planner thought about it. A filter that was dropped by a
+   * re-render, a value that changed, a page that redirected: all of it was invisible to the check that exists to
+   * catch exactly that.
+   *
+   * One page read per finished task, no model call. A read that fails leaves the previous state in place: a task
+   * must still be allowed to finish when the tab has gone.
+   */
+  private async refreshStateForCompletion(): Promise<void> {
+    try {
+      const fresh = await this.context.browserContext.getState(false);
+      if (fresh) this.context.promptState = fresh;
+    } catch (error) {
+      logger.warning(`Could not re-read the page before finishing: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   private checkTaskCompletion(planOutput: AgentOutput<PlannerOutput> | null): 'complete' | 'refused' | 'continue' {
     if (!planOutput?.result?.done) return 'continue';
     const context = this.context;
@@ -538,6 +559,7 @@ export class Executor {
           navigatorErrored,
           waitingForHuman: context.actionResults.some(result => result.isWaitingForHuman),
           completionRefused,
+          guardRefused: context.guardRefused,
           unvalidatedSteps,
           stalled,
           stepsSinceLastPlan: context.nSteps - this.lastPlanningStep,
@@ -545,6 +567,7 @@ export class Executor {
           stepsPassedSinceLastPlan: this.unpassedSinceLastPlan === 0,
           requirementReopened: this.requirementReopened,
         });
+        context.guardRefused = false;
         logger.info(`[Planner] Replan decision: ${replanDecision.shouldReplan} trigger=${replanDecision.trigger} reason=${replanDecision.reason}`);
         // Stuck (steps that did not validate, or a stall): this step's state carries a screenshot when vision is on.
         if (unvalidatedSteps >= 2 || stalled) context.screenshotWanted = true;
@@ -634,7 +657,8 @@ export class Executor {
           // the failure budget ends a planner that keeps failing.
           if (!planned) continue;
 
-          // Check if task is complete after planner run
+          // Check if task is complete after planner run, against the page as it is now.
+          if (latestPlanOutput?.result?.done) await this.refreshStateForCompletion();
           let completion = this.checkTaskCompletion(latestPlanOutput);
           // What this run may teach later tasks: the planner's done and the evidence verdict agreeing the answer was
           // backed, with no done sent back and no goal the planner had to be told to stop repeating.
