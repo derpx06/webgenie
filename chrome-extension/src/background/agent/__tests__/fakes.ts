@@ -357,10 +357,13 @@ export class FakeBrowserContext {
   getCachedState = async (useVision = false) => ({ ...this.read(), screenshot: useVision ? 'c2NyZWVuc2hvdA==' : null });
   getState = async () => this.read();
   /** The current tab reports the page being served; the others keep whatever they were opened on. */
-  getTabInfos = async () =>
-    this.tabs.map(tab =>
+  /** What the real context reports in every page read: the current tab as served, the others as opened. */
+  private tabInfos(): TabInfo[] {
+    return this.tabs.map(tab =>
       tab.id === this.currentTabId ? { ...tab, url: this.current.url, title: this.current.title ?? tab.title } : tab,
     );
+  }
+  getTabInfos = async () => this.tabInfos();
   getAllTabIds = async () => new Set(this.tabs.map(tab => tab.id));
   navigateTo = async (url: string) => this.act({ type: 'navigate', url });
   openTab = async (url: string) => {
@@ -400,7 +403,7 @@ export class FakeBrowserContext {
       scrollHeight: 1000,
       visualViewportHeight: 1000,
       dialog: spec.dialog,
-      tabs: [{ id: 1, url: spec.url, title }],
+      tabs: this.tabInfos(),
     };
   }
 

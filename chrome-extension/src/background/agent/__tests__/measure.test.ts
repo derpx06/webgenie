@@ -10,7 +10,7 @@ vi.mock('@src/background/trace', async importOriginal => {
 });
 
 import * as metricsModule from '../../../../e2e/metrics.mjs';
-import { click, createHarness, done, plan, settle, stubChrome, until } from './fakes';
+import { click, createHarness, done, plan, settle, stubChrome, textOf, until } from './fakes';
 
 /**
  * Not a gate: a measurement. Prints one JSON line of mechanism counters so the same scenarios can be run against two
@@ -138,6 +138,45 @@ describe('measure', () => {
     const elementsAt = navText.indexOf('Interactive elements');
     const taskAt = navText.lastIndexOf('Find the cheapest lamp');
     out.taskRestatedAfterPage = elementsAt >= 0 && taskAt > elementsAt;
+
+    // 6. A CVC typed with nothing submitted: does it get typed? Before, the form was only read when Enter was pressed.
+    //    A CVC rather than a card number, because the old sanitizer rewrote a card number in the user's own task to
+    //    [REDACTED_CC], so the old build refused to type one for an unrelated reason and could not show the difference.
+    const pay = { url: 'https://shop.test/pay', title: 'Pay', elements: [{ text: 'Name' }, { tag: 'input', attributes: { name: 'cvc' } }] };
+    const card = createHarness({
+      task: 'Pay with the card, CVC 123',
+      pages: [pay],
+      planner: Array(6).fill(plan({ next_goal: 'Fill the CVC' })),
+      navigator: [{ name: 'input_text', args: { index: 1, text: '123' } }, done('x', false)],
+    });
+    (card.browser as unknown as { formFor: (n?: { highlightIndex?: number | null }) => unknown }).formFor = node => ({
+      inForm: true, isSubmitter: false, paymentFields: true, submitLabels: [], targetIsPaymentField: node?.highlightIndex === 1,
+    });
+    await drive(card);
+    out.cvcTyping_inputsExecuted = card.browser.actions.filter(a => a.type === 'input').length;
+
+    // 7. Another tab the user has open: does its full address, with a query string, reach the model?
+    const tabbed = createHarness({
+      task: 'Read the results count',
+      pages: [listPage],
+      planner: [plan({ next_goal: 'Read it' })],
+      navigator: [done('12 results')],
+    });
+    (tabbed.browser as unknown as { tabs: unknown[] }).tabs?.push({ id: 5, url: 'https://bank.example/accounts/12345?token=secret', title: 'My statement' });
+    await drive(tabbed);
+    const sent = [...tabbed.llm.requestsFor('navigator'), ...tabbed.llm.requestsFor('planner')].map(r => textOf(r.messages)).join('\n');
+    out.otherTab_addressSentToModel = sent.includes('token=secret');
+    out.otherTab_titleSentToModel = sent.includes('My statement');
+
+    // 8. A number in the user's own task: is it rewritten before the agent sees it? Before, a 16-digit run became [REDACTED_CC].
+    const lookup = createHarness({
+      task: 'Find the status of order 4111-1111-1111-1111',
+      pages: [listPage],
+      planner: [plan({ next_goal: 'Look it up' })],
+      navigator: [done('x')],
+    });
+    await drive(lookup);
+    out.userNumber_reachesModelIntact = [...lookup.llm.requestsFor('planner')].some(r => textOf(r.messages).includes('4111-1111-1111-1111'));
 
     console.log(`MEASURE ${JSON.stringify(out)}`);
   });
