@@ -44,7 +44,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * deleting an account). English only: other languages and icon buttons rely on the model's `commits` flag and on
  * the payment-form check.
  */
-const COMMIT_LABEL = /^((place|submit) (my |the |your )?order|order now|buy (it )?now|purchase( now)?$|pay( now)?( \S*\d\S*)?$|complete (purchase|order|payment|checkout)|confirm (and pay|order|purchase|payment)|submit (order and )?payment|subscribe( now)?$|start (my |your |a )?(free )?(trial|subscription)|(delete|close) (my |your )?account|transfer (funds|money)|donate( now)?$)/i;
+const COMMIT_LABEL = /^((place|submit) (my |the |your )?order|order now|buy (it )?now|purchase( now)?$|pay( now)?( \S*\d\S*)?$|complete (purchase|order|payment|checkout)|confirm (and pay|order|purchase|payment)|submit (order and )?payment|subscribe( now)?$|start (my |your |a )?(free )?(trial|subscription)|(delete|close) (my |your )?account|(create|open|register|set up|sign up for)( an?| my| your| a new)?( free)? account|transfer (funds|money)|donate( now)?$)/i;
 
 /**
  * The part of the above that spends money or opens an account in the user's name.
@@ -54,7 +54,7 @@ const COMMIT_LABEL = /^((place|submit) (my |the |your )?order|order now|buy (it 
  * the details right or wrong; a refusal does not, and it is a claim we can make in a store listing without an
  * asterisk. It also makes cross-frame card detection a question about the page rather than about one form.
  */
-const HANDOVER_LABEL = /^((place|submit) (my |the |your )?order|order now|buy (it )?now|purchase( now)?$|pay( now)?( \S*\d\S*)?$|complete (purchase|order|payment|checkout)|confirm (and pay|order|purchase|payment)|submit (order and )?payment|transfer (funds|money)|donate( now)?$)/i;
+const HANDOVER_LABEL = /^((place|submit) (my |the |your )?order|order now|buy (it )?now|purchase( now)?$|pay( now)?( \S*\d\S*)?$|complete (purchase|order|payment|checkout)|confirm (and pay|order|purchase|payment)|submit (order and )?payment|(create|open|register|set up|sign up for)( an?| my| your| a new)?( free)? account|transfer (funds|money)|donate( now)?$)/i;
 
 const isCommitLabel = (text: string) => text.length <= 60 && COMMIT_LABEL.test(text.trim());
 const isHandoverLabel = (text: string) => text.length <= 60 && HANDOVER_LABEL.test(text.trim());
@@ -202,8 +202,12 @@ export function commitTarget(
   label = label.slice(0, 80);
   // Money, by the wording, by the form's own card fields, or by the page being a payment context at all. The last of
   // those is the one that catches a hosted checkout, where the card field is in a frame nobody can read.
+  const opens = CLICKING_TOOLS.has(actionName) && mayOnlyOpen(node);
+  const commitHref = !!node?.attributes.href && COMMIT_HREF.test(node.attributes.href);
+  // A link or disclosure that only opens something ("Create account" on a login page, "Order now" to a menu) is asked
+  // about, not refused: it spends nothing and opens nothing in the user's name. Unless its address is itself the commit.
   const handover =
-    isHandoverLabel(label) ||
+    (isHandoverLabel(label) && (!opens || commitHref)) ||
     (!!form?.paymentContext && (CLICKING_TOOLS.has(actionName) || pressesEnter(actionName, args))) ||
     (!!form?.paymentFields && !!form?.isSubmitter) ||
     // Typing a card number, CVC or bank detail is itself in the class the agent does not do.
@@ -215,7 +219,7 @@ export function commitTarget(
     what: describeNode(node),
     ...(handover ? { handover: true } : {}),
     ...(CLICKING_TOOLS.has(actionName) ? { pageWords: true } : {}),
-    ...(CLICKING_TOOLS.has(actionName) && mayOnlyOpen(node) ? { opens: true } : {}),
+    ...(opens ? { opens: true } : {}),
   };
 }
 

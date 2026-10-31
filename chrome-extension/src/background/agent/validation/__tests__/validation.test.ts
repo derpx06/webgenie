@@ -638,6 +638,32 @@ describe('committing actions', () => {
     expect(commitTarget('input_text', { index: 1, text: 'x', submit: true }, 'https://shop.test/pay', element(1, { tagName: 'input' }), payment)?.handover).toBe(true);
   });
 
+  // Opening an account is in the same class as placing an order: the agent hands the browser back. Live, the sign-up task
+  // used to stop and ask "Confirm before I continue: Create account" only when the model happened to flag the button; the
+  // wording was in neither list.
+  it('hands back on creating an account, by its wording', () => {
+    for (const words of ['Create account', 'Create an account', 'Open an account', 'Register an account', 'Sign up for an account', 'Set up your account']) {
+      expect(click(button(words), { commits: 'none' }, noForm)?.handover, words).toBe(true);
+    }
+  });
+
+  // A link that only opens something spends nothing and opens nothing in the user's name, so it stays a question: a login
+  // page's "Create account" link, or "Order now" pointing at a menu. Unless the address is itself the commit.
+  it('asks, rather than refuses, for a link that only opens a page', () => {
+    const link = (text: string, href: string) => {
+      const node = element(1, { tagName: 'a', attributes: { href } });
+      node.getAllTextTillNextClickableElement = () => text;
+      return node;
+    };
+    const signupLink = click(link('Create account', '/signup'), { commits: 'none' }, noForm);
+    expect(signupLink?.label).toBe('Create account');
+    expect(signupLink?.opens).toBe(true);
+    expect(signupLink?.handover).toBeUndefined();
+
+    // The same wording on an address that is itself the order submit is still refused.
+    expect(click(link('Place your order', '/checkout/place-order'), { commits: 'none' }, noForm)?.handover).toBe(true);
+  });
+
   /** A hosted checkout keeps its card field in a frame nobody can read, and labels the submit "Continue". */
   it('hands back on a payment page even with no card field and no commit wording', () => {
     const hosted: FormCommitInfo = {

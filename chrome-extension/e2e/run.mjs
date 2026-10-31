@@ -45,6 +45,19 @@ const withTimeout = (promise, ms, label) =>
   Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms))]);
 // Output is captured and never printed: it may be an access token.
 const gcloud = (...args) => execFileSync('gcloud', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+/**
+ * An access token. With E2E_ADC=<path to an authorized-user or service-account JSON> it is minted from that credentials
+ * file instead of the gcloud login, for a project the logged-in account cannot call. The file is handed to gcloud by
+ * path and never read here, so nothing in it reaches this process or its output.
+ */
+export const mintAccessToken = () =>
+  process.env.E2E_ADC
+    ? execFileSync('gcloud', ['auth', 'application-default', 'print-access-token'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: { ...process.env, GOOGLE_APPLICATION_CREDENTIALS: process.env.E2E_ADC },
+      }).trim()
+    : gcloud('auth', 'print-access-token');
 const git = (...args) => {
   try {
     return execFileSync('git', args, { cwd: HERE, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
@@ -65,7 +78,7 @@ function accessToken() {
   let lastError;
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
-      const token = gcloud('auth', 'print-access-token');
+      const token = mintAccessToken();
       if (token.startsWith('ya29.')) {
         cachedToken = { value: token, at: Date.now() };
         return token;
@@ -797,6 +810,12 @@ export class Harness {
     const lastCall = records.filter(r => r.kind === 'llm').at(-1);
     // An access token that expired mid-task (401 "invalid authentication credentials", final run L1) counts the same way.
     if (run.outcome !== 'task.ok' && lastCall && /Failed to fetch|provider unreachable|invalid authentication credentials/i.test(`${lastCall.msg} ${JSON.stringify(lastCall.data?.error ?? '')}`)) {
+      run.outcome = 'provider_down';
+    }
+    // The provider rate-limited it for the whole retry budget and the task paused to be resumed (observed on
+    // gemini-3.5-flash at the global location: 18 consecutive 429s over three minutes, "Resource exhausted", which is
+    // shared capacity and not a limit this run set). Not a verdict on the agent either, so it is unmeasured and re-run.
+    if (run.outcome === 'task.pause' && run.events.some(e => e.state === 'task.pause' && /rate-limiting/i.test(String(e.data?.details ?? '')))) {
       run.outcome = 'provider_down';
     }
     const pass = (task.outcomes ?? ['task.ok']).includes(run.outcome) && check.pass && metrics.secretLeaks === 0 && metrics.storageLeaks === 0;

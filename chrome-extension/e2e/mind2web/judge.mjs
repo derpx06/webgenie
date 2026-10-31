@@ -201,7 +201,14 @@ let tokenAt = 0;
 /** The bearer token lives only in memory: never printed, logged or written. */
 function accessToken(refresh = false) {
   if (refresh || !token || Date.now() - tokenAt > 45 * 60_000) {
-    token = gcloud('auth', 'print-access-token');
+    // E2E_ADC: mint from a credentials file, passed to gcloud by path and never read (see mintAccessToken in e2e/run.mjs).
+    token = process.env.E2E_ADC
+      ? execFileSync('gcloud', ['auth', 'application-default', 'print-access-token'], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          env: { ...process.env, GOOGLE_APPLICATION_CREDENTIALS: process.env.E2E_ADC },
+        }).trim()
+      : gcloud('auth', 'print-access-token');
     tokenAt = Date.now();
   }
   return token;
