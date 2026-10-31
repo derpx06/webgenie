@@ -38,6 +38,22 @@ export function findWholeText(content: string, wanted: string): string | null {
   return text.slice(Math.max(0, match.index - 40), match.index + match[0].length + 40).trim();
 }
 
+/**
+ * What go_back or go_forward should say when the browser has nowhere to go.
+ *
+ * "History entry to navigate to not found" is the browser's own wording, and 6 of 271 tasks in the last round got nothing
+ * else: a tab opened for the task has no earlier page, and a page that replaces its own history leaves nothing behind it.
+ * The way out is an address or a link, so the message says so.
+ */
+export function explainHistoryFailure(raw: string, forward: boolean): string {
+  if (/history entry to navigate to not found/i.test(raw)) {
+    return forward
+      ? 'There is no later page in this tab to go forward to. Use a link on this page, or go_to_url.'
+      : 'There is no earlier page in this tab to go back to: it was opened for this task, or the site replaced its own history. Open the address you want with go_to_url, or use a link on this page.';
+  }
+  return raw;
+}
+
 export class NavigationHandler extends BaseHandler {
   async handleSearchWeb(input: z.infer<typeof searchWebActionSchema.schema>): Promise<ActionResult> {
     const intent = `Searching the web for: ${input.query}`;
@@ -96,8 +112,13 @@ export class NavigationHandler extends BaseHandler {
     const forward = input?.forward === true;
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, t(forward ? 'act_goForward_start' : 'act_goBack_start'));
     const page = await this.context.browserContext.getCurrentPage();
-    if (forward) await page.goForward();
-    else await page.goBack();
+    try {
+      if (forward) await page.goForward();
+      else await page.goBack();
+    } catch (error) {
+      // Thrown rather than returned, so it takes the same path as any other failed action.
+      throw new Error(explainHistoryFailure(error instanceof Error ? error.message : String(error), forward));
+    }
     const msg = t(forward ? 'act_goForward_ok' : 'act_goBack_ok');
     this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
     return new ActionResult({

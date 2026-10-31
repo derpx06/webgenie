@@ -683,6 +683,21 @@ export function dispatchGuard(message: string): string | null {
   return isStaleElementError(message) ? 'stale-index' : null;
 }
 
+/**
+ * The next step to take after a dispatch the page refused, or '' when the refusal already says it.
+ *
+ * Our best failure messages carry the repair: a covered target names the dialog on top of it and its dismiss buttons, a
+ * bad dropdown choice lists the real options. A vanished element did not. 13 of 271 tasks in the last round were told only
+ * "Node is detached from document", the browser's own wording, and when the page had no same-named twin that was all they
+ * got. The page re-rendered under the click; the answer is a fresh read and a fresh choice, not the same index again.
+ */
+export function repairHint(guard: string | null): string {
+  if (guard === 'stale-index') {
+    return ' The page re-rendered and this element is gone. The element list in your next message is fresh: choose again from it instead of repeating this index.';
+  }
+  return '';
+}
+
 export function isStaleElementError(message: string): boolean {
   return /element (with index \d+ )?(is )?(no longer available|does not exist|not present|stale)|node is detached|detached from (the )?document/i.test(message);
 }

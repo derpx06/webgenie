@@ -30,6 +30,7 @@ import {
   changesUserValue,
   taskEntriesWith,
   isStaleElementError,
+  repairHint,
   loopNudge,
   LOOP_WINDOW,
   commitQuestion,
@@ -1560,9 +1561,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
         const candidates = guard === 'invisible' || guard === 'disabled' || guard === 'stale-index'
           ? namedLike(chosenNode, guard === 'stale-index' ? await browserContext.getCachedState().catch(() => undefined) : chosenState)
           : [];
-        const reason = candidates.length > 0
-          ? `${msg} Elements named like it on the current page: ${listElements(candidates)}.`
-          : msg;
+        const reason = `${candidates.length > 0 ? `${msg} Elements named like it on the current page: ${listElements(candidates)}.` : msg}${repairHint(guard)}`;
         const failMsg = `[Action] [${i + 1}/${actions.length}] ${actionName} FAILED\n  args : ${JSON.stringify(redactArgs(actionName, actionArgs))}\n  error: ${msg}`;
         console.warn(`\n${failMsg}`);
         logger.error(failMsg);
