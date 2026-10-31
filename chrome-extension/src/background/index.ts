@@ -317,6 +317,16 @@ analyticsSettingsStore.subscribe(() => {
 
 // Listen for simple messages (e.g., from options page)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Only this extension's own contexts. Two of 2026's three biggest browser-agent incidents were another extension
+  // reaching the agent through a message path that checked nothing about who was talking. Messages from other
+  // extensions arrive on onMessageExternal, which this extension does not listen to and does not declare, so this is
+  // belt and braces — but each of the handlers below is stronger than it looks only while this holds.
+  if (sender.id !== chrome.runtime.id) return false;
+
+  // The diagnostic handlers at the end of this listener return page state and the agent's working memory. They are
+  // development tools and have no business answering in a published build.
+  if (!import.meta.env.DEV && typeof message?.type === 'string' && message.type.startsWith('TEST_')) return false;
+
   // Text of a tab the user @-mentioned in the side panel. A script injection is enough; no debugger attach.
   if (message?.type === 'get_tab_content' && typeof message.tabId === 'number') {
     if (!sender.url?.startsWith(chrome.runtime.getURL(''))) return false;

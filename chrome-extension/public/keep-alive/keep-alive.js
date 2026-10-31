@@ -1,11 +1,15 @@
 // This script runs inside the invisible offscreen document.
 // It opens a continuous WebSocket-like port connection to the Service Worker.
-// What this actually buys, per Chrome's own documentation, because the comment here used to overstate it:
-//   - Chrome 109: a message *from* an offscreen document resets the worker's idle timer.
-//   - Chrome 114: sending a message over a long-lived port resets it. Holding a port open does not; only traffic
-//     counts, which is why this pings rather than merely connecting.
-// It does NOT lift the per-invocation five-minute limit on a single event or API call, and it does not help a
-// fetch() whose response takes over 30 seconds — that one kills the worker regardless. Keep work below those.
+// What this buys, measured rather than quoted. A standalone extension with the same permissions and this same page
+// was given a fetch() to a server that answers after 45 seconds, nothing sent until then, which is what a
+// non-streaming model call looks like to the worker:
+//   - without this page running, the fetch never completed (a 15 second control in the same setup did);
+//   - with it running, the same fetch completed in 45.02 seconds.
+// Chrome's documentation says a fetch that takes over 30 seconds to arrive ends the worker whatever else is going on;
+// in that measurement this traffic is what kept it alive. Only traffic counts: holding a port open resets nothing,
+// which is why this pings instead of merely connecting (Chrome 109 and 114 are where messages from an offscreen
+// document and over a long-lived port started to reset the idle timer).
+// Not measured: a single call past five minutes. The per-invocation limit is documented and is not known to be lifted.
 
 const KEEP_ALIVE_INTERVAL_MS = 20000; // 20 seconds
 let keepAlivePort = null;

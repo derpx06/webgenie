@@ -54,7 +54,7 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
         headerClassName="py-5 px-8"
         contentClassName="flex flex-col"
       >
-        <SettingInlineUnitInput title="Maximum Mission Steps" desc="Safety limit for sequential reasoning" value={settings.maxSteps} unit="steps" isDarkMode={isDarkMode} onChange={val => updateSetting('maxSteps', val)} min={1} max={50} />
+        <SettingInlineUnitInput title="Maximum Mission Steps" desc="Safety limit for sequential reasoning" value={settings.maxSteps} unit="steps" isDarkMode={isDarkMode} onChange={val => updateSetting('maxSteps', val)} min={1} max={100} />
         <SettingStepperInput title="Actions Per Step" desc="Maximum sub-tasks per mission step" value={settings.maxActionsPerStep} isDarkMode={isDarkMode} onChange={val => updateSetting('maxActionsPerStep', val)} min={1} max={50} />
         <SettingStepperInput title="Retry Limit" desc="Maximum failure tolerance for complex operations" value={settings.maxFailures} isDarkMode={isDarkMode} onChange={val => updateSetting('maxFailures', val)} min={1} max={10} />
       </DashboardSection>

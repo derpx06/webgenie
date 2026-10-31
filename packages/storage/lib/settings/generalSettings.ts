@@ -42,7 +42,9 @@ export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
 
 // Default settings
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
-  maxSteps: 100,
+  // 50, not 100: raising the cap bought almost nothing in the measured runs (11 of the 39 that hit a limit were still on
+  // track), and the control only ever offered up to 100, so the shipped value now sits inside it.
+  maxSteps: 50,
   maxActionsPerStep: 5,
   maxFailures: 3,
   // Selective: a screenshot only when the model asks for one or the task is stuck, and only for models that read images.

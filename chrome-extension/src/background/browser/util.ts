@@ -114,3 +114,25 @@ export function registrableDomain(host: string): string {
   const name = host.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
   return getDomain(name, { allowPrivateDomains: true }) ?? name.replace(/^www\./, '');
 }
+
+/**
+ * What to tell the user when the debugger would not attach to a tab.
+ *
+ * The cause decides the fix, and the old message was one guess for all of them ("DevTools may be open on it"). Since
+ * Chrome 155 a managed browser refuses `attach()` outright when an administrator has blocked hosts for this
+ * extension or restricted screenshots, and no setting the user can reach changes that — telling them to close
+ * DevTools sends them looking in the wrong place. `runtime_allowed_hosts` does not lift it either; Chrome treats it as
+ * all or nothing because origin filtering cannot safely limit CDP.
+ */
+export function explainAttachFailure(raw: string): string {
+  if (/host access is restricted by policy/i.test(raw)) {
+    return "This browser's administrator has blocked this extension's access to sites (the ExtensionSettings runtime_blocked_hosts policy). WebGenie cannot control any page while that policy applies; it needs the policy removed or this extension exempted by whoever manages the browser.";
+  }
+  if (/screenshot capture is restricted by policy/i.test(raw)) {
+    return "This browser's administrator has restricted screen capture (DisableScreenshots or a data-loss-prevention rule), and Chrome applies that to every debugger session. WebGenie cannot control any page while it applies; it needs the restriction lifted for this extension by whoever manages the browser.";
+  }
+  if (/another debugger is already attached/i.test(raw)) {
+    return `Another tool is controlling this tab, either DevTools or another extension. Close it, or use a different tab. (${raw})`;
+  }
+  return `Cannot control this tab: ${raw}`;
+}

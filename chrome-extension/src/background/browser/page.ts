@@ -28,7 +28,7 @@ import {
 } from './views';
 import { createLogger } from '@src/background/log';
 import { record } from '@src/background/trace';
-import { isUrlAllowed, isNewTabPage } from './util';
+import { explainAttachFailure, isUrlAllowed, isNewTabPage } from './util';
 import { NetworkLog, type NetRecord } from './network-log';
 import { getAXTreeState } from './chromium-apis/ax-tree-extractor';
 import { pruneAXTree } from './dom/ax-tree-pruner';
@@ -914,9 +914,7 @@ export default class Page {
     try {
       await this.attachPuppeteer();
     } catch (error) {
-      throw new Error(
-        `Cannot control this tab (DevTools may be open on it): ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new Error(explainAttachFailure(error instanceof Error ? error.message : String(error)));
     }
   }
 
