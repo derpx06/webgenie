@@ -35,6 +35,7 @@ import {
   type WorkerBrief,
 } from './agent/orchestration';
 import { keepAliveManager } from './services/keepAliveManager';
+import { scrubForDisplay } from './trace';
 import { createLogger } from './log';
 import { ExecutionState } from './agent/event/types';
 import { createChatModel } from './agent/helper';
@@ -736,7 +737,7 @@ chrome.runtime.onConnect.addListener(port => {
         console.error('Error handling port message:', error);
         port.postMessage({
           type: 'error',
-          error: error instanceof Error ? error.message : t('errors_unknown'),
+          error: error instanceof Error ? scrubForDisplay(error.message) : t('errors_unknown'),
         });
       }
     });

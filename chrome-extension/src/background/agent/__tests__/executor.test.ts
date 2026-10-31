@@ -1160,6 +1160,41 @@ describe('Interruptions and resuming', () => {
     expect(saved).toMatchObject({ status: 'waiting_human', tasks: [task], pendingQuestion: { question: 'What phone number should I use?' } });
   });
 
+  // A yes is spent by the click it allows. The checkpoint written at the top of a step still holds it, and a worker that
+  // died after the click and before the next checkpoint used to come back with it live: the identical click passed unasked.
+  it('does not restore a spent approval, so the same click asks again', async () => {
+    const settings = { url: 'https://shop.test/settings', title: 'Settings', elements: [{ text: 'Subscribe' }] };
+    const storage = new MemoryStorage();
+    storage.data.set('agent:checkpoint:task-1', {
+      taskId: 'task-1',
+      task: 'Subscribe me to the newsletter',
+      status: 'running',
+      step: 3,
+      currentContract: null,
+      lastObservationId: null,
+      validatedProgress: [],
+      blockedState: null,
+      updatedAt: Date.now(),
+      tasks: ['Subscribe me to the newsletter'],
+      // The key the click would produce, as if the user had already said yes to this exact button.
+      approvedCommitKey: 'shop.test/settings|subscribe',
+    });
+    const h = createHarness({
+      task: 'Subscribe me to the newsletter',
+      storage,
+      pages: [settings],
+      planner: Array(4).fill(plan({ next_goal: 'Subscribe' })),
+      navigator: [click(0)],
+    });
+    const run = h.executor.execute();
+    await until(() => h.has(ExecutionState.ACT_ASK_HUMAN) || h.browser.actions.length > 0);
+    await h.executor.cancel();
+    await settle(run);
+
+    expect(h.browser.actions).toEqual([]);
+    expect(asks(h)).toHaveLength(1);
+  });
+
   it('continues a saved task with a late answer', async () => {
     const storage = new MemoryStorage();
     await parkedHarness(storage);

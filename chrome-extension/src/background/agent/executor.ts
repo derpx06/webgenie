@@ -928,7 +928,11 @@ export class Executor {
     this.context.nSteps = checkpoint.step;
     if (checkpoint.tasks?.length) this.tasks = [...checkpoint.tasks];
     this.context.pendingQuestion = checkpoint.pendingQuestion ?? null;
-    this.context.approvedCommitKey = checkpoint.approvedCommitKey ?? null;
+    // A yes is spent by the click it allows, and it is never restored. The checkpoint at the top of a step is written
+    // while the approval is still live, and the click clears it in memory only; a worker that died after the click and
+    // before the next checkpoint came back holding a yes it had already used, and the identical click passed unasked.
+    // Not restoring it fails in the safe direction: the user is asked again.
+    this.context.approvedCommitKey = null;
     this.context.declinedCommitKeys = new Set(checkpoint.declinedCommitKeys ?? []);
     if (checkpoint.status === 'waiting_human' && this.context.pendingQuestion && !this.pendingAnswer) {
       this.context.waitingForHuman = true;

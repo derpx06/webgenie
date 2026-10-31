@@ -20,12 +20,15 @@ import {
   RequestCancelledError,
 } from '../errors';
 import { URLNotAllowedError } from '@src/background/browser/views';
+import { scrubForDisplay } from '@src/background/trace';
 
 /**
  * Maps generic LLM errors or browser errors to specific Agent error classes
  */
 export function handleAgentError(error: unknown, fallbackPrefix: string): never {
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  // Scrubbed once, here, because every branch below puts this text in front of the user and into chat history. Provider
+  // error bodies echo keys and requests.
+  const errorMessage = scrubForDisplay(error instanceof Error ? error.message : String(error));
 
   if (isAuthenticationError(error)) {
     throw new ChatModelAuthError(errorMessage, error);

@@ -82,6 +82,15 @@ export function redactSecrets(value: string): string {
   return redacted;
 }
 
+/**
+ * A message made safe to show the user and to keep in chat history: key patterns and registered secrets removed,
+ * length bounded. Provider errors are the reason — a 401 body commonly echoes part of the key it rejected, and a 400 can
+ * echo the request. Same rules as the trace store, so there is one definition of what counts as a secret.
+ */
+export function scrubForDisplay(value: string, max = 400): string {
+  return redactString(value, max);
+}
+
 function redactString(value: string, max = MAX_STRING): string {
   let redacted = value.replace(SECRET_VALUE, '[redacted]');
   for (const secret of secrets) redacted = redacted.split(secret).join('[redacted]');
