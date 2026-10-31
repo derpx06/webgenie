@@ -99,7 +99,7 @@ describe('model-facing tool definitions', () => {
     ]);
     const defaultBlock = tools.filter(tool => defaults.has(tool.function.name));
     expect(defaultBlock).toHaveLength(defaults.size);
-    expect(JSON.stringify(defaultBlock).length).toBeLessThan(21_600);
+    expect(JSON.stringify(defaultBlock).length).toBeLessThan(21_800);
     expect(JSON.stringify(tools).length).toBeLessThan(28_700);
     // No description carries a worked example or a retention detail no call can act on.
     for (const tool of tools) expect(tool.function.description.length).toBeLessThan(260);

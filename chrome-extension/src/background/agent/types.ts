@@ -153,6 +153,8 @@ export class AgentContext {
    * key caught 17 repeats where this one sees 1,682.
    */
   actionSignatures = new Map<string, number>();
+  /** Index and target pairs already refused once as a mismatch: the same call again is a deliberate one and goes through. */
+  targetMismatchShown = new Set<string>();
   /**
    * A guard refused an action this step, so the plan's route is blocked and the planner must hear about it now.
    * Without this a refusal only raised the unvalidated count, which replans on the second one: the navigator spent

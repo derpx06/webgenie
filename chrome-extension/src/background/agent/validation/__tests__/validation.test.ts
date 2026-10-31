@@ -5,6 +5,7 @@ import type { BrowserState } from '../../../browser/views';
 import { appearedText, createBrowserObservation, listElements, revealedControls } from '../observation';
 import type { ValidationEvidence } from '../types';
 import {
+  targetMismatch,
   challengeOnPage,
   changesUserValue,
   isChallengeElement,
@@ -636,6 +637,27 @@ describe('committing actions', () => {
     const payment: FormCommitInfo = { inForm: true, isSubmitter: false, paymentFields: false, submitLabels: [], paymentContext: true };
     expect(commitTarget('fill_form', { fields: [{ index: 1, value: 'x' }], submit: true }, 'https://shop.test/pay', undefined, payment)?.handover).toBe(true);
     expect(commitTarget('input_text', { index: 1, text: 'x', submit: true }, 'https://shop.test/pay', element(1, { tagName: 'input' }), payment)?.handover).toBe(true);
+  });
+
+  // Live, an inbox task wrote "Starring Payment reminder" in its notes and clicked the Archive button next to it: the right
+  // row, an index one off. Its words name the control it means, so they catch the slip before anything is clicked.
+  describe('targetMismatch', () => {
+    const row = (index: number, label: string) => element(index, { attributes: { 'aria-label': label } });
+    const archive = row(0, 'Archive "Payment reminder"');
+    const star = row(1, 'Star "Payment reminder"');
+    const map = new Map([[0, archive], [1, star]]);
+
+    it('refuses when the named control is a different one on the page, and names it', () => {
+      const message = targetMismatch('Star "Payment reminder"', archive, map);
+      expect(message).toContain('[1]');
+      expect(message).toContain('Star');
+    });
+    it('lets the right pick through', () => {
+      expect(targetMismatch('Star "Payment reminder"', star, map)).toBeNull();
+    });
+    it('lets a paraphrase through when nothing on the page matches it', () => {
+      expect(targetMismatch('the submit button', archive, map)).toBeNull();
+    });
   });
 
   // Opening an account is in the same class as placing an order: the agent hands the browser back. Live, the sign-up task

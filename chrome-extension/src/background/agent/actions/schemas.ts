@@ -92,6 +92,10 @@ export const clickElementActionSchema: ActionSchema = {
     'Click an element by index. One option changes the gesture: double, right for its context menu, hover to only point at it, drop_on to drag it onto another element.',
   schema: z.object({
     index: elementIndex,
+    target: z
+      .string()
+      .optional()
+      .describe('the control you mean, as listed, e.g. Star "Weekend plans"; checked against index before the click'),
     double: z.boolean().optional().describe('true for a double-click; two separate calls are not one'),
     right: z.boolean().optional().describe('true to right-click it and open its context menu'),
     hover: z

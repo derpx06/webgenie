@@ -468,6 +468,36 @@ export function normalizeQuestion(question: string): string {
   return question.toLowerCase().replace(new RegExp('[^\\p{L}\\p{N}]+', 'gu'), ' ').trim();
 }
 
+const labelWords = (text: string) => new Set(text.toLowerCase().split(new RegExp('[^\\p{L}\\p{N}]+', 'u')).filter(Boolean));
+
+/** Whether every word of the target is a word of the element's name: "Star Weekend plans" is in `Star "Weekend plans"`. */
+function nameCovers(target: Set<string>, node: DOMElementNode): boolean {
+  const have = labelWords([elementLabel(node), ...labelParts(node)].join(' '));
+  for (const word of target) if (!have.has(word)) return false;
+  return true;
+}
+
+/**
+ * A control the model named that is not the one it picked.
+ *
+ * The model says in words which control it means (`target`) as well as by index. Live, an inbox task wrote "Starring
+ * Payment reminder" in its notes and clicked an Archive button: the right row, the right intent, an index one off, because
+ * Archive and Star alternate down the list. Its words come from understanding the task and its index from counting, so
+ * the words catch the slip. Nothing is clicked before this runs.
+ *
+ * It refuses only when the named control exists on the page at a different index. A model that merely paraphrases ("the
+ * submit button" for a control called "Place order") matches nothing anywhere and is let through, so this cannot turn a
+ * right click into a refusal. Returns the message that carries the repair, or null.
+ */
+export function targetMismatch(target: string, chosen: DOMElementNode, selectorMap: Map<number, DOMElementNode>): string | null {
+  const wanted = labelWords(target);
+  if (wanted.size === 0 || nameCovers(wanted, chosen)) return null;
+  const chosenKey = elementKey(chosen);
+  const named = [...selectorMap.values()].filter(node => elementKey(node) !== chosenKey && nameCovers(wanted, node));
+  if (named.length === 0) return null;
+  return `Not clicked: [${chosen.highlightIndex}] is ${JSON.stringify(elementLabel(chosen))}, but you said you meant ${JSON.stringify(target)}. That is ${listElements(named, 3)}. Use that index, or call again with the same index if [${chosen.highlightIndex}] really is the one.`;
+}
+
 /**
  * Elements of a read that carry the same name as the one an action could not use: the copy that is visible, the
  * button the page rendered again. They are the candidates the refusal hands back, so the next call needs no guess.

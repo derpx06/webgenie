@@ -31,6 +31,7 @@ import {
   taskEntriesWith,
   isStaleElementError,
   repairHint,
+  targetMismatch,
   loopNudge,
   LOOP_WINDOW,
   commitQuestion,
@@ -816,6 +817,19 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           const sameMove = this.context.actionSignatures.get(signature) ?? 0;
           if (sameMove >= MAX_IDENTICAL_ACTIONS) {
             refuse('repeat-signature', `Not done: this is the same move for the ${sameMove + 1}th time on this page — the same element or the same text, whatever index it has now — and the page has not changed. Take a different route: another element, a collapsed section or menu, find_in_page for the value, a different address, or finish with done (success: false) and say what blocks you.`);
+            break;
+          }
+        }
+
+        // The control the model says it means, against the one it picked. Once per index and name: a call repeated unchanged is
+        // the model saying it meant it.
+        const namedTarget = (actionArgs as { target?: unknown }).target;
+        if (typeof namedTarget === 'string' && indexedNode) {
+          const mismatch = targetMismatch(namedTarget, indexedNode, beforeState.selectorMap);
+          const shownKey = `${actionName}|${indexArg}|${namedTarget}`;
+          if (mismatch && !this.context.targetMismatchShown.has(shownKey)) {
+            this.context.targetMismatchShown.add(shownKey);
+            refuse('target-mismatch', mismatch);
             break;
           }
         }
