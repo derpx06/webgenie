@@ -146,6 +146,15 @@ async function loadSavedTask(taskId?: string): Promise<TaskCheckpoint | null> {
   return isCheckpointResumable(checkpoint) ? checkpoint : null;
 }
 
+/**
+ * Whether the user has read the notice shown before the first task. The panel hides the composer until they have, but
+ * the panel is not the boundary: an omnibox prompt and a message sent from anywhere else arrive here too, so the
+ * background checks as well.
+ */
+async function disclosureAccepted(): Promise<boolean> {
+  return (await generalSettingsStore.getSettings()).dataDisclosureAcceptedAt !== null;
+}
+
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 /** Files attached in the side panel go to the executor's memory for upload_file; nothing else keeps them. */
@@ -500,6 +509,7 @@ chrome.runtime.onConnect.addListener(port => {
             if (!message.task) return port.postMessage({ type: 'error', error: t('bg_cmd_newTask_noTask') });
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
 
+            if (!(await disclosureAccepted())) return port.postMessage({ type: 'error', error: t('bg_errors_disclosureRequired') });
             logger.info('new_task', message.tabId, message.task);
             await stopRunningTask();
             browserContext.updateCurrentTabId(message.tabId);
@@ -520,6 +530,7 @@ chrome.runtime.onConnect.addListener(port => {
             if (!message.task) return port.postMessage({ type: 'error', error: t('bg_cmd_followUpTask_noTask') });
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
 
+            if (!(await disclosureAccepted())) return port.postMessage({ type: 'error', error: t('bg_errors_disclosureRequired') });
             logger.info('follow_up_task', message.tabId, message.task);
             await stopRunningTask();
             browserContext.updateCurrentTabId(message.tabId);

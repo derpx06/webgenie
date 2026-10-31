@@ -1228,5 +1228,35 @@
   },
   "chat_hitl_needsYou": {
     "message": "Precisa de você"
+  },
+  "disclosure_title": {
+    "message": "Antes de começar"
+  },
+  "disclosure_lead": {
+    "message": "O WebGenie trabalha no seu navegador enquanto você acompanha."
+  },
+  "disclosure_sendsTitle": {
+    "message": "O que ele envia, e para quem"
+  },
+  "disclosure_sends": {
+    "message": "A página em que ele está trabalhando, ou seja, o texto e a estrutura dela e uma captura de tela se a visão estiver ativada, vai para o provedor de modelo de IA que você escolheu, usando a sua própria chave de API. Quando ele pesquisa na web, as palavras da busca vão para um mecanismo de busca."
+  },
+  "disclosure_nothing": {
+    "message": "Nada é enviado ao WebGenie. Os relatórios de uso ficam desativados até você ativá-los."
+  },
+  "disclosure_doesTitle": {
+    "message": "O que ele faz e o que não faz"
+  },
+  "disclosure_does": {
+    "message": "Ele pergunta antes de alterar uma conta. Ele não faz pedidos, não faz pagamentos e não digita dados de cartão: ele para e devolve o navegador a você. Você continua responsável pelo que ele faz em seu nome, e o risco não é zero, então acompanhe e use um perfil de navegador separado para contas sensíveis."
+  },
+  "disclosure_policy": {
+    "message": "Ler a política de privacidade completa"
+  },
+  "disclosure_accept": {
+    "message": "Entendi, continuar"
+  },
+  "bg_errors_disclosureRequired": {
+    "message": "Abra o painel do WebGenie e leia o aviso exibido antes da primeira tarefa. O WebGenie não vai começar até que você o leia."
   }
 }

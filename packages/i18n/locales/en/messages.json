@@ -1228,5 +1228,35 @@
   },
   "chat_hitl_needsYou": {
     "message": "Needs you"
+  },
+  "disclosure_title": {
+    "message": "Before you start"
+  },
+  "disclosure_lead": {
+    "message": "WebGenie works in your browser while you watch."
+  },
+  "disclosure_sendsTitle": {
+    "message": "What it sends, and to whom"
+  },
+  "disclosure_sends": {
+    "message": "The page it is working on, meaning its text and structure and a screenshot if vision is on, goes to the AI model provider you chose, using your own API key. When it searches the web, the search words go to a search engine."
+  },
+  "disclosure_nothing": {
+    "message": "Nothing goes to WebGenie. Usage reports are off unless you turn them on."
+  },
+  "disclosure_doesTitle": {
+    "message": "What it does and does not do"
+  },
+  "disclosure_does": {
+    "message": "It asks before it changes an account. It does not place orders, make payments or type card details: it stops and hands the browser back to you. You remain responsible for what it does on your behalf, and the risk is not zero, so watch it and use a separate browser profile for sensitive accounts."
+  },
+  "disclosure_policy": {
+    "message": "Read the full privacy policy"
+  },
+  "disclosure_accept": {
+    "message": "I understand, continue"
+  },
+  "bg_errors_disclosureRequired": {
+    "message": "Open the WebGenie panel and read the notice shown before the first task. WebGenie will not start until you have."
   }
 }

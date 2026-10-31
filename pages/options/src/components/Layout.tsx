@@ -45,7 +45,7 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
 
     return (
         <aside className={`flex w-64 shrink-0 flex-col border-r backdrop-blur-2xl transition-all duration-500 ${isDarkMode ? 'border-white/5 bg-[#0f1117]/70 shadow-2xl' : 'border-slate-200 bg-white/80 shadow-xl'}`}>
-            <div className="group flex cursor-pointer items-center gap-3 p-6 pb-4" onClick={() => window.open('https://webgenie.ai', '_blank')}>
+            <div className="group flex cursor-pointer items-center gap-3 p-6 pb-4" onClick={() => window.open('https://github.com/derpx06/webgenie', '_blank')}>
                 <div className={`flex size-9 items-center justify-center transition-all duration-700 group-hover:scale-110`}>
                     <img
                         src={chrome.runtime.getURL('webgenie-logo.png')}

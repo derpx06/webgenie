@@ -474,7 +474,7 @@ export function createChatModel(
         modelConfig,
         {
           headers: {
-            'HTTP-Referer': 'https://webgenie.ai',
+            'HTTP-Referer': 'https://github.com/derpx06/webgenie',
             'X-Title': 'WebGenie',
           },
         },

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t } from '@extension/i18n';
-import { Actors } from '@extension/storage';
+import { Actors, generalSettingsStore } from '@extension/storage';
 import ChatHistoryList from './components/ChatHistoryList';
 import ChatInput from './components/ChatInput';
+import DataDisclosure from './components/DataDisclosure';
 import EmptyChat from './components/EmptyChat';
 import MessageList from './components/MessageList';
 import { ResumableNotice } from './components/message-list/SystemNotice';
@@ -119,6 +120,15 @@ const SidePanel = () => {
     }
   }, [hasConfiguredModels, handleSendMessage]);
 
+  // Whether the notice shown before the first task has been read. Null until the store answers, so the panel never
+  // flashes the notice at someone who already accepted it.
+  const [disclosureAccepted, setDisclosureAccepted] = useState<boolean | null>(null);
+  useEffect(() => {
+    const read = () => generalSettingsStore.getSettings().then(settings => setDisclosureAccepted(settings.dataDisclosureAcceptedAt !== null));
+    void read();
+    return generalSettingsStore.subscribe(() => void read());
+  }, []);
+
   const composer = (
     <ChatInput
       onSendMessage={handleSendMessage}
@@ -167,6 +177,11 @@ const SidePanel = () => {
         </div>
       ) : hasConfiguredModels === false ? (
         <WelcomeScreen isDarkMode={isDarkMode} onOpenSettings={() => chrome.runtime.openOptionsPage()} />
+      ) : disclosureAccepted === false ? (
+        <DataDisclosure
+          isDarkMode={isDarkMode}
+          onAccept={() => void generalSettingsStore.updateSettings({ dataDisclosureAcceptedAt: Date.now() })}
+        />
       ) : messages.length === 0 ? (
         <EmptyChat
           isDarkMode={isDarkMode}

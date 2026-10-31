@@ -261,8 +261,8 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
       {/* 3. PRIVACY TOGGLE SECTION */}
       {settings && (
         <DashboardSection
-          title="Data Privacy"
-          subtitle="Anonymous telemetry settings"
+          title="Usage reports"
+          subtitle="Off unless you turn it on"
           icon={<FiShield size={20} />}
           isDarkMode={isDarkMode}
           colorTheme="indigo"
@@ -270,7 +270,8 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
         >
           <div className="flex items-center justify-between gap-6">
             <p className={`text-[13px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>
-              Securely share system-level diagnostics. No personal identifiers or data logs are ever exported from your device.
+              Send WebGenie's developers a small usage report. It is off until you turn it on, and the list below is
+              everything it contains.
             </p>
             <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
               <input type="checkbox" className="peer sr-only" checked={settings.enabled} onChange={e => handleToggleAnalytics(e.target.checked)} />
@@ -282,11 +283,21 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
             </label>
           </div>
 
-          <div className={`rounded-xl border p-4 ${isDarkMode ? 'border-white/5 bg-white/[0.01]' : 'border-slate-100 bg-slate-50/30'}`}>
-            <div className="flex items-center gap-2 opacity-40">
-              <div className="size-1 rounded-full bg-teal-500"></div>
-              <span className="text-[9px] font-bold uppercase tracking-wider">End-to-End Local Processing</span>
-            </div>
+          <div className={`space-y-3 rounded-xl border p-4 text-[13px] leading-relaxed ${isDarkMode ? 'border-white/5 bg-white/[0.01] text-slate-300' : 'border-slate-100 bg-slate-50/30 text-slate-600'}`}>
+            <p>
+              <strong>What it sends, to PostHog:</strong> when a task starts, finishes, fails or is cancelled, with a random
+              task number, how long it took and a broad error category; and the website name (for example
+              <code> example.com</code>) of each site the agent opens; all under a random ID made on this device once you
+              turn this on.
+            </p>
+            <p>
+              <strong>What it never sends:</strong> what you asked the agent to do, anything on a page, the full address of any
+              page, your answers, your API keys or your browsing outside a task.
+            </p>
+            <p>
+              Your model provider is separate: the page the agent is working on is always sent to the provider you chose, with
+              your own key, whether or not this is on.
+            </p>
           </div>
         </DashboardSection>
       )}

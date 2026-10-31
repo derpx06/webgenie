@@ -4,6 +4,12 @@ import type { BaseStorage } from '../base/types';
 
 // Interface for general settings configuration
 export interface GeneralSettingsConfig {
+  /**
+   * When the user read the notice shown before the first task, or null if they have not. The agent does not start
+   * until this is set: the store requires a disclosure that is in the product and comes before collection, not only
+   * in a policy document.
+   */
+  dataDisclosureAcceptedAt: number | null;
   maxSteps: number;
   maxActionsPerStep: number;
   maxFailures: number;
@@ -42,6 +48,7 @@ export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
 
 // Default settings
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
+  dataDisclosureAcceptedAt: null,
   // 50, not 100: raising the cap bought almost nothing in the measured runs (11 of the 39 that hit a limit were still on
   // track), and the control only ever offered up to 100, so the shipped value now sits inside it.
   maxSteps: 50,

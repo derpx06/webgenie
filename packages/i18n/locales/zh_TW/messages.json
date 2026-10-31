@@ -1228,5 +1228,35 @@
   },
   "chat_hitl_needsYou": {
     "message": "需要你"
+  },
+  "disclosure_title": {
+    "message": "開始之前"
+  },
+  "disclosure_lead": {
+    "message": "WebGenie 會在您的瀏覽器中運作，而您可以全程觀看。"
+  },
+  "disclosure_sendsTitle": {
+    "message": "它會傳送什麼，傳送給誰"
+  },
+  "disclosure_sends": {
+    "message": "它正在處理的頁面，也就是頁面的文字與結構，以及在開啟視覺功能時的螢幕截圖，會使用您自己的 API 金鑰傳送給您選擇的 AI 模型供應商。當它搜尋網路時，搜尋字詞會傳送給搜尋引擎。"
+  },
+  "disclosure_nothing": {
+    "message": "不會有任何資料傳送給 WebGenie。除非您自行開啟，否則使用情況報告是關閉的。"
+  },
+  "disclosure_doesTitle": {
+    "message": "它會做什麼，不會做什麼"
+  },
+  "disclosure_does": {
+    "message": "在變更帳戶之前，它會先詢問您。它不會下訂單、付款或輸入信用卡資料：它會停下來，把瀏覽器交還給您。它代您執行的行為仍由您負責，而且風險並非為零，所以請在旁觀看，並為敏感帳戶使用獨立的瀏覽器設定檔。"
+  },
+  "disclosure_policy": {
+    "message": "閱讀完整隱私權政策"
+  },
+  "disclosure_accept": {
+    "message": "我了解，繼續"
+  },
+  "bg_errors_disclosureRequired": {
+    "message": "請開啟 WebGenie 面板，並閱讀第一次任務前顯示的通知。在您閱讀之前，WebGenie 不會開始執行。"
   }
 }
