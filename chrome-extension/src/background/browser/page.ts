@@ -253,7 +253,7 @@ const inspectForm = (start: Element | null): FormCommitInfo => {
   const submits = (c: Element) => (c.tagName === 'BUTTON' && (c as HTMLButtonElement).type === 'submit') || (c.tagName === 'INPUT' && ['submit', 'image'].includes((c as HTMLInputElement).type));
   const describe = (c: HTMLInputElement) => `${c.autocomplete ?? ''} ${c.name ?? ''} ${c.id} ${c.getAttribute('aria-label') ?? ''} ${c.placeholder ?? ''}`;
   const isPayment = (c: HTMLInputElement) =>
-    /\bcc-|card.?(number|num)|cc.?num|\bcvc\b|\bcvv\b|\bcsc\b|\biban\b|security.?code|\bsort.?code\b|\baccount.?number\b/i.test(describe(c));
+    /\bcc-|card.?(number|num)|cc.?num|\bcvc\b|\bcvv\b|\bcsc\b|\biban\b|security.?code|\bsort.?code\b|\brouting.?number\b|\bbank.?account\b/i.test(describe(c));
   return {
     inForm: true,
     isSubmitter: !!submitter && submits(submitter),

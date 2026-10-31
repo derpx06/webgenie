@@ -172,6 +172,43 @@ describe('Orders, payments and accounts', () => {
     expect(h.events.map(event => String(event.data?.details ?? '')).join('\n')).toContain('I do not place orders');
   });
 
+  /**
+   * Through the whole loop, because this is where the gap was: the form was only inspected when an action pressed Enter,
+   * so a card number typed with no submit after it passed without a look. Both ways of typing it, and a fill_form whose
+   * card field is not the last one.
+   */
+  it.each([
+    ['input_text', call('input_text', { index: 1, text: '4242 4242 4242 4242' })],
+    ['fill_form', call('fill_form', { fields: [{ index: 1, value: '4242 4242 4242 4242' }, { index: 2, value: '12/30' }] })],
+  ])('does not type card details with %s, even with nothing submitted', async (_, action) => {
+    const pay = { url: 'https://shop.test/pay', title: 'Pay', elements: [{ text: 'Name' }, { tag: 'input', attributes: { name: 'cardnumber' } }, { tag: 'input', attributes: { name: 'expiry' } }] };
+    const h = createHarness({
+      task: 'Pay with card 4242 4242 4242 4242, expiry 12/30',
+      pages: [pay],
+      planner: Array(6).fill(plannerUntil('I have stopped at')),
+      // The share guard asks the intent model first, because the task names the card; the user did ask, so it allows
+      // it, and it is the commit gate that has to stop the typing.
+      navigator: [action, call('intent_check', { asked: true }), done('The payment page is ready for you.', false)],
+    });
+    // Only the card field reports itself as one; the others in the form do not.
+    h.browser.formFor = node => ({
+      inForm: true,
+      isSubmitter: false,
+      paymentFields: true,
+      submitLabels: [],
+      targetIsPaymentField: node?.highlightIndex === 1,
+    });
+
+    const run = h.executor.execute();
+    await until(() => h.llm.remaining('navigator') === 0 || !!h.last()?.state?.startsWith('task.'));
+    await h.executor.cancel();
+    await settle(run);
+
+    expect(h.browser.actions).toEqual([]);
+    expect(asks(h)).toHaveLength(0);
+    expect(h.events.map(event => String(event.data?.details ?? '')).join('\n')).toContain('I do not place orders, make payments or open accounts');
+  });
+
   /** An account change is still a question: the user may well want it done, and it spends no money. */
   it('still asks before an account change, and a yes allows exactly that one click', async () => {
     const settings = { url: 'https://shop.test/settings', title: 'Settings', elements: [{ text: 'Subscribe' }] };

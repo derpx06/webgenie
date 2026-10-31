@@ -954,9 +954,27 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
         // Orders, payments, account changes and erasing the user's data wait for the user's yes, asked by the system itself
         // (a page cannot word the question); each yes allows one action, and a no stands for the rest of the task.
-        const form = mayCommitThroughForm(actionName, actionArgs as Record<string, unknown>)
-          ? await this.formCommitInfo(indexedNode)
-          : null;
+        // Typing is inspected whether or not it presses Enter: a card number typed with no submit after it is still a card
+        // number typed, and the agent does not type those. The form was only ever read when the action pressed Enter, so
+        // that case passed without a look.
+        const typesText = actionName === 'input_text' || actionName === 'fill_form';
+        // fill_form names its fields one by one, so the form it submits is the one around the last, where Enter is
+        // pressed, and a payment field among any of them counts. Without a top-level index it used to be read from
+        // whatever happened to have focus, which is not the form being filled.
+        const fillNodes =
+          actionName === 'fill_form'
+            ? (((actionArgs as { fields?: Array<{ index?: number }> }).fields ?? []).flatMap(field =>
+                typeof field.index === 'number' && beforeState.selectorMap.has(field.index) ? [beforeState.selectorMap.get(field.index)!] : [],
+              ))
+            : [];
+        let form =
+          mayCommitThroughForm(actionName, actionArgs as Record<string, unknown>) || typesText
+            ? await this.formCommitInfo(indexedNode ?? fillNodes.at(-1))
+            : null;
+        if (form && fillNodes.length > 1) {
+          const others = await Promise.all(fillNodes.slice(0, -1).map(node => this.formCommitInfo(node)));
+          if (others.some(info => info?.targetIsPaymentField)) form = { ...form, targetIsPaymentField: true };
+        }
         const commit = commitTarget(actionName, actionArgs as Record<string, unknown>, beforeState.url, indexedNode, form);
         if (commit && this.context.approvedCommitKey !== commit.key) {
           if (this.context.declinedCommitKeys.has(commit.key)) {

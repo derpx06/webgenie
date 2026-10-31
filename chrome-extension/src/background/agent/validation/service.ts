@@ -204,7 +204,7 @@ export function commitTarget(
   // those is the one that catches a hosted checkout, where the card field is in a frame nobody can read.
   const handover =
     isHandoverLabel(label) ||
-    (!!form?.paymentContext && CLICKING_TOOLS.has(actionName)) ||
+    (!!form?.paymentContext && (CLICKING_TOOLS.has(actionName) || pressesEnter(actionName, args))) ||
     (!!form?.paymentFields && !!form?.isSubmitter) ||
     // Typing a card number, CVC or bank detail is itself in the class the agent does not do.
     !!form?.targetIsPaymentField;

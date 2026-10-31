@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { LlmCapabilities } from '@extension/storage';
 import type { AgentContext, AgentOutput } from '../types';
 import type { BasePrompt } from '../prompts/base';
@@ -431,16 +431,46 @@ export function isToolsUnsupportedError(error: unknown): boolean {
   return isBadRequestError(error) && /tool|function/i.test(message);
 }
 
-/** Instruction used when the model cannot call tools natively. */
-export function renderToolsForPrompt(tools: ToolDefinition[]): string {
+/** The shape a model without native tool calling must reply in. Short, and kept last in the prompt (see withRenderedTools). */
+const TOOL_REPLY_FORMAT = [
+  'Respond with ONLY a JSON object of this exact shape and nothing else:',
+  '{"tool_calls":[{"name":"<tool name>","args":{...}}]}',
+].join('\n');
+
+/** Every tool with the JSON Schema of its arguments. The same bytes on every call of a task. */
+function renderToolSchemas(tools: ToolDefinition[]): string {
   return [
-    'Respond with ONLY a JSON object of this exact shape and nothing else:',
-    '{"tool_calls":[{"name":"<tool name>","args":{...}}]}',
     'Available tools, with JSON Schema for args:',
     JSON.stringify(
       tools.map(tool => ({ name: tool.function.name, description: tool.function.description, args: tool.function.parameters })),
     ),
   ].join('\n');
+}
+
+/** Instruction used when the model cannot call tools natively. */
+export function renderToolsForPrompt(tools: ToolDefinition[]): string {
+  return [TOOL_REPLY_FORMAT, renderToolSchemas(tools)].join('\n');
+}
+
+/**
+ * The messages for a model that cannot call tools natively, with the tools rendered into the prompt.
+ *
+ * The schemas used to be appended after everything else: roughly 2,800 tokens of the most stable content in the packet,
+ * placed after the page state, which changes every step. Every provider's prompt cache matches a prefix, so that put the
+ * bytes that never change in the one position where they could never be cached. They ride at the end of the system
+ * message now, ahead of everything volatile.
+ *
+ * The reply format stays last, as a short reminder. Models that need this path are the small and local ones, and they
+ * follow a format instruction better when it is the last thing they read; only the large, unchanging part moved.
+ */
+export function withRenderedTools(messages: BaseMessage[], tools: ToolDefinition[]): BaseMessage[] {
+  const schemas = renderToolSchemas(tools);
+  const [first, ...rest] = messages;
+  const prefixed =
+    first instanceof SystemMessage
+      ? [new SystemMessage(`${String(first.content)}\n\n${schemas}`), ...rest]
+      : [new SystemMessage(schemas), ...messages];
+  return [...prefixed, new HumanMessage(`${TOOL_REPLY_FORMAT}\nThe tools, with the schema of each one's args, are listed in the system message.`)];
 }
 
 /** Tool calls from a reply: native tool_calls, or JSON parsed from the text in fallback mode. */
@@ -759,7 +789,7 @@ export async function invokeTools(
     }
     model = options.chatModel.bindTools(options.tools, options.forceToolChoice ? { tool_choice: 'any' } : {});
   }
-  const base = options.native ? options.messages : [...options.messages, new HumanMessage(renderToolsForPrompt(options.tools))];
+  const base = options.native ? options.messages : withRenderedTools(options.messages, options.tools);
   let messages = base;
   let lastProblem = '';
 

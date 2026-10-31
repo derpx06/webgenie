@@ -617,6 +617,27 @@ describe('committing actions', () => {
     }
   });
 
+  /**
+   * Typing a card, CVC or bank detail is itself what the agent does not do, with or without a submit after it. The form
+   * was only ever inspected when an action pressed Enter, so typing a card number alone passed without a look.
+   */
+  it('hands back on typing into a card field, whether or not it presses Enter', () => {
+    const cardField: FormCommitInfo = { inForm: true, isSubmitter: false, paymentFields: true, submitLabels: [], targetIsPaymentField: true };
+    const typed = commitTarget('input_text', { index: 3, text: '4242 4242 4242 4242' }, 'https://shop.test/pay', element(3, { tagName: 'input' }), cardField);
+    expect(typed?.handover).toBe(true);
+    expect(commitTarget('fill_form', { fields: [{ index: 3, value: '4242' }] }, 'https://shop.test/pay', undefined, cardField)?.handover).toBe(true);
+
+    // An ordinary field in the same form is not a card, and typing in it asks nothing.
+    const other: FormCommitInfo = { ...cardField, targetIsPaymentField: false };
+    expect(commitTarget('input_text', { index: 1, text: 'Alex' }, 'https://shop.test/pay', element(1, { tagName: 'input' }), other)).toBeNull();
+  });
+
+  it('hands back on pressing Enter on a payment page, as a click would', () => {
+    const payment: FormCommitInfo = { inForm: true, isSubmitter: false, paymentFields: false, submitLabels: [], paymentContext: true };
+    expect(commitTarget('fill_form', { fields: [{ index: 1, value: 'x' }], submit: true }, 'https://shop.test/pay', undefined, payment)?.handover).toBe(true);
+    expect(commitTarget('input_text', { index: 1, text: 'x', submit: true }, 'https://shop.test/pay', element(1, { tagName: 'input' }), payment)?.handover).toBe(true);
+  });
+
   /** A hosted checkout keeps its card field in a frame nobody can read, and labels the submit "Continue". */
   it('hands back on a payment page even with no card field and no commit wording', () => {
     const hosted: FormCommitInfo = {
