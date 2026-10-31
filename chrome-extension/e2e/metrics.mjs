@@ -25,6 +25,45 @@ export function wilson(k, n) {
   return [Math.max(0, centre - margin), Math.min(1, centre + margin)].map(x => +x.toFixed(3));
 }
 
+// What a paired comparison of two builds on the same tasks can and cannot resolve.
+//
+// What sets it is the discordance, not the accuracy gap: the share of tasks whose verdict differs between the two builds.
+// Measured on r3 against r4 it is 21% (46 of 217 tasks), so about one task in five changes verdict between builds, and that
+// is what makes a 300-task round blind to anything under about nine points. 1.96 + 0.8416 is the z for a two-sided 5% test at 80% power.
+const Z_ALPHA_POWER = 1.96 + 0.8416;
+
+/**
+ * The smallest accuracy change, as a fraction, that a paired comparison of n tasks can detect with 80% power, when
+ * `discordance` (a fraction of the n) of them change verdict between the builds. 300 tasks at 0.30 gives 0.089.
+ */
+export function minDetectableEffect(n, discordance) {
+  if (!n || discordance == null) return null;
+  return +(Z_ALPHA_POWER * Math.sqrt(discordance / n)).toFixed(4);
+}
+
+/** How many paired tasks are needed to detect a change of `effect` (a fraction) at that discordance. 5 points at 0.30: 942. */
+export function pairsNeeded(effect, discordance) {
+  if (!effect || discordance == null) return null;
+  return Math.ceil((Z_ALPHA_POWER * Z_ALPHA_POWER * discordance) / (effect * effect));
+}
+
+/**
+ * Exact two-sided McNemar test: of the tasks that changed verdict, `improved` went up and `regressed` went down. The
+ * probability of a split this lopsided if the builds were the same. Built by recurrence, because 0.5^n alone underflows
+ * a naive binomial coefficient long before n gets large.
+ */
+export function mcnemarP(improved, regressed) {
+  const n = improved + regressed;
+  if (n === 0) return 1;
+  let term = 0.5 ** n;
+  let tail = term;
+  for (let k = 0; k < Math.min(improved, regressed); k++) {
+    term *= (n - k) / (k + 1);
+    tail += term;
+  }
+  return +Math.min(1, 2 * tail).toFixed(4);
+}
+
 /** US dollars per million tokens; estimates, override with E2E_PRICE_INPUT / _CACHED / _OUTPUT (gemini-2.5-flash list price). */
 const PRICE = {
   input: Number(process.env.E2E_PRICE_INPUT ?? 0.3),

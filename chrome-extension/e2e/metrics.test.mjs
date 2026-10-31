@@ -1,7 +1,7 @@
 // The harness's pure helpers: what a run records about how it was measured, and what a cold task starts with.
 // No browser, no model.
 import { describe, expect, it, vi } from 'vitest';
-import { measurementIntegrity, memoryMode } from './metrics.mjs';
+import { mcnemarP, measurementIntegrity, memoryMode, minDetectableEffect, pairsNeeded } from './metrics.mjs';
 import { Harness } from './run.mjs';
 
 describe('memory mode', () => {
@@ -77,5 +77,32 @@ describe('a cold task', () => {
     expect(await harness.clearMemory()).toBe(3);
     expect(Object.keys(store)).toEqual(['chat_sessions_meta', 'firewall-settings']);
     vi.unstubAllGlobals();
+  });
+});
+
+/**
+ * The r3 to r4 round moved 52.5% to 55.3% on 217 paired tasks, 21% of which changed verdict, and was read as
+ * progress. These pin what such a round can and cannot resolve, so the same misreading shows up in the report itself.
+ */
+describe('what a paired round can resolve', () => {
+  it('cannot see anything under about nine points at 300 tasks, because a third of tasks flip between builds', () => {
+    expect(minDetectableEffect(300, 0.3)).toBeCloseTo(0.0886, 3);
+    expect(minDetectableEffect(217, 0.3)).toBeCloseTo(0.1042, 3);
+  });
+
+  it('says how many paired tasks a five-point change needs', () => {
+    expect(pairsNeeded(0.05, 0.3)).toBe(942);
+    expect(pairsNeeded(0.03, 0.3)).toBe(2617);
+  });
+
+  it('calls a 36 to 30 split noise, and a 50 to 20 split not', () => {
+    expect(mcnemarP(36, 30)).toBeGreaterThan(0.4);
+    expect(mcnemarP(50, 20)).toBeLessThan(0.001);
+    expect(mcnemarP(0, 0)).toBe(1);
+  });
+
+  it('does not underflow on a large number of changed tasks', () => {
+    expect(mcnemarP(400, 380)).toBeGreaterThan(0.3);
+    expect(Number.isFinite(mcnemarP(900, 900))).toBe(true);
   });
 });

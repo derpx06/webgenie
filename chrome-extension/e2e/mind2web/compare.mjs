@@ -7,6 +7,7 @@
 // Exit code 1 when any task regressed (succeeded in the baseline, judged a failure in the round).
 import fs from 'node:fs';
 import path from 'node:path';
+import { mcnemarP, minDetectableEffect, pairsNeeded } from '../metrics.mjs';
 
 const [baseDir, roundDir] = process.argv.slice(2).map(dir => path.resolve(dir));
 if (!baseDir || !roundDir) {
@@ -81,6 +82,24 @@ const builds = [...new Set(ids.map(id => stateOf(roundDir, judged.round, id)?.bu
 console.log(`round ${path.basename(roundDir)} (build ${builds.join(', ') || 'unknown'}) against ${path.basename(baseDir)}`);
 console.log(`${ids.length} tasks in the round, ${comparable} judged in both: ${baseSuccess} -> ${roundSuccess} successes (${roundSuccess - baseSuccess >= 0 ? '+' : ''}${roundSuccess - baseSuccess})`);
 console.log(`improved ${improved.length}, regressed ${regressed.length}, not comparable ${ids.length - comparable}`);
+// What this comparison can resolve at all. Without this line a round reads as progress or regression whatever size it is.
+if (comparable > 0) {
+  const changed = improved.length + regressed.length;
+  const discordance = changed / comparable;
+  const resolvable = minDetectableEffect(comparable, discordance || 0.3);
+  const delta = (roundSuccess - baseSuccess) / comparable;
+  const p = mcnemarP(improved.length, regressed.length);
+  console.log(
+    `${changed} of ${comparable} tasks changed verdict (${(discordance * 100).toFixed(0)}%), so this comparison can only resolve a change of about ` +
+      `${(resolvable * 100).toFixed(1)} points; the change seen is ${(delta * 100).toFixed(1)} points, McNemar p = ${p}`,
+  );
+  if (Math.abs(delta) < resolvable) {
+    console.log(
+      `NOT RESOLVED: that is inside what this round can see. A change of 5 points would need about ${pairsNeeded(0.05, discordance || 0.3)} paired tasks. ` +
+        `Read mechanism counters (guards, schema rejections, loops), not this score.`,
+    );
+  }
+}
 if (bothOk.length) {
   console.log(
     `tasks that succeeded in both (${bothOk.length}): median steps ${median(bothOk.map(t => t.before.steps))} -> ${median(bothOk.map(t => t.after.steps))}, median input tokens ${median(bothOk.map(t => t.before.tokens))} -> ${median(bothOk.map(t => t.after.tokens))}`,
