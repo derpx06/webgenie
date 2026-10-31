@@ -24,7 +24,6 @@ const BROWSER_DATA_PERMISSIONS: chrome.permissions.Permissions = {
     'bookmarks',
     'readingList',
     'history',
-    'downloads',
     'browsingData',
     'sessions',
     'management',

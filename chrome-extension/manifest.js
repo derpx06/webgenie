@@ -80,13 +80,18 @@ const manifest = withOperaSidebar(
       'debugger',
       'offscreen',
       'contextMenus',
+      // Not optional, and it was briefly: the worker listens for downloads at load time so the agent is told what a
+      // page saved during a task, and the file tools depend on it. With the namespace undefined the worker threw while
+      // loading and nothing in the extension worked. Anything the worker touches at load time must be required.
+      'downloads',
     ],
     /**
-     * Permissions for the browser-data tools, which are off by default.
+     * Permissions for the browser-data tools, which are off by default. None of them may be touched when the worker
+     * loads, only inside a tool's handler once it has been enabled.
      *
      * They are requested when the user turns those tools on, which is also the only moment there is a user gesture to
      * request them from. Declaring them at install meant a new user was asked, at install, for their bookmarks,
-     * history, downloads and open sessions in order to run a browsing agent — unrelated functionality bundled into
+     * history and open sessions in order to run a browsing agent — unrelated functionality bundled into
      * one consent, which is exactly what the single-purpose rule prohibits.
      *
      * `system.memory` is new here: `manage_system` has always called it and no manifest ever declared it, so that
@@ -96,7 +101,6 @@ const manifest = withOperaSidebar(
       'bookmarks',
       'readingList',
       'history',
-      'downloads',
       'browsingData',
       'sessions',
       'management',

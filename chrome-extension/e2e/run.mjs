@@ -180,6 +180,32 @@ export class Harness {
       window.__ev = [];
     });
     await this.connectPort();
+    await this.assertWorkerAnswers();
+  }
+
+  /**
+   * Fails at once, and says why, when the extension's service worker is not running.
+   *
+   * A worker whose script throws while loading leaves the target in place and every port silent, so a run does not
+   * fail: it waits out its time limit and reports a hang. That is how a permission moved to optional, whose API a
+   * load-time listener still used, went unnoticed through a full oracle run (the oracles never need the worker) and
+   * showed up only as a task that took 110 seconds instead of two.
+   */
+  async assertWorkerAnswers() {
+    await this.ctl.evaluate(() => window.__port.postMessage({ type: 'heartbeat' }));
+    for (let waited = 0; waited < 10_000; waited += 250) {
+      if (await this.ctl.evaluate(() => window.__ev.some(message => message.type === 'heartbeat_ack'))) {
+        await this.ctl.evaluate(() => {
+          window.__ev = [];
+        });
+        return;
+      }
+      await sleep(250);
+    }
+    throw new Error(
+      'The extension service worker did not answer a heartbeat in 10 seconds. It most likely failed to load: look for a ' +
+        'top-level throw, such as a load-time call to an API whose permission is optional or undeclared.',
+    );
   }
 
   /** A port like the side panel's; a new one after a worker restart wakes the worker and becomes the current port. */
@@ -226,6 +252,10 @@ export class Harness {
           chat_sessions_meta: sessions,
           ...settings,
         });
+        // The harness stands in for a user who has read the notice shown before the first task. Merged after the
+        // task's own settings, which replace 'general-settings' wholesale and would otherwise drop it.
+        const stored = (await chrome.storage.local.get('general-settings'))['general-settings'] ?? {};
+        await chrome.storage.local.set({ 'general-settings': { dataDisclosureAcceptedAt: now, ...stored } });
       },
       { provider: vertexProvider(), model: MODEL, plannerModel: PLANNER_MODEL, taskId, title, settings },
     );
