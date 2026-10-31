@@ -15,7 +15,7 @@ E2E_ORACLE=1 E2E_SUITE=all pnpm -F chrome-extension e2e   # no browser agent, no
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `E2E_SUITE` | `core` | Suite name, or `all` |
+| `E2E_SUITE` | `core` | Suite name, `all`, or `fixture`: the 42 tasks that run against the local site, with no live website, so no `site_down`, no geolocation bias and no flake |
 | `E2E_ONLY` | | Comma-separated task ids; overrides the suite (a "subset run") |
 | `E2E_REPEAT` | 1 | Attempts per task; extra attempts are labelled `<id>-r2`, … |
 | `E2E_HEADLESS` | headed | Any value runs headless |

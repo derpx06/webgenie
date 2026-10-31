@@ -878,7 +878,11 @@ async function main() {
   const suite = process.env.E2E_SUITE ?? 'core';
   const only = process.env.E2E_ONLY?.split(',').map(id => id.trim()).filter(Boolean);
   const repeats = Math.max(1, Number(process.env.E2E_REPEAT ?? 1));
-  const tasks = TASKS.filter(task => (only ? only.includes(task.id) : suite === 'all' || task.suite === suite)).filter(task => !ORACLE || task.oracle);
+  // `fixture` is every task that runs against the local site and needs no internet: its url is a function of the
+  // fixtures, where a live task's is a plain string. No live site means no site_down, no geolocation bias and no flake,
+  // which is the whole noise floor of a live round, and the right set to run on every change.
+  const inSuite = task => (suite === 'fixture' ? typeof task.url === 'function' : suite === 'all' || task.suite === suite);
+  const tasks = TASKS.filter(task => (only ? only.includes(task.id) : inSuite(task))).filter(task => !ORACLE || task.oracle);
   if (tasks.length === 0) throw new Error('no tasks selected');
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
