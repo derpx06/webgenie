@@ -41,6 +41,8 @@ interface UseAgentEventHandlerProps {
     setPausedReason: (reason: string | null) => void;
     setLastScreenshot: (screenshot: string | null) => void;
     isReplayingRef: React.MutableRefObject<boolean>;
+    /** The conversation on screen. An event from any other task belongs to a different chat. */
+    sessionIdRef: React.MutableRefObject<string | null>;
 }
 
 /**
@@ -63,6 +65,7 @@ export const useAgentEventHandler = ({
     setPausedReason,
     setLastScreenshot,
     isReplayingRef,
+    sessionIdRef,
 }: UseAgentEventHandlerProps) => {
 
     /**
@@ -73,6 +76,14 @@ export const useAgentEventHandler = ({
      */
     const handleTaskState = useCallback((event: AgentEvent) => {
         const { actor, state, timestamp, data, screenshot } = event;
+
+        // A task's events belong to the conversation it was started in. The panel used to take every event the
+        // background sent, so switching chats while a task ran wrote that task's steps, answer and screenshots into
+        // whichever conversation happened to be open — and hid its Stop button behind the one on screen.
+        // Both ids present and different is the only case worth dropping: at TASK_START the panel has not adopted
+        // the id yet, and a replayed or historical session carries none.
+        const eventTask = data?.taskId;
+        if (eventTask && sessionIdRef.current && eventTask !== sessionIdRef.current) return;
         let content = data?.details;
         const progressMessage = 'Showing progress...';
         let skip = true;
@@ -115,7 +126,9 @@ export const useAgentEventHandler = ({
                     setIsReplaying(false);
                     setIsWaitingForHuman(false);
                     setPausedReason(null);
-                    // Don't clear screenshot here so user can see final result
+                    // The last frame stays while this conversation is on screen, so the result can be seen. It is
+                    // cleared when the conversation changes (useSidePanelController), because that frame is often a
+                    // signed-in page and it used to outlive the task, the chat and the session alike.
                     skip = false;
                 } else if (state === ExecutionState.TASK_CANCEL) {
                     setIsFollowUpMode(false);

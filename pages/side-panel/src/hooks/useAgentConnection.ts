@@ -99,7 +99,8 @@ export const useAgentConnection = ({
         setPausedReason,
         setLastScreenshot,
         setTaskProgress,
-        isReplayingRef
+        isReplayingRef,
+        sessionIdRef,
     });
 
     const resetToIdle = useCallback(() => {

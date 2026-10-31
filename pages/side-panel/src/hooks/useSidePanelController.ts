@@ -169,8 +169,11 @@ export const useSidePanelController = () => {
     setPausedReason(null);
     setResumableTask(null);
     setTaskProgress(IDLE_PROGRESS);
+    // The last frame of a finished task is often a signed-in page, and it used to outlive the task, the chat and
+    // the session alike — still on screen in a brand new conversation.
+    setLastScreenshot(null);
     stopConnection();
-  }, [handleStopTask, isWaitingForHuman, resetSession, showStopButton, stopConnection]);
+  }, [handleStopTask, isWaitingForHuman, resetSession, setLastScreenshot, showStopButton, stopConnection]);
 
   // Auto-load sessions on mount so welcome page can show recent history
   useEffect(() => {
@@ -184,8 +187,11 @@ export const useSidePanelController = () => {
 
   const handleBackToChat = useCallback((reset = false) => {
     setShowHistory(false);
-    if (reset) resetSession();
-  }, [resetSession]);
+    if (reset) {
+      resetSession();
+      setLastScreenshot(null);
+    }
+  }, [resetSession, setLastScreenshot]);
 
   const handleSessionSelect = useCallback(async (sessionId: string) => {
     const success = await loadSessionFromHistory(sessionId);
@@ -193,10 +199,12 @@ export const useSidePanelController = () => {
       // An opened conversation is not running yet; the reattach below refills this if it is.
       setTaskProgress(IDLE_PROGRESS);
       setShowHistory(false);
+      // Another conversation's last frame is not this one's.
+      setLastScreenshot(null);
       // The opened session may have a saved task to continue.
       requestReattach(sessionId);
     }
-  }, [loadSessionFromHistory, requestReattach]);
+  }, [loadSessionFromHistory, requestReattach, setLastScreenshot]);
 
   const handleSessionBookmark = useCallback(
     async (sessionId: string) => {
