@@ -1,5 +1,4 @@
-import { FaMicrophone, FaPaperclip } from 'react-icons/fa';
-import { AiOutlineLoading3Quarters } from 'react-icons/ai';
+import { t } from '@extension/i18n';
 import { AttachmentBar, RecordingOverlay } from './chat-input/Visuals';
 import { ChatActionButtons, ShortcutHint } from './chat-input/Controls';
 import { TabMentionsDropdown } from './chat-input/TabMentionsDropdown';
@@ -19,6 +18,17 @@ interface ChatInputProps {
   setContent?: (setter: (text: string) => void) => void;
   isDarkMode?: boolean;
 }
+
+const glyph = {
+  viewBox: '0 0 16 16',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.6,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+  className: 'size-4',
+  'aria-hidden': true,
+};
 
 export default function ChatInput({
   onSendMessage,
@@ -51,116 +61,87 @@ export default function ChatInput({
     handleRemoveFile,
   } = useChatInput(onSendMessage, setContent, disabled);
 
-  const handleFileSelect = () => fileInputRef.current?.click();
-
   return (
-    <div className="relative px-4 pb-4 pt-0">
-      <form onSubmit={handleSubmit} className="group/form relative">
-        <RecordingOverlay isRecording={isRecording} />
+    <form onSubmit={handleSubmit} className="relative">
+      <RecordingOverlay isRecording={isRecording} />
 
-        {showMentions && (
-          <TabMentionsDropdown
-            searchQuery={mentionQuery}
-            onSelect={handleMentionSelect}
-            onClose={() => setShowMentions(false)}
-            isDarkMode={isDarkMode}
-          />
-        )}
+      {showMentions && (
+        <TabMentionsDropdown
+          searchQuery={mentionQuery}
+          onSelect={handleMentionSelect}
+          onClose={() => setShowMentions(false)}
+          isDarkMode={isDarkMode}
+        />
+      )}
 
-        {/* Wrap only the input container and its glow underlay to make glow equal in all directions */}
-        <div className="relative">
-          {/* ── Rotating colorful radiant glow underlay ── */}
-          <div className="premium-glow-underlay" />
+      <div className="wg-composer-box" data-disabled={disabled && !showStopButton}>
+        <AttachmentBar attachedFiles={attachedFiles} onRemoveFile={handleRemoveFile} />
 
-          {/* ── Rotating conic-gradient border wrapper ── */}
-          <div className={`premium-rotate-wrapper ${disabled && !showStopButton ? 'pointer-events-none opacity-40' : ''}`}>
-            <div
-              className="premium-inner-input relative flex flex-col overflow-hidden"
-            >
+        <label htmlFor="wg-composer-text" className="sr-only">
+          {t('chat_input_editor')}
+        </label>
+        <textarea
+          id="wg-composer-text"
+          ref={textareaRef}
+          className="wg-composer-text"
+          value={text}
+          onChange={handleTextChange}
+          onKeyDown={handleKeyDown}
+          disabled={disabled}
+          rows={2}
+          placeholder={t('chat_input_placeholder')}
+        />
 
-              <AttachmentBar attachedFiles={attachedFiles} onRemoveFile={handleRemoveFile} isDarkMode={isDarkMode} />
+        <div className="wg-composer-bar">
+          <button
+            type="button"
+            className="wg-icon-btn"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            aria-label={t('chat_input_form')}
+            title={t('chat_input_form')}>
+            <svg {...glyph}>
+              <path d="M13 7.5 8.2 12.3a2.8 2.8 0 0 1-4-4l5-5a1.9 1.9 0 0 1 2.7 2.7l-5 5a1 1 0 0 1-1.4-1.4l4.5-4.5" />
+            </svg>
+          </button>
+          <input ref={fileInputRef} type="file" multiple onChange={handleFileChange} className="hidden" />
 
-              <textarea
-                ref={textareaRef}
-                value={text}
-                onChange={handleTextChange}
-                onKeyDown={handleKeyDown}
-                disabled={disabled}
-                rows={2}
-                style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
-                className={`w-full resize-none border-0 bg-transparent px-5 pb-2 pt-4 font-sans text-[14px] font-medium leading-relaxed tracking-tight transition-all focus:border-0 focus:outline-none focus:ring-0 ${
-                  isDarkMode
-                    ? 'text-slate-100 placeholder:text-slate-500/70'
-                    : 'text-slate-900 placeholder:text-slate-400'
-                }`}
-                placeholder={attachedFiles.length > 0 ? 'Add context or instructions...' : 'Ask WebGenie to research, browse, automate, or analyze…'}
-              />
+          {onMicClick && (
+            <button
+              type="button"
+              className={`wg-icon-btn ${isRecording ? 'wg-icon-btn-active' : ''}`}
+              onClick={onMicClick}
+              disabled={disabled || isProcessingSpeech}
+              aria-pressed={isRecording}
+              aria-label={isRecording ? t('chat_stt_recording_stop') : t('chat_stt_input_start')}
+              title={isRecording ? t('chat_stt_recording_stop') : t('chat_stt_input_start')}>
+              {isProcessingSpeech ? (
+                <svg {...glyph} className="size-4 animate-spin">
+                  <path d="M8 2a6 6 0 1 1-4.2 1.7" />
+                </svg>
+              ) : (
+                <svg {...glyph}>
+                  <rect x="6" y="2" width="4" height="7" rx="2" />
+                  <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2" />
+                </svg>
+              )}
+            </button>
+          )}
 
-              {/* Separator */}
-              <div className={`mx-4 h-px ${isDarkMode ? 'bg-white/[0.06]' : 'bg-slate-900/[0.05]'}`} />
-
-              {/* Action bar */}
-              <div className="flex items-center justify-between px-3 py-2">
-                {/* Left tools */}
-                <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={handleFileSelect}
-                    disabled={disabled}
-                    className={`flex size-8 items-center justify-center rounded-lg transition-all duration-200 ${
-                      isDarkMode
-                        ? 'hover:bg-white/8 text-slate-500 hover:text-slate-300 active:scale-90'
-                        : 'text-slate-400 hover:bg-slate-900/5 hover:text-slate-700 active:scale-90'
-                    }`}
-                    title="Attach file">
-                    <FaPaperclip size={12} />
-                  </button>
-                  <input ref={fileInputRef} type="file" multiple onChange={handleFileChange} className="hidden" />
-
-                  {onMicClick && (
-                    <div className="group/mic relative">
-                      {isRecording && (
-                        <div className="absolute inset-0 animate-ping rounded-lg bg-indigo-500/20" />
-                      )}
-                      <button
-                        type="button"
-                        onClick={onMicClick}
-                        disabled={disabled || isProcessingSpeech}
-                        className={`relative z-10 flex size-8 items-center justify-center rounded-lg transition-all duration-300 ${
-                          isRecording
-                            ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
-                            : isDarkMode
-                              ? 'hover:bg-white/8 text-slate-500 hover:text-slate-300 active:scale-90'
-                              : 'text-slate-400 hover:bg-slate-900/5 hover:text-slate-700 active:scale-90'
-                        }`}>
-                        {isProcessingSpeech
-                          ? <AiOutlineLoading3Quarters size={12} className="animate-spin" />
-                          : <FaMicrophone size={12} />
-                        }
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Right: send/stop/replay */}
-                <div className="flex items-center gap-2">
-                  <ChatActionButtons
-                    showStopButton={showStopButton}
-                    onStopTask={onStopTask}
-                    isPaused={isPaused}
-                    onPauseTask={onPauseTask}
-                    onResumeTask={onResumeTask}
-                    isSendButtonDisabled={isSendButtonDisabled}
-                    isDarkMode={isDarkMode}
-                  />
-                </div>
-              </div>
-            </div>
+          <div className="ml-auto flex items-center gap-1.5">
+            <ChatActionButtons
+              showStopButton={showStopButton}
+              onStopTask={onStopTask}
+              isPaused={isPaused}
+              onPauseTask={onPauseTask}
+              onResumeTask={onResumeTask}
+              isSendButtonDisabled={isSendButtonDisabled}
+            />
           </div>
         </div>
+      </div>
 
-        <ShortcutHint isDarkMode={isDarkMode} disabled={disabled} />
-      </form>
-    </div>
+      <ShortcutHint disabled={disabled} />
+    </form>
   );
 }

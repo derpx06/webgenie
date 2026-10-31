@@ -1,5 +1,5 @@
 import React from 'react';
-import { FaPaperclip } from 'react-icons/fa';
+import { t } from '@extension/i18n';
 
 interface AttachedFile {
     name: string;
@@ -10,28 +10,29 @@ interface AttachedFile {
 interface AttachmentBarProps {
     attachedFiles: AttachedFile[];
     onRemoveFile: (index: number) => void;
-    isDarkMode: boolean;
+    isDarkMode?: boolean;
 }
 
-export const AttachmentBar: React.FC<AttachmentBarProps> = ({ attachedFiles, onRemoveFile, isDarkMode }) => {
+export const AttachmentBar: React.FC<AttachmentBarProps> = ({ attachedFiles, onRemoveFile }) => {
     if (attachedFiles.length === 0) return null;
 
     return (
-        <div className={`flex flex-wrap gap-2 px-5 pb-2 pt-5 ${isDarkMode ? 'bg-black/10' : 'bg-slate-50/50'}`}>
+        <ul className="flex flex-wrap gap-1.5 px-3 pt-3">
             {attachedFiles.map((file, index) => (
-                <div key={index} className={`group/file flex items-center gap-2 rounded-xl px-3 py-1.5 text-[11px] font-black tracking-tight transition-all hover:scale-105 ${isDarkMode ? 'bg-indigo-500/10 text-indigo-300 ring-1 ring-white/5 hover:bg-indigo-500/20' : 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100/50 hover:bg-indigo-100'}`}>
-                    <FaPaperclip className="opacity-50 transition-transform group-hover/file:rotate-12" size={10} />
-                    <span className="max-w-[140px] truncate font-outfit uppercase">{file.name}</span>
+                <li key={index} className="wg-chip wg-tone-accent">
+                    <span className="max-w-[140px] truncate">{file.name}</span>
                     <button
                         type="button"
                         onClick={() => onRemoveFile(index)}
-                        className="ml-1 flex size-4 items-center justify-center rounded-full p-0.5 transition-colors hover:bg-black/10 hover:text-red-500"
-                    >
-                        <span className="text-[10px]">✕</span>
+                        aria-label={`Remove ${file.name}`}
+                        className="-mr-1 flex size-4 items-center justify-center rounded-full">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="size-2.5" aria-hidden="true">
+                            <path d="M4 4l8 8M12 4l-8 8" />
+                        </svg>
                     </button>
-                </div>
+                </li>
             ))}
-        </div>
+        </ul>
     );
 };
 
@@ -39,23 +40,33 @@ interface RecordingOverlayProps {
     isRecording: boolean;
 }
 
+/**
+ * Bar heights are fixed rather than random, so the meter reads as a steady level
+ * instead of reshuffling itself on every unrelated re-render.
+ */
+const BAR_HEIGHTS = [40, 72, 96, 60, 84, 52, 92, 68, 44, 76];
+
 export const RecordingOverlay: React.FC<RecordingOverlayProps> = ({ isRecording }) => {
     if (!isRecording) return null;
 
     return (
-        <div className="pointer-events-none absolute -inset-x-2 -top-12 z-50 flex h-10 items-center justify-center gap-1.5">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
-                <div
+        <div
+            role="status"
+            className="pointer-events-none absolute inset-x-0 -top-9 z-20 flex h-7 items-center justify-center gap-1 wg-tone-err">
+            {BAR_HEIGHTS.map((h, i) => (
+                <span
                     key={i}
-                    className="w-1 animate-[bounce_1s_ease-in-out_infinite] rounded-full bg-red-500"
+                    className="w-0.5 rounded-full"
                     style={{
-                        height: `${Math.random() * 100 + 20}%`,
-                        animationDelay: `${i * 0.1}s`,
-                        boxShadow: '0 0 10px rgba(239, 68, 68, 0.5)'
+                        height: `${h}%`,
+                        background: 'var(--wg-tone)',
+                        animation: `wg-breathe 1.1s var(--wg-ease) ${i * 0.08}s infinite`,
                     }}
                 />
             ))}
-            <span className="ml-3 animate-pulse text-[10px] font-black uppercase tracking-widest text-red-500">Recording...</span>
+            <span className="wg-label ml-2" style={{ color: 'var(--wg-tone)' }}>
+                {t('chat_stt_recording_stop')}
+            </span>
         </div>
     );
 };

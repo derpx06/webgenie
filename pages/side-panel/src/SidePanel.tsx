@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t } from '@extension/i18n';
+import { Actors } from '@extension/storage';
 import ChatHistoryList from './components/ChatHistoryList';
 import ChatInput from './components/ChatInput';
 import EmptyChat from './components/EmptyChat';
@@ -7,9 +8,10 @@ import MessageList from './components/MessageList';
 import { ResumableNotice } from './components/message-list/SystemNotice';
 import SidePanelHeader from './components/SidePanelHeader';
 import { AgentSight } from './components/AgentSight';
+import { TaskStatus } from './components/TaskStatus';
 import WelcomeScreen from './components/WelcomeScreen';
 import { useSidePanelController } from './hooks/useSidePanelController';
-import { NeuralBackground } from './components/shared/NeuralBackground';
+import { useStickyScroll } from './hooks/useStickyScroll';
 import { extractCurrentPageDomForTesting } from './devtools/domDebug';
 
 declare global {
@@ -33,7 +35,7 @@ const SidePanel = () => {
     isRecording,
     isProcessingSpeech,
     lastScreenshot,
-    messagesEndRef,
+    taskProgress,
     setInputTextRef,
     handleSendMessage,
     handleStopTask,
@@ -50,9 +52,17 @@ const SidePanel = () => {
     handleSessionBookmark,
   } = useSidePanelController();
 
-  // Declare chrome API types
   const pendingOmniboxPrompt = useRef<string | null>(null);
   const [isDebugExtractingDom, setIsDebugExtractingDom] = useState(false);
+  const { scrollRef, endRef, isPinned, jumpToLatest } = useStickyScroll(messages);
+
+  // What the panel is working on: the newest thing the person asked for.
+  const goal = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].actor === Actors.USER) return messages[i].content;
+    }
+    return null;
+  }, [messages]);
 
   const handleDebugExtractDom = useCallback(async () => {
     setIsDebugExtractingDom(true);
@@ -79,15 +89,12 @@ const SidePanel = () => {
       pendingOmniboxPrompt.current = prompt.trim();
     };
 
-    chrome.storage.session.get(PENDING_KEY, (result) => {
+    chrome.storage.session.get(PENDING_KEY, result => {
       const pending = result?.[PENDING_KEY];
       if (typeof pending === 'string') storePrompt(pending);
     });
 
-    const onStorageChanged = (
-      changes: Record<string, chrome.storage.StorageChange>,
-      area: string,
-    ) => {
+    const onStorageChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area !== 'session') return;
       const newValue = changes[PENDING_KEY]?.newValue;
       if (typeof newValue === 'string') {
@@ -112,138 +119,116 @@ const SidePanel = () => {
     }
   }, [hasConfiguredModels, handleSendMessage]);
 
+  const composer = (
+    <ChatInput
+      onSendMessage={handleSendMessage}
+      onStopTask={handleStopTask}
+      onPauseTask={handlePauseTask}
+      onResumeTask={handleResumeTask}
+      isPaused={isPaused}
+      onMicClick={handleMicClick}
+      isRecording={isRecording}
+      isProcessingSpeech={isProcessingSpeech}
+      disabled={!inputEnabled}
+      showStopButton={showStopButton}
+      setContent={setter => {
+        setInputTextRef.current = setter;
+      }}
+      isDarkMode={isDarkMode}
+    />
+  );
+
   return (
-    <div className={`relative flex h-screen w-screen flex-col overflow-hidden ${isDarkMode ? 'theme-dark bg-[#020617]' : 'theme-light bg-[#F8FAFC]'}`}>
-      <div className={`relative flex flex-1 flex-col overflow-hidden transition-all duration-300 ${isDarkMode ? 'bg-[#020617]' : 'bg-white'}`}>
-        <NeuralBackground isDarkMode={isDarkMode} />
-        {(hasConfiguredModels === true || showHistory) && (
-          <div className="absolute inset-x-0 top-0 z-[60]">
-            <SidePanelHeader
-              isDarkMode={isDarkMode}
-              showHistory={showHistory}
-              onBackToChat={() => handleBackToChat(false)}
-              onNewChat={handleNewChat}
-              onLoadHistory={handleLoadHistory}
-              isTransparent={messages.length === 0 && !showHistory}
-            />
-          </div>
-        )}
+    <div className={`wg-root wg-shell ${isDarkMode ? 'theme-dark' : 'theme-light'}`}>
+      {(hasConfiguredModels === true || showHistory) && (
+        <SidePanelHeader
+          isDarkMode={isDarkMode}
+          showHistory={showHistory}
+          onBackToChat={() => handleBackToChat(false)}
+          onNewChat={handleNewChat}
+          onLoadHistory={handleLoadHistory}
+        />
+      )}
 
-        {showHistory ? (
-          <div className="flex-1 overflow-hidden pt-[85px]">
-            <ChatHistoryList
-              sessions={chatSessions}
-              onSessionSelect={handleSessionSelect}
-              onSessionDelete={handleSessionDelete}
-              onSessionBookmark={handleSessionBookmark}
-              visible={true}
-              isDarkMode={isDarkMode}
-            />
-          </div>
-        ) : (
-          <>
-            {hasConfiguredModels === null && (
-              <div className={`flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-sky-300' : 'text-sky-600'}`}>
-                <div className="text-center">
-                  <div className="mx-auto mb-4 size-8 animate-spin rounded-full border-2 border-sky-400 border-t-transparent"></div>
-                  <p>{t('status_checkingConfig')}</p>
-                </div>
+      {showHistory ? (
+        <div className="wg-scroll">
+          <ChatHistoryList
+            sessions={chatSessions}
+            onSessionSelect={handleSessionSelect}
+            onSessionDelete={handleSessionDelete}
+            onSessionBookmark={handleSessionBookmark}
+            visible={true}
+            isDarkMode={isDarkMode}
+          />
+        </div>
+      ) : hasConfiguredModels === null ? (
+        <div className="flex flex-1 items-center justify-center p-8">
+          <p className="wg-meta">{t('status_checkingConfig')}</p>
+        </div>
+      ) : hasConfiguredModels === false ? (
+        <WelcomeScreen isDarkMode={isDarkMode} onOpenSettings={() => chrome.runtime.openOptionsPage()} />
+      ) : messages.length === 0 ? (
+        <EmptyChat
+          isDarkMode={isDarkMode}
+          recentSessions={chatSessions}
+          isDebugExtractingDom={isDebugExtractingDom}
+          onDebugExtractDom={handleDebugExtractDom}
+          onSelectPrompt={text => setInputTextRef.current?.(text)}
+          onSelectSession={handleSessionSelect}>
+          <div className="wg-composer">
+            {resumableTask && (
+              <div className="mb-3">
+                <ResumableNotice
+                  task={resumableTask}
+                  isDarkMode={isDarkMode}
+                  onResume={handleResumeSavedTask}
+                  onDiscard={handleDiscardSavedTask}
+                />
               </div>
             )}
+            {composer}
+          </div>
+        </EmptyChat>
+      ) : (
+        <>
+          <TaskStatus
+            progress={taskProgress}
+            goal={goal}
+            isPaused={isPaused}
+            pausedReason={pausedReason}
+          />
 
-            {hasConfiguredModels === false && (
-              <WelcomeScreen isDarkMode={isDarkMode} onOpenSettings={() => chrome.runtime.openOptionsPage()} />
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <div className="wg-scroll" ref={scrollRef}>
+              <MessageList
+                messages={messages}
+                isDarkMode={isDarkMode}
+                onOptionSelect={handleSendMessage}
+                isTaskRunning={showStopButton}
+                runPhase={taskProgress.phase}
+                pausedReason={pausedReason}
+                resumableTask={resumableTask}
+                onResumeSavedTask={handleResumeSavedTask}
+                onDiscardSavedTask={handleDiscardSavedTask}
+              />
+              <div ref={endRef} />
+            </div>
+
+            {!isPinned && (
+              <button type="button" className="wg-btn wg-btn-quiet wg-jump" onClick={jumpToLatest}>
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-3" aria-hidden="true">
+                  <path d="M8 3v10M4 9l4 4 4-4" />
+                </svg>
+                {t('trail_jumpToLatest')}
+              </button>
             )}
 
-            {hasConfiguredModels === true && (
-              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                {messages.length === 0 ? (
-                  <EmptyChat
-                    isDarkMode={isDarkMode}
-                    recentSessions={chatSessions}
-                    isDebugExtractingDom={isDebugExtractingDom}
-                    onDebugExtractDom={handleDebugExtractDom}
-                    onSelectPrompt={text => {
-                      if (setInputTextRef.current) {
-                        setInputTextRef.current(text);
-                      }
-                    }}
-                    onSelectSession={handleSessionSelect}>
-                    <div className="relative z-20 shrink-0 px-2 pb-2 pt-4">
-                      {resumableTask && (
-                        <div className="px-4">
-                          <ResumableNotice
-                            task={resumableTask}
-                            isDarkMode={isDarkMode}
-                            onResume={handleResumeSavedTask}
-                            onDiscard={handleDiscardSavedTask}
-                          />
-                        </div>
-                      )}
-                      <ChatInput
-                        onSendMessage={handleSendMessage}
-                        onStopTask={handleStopTask}
-                        onPauseTask={handlePauseTask}
-                        onResumeTask={handleResumeTask}
-                        isPaused={isPaused}
-                        onMicClick={handleMicClick}
-                        isRecording={isRecording}
-                        isProcessingSpeech={isProcessingSpeech}
-                        disabled={!inputEnabled}
-                        showStopButton={showStopButton}
-                        setContent={setter => {
-                          setInputTextRef.current = setter;
-                        }}
-                        isDarkMode={isDarkMode}
-                      />
-                    </div>
-                  </EmptyChat>
-                ) : (
-                  <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                    <AgentSight screenshot={lastScreenshot} isActive={showStopButton} />
+            <AgentSight screenshot={lastScreenshot} isActive={showStopButton} />
+          </div>
 
-                    <div
-                      className="ws-body relative z-10 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3"
-                      style={{ paddingTop: '85px', paddingBottom: '210px' }}
-                    >
-                      <MessageList
-                        messages={messages}
-                        isDarkMode={isDarkMode}
-                        onOptionSelect={handleSendMessage}
-                        isTaskRunning={showStopButton}
-                        pausedReason={pausedReason}
-                        resumableTask={resumableTask}
-                        onResumeSavedTask={handleResumeSavedTask}
-                        onDiscardSavedTask={handleDiscardSavedTask}
-                      />
-                      <div ref={messagesEndRef} />
-                    </div>
-
-                    <div className="bottom-glass-panel">
-                      <ChatInput
-                        onSendMessage={handleSendMessage}
-                        onStopTask={handleStopTask}
-                        onPauseTask={handlePauseTask}
-                        onResumeTask={handleResumeTask}
-                        isPaused={isPaused}
-                        onMicClick={handleMicClick}
-                        isRecording={isRecording}
-                        isProcessingSpeech={isProcessingSpeech}
-                        disabled={!inputEnabled}
-                        showStopButton={showStopButton}
-                        setContent={setter => {
-                          setInputTextRef.current = setter;
-                        }}
-                        isDarkMode={isDarkMode}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </div>
+          <div className="wg-composer">{composer}</div>
+        </>
+      )}
     </div>
   );
 };

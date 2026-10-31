@@ -1156,5 +1156,77 @@
   },
   "options_advanced_advancedTools_desc": {
     "message": "Permite que o agente execute uma expressão JavaScript na página, leia os endpoints JSON do próprio site e baixe e leia arquivos (pdf, csv, xlsx, docx). Desativado por padrão: uma lista de ferramentas mais curta torna o agente mais preciso, e estas alcançam além da página."
+  },
+  "status_phase_idle": {
+    "message": "Pronto"
+  },
+  "status_phase_idleHint": {
+    "message": "Descreva uma tarefa e o WebGenie vai executá-la aqui."
+  },
+  "status_phase_starting": {
+    "message": "Iniciando"
+  },
+  "status_phase_planning": {
+    "message": "Planejando"
+  },
+  "status_phase_acting": {
+    "message": "Agindo na página"
+  },
+  "status_phase_observing": {
+    "message": "Lendo a página"
+  },
+  "status_phase_waitingHuman": {
+    "message": "Aguardando você"
+  },
+  "status_phase_paused": {
+    "message": "Pausado"
+  },
+  "status_phase_done": {
+    "message": "Concluído"
+  },
+  "status_phase_failed": {
+    "message": "Parou com um erro"
+  },
+  "status_phase_cancelled": {
+    "message": "Cancelado"
+  },
+  "status_stepOf": {
+    "message": "Passo $1 de $2"
+  },
+  "trail_running": {
+    "message": "Trabalhando"
+  },
+  "trail_done": {
+    "message": "Concluído"
+  },
+  "trail_failed": {
+    "message": "Falhou"
+  },
+  "trail_cancelled": {
+    "message": "Cancelado"
+  },
+  "trail_steps": {
+    "message": "$1 passos"
+  },
+  "trail_stepOne": {
+    "message": "1 passo"
+  },
+  "trail_detailsShow": {
+    "message": "Mostrar passos"
+  },
+  "trail_detailsHide": {
+    "message": "Ocultar passos"
+  },
+  "trail_phase_planning": {
+    "message": "Planejando"
+  },
+  "trail_phase_acting": {
+    "message": "Agindo"
+  },
+  "trail_jumpToLatest": {
+    "message": "Ir para o mais recente"
+  },
+  "chat_hitl_needsYou": {
+    "message": "Precisa de você"
   }
 }

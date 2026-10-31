@@ -1,10 +1,37 @@
 import { useCallback } from 'react';
 import { Actors, type Message } from '@extension/storage';
 import { t } from '@extension/i18n';
-import { ExecutionState, type AgentEvent } from '../types/event';
+import { ExecutionState, IDLE_PROGRESS, type AgentEvent, type TaskPhase, type TaskProgress } from '../types/event';
+
+/**
+ * The phase an event puts the agent in, or undefined when the event says nothing about it.
+ * Every branch here mirrors one the message switch below already handles, so the status bar
+ * and the chat can never disagree about what is going on.
+ */
+const phaseOf = (actor: Actors, state: ExecutionState): TaskPhase | undefined => {
+    if (actor === Actors.SYSTEM) {
+        if (state === ExecutionState.TASK_START) return 'starting';
+        if (state === ExecutionState.TASK_OK) return 'done';
+        if (state === ExecutionState.TASK_FAIL) return 'failed';
+        if (state === ExecutionState.TASK_CANCEL) return 'cancelled';
+        if (state === ExecutionState.TASK_PAUSE) return 'paused';
+        if (state === ExecutionState.TASK_RESUME) return 'acting';
+        return undefined;
+    }
+    if (state === ExecutionState.ACT_ASK_HUMAN) return 'waiting_human';
+    if (actor === Actors.PLANNER && state === ExecutionState.STEP_START) return 'planning';
+    if (actor === Actors.NAVIGATOR) {
+        if (state === ExecutionState.STEP_START || state === ExecutionState.ACT_START) return 'acting';
+        // The action landed; the executor is now reading the page for the next step.
+        if (state === ExecutionState.ACT_OK || state === ExecutionState.STEP_OK) return 'observing';
+        if (state === ExecutionState.ACT_FAIL || state === ExecutionState.STEP_FAIL) return 'acting';
+    }
+    return undefined;
+};
 
 interface UseAgentEventHandlerProps {
     appendMessage: (message: Message) => void;
+    setTaskProgress: (progress: TaskProgress | ((prev: TaskProgress) => TaskProgress)) => void;
     setIsFollowUpMode: (mode: boolean) => void;
     setInputEnabled: (enabled: boolean) => void;
     setShowStopButton: (show: boolean) => void;
@@ -26,6 +53,7 @@ interface UseAgentEventHandlerProps {
  */
 export const useAgentEventHandler = ({
     appendMessage,
+    setTaskProgress,
     setIsFollowUpMode,
     setInputEnabled,
     setShowStopButton,
@@ -55,9 +83,24 @@ export const useAgentEventHandler = ({
             if (state === ExecutionState.SIGHT_UPDATE) return; // Special handling for sight-only updates
         }
 
+        // Keep the status bar current before anything decides whether this event is worth a message.
+        // The step numbers only ever move forward within a task, so a late event cannot rewind them.
+        const phase = phaseOf(actor, state);
+        setTaskProgress(prev => {
+            if (state === ExecutionState.TASK_START) return { ...IDLE_PROGRESS, phase: 'starting' };
+            const step = data?.step ?? 0;
+            const maxSteps = data?.maxSteps ?? 0;
+            return {
+                phase: phase ?? prev.phase,
+                step: step > 0 ? Math.max(step, prev.step) : prev.step,
+                maxSteps: maxSteps > 0 ? maxSteps : prev.maxSteps,
+                detail: content || prev.detail,
+            };
+        });
+
         // Enhance rate limit message clarity
         if (content && (content.includes('429') || content.toLowerCase().includes('rate limit') || content.toLowerCase().includes('quota'))) {
-            content = `⚠️ API Limit Exceeded: ${content}`;
+            content = `API limit exceeded: ${content}`;
         }
 
         switch (actor) {
@@ -129,7 +172,7 @@ export const useAgentEventHandler = ({
             });
         }
         if (displayProgress) appendMessage({ actor, content: progressMessage, timestamp });
-    }, [appendMessage, setIsFollowUpMode, setInputEnabled, setShowStopButton, setIsReplaying, setIsHistoricalSession, setIsWaitingForHuman, setPausedReason, setLastScreenshot, isReplayingRef]);
+    }, [appendMessage, setTaskProgress, setIsFollowUpMode, setInputEnabled, setShowStopButton, setIsReplaying, setIsHistoricalSession, setIsWaitingForHuman, setPausedReason, setLastScreenshot, isReplayingRef]);
 
     return { handleTaskState };
 };

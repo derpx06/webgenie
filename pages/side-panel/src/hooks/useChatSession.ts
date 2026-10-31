@@ -18,12 +18,8 @@ export const useChatSession = () => {
         sessionIdRef.current = currentSessionId;
     }, [currentSessionId]);
 
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 60);
-        return () => clearTimeout(timer);
-    }, [messages]);
+    // Following the newest message is useStickyScroll's job now: it only follows while the
+    // view is already at the bottom, so scrolling back to read is never undone.
 
     /**
      * Adds a new message to the local state and asynchronously persists it to storage.

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Actors, type Message } from '@extension/storage';
 import { EventType } from '../types/event';
-import type { AgentEvent } from '../types/event';
+import type { AgentEvent, TaskProgress } from '../types/event';
 import { t } from '@extension/i18n';
 import { useAgentEventHandler } from './useAgentEventHandler';
 
@@ -26,6 +26,7 @@ interface UseAgentConnectionProps {
     setPausedReason: (reason: string | null) => void;
     setResumableTask: (task: ResumableTask | null) => void;
     setLastScreenshot: (screenshot: string | null) => void;
+    setTaskProgress: (progress: TaskProgress | ((prev: TaskProgress) => TaskProgress)) => void;
     setInputTextRef: React.MutableRefObject<((text: string) => void) | null>;
     sessionIdRef: React.MutableRefObject<string | null>;
     /** A task is running or waiting for the user: a dropped port is retried instead of resetting the UI. */
@@ -70,6 +71,7 @@ export const useAgentConnection = ({
     setPausedReason,
     setResumableTask,
     setLastScreenshot,
+    setTaskProgress,
     setInputTextRef,
     sessionIdRef,
     isTaskActive,
@@ -96,6 +98,7 @@ export const useAgentConnection = ({
         setIsWaitingForHuman,
         setPausedReason,
         setLastScreenshot,
+        setTaskProgress,
         isReplayingRef
     });
 

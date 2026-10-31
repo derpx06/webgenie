@@ -1,6 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FaCheckCircle } from 'react-icons/fa';
-import { BsStars } from 'react-icons/bs';
 import { t } from '@extension/i18n';
 import type { Message } from '@extension/storage';
 
@@ -15,17 +13,39 @@ interface FormField {
 
 interface HITLBlockProps {
   messages: Message[];
-  isDarkMode: boolean;
   onOptionSelect?: (text: string, displayText?: string, secrets?: string[]) => void;
   /** The user has already replied (or a newer question replaced this one): shown read-only. */
   answered?: boolean;
 }
 
-const formatTimeOnly = (timestamp: number) => {
-  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-};
+const formatTimeOnly = (timestamp: number) =>
+  new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOptionSelect, answered = false }) => {
+const QuestionIcon = () => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="size-3.5" aria-hidden="true">
+    <path d="M8 2.5A5.5 5.5 0 1 1 3.4 11L2 14l3-1.4A5.5 5.5 0 0 1 8 2.5Z" />
+  </svg>
+);
+
+const ConfirmIcon = () => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="size-3.5" aria-hidden="true">
+    <path d="M8 1.8 13.5 4v4c0 3.2-2.2 5.6-5.5 6.4C4.7 13.6 2.5 11.2 2.5 8V4L8 1.8Z" />
+    <path d="M5.8 8.2 7.3 9.7l3-3.2" />
+  </svg>
+);
+
+const AnsweredIcon = () => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-3" aria-hidden="true">
+    <path d="M3 8.5 6.5 12 13 4.5" />
+  </svg>
+);
+
+/**
+ * A question or a confirmation the agent cannot answer for itself. It is drawn in the
+ * "waiting" tone — the only place in the panel that colour appears — so it cannot be
+ * read as ordinary progress, and the controls that answer it are the first thing in it.
+ */
+export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, onOptionSelect, answered = false }) => {
   const lastMsg = messages[messages.length - 1];
   let question = lastMsg.content;
   let options: string[] = [];
@@ -43,8 +63,8 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
       type = data.type || 'question';
       rememberKey = data.rememberKey || '';
     }
-  } catch (e) {
-    // Not valid JSON
+  } catch {
+    // Not valid JSON: the whole content is the question.
   }
 
   const [dontAskAgain, setDontAskAgain] = useState(false);
@@ -73,7 +93,9 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
     const line = (label: string, value: string) => `${label}: ${value}`;
     const response = entries.map(({ field, id, val }) => line(field?.label || id, val)).join('\n');
     // Password answers go to the agent but are shown as dots and kept out of traces.
-    const shown = entries.map(({ field, id, val }) => line(field?.label || id, field?.type === 'password' ? '•'.repeat(val.length) : val)).join('\n');
+    const shown = entries
+      .map(({ field, id, val }) => line(field?.label || id, field?.type === 'password' ? '•'.repeat(val.length) : val))
+      .join('\n');
     const secrets = entries.filter(({ field, val }) => field?.type === 'password' && val).map(({ val }) => val);
     onOptionSelect?.(response, shown, secrets);
   };
@@ -81,137 +103,96 @@ export const HITLBlock: React.FC<HITLBlockProps> = ({ messages, isDarkMode, onOp
   return (
     <div
       ref={containerRef}
-      className={`my-4 overflow-hidden rounded-2xl border shadow-xl duration-500 ${answered ? 'opacity-75' : ''} ${isDarkMode
-      ? 'border-indigo-500/30 bg-indigo-500/10 backdrop-blur-md'
-      : 'border-indigo-200 bg-indigo-50/80 backdrop-blur-sm'
-      }`}>
-      <div className="flex flex-col p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`flex size-10 shrink-0 items-center justify-center rounded-2xl shadow-lg ring-1 transition-transform group-hover:scale-110 ${isDarkMode
-              ? 'bg-indigo-600 text-white ring-indigo-400'
-              : 'bg-indigo-500 text-white ring-indigo-300'
-              }`}>
-              {isConfirmation ? <FaCheckCircle size={20} /> : <BsStars size={20} className={answered ? '' : 'animate-pulse'} />}
-            </div>
-            <div className="flex flex-col">
-              <span className={`text-[11px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'}`}>
-                {isConfirmation ? t('chat_hitl_confirmation_title') : t('chat_hitl_question_title')}
-              </span>
-              <span className={`text-[10px] font-medium opacity-50 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
-                {isConfirmation ? t('chat_hitl_confirmation_subtitle') : t('chat_hitl_question_subtitle')}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div aria-live="polite" className={`font-sans text-[15px] font-semibold leading-relaxed ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-          {question}
-        </div>
-
-        {/* A disabled fieldset turns every field, option and checkbox inside it read-only. */}
-        <fieldset disabled={answered} className="min-w-0">
-          {fields.length > 0 && (
-            <form onSubmit={handleFormSubmit} className="mt-5 space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {fields.map(field => (
-                  <div key={field.id} className="flex flex-col gap-1.5">
-                    <label className={`text-[11px] font-bold uppercase tracking-wide opacity-70 ${isDarkMode ? 'text-white' : 'text-gray-700'}`}>
-                      {field.label} {field.required && <span className="text-red-500">*</span>}
-                    </label>
-                    {field.type === 'select' ? (
-                      <select
-                        required={field.required}
-                        value={formData[field.id] || ''}
-                        onChange={(e) => setFormData({ ...formData, [field.id]: e.target.value })}
-                        className={`w-full rounded-xl border px-3 py-2 text-[13px] font-medium outline-none transition-all focus:ring-2 focus:ring-indigo-500 ${isDarkMode
-                          ? 'border-white/10 bg-black/20 text-white'
-                          : 'border-indigo-100 bg-white text-gray-900 shadow-sm'
-                          }`}
-                      >
-                        <option value="">{t('chat_hitl_selectOption')}</option>
-                        {field.options?.map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type={field.type}
-                        required={field.required}
-                        placeholder={field.placeholder}
-                        value={formData[field.id] || ''}
-                        onChange={(e) => setFormData({ ...formData, [field.id]: e.target.value })}
-                        className={`w-full rounded-xl border px-3 py-2 text-[13px] font-medium outline-none transition-all focus:ring-2 focus:ring-indigo-500 ${isDarkMode
-                          ? 'border-white/10 bg-black/20 text-white placeholder:text-gray-500'
-                          : 'border-indigo-100 bg-white text-gray-900 shadow-sm placeholder:text-gray-400'
-                          }`}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-              <button
-                type="submit"
-                className={`mt-2 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-bold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:pointer-events-none ${isDarkMode
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-500'
-                  : 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-600'
-                  }`}
-              >
-                {t('chat_hitl_submit')}
-              </button>
-            </form>
-          )}
-
-          {options.length > 0 && (
-            <div className="mt-5 flex flex-wrap gap-2">
-              {options.map((opt, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => handleSelect(opt)}
-                  className={`group relative flex items-center gap-2 overflow-hidden rounded-xl px-4 py-2.5 text-[13px] font-semibold transition-all hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-[0.98] disabled:pointer-events-none ${isDarkMode
-                    ? 'border border-white/5 bg-white/10 text-white hover:bg-white/20'
-                    : 'border border-indigo-100 bg-white text-indigo-700 shadow-sm hover:bg-indigo-50'
-                    }`}
-                >
-                  <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/5 to-transparent transition-transform duration-500 group-hover:translate-x-full" />
-                  {opt}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {isConfirmation && rememberKey && (
-            <div className="mt-4 flex items-center gap-2">
-              <label className="flex cursor-pointer items-center gap-2 text-[12px] font-medium opacity-70 hover:opacity-100">
-                <input
-                  type="checkbox"
-                  checked={dontAskAgain}
-                  onChange={(e) => setDontAskAgain(e.target.checked)}
-                  className="size-3.5 rounded border-indigo-300 bg-white/10 text-indigo-600 focus:ring-indigo-500"
-                />
-                <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>{t('chat_hitl_dontAskAgain')}</span>
-              </label>
-            </div>
-          )}
-        </fieldset>
+      className={`wg-callout wg-tone-wait ${answered ? 'wg-answered' : ''}`}
+      role={answered ? undefined : 'group'}
+      aria-label={isConfirmation ? t('chat_hitl_confirmation_title') : t('chat_hitl_question_title')}>
+      <div className="wg-callout-head">
+        {isConfirmation ? <ConfirmIcon /> : <QuestionIcon />}
+        <span>{isConfirmation ? t('chat_hitl_confirmation_title') : t('chat_hitl_question_title')}</span>
+        {answered && (
+          <span className="ml-auto flex items-center gap-1">
+            <AnsweredIcon />
+            {t('chat_hitl_answered')}
+          </span>
+        )}
       </div>
 
-      <div className={`flex items-center justify-between border-t px-4 py-2 text-[10px] font-bold uppercase tracking-tight ${isDarkMode ? 'border-white/5 bg-white/5 text-indigo-400' : 'border-indigo-100 bg-indigo-50/30 text-indigo-500'
-        }`}>
-        {answered ? (
-          <div className="flex items-center gap-2">
-            <FaCheckCircle size={10} aria-hidden="true" />
-            <span>{t('chat_hitl_answered')}</span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <div className="size-1.5 animate-pulse rounded-full bg-indigo-500" />
-            <span>{t('chat_hitl_actionRequired')}</span>
+      <p aria-live="polite" className="wg-callout-body">
+        {question}
+      </p>
+
+      {/* A disabled fieldset turns every field, option and checkbox inside it read-only. */}
+      <fieldset disabled={answered} className="min-w-0 border-0 p-0">
+        {fields.length > 0 && (
+          <form onSubmit={handleFormSubmit} className="mt-3 flex flex-col gap-3">
+            {fields.map(field => (
+              <div key={field.id} className="wg-field">
+                <label className="wg-field-label" htmlFor={`hitl-${field.id}`}>
+                  {field.label || field.id}
+                  {field.required && <span aria-hidden="true"> *</span>}
+                </label>
+                {field.type === 'select' ? (
+                  <select
+                    id={`hitl-${field.id}`}
+                    className="wg-input"
+                    required={field.required}
+                    value={formData[field.id] || ''}
+                    onChange={e => setFormData({ ...formData, [field.id]: e.target.value })}>
+                    <option value="">{t('chat_hitl_selectOption')}</option>
+                    {field.options?.map(opt => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    id={`hitl-${field.id}`}
+                    className="wg-input"
+                    type={field.type}
+                    required={field.required}
+                    placeholder={field.placeholder}
+                    value={formData[field.id] || ''}
+                    onChange={e => setFormData({ ...formData, [field.id]: e.target.value })}
+                  />
+                )}
+              </div>
+            ))}
+            <button type="submit" className="wg-btn wg-btn-primary w-full">
+              {t('chat_hitl_submit')}
+            </button>
+          </form>
+        )}
+
+        {options.length > 0 && (
+          <div className="wg-callout-actions">
+            {options.map((opt, i) => (
+              <button
+                key={i}
+                type="button"
+                // The first option is the agent's suggested answer, so it carries the primary weight.
+                className={`wg-btn ${i === 0 ? 'wg-btn-primary' : 'wg-btn-quiet'}`}
+                onClick={() => handleSelect(opt)}>
+                {opt}
+              </button>
+            ))}
           </div>
         )}
-        <span className="opacity-40">{formatTimeOnly(lastMsg.timestamp)}</span>
-      </div>
+
+        {isConfirmation && rememberKey && (
+          <label className="mt-3 flex cursor-pointer items-center gap-2" style={{ fontSize: 'var(--wg-fs-base)', color: 'var(--wg-text-2)' }}>
+            <input
+              type="checkbox"
+              checked={dontAskAgain}
+              onChange={e => setDontAskAgain(e.target.checked)}
+              className="size-3.5 cursor-pointer"
+            />
+            <span>{t('chat_hitl_dontAskAgain')}</span>
+          </label>
+        )}
+      </fieldset>
+
+      <p className="wg-meta wg-num mt-3">{formatTimeOnly(lastMsg.timestamp)}</p>
     </div>
   );
 };

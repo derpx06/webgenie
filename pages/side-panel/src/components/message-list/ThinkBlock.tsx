@@ -1,11 +1,12 @@
 import React from 'react';
 import { Actors, type Message } from '@extension/storage';
+import { t } from '@extension/i18n';
+import { PROGRESS_MARKER } from '../MessageList';
 
 interface ThinkBlockProps {
   actor: Actors;
   messages: Message[];
   isActive: boolean;
-  isDarkMode: boolean;
 }
 
 const extractDomain = (text: string): string | null => {
@@ -99,20 +100,21 @@ const areStringsSimilar = (s1: string, s2: string): boolean => {
 
 const deduplicateSteps = (stepsList: Message[], isPhaseActive: boolean): DeduplicatedStep[] => {
   const deduped: DeduplicatedStep[] = [];
-  
+
   stepsList.forEach((step, index) => {
     const isLast = index === stepsList.length - 1;
     const isStepLive = isPhaseActive && isLast;
-    
+
     // Check if it's a warning step
     const contentLower = step.content.toLowerCase();
-    const isWarning = contentLower.includes('fail') || 
-                      contentLower.includes('error') || 
-                      contentLower.includes('timeout') || 
-                      contentLower.includes('retry') || 
-                      contentLower.includes('exception') ||
-                      contentLower.includes('crash');
-                      
+    const isWarning =
+      contentLower.includes('fail') ||
+      contentLower.includes('error') ||
+      contentLower.includes('timeout') ||
+      contentLower.includes('retry') ||
+      contentLower.includes('exception') ||
+      contentLower.includes('crash');
+
     // Extract warning details (like 5000ms or retry number)
     let warningDetail: string | undefined;
     if (isWarning) {
@@ -151,151 +153,95 @@ const deduplicateSteps = (stepsList: Message[], isPhaseActive: boolean): Dedupli
       });
     }
   });
-  
+
   return deduped;
 };
 
+const StepMark = ({ step }: { step: DeduplicatedStep }) => {
+  if (step.isLive) return <span className="wg-step-mark"><span className="wg-dot wg-dot-live" /></span>;
+  if (step.isWarning)
+    return (
+      <span className="wg-step-mark">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="size-2.5" aria-hidden="true">
+          <path d="M8 4.5v4M8 11h.01" />
+        </svg>
+      </span>
+    );
+  return (
+    <span className="wg-step-mark">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="size-2.5" aria-hidden="true">
+        <path d="M3.5 8.5 6.5 11.5 12.5 5" />
+      </svg>
+    </span>
+  );
+};
+
+/**
+ * One phase of a run — the planner thinking, or the navigator acting — as a rail of
+ * steps. Collapsed by default once it is over, so a finished run reads as a summary
+ * line and the detail is one click away.
+ */
 export const ThinkBlock: React.FC<ThinkBlockProps> = ({ actor, messages, isActive }) => {
   const isPlanner = actor === Actors.PLANNER;
-  const steps = messages.filter(m => m.content !== 'Showing progress...');
-  
-  // Extract domain for header context
+  const steps = messages.filter(m => m.content !== PROGRESS_MARKER);
+
   const headerDomain = steps.map(s => extractDomain(s.content)).find(d => d !== null);
   const cleanDomain = headerDomain ? headerDomain.replace(/^www\./i, '') : null;
 
   const dedupedSteps = deduplicateSteps(steps, isActive);
 
-  // Default to expanded if active, collapsed if completed
-  const [isExpanded, setIsExpanded] = React.useState(isActive);
+  // Open by default: the run card above is the disclosure level, so once it is open the
+  // trail has to be readable without another click. The toggle is still there to fold a
+  // long phase away by hand.
+  const [isExpanded, setIsExpanded] = React.useState(true);
 
-  // Sync isExpanded state with isActive prop updates (e.g. when a task goes from running to completed)
-  React.useEffect(() => {
-    setIsExpanded(isActive);
-  }, [isActive]);
+  if (steps.length === 0) return null;
+
+  const name = isPlanner ? t('trail_phase_planning') : t('trail_phase_acting');
 
   return (
-    <div className={`xphase ${isActive ? 'active-phase' : ''}`}>
-      {/* Absolute positioned phase dot */}
-      <div className={`phase-dot ${isActive ? 'active' : isPlanner ? 'plan' : 'act'}`}>
-        {isActive ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="animate-spin-fast size-2.5">
-            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38" />
-          </svg>
-        ) : isPlanner ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-2.5">
-            <circle cx="12" cy="12" r="10" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="size-2.5">
-            <polyline points="4 17 10 11 4 5" />
-            <line x1="12" y1="19" x2="20" y2="19" />
-          </svg>
-        )}
-      </div>
-
-      {/* Phase header labels */}
-      <div
-        role="button"
-        tabIndex={0}
+    <div className={`wg-phase ${isActive ? 'wg-tone-accent' : 'wg-tone-idle'}`}>
+      <button
+        type="button"
+        className="wg-phase-head"
         aria-expanded={isExpanded}
-        aria-label={`Toggle ${isPlanner ? 'planning' : 'acting'} steps`}
-        className="phase-label-row" 
-        onClick={() => setIsExpanded(!isExpanded)}
-        onKeyDown={event => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            setIsExpanded(!isExpanded);
-          }
-        }}
-        style={{ cursor: 'pointer', userSelect: 'none' }}
-      >
-        <span className={`phase-type-label ${isActive ? 'active' : isPlanner ? 'plan' : 'act'}`}>
-          {isActive ? 'Active' : isPlanner ? 'Planning' : 'Acting'}
-        </span>
-        
-        {cleanDomain && (
-          <span className="domain-pill">
-            {cleanDomain}
-          </span>
-        )}
-
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span className="step-count" style={{ margin: 0 }}>
-            {steps.length} {steps.length === 1 ? 'step' : 'steps'}
+        onClick={() => setIsExpanded(v => !v)}>
+        <span className="wg-phase-name">{name}</span>
+        {cleanDomain && <span className="wg-phase-host">{cleanDomain}</span>}
+        <span className="wg-run-sub">
+          <span className="wg-num">
+            {steps.length === 1 ? t('trail_stepOne') : t('trail_steps', [String(steps.length)])}
           </span>
           <svg
-            viewBox="0 0 24 24"
+            viewBox="0 0 16 16"
             fill="none"
             stroke="currentColor"
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            style={{
-              width: '10px',
-              height: '10px',
-              color: 'var(--ws-muted)',
-              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-              transition: 'transform 0.2s ease',
-            }}
-          >
-            <polyline points="6 9 12 15 18 9" />
+            className={`wg-caret ${isExpanded ? 'wg-caret-open' : ''}`}
+            aria-hidden="true">
+            <path d="M4 6l4 4 4-4" />
           </svg>
-        </div>
-      </div>
+        </span>
+        <span className="sr-only">{isExpanded ? t('trail_detailsHide') : t('trail_detailsShow')}</span>
+      </button>
 
-      {/* Steps List */}
       {isExpanded && (
-        <div className="steps-list animate-slide-in relative">
-          {/* Internal timeline connecting track line */}
-          <div className="absolute inset-y-2 left-[7px] w-[0.5px] bg-slate-300 dark:bg-white/[0.06]" />
-
-          {dedupedSteps.map((step, i) => {
-            const isCompleted = !step.isLive;
-            return (
-              <div className={`step-row ${isCompleted ? 'opacity-85' : ''} ${step.isLive ? 'is-live' : ''}`} key={i}>
-                <div className="step-icon-container relative z-10">
-                  {step.isLive ? (
-                    <div className="relative flex size-3.5 items-center justify-center">
-                      <div className="absolute inset-0 animate-ping rounded-full bg-indigo-500/25" />
-                      <div className="size-1.5 rounded-full bg-indigo-500" />
-                    </div>
-                  ) : step.isWarning ? (
-                    <div className="flex size-3.5 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 text-amber-500">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="size-2">
-                        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                      </svg>
-                    </div>
-                  ) : (
-                    <div className="flex size-3.5 items-center justify-center rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="size-1.5">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="min-w-0 flex-grow">
-                  <span className={`step-text ${step.isLive ? 'live' : ''}`}>
-                    {step.content}
-                  </span>
-
-                  {step.count > 1 && (
-                    <span className="step-badge-dedup">
-                      ×{step.count}
-                    </span>
-                  )}
-
-                  {step.isWarning && step.warningDetail && (
-                    <span className="step-badge-warn">
-                      {step.warningDetail}
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <ol className="wg-steps">
+          {dedupedSteps.map((step, i) => (
+            <li
+              key={i}
+              className={`wg-step ${step.isLive ? 'wg-step-live wg-tone-accent' : step.isWarning ? 'wg-tone-wait' : 'wg-tone-ok'}`}>
+              <StepMark step={step} />
+              <span className="wg-step-text">
+                {step.content}
+                {step.count > 1 && <span className="wg-step-badge wg-num">×{step.count}</span>}
+                {step.isWarning && step.warningDetail && <span className="wg-step-badge">{step.warningDetail}</span>}
+              </span>
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   );

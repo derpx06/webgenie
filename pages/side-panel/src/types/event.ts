@@ -55,6 +55,33 @@ export interface EventData {
   details: string;
 }
 
+/**
+ * What the agent is doing right now, as the status bar reports it.
+ * Derived from the execution events; it is view state only and is never persisted.
+ */
+export type TaskPhase =
+  | 'idle'
+  | 'starting'
+  | 'planning'
+  | 'acting'
+  | 'observing'
+  | 'waiting_human'
+  | 'paused'
+  | 'done'
+  | 'failed'
+  | 'cancelled';
+
+export interface TaskProgress {
+  phase: TaskPhase;
+  /** The step the executor is on, and the limit it stops at. 0 until an event carries them. */
+  step: number;
+  maxSteps: number;
+  /** The newest event detail, shown when there is no goal text to show. */
+  detail: string;
+}
+
+export const IDLE_PROGRESS: TaskProgress = { phase: 'idle', step: 0, maxSteps: 0, detail: '' };
+
 export class AgentEvent {
   /**
    * Represents a state change event in the task execution system.

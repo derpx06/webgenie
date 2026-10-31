@@ -1156,5 +1156,77 @@
   },
   "options_advanced_advancedTools_desc": {
     "message": "Let the agent run a JavaScript expression in the page, read the site's own JSON endpoints, and download and read files (pdf, csv, xlsx, docx). Off by default: a shorter tool list is a more accurate agent, and these reach past the page."
+  },
+  "status_phase_idle": {
+    "message": "Ready"
+  },
+  "status_phase_idleHint": {
+    "message": "Describe a task and WebGenie will work through it here."
+  },
+  "status_phase_starting": {
+    "message": "Starting"
+  },
+  "status_phase_planning": {
+    "message": "Planning"
+  },
+  "status_phase_acting": {
+    "message": "Acting on the page"
+  },
+  "status_phase_observing": {
+    "message": "Reading the page"
+  },
+  "status_phase_waitingHuman": {
+    "message": "Waiting for you"
+  },
+  "status_phase_paused": {
+    "message": "Paused"
+  },
+  "status_phase_done": {
+    "message": "Finished"
+  },
+  "status_phase_failed": {
+    "message": "Stopped on an error"
+  },
+  "status_phase_cancelled": {
+    "message": "Cancelled"
+  },
+  "status_stepOf": {
+    "message": "Step $1 of $2"
+  },
+  "trail_running": {
+    "message": "Working"
+  },
+  "trail_done": {
+    "message": "Finished"
+  },
+  "trail_failed": {
+    "message": "Failed"
+  },
+  "trail_cancelled": {
+    "message": "Cancelled"
+  },
+  "trail_steps": {
+    "message": "$1 steps"
+  },
+  "trail_stepOne": {
+    "message": "1 step"
+  },
+  "trail_detailsShow": {
+    "message": "Show steps"
+  },
+  "trail_detailsHide": {
+    "message": "Hide steps"
+  },
+  "trail_phase_planning": {
+    "message": "Planning"
+  },
+  "trail_phase_acting": {
+    "message": "Acting"
+  },
+  "trail_jumpToLatest": {
+    "message": "Jump to latest"
+  },
+  "chat_hitl_needsYou": {
+    "message": "Needs you"
   }
 }

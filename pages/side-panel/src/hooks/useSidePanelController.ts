@@ -2,6 +2,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { chatHistoryStore, type ChatSessionMetadata } from '@extension/storage';
 
+import { IDLE_PROGRESS, type TaskProgress } from '../types/event';
 import { useTheme } from './useTheme';
 import { useConfig } from './useConfig';
 import { useChatSession } from './useChatSession';
@@ -33,6 +34,8 @@ export const useSidePanelController = () => {
   const [pausedReason, setPausedReason] = useState<string | null>(null);
   const [resumableTask, setResumableTask] = useState<ResumableTask | null>(null);
   const [lastScreenshot, setLastScreenshot] = useState<string | null>(null);
+  // What the agent is doing right now, for the status bar. Rebuilt from events, never persisted.
+  const [taskProgress, setTaskProgress] = useState<TaskProgress>(IDLE_PROGRESS);
 
   // Refs for specific UI components
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
@@ -85,6 +88,7 @@ export const useSidePanelController = () => {
     setPausedReason,
     setResumableTask,
     setLastScreenshot,
+    setTaskProgress,
     setInputTextRef,
     sessionIdRef,
     isTaskActive: showStopButton || isWaitingForHuman,
@@ -164,6 +168,7 @@ export const useSidePanelController = () => {
     setShowStopButton(false);
     setPausedReason(null);
     setResumableTask(null);
+    setTaskProgress(IDLE_PROGRESS);
     stopConnection();
   }, [handleStopTask, isWaitingForHuman, resetSession, showStopButton, stopConnection]);
 
@@ -185,6 +190,8 @@ export const useSidePanelController = () => {
   const handleSessionSelect = useCallback(async (sessionId: string) => {
     const success = await loadSessionFromHistory(sessionId);
     if (success) {
+      // An opened conversation is not running yet; the reattach below refills this if it is.
+      setTaskProgress(IDLE_PROGRESS);
       setShowHistory(false);
       // The opened session may have a saved task to continue.
       requestReattach(sessionId);
@@ -236,6 +243,7 @@ export const useSidePanelController = () => {
     isRecording,
     isProcessingSpeech,
     lastScreenshot,
+    taskProgress,
     messagesEndRef,
     setInputTextRef,
     handleSendMessage,

@@ -1,27 +1,49 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
-import { BsStars } from 'react-icons/bs';
 import { t } from '@extension/i18n';
 import type { Message } from '@extension/storage';
 
 interface AnswerRowProps {
   messages: Message[];
-  isDarkMode: boolean;
 }
 
-const formatTimeOnly = (timestamp: number) => {
-  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const formatTimeOnly = (timestamp: number) =>
+  new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+type Outcome = 'completed' | 'failed' | 'cancelled';
+
+const OUTCOME: Record<Outcome, { tone: string; label: () => string }> = {
+  completed: { tone: 'wg-tone-ok', label: () => t('chat_answer_completed') },
+  failed: { tone: 'wg-tone-err', label: () => t('chat_answer_failed') },
+  cancelled: { tone: 'wg-tone-idle', label: () => t('chat_answer_cancelled') },
 };
 
-const badgeClass = 'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight';
+const OutcomeIcon = ({ outcome }: { outcome: Outcome }) => {
+  const common = {
+    viewBox: '0 0 16 16',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    className: 'size-3',
+    'aria-hidden': true,
+  };
+  if (outcome === 'completed') return <svg {...common}><path d="M3 8.5 6.5 12 13 4.5" /></svg>;
+  if (outcome === 'cancelled') return <svg {...common}><circle cx="8" cy="8" r="6" /><path d="M5.5 5.5l5 5" /></svg>;
+  return <svg {...common}><circle cx="8" cy="8" r="6" /><path d="M8 5v4M8 11h.01" /></svg>;
+};
 
-export const AnswerRow: React.FC<AnswerRowProps> = ({ messages, isDarkMode }) => {
+/**
+ * What the agent came back with. An error answer is drawn in the error tone so a failure
+ * is visible without reading the prose.
+ */
+export const AnswerRow: React.FC<AnswerRowProps> = ({ messages }) => {
   const lastMsg = messages[messages.length - 1];
   // The badge follows the task state the event recorded on the message (task.ok / task.fail / task.cancel), never the
   // wording. Rows with no recorded state, such as errors the panel reports itself, get no badge.
-  const outcome = messages.some(m => m.isFailed)
+  const outcome: Outcome | null = messages.some(m => m.isFailed)
     ? 'failed'
     : messages.some(m => m.isCancelled)
       ? 'cancelled'
@@ -29,51 +51,33 @@ export const AnswerRow: React.FC<AnswerRowProps> = ({ messages, isDarkMode }) =>
         ? 'completed'
         : null;
 
-  return (
-    <div className="group mb-4 flex gap-3">
-      <div className={`flex size-8 shrink-0 items-center justify-center rounded-full shadow-lg transition-transform group-hover:scale-110 ${isDarkMode ? 'border border-white/5 bg-[#1a1c23] text-indigo-400' : 'border border-gray-100 bg-white text-indigo-600'}`}>
-        <BsStars size={16} />
-      </div>
-      <div className="flex min-w-0 grow flex-col items-start">
-        <div className="flex w-full flex-col gap-2">
-          {messages.map((m, i) => (
-            <div key={i} className={`font-regular animate-in fade-in text-[14px] leading-relaxed duration-300 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                p: ({ ...props }) => <p className="mb-2 last:mb-0" {...props} />,
-                ul: ({ ...props }) => <ul className="mb-2 ml-4 list-disc" {...props} />,
-                ol: ({ ...props }) => <ol className="mb-2 ml-4 list-decimal" {...props} />,
-                code: ({ ...props }) => <code className={`rounded px-1 ${isDarkMode ? 'bg-white/5 text-amber-300' : 'bg-gray-100 text-amber-600'}`} {...props} />
-              }}>
-                {m.content}
-              </ReactMarkdown>
-            </div>
-          ))}
-        </div>
+  // Inside a failure callout the tone already says "failed", so the badge would be a third
+  // copy of the same word (status bar, run card, badge). Only a plain answer carries it.
+  const showBadge = outcome !== null && outcome !== 'failed';
 
-        <div className="mt-3 flex items-center gap-3">
-          {outcome === 'failed' && (
-            <div className={`${badgeClass} ${isDarkMode ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'}`}>
-              <FaTimesCircle size={10} />
-              <span>{t('chat_answer_failed')}</span>
-            </div>
-          )}
-          {outcome === 'cancelled' && (
-            <div className={`${badgeClass} ${isDarkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-600'}`}>
-              <FaTimesCircle size={10} />
-              <span>{t('chat_answer_cancelled')}</span>
-            </div>
-          )}
-          {outcome === 'completed' && (
-            <div className={`${badgeClass} ${isDarkMode ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
-              <FaCheckCircle size={10} />
-              <span>{t('chat_answer_completed')}</span>
-            </div>
-          )}
-          <span className={`text-[10px] font-bold opacity-30 ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
-            {formatTimeOnly(lastMsg.timestamp)}
-          </span>
+  const body = (
+    <>
+      {messages.map((m, i) => (
+        <div key={i} className="wg-answer">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
         </div>
+      ))}
+      <div className="mt-2 flex items-center gap-2">
+        {showBadge && outcome && (
+          <span className="wg-chip">
+            <OutcomeIcon outcome={outcome} />
+            {OUTCOME[outcome].label()}
+          </span>
+        )}
+        <span className="wg-meta wg-num">{formatTimeOnly(lastMsg.timestamp)}</span>
       </div>
-    </div>
+    </>
   );
+
+  // A failure gets the callout treatment; an ordinary answer stays plain so the text leads.
+  if (outcome === 'failed') {
+    return <div className="wg-callout wg-tone-err">{body}</div>;
+  }
+
+  return <div className={`flex flex-col ${outcome ? OUTCOME[outcome].tone : 'wg-tone-idle'}`}>{body}</div>;
 };

@@ -1156,5 +1156,77 @@
   },
   "options_advanced_advancedTools_desc": {
     "message": "允許代理程式在頁面中執行 JavaScript 運算式、讀取網站自己的 JSON 端點，並下載及讀取檔案（pdf、csv、xlsx、docx）。預設為關閉：較短的工具清單讓代理程式更準確，而這些工具會觸及頁面以外的範圍。"
+  },
+  "status_phase_idle": {
+    "message": "就緒"
+  },
+  "status_phase_idleHint": {
+    "message": "描述一項任務，WebGenie 會在這裡執行。"
+  },
+  "status_phase_starting": {
+    "message": "啟動中"
+  },
+  "status_phase_planning": {
+    "message": "規劃中"
+  },
+  "status_phase_acting": {
+    "message": "正在操作頁面"
+  },
+  "status_phase_observing": {
+    "message": "正在讀取頁面"
+  },
+  "status_phase_waitingHuman": {
+    "message": "等待你的回覆"
+  },
+  "status_phase_paused": {
+    "message": "已暫停"
+  },
+  "status_phase_done": {
+    "message": "已完成"
+  },
+  "status_phase_failed": {
+    "message": "因錯誤停止"
+  },
+  "status_phase_cancelled": {
+    "message": "已取消"
+  },
+  "status_stepOf": {
+    "message": "第 $1 步，共 $2 步"
+  },
+  "trail_running": {
+    "message": "執行中"
+  },
+  "trail_done": {
+    "message": "已完成"
+  },
+  "trail_failed": {
+    "message": "失敗"
+  },
+  "trail_cancelled": {
+    "message": "已取消"
+  },
+  "trail_steps": {
+    "message": "$1 個步驟"
+  },
+  "trail_stepOne": {
+    "message": "1 個步驟"
+  },
+  "trail_detailsShow": {
+    "message": "顯示步驟"
+  },
+  "trail_detailsHide": {
+    "message": "隱藏步驟"
+  },
+  "trail_phase_planning": {
+    "message": "規劃"
+  },
+  "trail_phase_acting": {
+    "message": "操作"
+  },
+  "trail_jumpToLatest": {
+    "message": "跳到最新"
+  },
+  "chat_hitl_needsYou": {
+    "message": "需要你"
   }
 }
