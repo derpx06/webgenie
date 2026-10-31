@@ -13,12 +13,58 @@ interface AdvancedSettingsProps {
   isDarkMode?: boolean;
 }
 
+/**
+ * What the browser-data tools need beyond the install-time set. They are declared optional in the manifest, so the
+ * browser asks for them when the user turns the tools on instead of at install — a browsing agent does not need a
+ * new user's bookmarks, history and open sessions to start, and asking for them up front was unrelated functionality
+ * bundled into one consent.
+ */
+const BROWSER_DATA_PERMISSIONS: chrome.permissions.Permissions = {
+  permissions: [
+    'bookmarks',
+    'readingList',
+    'history',
+    'downloads',
+    'browsingData',
+    'sessions',
+    'management',
+    'system.cpu',
+    'system.memory',
+  ] as chrome.runtime.ManifestPermissions[],
+};
+
 export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) => {
   const [generalSettings, setGeneralSettings] = useState<GeneralSettingsConfig>(DEFAULT_GENERAL_SETTINGS);
 
   useEffect(() => {
-    generalSettingsStore.getSettings().then(setGeneralSettings);
+    (async () => {
+      const settings = await generalSettingsStore.getSettings();
+      // A setting that says the tools are on while the browser says they are not granted — the user revoked access
+      // from the extensions page — is off. Left alone, every browser-data tool would throw on an undefined API.
+      if (settings.enableBrowserDataTools && !(await chrome.permissions.contains(BROWSER_DATA_PERMISSIONS))) {
+        await generalSettingsStore.updateSettings({ enableBrowserDataTools: false });
+        setGeneralSettings({ ...settings, enableBrowserDataTools: false });
+        return;
+      }
+      setGeneralSettings(settings);
+    })();
   }, []);
+
+  /**
+   * Turn the browser-data tools on or off, asking the browser for the access they need.
+   *
+   * `permissions.request` is only allowed while handling a user gesture, so it must be the first thing this does:
+   * nothing may be awaited before it. A refusal leaves the tools off. Turning them off hands the access back.
+   */
+  const toggleBrowserDataTools = async (enable: boolean) => {
+    if (enable) {
+      const granted = await chrome.permissions.request(BROWSER_DATA_PERMISSIONS);
+      if (!granted) return;
+    } else {
+      await chrome.permissions.remove(BROWSER_DATA_PERMISSIONS).catch(() => false);
+    }
+    await updateGeneralSetting('enableBrowserDataTools', enable);
+  };
 
   const updateGeneralSetting = async <K extends keyof GeneralSettingsConfig>(
     key: K,
@@ -76,7 +122,7 @@ export const AdvancedSettings = ({ isDarkMode = false }: AdvancedSettingsProps) 
           desc={t('options_advanced_browserDataTools_desc')}
           checked={generalSettings.enableBrowserDataTools}
           isDarkMode={isDarkMode}
-          onChange={val => updateGeneralSetting('enableBrowserDataTools', val)}
+          onChange={val => void toggleBrowserDataTools(val)}
         />
         <SettingToggle
           title={t('options_advanced_advancedTools')}
