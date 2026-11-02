@@ -23,6 +23,8 @@ E2E_ORACLE=1 E2E_SUITE=all pnpm -F chrome-extension e2e   # no browser agent, no
 | `E2E_TZ` | machine's | Browser time zone, e.g. `America/New_York` |
 | `E2E_MODEL` | `gemini-2.5-flash` | Navigator model (and planner, unless the next is set) |
 | `E2E_PLANNER_MODEL` | `E2E_MODEL` | Planner model |
+| `E2E_ADC` | unset | Path to a Google credentials file. The harness hands the path to `gcloud auth application-default print-access-token` and never reads the file, so a service account works without a gcloud login |
+| `E2E_DIST` | `dist/` | Extension build to load. Point it at another checkout's `dist/` to run two builds side by side |
 | `E2E_PROJECT` / `E2E_LOCATION` | gcloud project / `global` | Vertex AI project and location (`global` gets fewer 429s) |
 | `E2E_MAX_INPUT_TOKENS` | 4,000,000 | Whole-run input token cap; later tasks are `skipped_budget` |
 | `E2E_TASK_MAX_INPUT_TOKENS` | 400,000 | Per-task cap (a task can set `maxInputTokens`) |
@@ -73,3 +75,13 @@ A reproducible slice of the Online-Mind2Web benchmark with a WebJudge-style judg
 - `make-slice.mjs --in Online_Mind2Web.json --out slice.json` — seeded, stratified sample (14 hard, 17 easy, 29 medium, one task per site).
 - `run.mjs [--limit N] [--only id,id] [--level easy|medium|hard] [--self-check]` — runs the slice through the same harness (`E2E_MODEL`, `E2E_PLANNER_MODEL`, `E2E_PROJECT`, `E2E_LOCATION`, `E2E_MEMORY`, `E2E_HEADLESS`, `CHROMIUM_PATH`). Memory is cold per task here too, and the mode is recorded in each `result.json`'s `harness` block; `analyze.mjs` rebuilds the same integrity block from the saved results. Search engines are firewalled, order/payment confirmations are declined, other questions get "Proceed with any reasonable choice." Limits: 25 steps, 600 s, 150k input tokens. Writes `results/mind2web-<ts>/<task_id>/` (result, screenshots, events, trace).
 - `judge.mjs <runDir> [--model gemini-2.5-pro] [--threshold 3] [--concurrency 2] [--dry-run]` — key points, per-screenshot scores, then an outcome call; writes `judgments.json` with success rate and Wilson intervals overall and per level, re-judging only missing or errored tasks.
+
+## Reading a round
+
+- `E2E_SUITE=fixture` runs every task whose page is local (no internet, no `site_down`), the quickest paired comparison.
+- `node e2e/failures.mjs <results dir>` reads a round's own files and prints, for each failed task, why it failed, then the
+  patterns across them. Run it before changing anything.
+- One run proves nothing: the same task flips between builds about one time in five. Repeat (`E2E_REPEAT=5`) before calling a
+  task a regression or a fix, and compare builds with `e2e/mind2web/compare.mjs`, which prints the smallest effect the sample
+  could have resolved.
+- A rate-limited model that outlasts its budget is `provider_down`, not a failure of the agent; re-run it.
