@@ -25,8 +25,6 @@ vi.mock('puppeteer-core/lib/esm/puppeteer/puppeteer-core-browser.js', () => {
 });
 
 import BrowserContext from '../context';
-import type { IBrowserAdapter } from '../../adapters/IBrowserAdapter';
-import type { IStorageProvider } from '../../adapters/IStorageProvider';
 
 describe('BrowserContext with Adapter Dependency Injection', () => {
   let mockAdapter: any;

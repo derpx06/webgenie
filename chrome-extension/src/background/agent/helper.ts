@@ -374,6 +374,8 @@ export function createChatModel(
       });
     }
     case ProviderTypeEnum.VertexAI: {
+      // Built up in steps (project, location, OAuth) that the library's constructor type does not list together.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const args: any = {
         model: modelConfig.modelName,
         apiKey: providerConfig.apiKey,

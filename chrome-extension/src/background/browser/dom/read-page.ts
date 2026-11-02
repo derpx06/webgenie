@@ -432,7 +432,7 @@ function headerScore(field: FieldSpec, header: string): number {
 export function coerce(value: string, type: string): unknown {
   const text = value.trim();
   if (type === 'number' || type === 'integer') {
-    const number = Number(text.replace(/[^0-9.\-]/g, ''));
+    const number = Number(text.replace(/[^0-9.-]/g, ''));
     return Number.isFinite(number) ? (type === 'integer' ? Math.trunc(number) : number) : undefined;
   }
   if (type === 'boolean') {

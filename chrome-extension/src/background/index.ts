@@ -37,7 +37,6 @@ import {
 import { keepAliveManager } from './services/keepAliveManager';
 import { scrubForDisplay } from './trace';
 import { createLogger } from './log';
-import { ExecutionState } from './agent/event/types';
 import { createChatModel } from './agent/helper';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { DEFAULT_AGENT_OPTIONS } from './agent/types';

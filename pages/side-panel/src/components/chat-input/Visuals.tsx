@@ -52,7 +52,7 @@ export const RecordingOverlay: React.FC<RecordingOverlayProps> = ({ isRecording 
     return (
         <div
             role="status"
-            className="pointer-events-none absolute inset-x-0 -top-9 z-20 flex h-7 items-center justify-center gap-1 wg-tone-err">
+            className="wg-tone-err pointer-events-none absolute inset-x-0 -top-9 z-20 flex h-7 items-center justify-center gap-1">
             {BAR_HEIGHTS.map((h, i) => (
                 <span
                     key={i}

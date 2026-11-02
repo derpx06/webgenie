@@ -707,6 +707,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
         const refuse = (guard: string, reason: string) => {
           // A refused action tried again (six times in a live run) will be refused again: say so, and offer the way out.
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to leave it out
           const { memory: _memory, ...refusedArgs } = actionArgs as Record<string, unknown>;
           const refusalKey = `${actionName} ${JSON.stringify(refusedArgs)}`;
           const times = (this.context.refusedActions.get(refusalKey) ?? 0) + 1;
@@ -1614,6 +1615,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
 
   /** One action by name, the page address it started on and its arguments (engine stamps aside). */
   private repeatKey(actionName: string, actionArgs: unknown, pageUrl: string): string {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to leave them out
     const { memory: _memory, observationId: _observation, targetFingerprint: _target, ...args } = (actionArgs ?? {}) as Record<string, unknown>;
     return `${actionName}|${addressKey(pageUrl) || pageUrl}|${JSON.stringify(args)}`;
   }

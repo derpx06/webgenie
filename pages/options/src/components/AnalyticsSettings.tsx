@@ -270,7 +270,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
         >
           <div className="flex items-center justify-between gap-6">
             <p className={`text-[13px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-300' : 'text-slate-500'}`}>
-              Send WebGenie's developers a small usage report. It is off until you turn it on, and the list below is
+              Send WebGenie&apos;s developers a small usage report. It is off until you turn it on, and the list below is
               everything it contains.
             </p>
             <label className="group relative inline-flex shrink-0 cursor-pointer items-center">

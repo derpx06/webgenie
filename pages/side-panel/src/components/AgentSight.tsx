@@ -59,11 +59,15 @@ export const AgentSight: React.FC<AgentSightProps> = ({ screenshot, isActive }) 
             </button>
 
             {isExpanded && (
+                // The scrim only duplicates the close button inside, which is reachable from the keyboard.
+                // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
                 <div
                     className="absolute inset-0 z-40 flex items-center justify-center p-4"
                     style={{ background: 'var(--wg-scrim)' }}
                     onClick={() => setIsExpanded(false)}
                     role="presentation">
+                    {/* Stops a click inside the dialog from reaching the scrim. */}
+                    {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions */}
                     <div
                         role="dialog"
                         aria-modal="true"

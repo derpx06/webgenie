@@ -33,8 +33,15 @@
     "import/no-unresolved": "off",
     "@typescript-eslint/consistent-type-imports": "error",
   },
+  "overrides": [
+    {
+      // These wrap Chrome APIs whose typings lag the browser, stand in for Node modules, or fake collaborators in tests.
+      "files": ["**/adapters/**", "**/agent/mocks/**", "**/__tests__/**", "**/actions/handlers/manage-*.ts"],
+      "rules": { "@typescript-eslint/no-explicit-any": "off" },
+    },
+  ],
   "globals": {
     "chrome": "readonly",
   },
-  "ignorePatterns": ["watch.js", "dist/**", "**/dist/**", "build/**", "lib/**"],
+  "ignorePatterns": ["watch.js", "dist/**", "**/dist/**", "build/**", "lib/**", "**/e2e/results/**", "**/e2e/archive/**", "**/e2e/builds/**"],
 }

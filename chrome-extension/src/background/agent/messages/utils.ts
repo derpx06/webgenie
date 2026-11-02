@@ -269,7 +269,7 @@ export function filterExternalContentWithReport(rawContent: string | undefined, 
  * @returns Wrapped content with security warnings
  */
 const DELIMITER_NAME = /nano_(untrusted_content|user_request|attached_files|file_content)/gi;
-const INVISIBLE = /[​-‍⁠﻿]/g;
+const INVISIBLE = /[\u200B-\u200D\u2060\uFEFF]/g;
 
 /**
  * Neutralises the agent's own delimiters inside text that did not come from the user (page text, titles, dialogs,
