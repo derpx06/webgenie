@@ -812,6 +812,11 @@ export class Harness {
     if (run.outcome !== 'task.ok' && lastCall && /Failed to fetch|provider unreachable|invalid authentication credentials/i.test(`${lastCall.msg} ${JSON.stringify(lastCall.data?.error ?? '')}`)) {
       run.outcome = 'provider_down';
     }
+    // The planner's model call timed out on every attempt and the task ended on max failures with nothing else wrong (a
+    // shared model slowed by other load; two security tasks, one run each). The task's own steps are not what failed.
+    if (run.outcome === 'task.fail' && run.events.some(e => e.state === 'task.fail' && /Max failures reached: Planning failed: LLM call timed out/i.test(String(e.data?.details ?? '')))) {
+      run.outcome = 'provider_down';
+    }
     // The provider rate-limited it for the whole retry budget and the task paused to be resumed (observed on
     // gemini-3.5-flash at the global location: 18 consecutive 429s over three minutes, "Resource exhausted", which is
     // shared capacity and not a limit this run set). Not a verdict on the agent either, so it is unmeasured and re-run.

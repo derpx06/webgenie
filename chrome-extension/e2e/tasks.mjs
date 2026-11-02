@@ -1456,6 +1456,9 @@ const RESILIENCE = [
     allowHuman: true,
     settings: { 'general-settings': { humanWaitMinutes: 0.5 } },
     lateAnswer: 'Phone: 555-0100',
+    // Booking a delivery is confirmed first. The phone question stays unanswered (it does not match), the confirmation is
+    // answered when it comes after the late answer resumes the task.
+    human: [{ expect: /confirm/i, answer: 'Yes' }],
     task: 'Book a delivery for Web Genie to 1 Main Street.',
     check: async ({ evalOn, fixtures, events, questions }) => {
       const status = await statusOn(evalOn, fixtures);
