@@ -1548,7 +1548,7 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           // The browser's firewall settings block that address: a refusal the model can recover from, not the end of the
           // task (Online-Mind2Web smoke run: search_web opened a blocked search engine and the task failed at step 1).
           const blocked = /URL: (\S+) is not allowed/.exec(error.message)?.[1] ?? 'that address';
-          const refusal = `Not opened: ${blocked} is blocked by the browser's firewall settings. Do not try that address again; reach the goal another way, for example with the current site's own search, menus or links.`;
+          const refusal = `Not opened: ${blocked} is blocked by the browser's firewall settings. The user set that block. Do not try that address again, and do not reach the same site through a search engine, a cache or a proxy: that goes around the block. If the task needs that site, tell the user it is blocked and stop; if it was only a step toward the goal, use another route to the goal.`;
           traceGuard('firewall', 'refused', actionName, refusal);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, refusal);
           await browserContext.invalidateCache().catch(() => undefined);

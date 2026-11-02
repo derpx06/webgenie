@@ -1037,6 +1037,11 @@ describe('An address the firewall blocks', () => {
 
     expect(h.last()).toMatchObject({ state: ExecutionState.TASK_OK });
     expect(textOf(h.llm.requestsFor('navigator')[1].messages)).toContain("blocked by the browser's firewall settings");
+    // The block is the user's. The note says so and forbids the way round it, which a model took when told to "reach the goal
+    // another way": it searched the web for the blocked site (0 of 8 passed that task; 7 of 8 with this wording).
+    const note = textOf(h.llm.requestsFor('navigator')[1].messages);
+    expect(note).toContain('The user set that block');
+    expect(note).toContain('goes around the block');
   });
 });
 
