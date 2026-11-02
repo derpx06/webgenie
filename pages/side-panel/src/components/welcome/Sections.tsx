@@ -42,7 +42,7 @@ export const ActionSection: React.FC<ActionSectionProps> = ({ isDarkMode, onOpen
                 {t('welcome_openSettings')}
             </button>
             <div className={`flex items-center justify-center space-x-6 text-sm font-semibold ${isDarkMode ? "text-slate-500" : "text-slate-400"}`} data-purpose="external-links">
-                <a className={`${isDarkMode ? "hover:text-obsidian-accent" : "hover:text-indigo-600"} flex items-center transition-colors`} href="https://github.com/WebGenie/WebGenie?tab=readme-ov-file#-quick-start" target="_blank" rel="noopener noreferrer">
+                <a className={`${isDarkMode ? "hover:text-obsidian-accent" : "hover:text-indigo-600"} flex items-center transition-colors`} href="https://github.com/derpx06/webgenie#readme" target="_blank" rel="noopener noreferrer">
                     <span>{t('welcome_quickStart')}</span>
                 </a>
             </div>

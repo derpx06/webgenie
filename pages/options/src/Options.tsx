@@ -70,7 +70,7 @@ const Options = () => {
 
   const handleTabClick = (tabId: TabTypes) => {
     if (tabId === 'help') {
-      window.open('https://WebGenie.ai/docs', '_blank');
+      window.open('https://github.com/derpx06/webgenie#readme', '_blank', 'noopener,noreferrer');
     } else {
       setActiveTab(tabId);
       window.location.hash = tabId;
