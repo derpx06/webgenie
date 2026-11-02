@@ -111,10 +111,10 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
 
                 <div className={`rounded-xl border p-3 backdrop-blur-3xl ${isDarkMode ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-white/50'}`}>
                     <div className="mb-1 flex items-center justify-between">
-                        <div className="font-mono text-[9px] font-black uppercase tracking-widest opacity-30">v2.1.4</div>
+                        <div className="font-mono text-[9px] font-black uppercase tracking-widest opacity-30">v{chrome.runtime.getManifest().version}</div>
                         <div className="size-1.5 animate-pulse rounded-full bg-emerald-500/50"></div>
                     </div>
-                    <div className={`text-[8px] font-bold uppercase tracking-tighter opacity-20 ${isDarkMode ? 'text-white' : 'text-black'}`}>© 2026 Neural Runtime</div>
+                    <div className={`text-[8px] font-bold uppercase tracking-tighter opacity-20 ${isDarkMode ? 'text-white' : 'text-black'}`}>© 2026 WebGenie</div>
                 </div>
             </div>
         </aside>

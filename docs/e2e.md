@@ -85,3 +85,4 @@ A reproducible slice of the Online-Mind2Web benchmark with a WebJudge-style judg
   task a regression or a fix, and compare builds with `e2e/mind2web/compare.mjs`, which prints the smallest effect the sample
   could have resolved.
 - A rate-limited model that outlasts its budget is `provider_down`, not a failure of the agent; re-run it.
+- `node e2e/firstrun.mjs [dist]` is the first run a new user has, on a fresh profile with nothing seeded: the welcome screen, saving a key assigns both roles a model, the notice gates the agent, and the background refuses a task until it is accepted. Pass an unpacked release zip to test what ships. `E2E_NETLOG=<file>` writes Chromium's net-log for a suite run so the hosts it contacted can be listed.
