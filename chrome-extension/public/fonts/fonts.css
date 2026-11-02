@@ -1,0 +1,6 @@
+/* Latin subsets of four open-licence variable fonts (SIL OFL 1.1, licences alongside), shipped in the package so no page
+   reaches a font server. Text outside Latin falls back to the system fonts named in each page's font stack. */
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap; src: url('./inter-latin-wght-normal.woff2') format('woff2-variations'); }
+@font-face { font-family: 'Outfit'; font-style: normal; font-weight: 100 900; font-display: swap; src: url('./outfit-latin-wght-normal.woff2') format('woff2-variations'); }
+@font-face { font-family: 'DM Sans'; font-style: normal; font-weight: 100 1000; font-display: swap; src: url('./dm-sans-latin-wght-normal.woff2') format('woff2-variations'); }
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 100 800; font-display: swap; src: url('./jetbrains-mono-latin-wght-normal.woff2') format('woff2-variations'); }

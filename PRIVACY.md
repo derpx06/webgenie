@@ -32,6 +32,8 @@ reach us.
 - **Routes it learned.** The shape of paths that worked on a site, such as which kind of control led where. Never what you typed.
 - **Traces.** A log of what the agent did, kept only if you turn on developer tracing. Keys are removed from it.
 
+The extension's own pages load nothing from the internet: fonts and images ship in the package.
+
 All of this is cleared from Options. Uninstalling the extension removes it.
 
 Passwords you give the agent are replaced by a placeholder before the model sees anything, and are typed only into a password

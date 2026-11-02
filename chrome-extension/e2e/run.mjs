@@ -874,7 +874,7 @@ export async function launchSession(fixtures) {
     // A hung page call fails in a minute instead of the default three.
     protocolTimeout: 60_000,
     ignoreDefaultArgs: ['--disable-extensions'],
-    args: [`--disable-extensions-except=${DIST}`, `--load-extension=${DIST}`, '--no-first-run', '--no-default-browser-check', '--window-size=1400,900', ...(lang ? [`--lang=${lang}`] : [])],
+    args: [`--disable-extensions-except=${DIST}`, `--load-extension=${DIST}`, '--no-first-run', '--no-default-browser-check', '--window-size=1400,900', ...(lang ? [`--lang=${lang}`] : []), ...(process.env.E2E_NETLOG ? [`--log-net-log=${process.env.E2E_NETLOG}`] : [])],
     env: { ...process.env, ...(process.env.E2E_TZ ? { TZ: process.env.E2E_TZ } : {}), ...(lang ? { LANG: `${lang.replace('-', '_')}.UTF-8`, LANGUAGE: lang } : {}) },
   });
   try {

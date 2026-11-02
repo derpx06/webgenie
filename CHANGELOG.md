@@ -20,6 +20,12 @@ described by what it does and does not do rather than by a score: no accuracy fi
   checkout address) rather than by finding a card field, which hosted checkouts keep in a frame the page cannot read.
 - The first time you use it, a notice says what is sent and to whom. The agent does not start until you accept it.
 
+### Fixed: privacy
+- The side panel and the options page no longer load their fonts from Google. Opening either sent your address to Google every
+  time. The four fonts now ship inside the package (Latin subsets, SIL Open Font Licence, licences in `fonts/`).
+- A site you blocked in the firewall is reported as blocked. The note used to suggest reaching the goal another way, and the
+  agent searched the web for the blocked site.
+
 ### Fixed: safety
 - The confirmation dialog no longer quotes an amount. It was read from page text, where a hidden `$0.00` could set it.
 - The check that asks "did the user want this address opened?" no longer sees page-supplied addresses, and a link on the page
