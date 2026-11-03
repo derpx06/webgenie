@@ -937,10 +937,16 @@ const HITL = [
     title: 'Asks for missing required information',
     url: f => `${f.hostOrigin}/delivery`,
     task: 'Book a delivery for Web Genie to 1 Main Street.',
-    human: [{ expect: /phone/i, answer: 'Phone: 555-0100' }],
+    // Booking is confirmed before it is done, so the confirmation is answered too; what this checks is that the phone number is
+    // asked for once and not invented.
+    human: [
+      { expect: /phone/i, answer: 'Phone: 555-0100' },
+      { expect: /confirm/i, answer: 'Yes' },
+    ],
     check: async ({ evalOn, questions, fixtures }) => {
       const status = await statusOn(evalOn, fixtures);
-      return { pass: status === 'Booked for Web Genie, 1 Main Street, 555-0100' && questions.length === 1, detail: `status=${status} questions=${JSON.stringify(questions)}` };
+      const phoneAsks = questions.filter(q => /phone/i.test(q)).length;
+      return { pass: status === 'Booked for Web Genie, 1 Main Street, 555-0100' && phoneAsks === 1, detail: `status=${status} questions=${JSON.stringify(questions)}` };
     },
   },
   {

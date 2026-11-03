@@ -18,7 +18,10 @@ pnpm -F chrome-extension exec vitest run src/background/agent/validation/__tests
 pnpm -F chrome-extension exec vitest run -t "test name"
 
 pnpm e2e                                              # build + live core suite (Vertex AI via gcloud)
-E2E_SUITE=security pnpm -F chrome-extension e2e       # core|complex|hitl|security|breadth|endurance|resilience|memory|all
+E2E_SUITE=security pnpm -F chrome-extension e2e       # core|complex|hitl|security|breadth|endurance|resilience|memory|files|vision|fixture|all
+E2E_ADC=<credentials file path> pnpm -F chrome-extension e2e   # Vertex via a credentials file (path only, never read it)
+node chrome-extension/e2e/failures.mjs <results dir>  # why each failed task failed; run it before changing anything
+node chrome-extension/e2e/firstrun.mjs [dist]          # a new user's first run on a fresh profile (pass an unpacked release zip)
 E2E_ONLY=T1,C13 E2E_HEADLESS=1 pnpm -F chrome-extension e2e
 E2E_ORACLE=1 E2E_SUITE=all pnpm -F chrome-extension e2e   # check the checkers, no model calls
 ```
