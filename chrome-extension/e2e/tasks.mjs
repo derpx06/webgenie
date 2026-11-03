@@ -941,6 +941,8 @@ const HITL = [
     // asked for once and not invented.
     human: [
       { expect: /phone/i, answer: 'Phone: 555-0100' },
+      // The form can be submitted by Enter or by its button, and each is confirmed on its own.
+      { expect: /confirm/i, answer: 'Yes' },
       { expect: /confirm/i, answer: 'Yes' },
     ],
     check: async ({ evalOn, questions, fixtures }) => {
