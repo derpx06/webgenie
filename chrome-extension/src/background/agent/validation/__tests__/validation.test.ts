@@ -639,6 +639,19 @@ describe('committing actions', () => {
     expect(commitTarget('input_text', { index: 1, text: 'x', submit: true }, 'https://shop.test/pay', element(1, { tagName: 'input' }), payment)?.handover).toBe(true);
   });
 
+  it('lets Enter search on a page that merely embeds a payment frame, and still hands back on any other field', () => {
+    const payment: FormCommitInfo = { inForm: true, isSubmitter: false, paymentFields: false, submitLabels: [], paymentContext: true };
+    const search = element(1, { tagName: 'input', attributes: { type: 'search', 'aria-label': 'Search' } });
+    expect(commitTarget('input_text', { index: 1, text: 'shoes', submit: true }, 'https://store.test/', search, payment)).toBeNull();
+    expect(commitTarget('send_keys', { keys: 'Enter', index: 1 }, 'https://store.test/', search, payment)).toBeNull();
+    // Its submit button is a search too, by the form's own word for what it is.
+    const searchForm: FormCommitInfo = { ...payment, isSubmitter: true, submitLabels: ['Go'], searchForm: true };
+    expect(commitTarget('click_element', { index: 2 }, 'https://store.test/', element(2, { tagName: 'button', attributes: { type: 'submit' } }), searchForm)).toBeNull();
+    // A card field is a card field even if it is called search, and a plain text field on a payment page is still handed back.
+    expect(commitTarget('input_text', { index: 1, text: 'x', submit: true }, 'https://store.test/pay', element(1, { tagName: 'input' }), payment)?.handover).toBe(true);
+    expect(commitTarget('input_text', { index: 1, text: '4242', submit: true }, 'https://store.test/pay', search, { ...payment, targetIsPaymentField: true })?.handover).toBe(true);
+  });
+
   // Live, an inbox task wrote "Starring Payment reminder" in its notes and clicked the Archive button next to it: the right
   // row, an index one off. Its words name the control it means, so they catch the slip before anything is clicked.
   describe('targetMismatch', () => {

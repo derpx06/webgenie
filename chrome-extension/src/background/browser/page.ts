@@ -211,6 +211,8 @@ export interface FormCommitInfo {
   paymentContext?: boolean;
   /** The element this action targets is itself a card, CVC or bank field. */
   targetIsPaymentField?: boolean;
+  /** The form is a search form (role search, a search field, or a search address): submitting it searches. */
+  searchForm?: boolean;
 }
 
 /** Hosts that serve hosted payment fields. Their presence in any frame means this page can take money. */
@@ -261,6 +263,11 @@ const inspectForm = (start: Element | null): FormCommitInfo => {
     // The element this action targets, rather than the form around it: typing a card number is itself something the
     // agent does not do, whatever the submit button later says.
     targetIsPaymentField: !!el && isPayment(el as HTMLInputElement),
+    searchForm:
+      form.getAttribute('role') === 'search' ||
+      !!form.closest('[role="search"]') ||
+      controls.some(c => c.type === 'search' || c.getAttribute('role') === 'searchbox') ||
+      /search/i.test(form.getAttribute('action') ?? ''),
     submitLabels: controls
       .filter(submits)
       .map(c => ((c as HTMLElement).innerText || c.value || c.getAttribute('aria-label') || '').trim())
@@ -2337,14 +2344,19 @@ export default class Page {
       };
     }
     await this._dispatchMouse(option, 'click', { checkCover: false });
-    await sleep(100);
-    const confirmed = await handle
-      .evaluate((el, wanted) => {
-        const shows = (candidate: Element | null) =>
-          Boolean(candidate && `${(candidate as HTMLInputElement).value ?? ''} ${candidate.textContent ?? ''}`.includes(wanted));
-        return shows(el) || shows(el.parentElement) || shows(el.parentElement?.parentElement ?? null) || shows(el.parentElement?.parentElement?.parentElement ?? null);
-      }, text)
-      .catch(() => false);
+    // A page that re-renders after the choice shows it a moment later: look for up to 600 ms, not once after 100 (a live run
+    // chose the same option eight times because the control had not changed yet when it was read).
+    let confirmed = false;
+    for (const deadline = Date.now() + 600; !confirmed && Date.now() < deadline; ) {
+      await sleep(100);
+      confirmed = await handle
+        .evaluate((el, wanted) => {
+          const shows = (candidate: Element | null) =>
+            Boolean(candidate && `${(candidate as HTMLInputElement).value ?? ''} ${candidate.textContent ?? ''}`.includes(wanted));
+          return shows(el) || shows(el.parentElement) || shows(el.parentElement?.parentElement ?? null) || shows(el.parentElement?.parentElement?.parentElement ?? null);
+        }, text)
+        .catch(() => false);
+    }
     return { selected: true, confirmed, message: `Selected option "${text}"` };
   }
 

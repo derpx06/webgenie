@@ -121,6 +121,16 @@ export interface CommitTarget {
 
 const PRESSES_ENTER = /enter|return/i;
 
+/**
+ * A search box: pressing Enter in it searches, whatever the page around it is. A store homepage that embeds a PayPal or
+ * Klarna frame is a "payment context" to the page-level check, and a live run refused the search box on one three times.
+ */
+function isSearchField(node?: DOMElementNode): boolean {
+  const a = node?.attributes;
+  if (!a) return false;
+  return a.type === 'search' || a.role === 'searchbox' || /\bsearch\b/i.test(`${a['aria-label'] ?? ''} ${a.name ?? ''} ${a.placeholder ?? ''}`);
+}
+
 /** Whether an action presses Enter: a key press of Enter or Return, or typing with submit. */
 function pressesEnter(actionName: string, args: Record<string, unknown>): boolean {
   return (actionName === 'send_keys' && PRESSES_ENTER.test(String(args.keys ?? ''))) || ((actionName === 'input_text' || actionName === 'fill_form') && args.submit === true);
@@ -165,9 +175,11 @@ export function commitTarget(
   // cannot commit through a form at all, so nothing was inspected.
   // `paymentContext` is the page-level answer: on a hosted checkout the card field is in a frame nobody can read, so
   // the form's own controls say nothing and the submit's wording is often just "Continue".
+  // Submitting a search form, or pressing Enter in a search box, searches, whatever frames the page embeds around it.
+  const searchOnly = (!!form?.searchForm || isSearchField(node)) && !form?.paymentFields && !form?.targetIsPaymentField;
   const commitsForm =
     !!form?.unreadable ||
-    !!form?.paymentContext ||
+    (!!form?.paymentContext && !searchOnly) ||
     (!!form?.inForm && (form.paymentFields || form.submitLabels.some(isCommitLabel)));
   const modelSaysCommit = typeof args.commits === 'string' && args.commits !== 'none';
   let label: string | undefined;
@@ -208,7 +220,7 @@ export function commitTarget(
   // about, not refused: it spends nothing and opens nothing in the user's name. Unless its address is itself the commit.
   const handover =
     (isHandoverLabel(label) && (!opens || commitHref)) ||
-    (!!form?.paymentContext && (CLICKING_TOOLS.has(actionName) || pressesEnter(actionName, args))) ||
+    (!!form?.paymentContext && !searchOnly && (CLICKING_TOOLS.has(actionName) || pressesEnter(actionName, args))) ||
     (!!form?.paymentFields && !!form?.isSubmitter) ||
     // Typing a card number, CVC or bank detail is itself in the class the agent does not do.
     !!form?.targetIsPaymentField;
@@ -1018,7 +1030,7 @@ export function validateActionOutcome(input: ValidateActionOutcomeInput): Action
     }
     return selection?.passed
       ? cloneWithValidation(result, 'passed', 'none', [])
-      : cloneWithValidation(result, 'unknown', 'retry_reobserve', [], 'The selection could not be confirmed; check the dropdown.');
+      : cloneWithValidation(result, 'unknown', 'retry_reobserve', [], 'The option was clicked but the control does not show it yet (a page that redraws, or words it differently). Look at the page for the effect (the order of the list, the filter shown) before choosing it again: choosing the same option again changes nothing.');
   }
 
   if (SCROLL_ACTIONS.includes(actionName)) {

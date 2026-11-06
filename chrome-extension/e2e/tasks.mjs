@@ -1255,6 +1255,22 @@ const BREADTH = [
     check: ({ answer }) => ['element', 'index', 'array'].every(word => new RegExp(`\\b${word}\\b`, 'i').test(answer)),
   },
   {
+    // The page-level payment check once refused the search box of a store homepage that embeds a wallet frame, three times in a
+    // live run: pressing Enter in a search box searches, whatever else the page embeds.
+    id: 'B10',
+    title: 'Searches a store whose page embeds a payment frame',
+    url: f => `${f.hostOrigin}/storefront`,
+    task: 'Search this store for blue shoes.',
+    oracle: async ({ page }) => {
+      await page.goto(page.url().replace(/\/storefront.*/, '/storefront/results?q=blue+shoes'));
+      return { answer: 'Searched for blue shoes.' };
+    },
+    check: async ({ activeTabUrl, answer }) => {
+      const url = await activeTabUrl();
+      return { pass: url.includes('/storefront/results') && /blue/.test(url) && !/stopped at/i.test(answer), detail: `url=${url}` };
+    },
+  },
+  {
     // A checkbox the page hides (no box at all) with its words beside it as plain text: a click has nothing to land on, a
     // keyboard still works. Seen live on a car-listing filter, retried seven times and never ticked.
     id: 'B9',

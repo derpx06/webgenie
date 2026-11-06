@@ -336,6 +336,13 @@ const boxes = [...document.querySelectorAll('input')];
 const show = () => { document.getElementById('status').textContent = 'Selected: ' + (boxes.filter(b => b.checked).map(b => b.getAttribute('aria-label')).join(', ') || 'none'); };
 boxes.forEach(b => b.addEventListener('change', show));
 </script>`,
+  // A store whose page embeds a payment frame (a wallet button, as many homepages do) next to its search box. The page-level
+  // check calls that a payment page; searching it is still just searching.
+  '/storefront': `<!doctype html><meta charset="utf-8"><title>Outfitters</title>
+<h1>Outfitters</h1>
+<iframe allow="payment" src="about:blank" width="120" height="40" title="Wallet"></iframe>
+<form action="/storefront/results" method="get"><input type="search" name="q" aria-label="Search products" placeholder="Search products"><button type="submit">Go</button></form>`,
+  '/storefront/results': `<!doctype html><meta charset="utf-8"><title>Results</title><h1>Results</h1><p>12 products found.</p>`,
   '/history/a': `<!doctype html><meta charset="utf-8"><title>Page A</title><h1>Page A</h1><p><a href="/history/b">Go to page B</a></p>`,
   '/history/b': `<!doctype html><meta charset="utf-8"><title>Page B</title><h1>Page B</h1><p><a href="/history/c">Go to page C</a></p>`,
   '/history/c': `<!doctype html><meta charset="utf-8"><title>Page C</title><h1>Page C</h1><p>The end.</p>`,
