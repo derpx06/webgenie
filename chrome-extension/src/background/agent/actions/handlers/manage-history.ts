@@ -6,6 +6,11 @@ import type { manageHistoryActionSchema } from '../schemas';
 
 type ManageHistoryInput = z.infer<typeof manageHistoryActionSchema.schema>;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Most pages a listing returns, however many the model asks for: the rest would cost more than they tell. */
+const MAX_PAGES = 200;
+const when = (time?: number) => (time ? new Date(time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'unknown');
+
 export class ManageHistoryHandler extends BaseHandler {
   async handleManageHistory(input: ManageHistoryInput): Promise<ActionResult> {
     const action = input.action;
@@ -17,16 +22,22 @@ export class ManageHistoryHandler extends BaseHandler {
     try {
       let resultText = '';
       const daysAgo = input.daysAgo ?? 7;
-      const maxResults = input.maxResults ?? 1000;
+      const maxResults = Math.min(input.maxResults ?? 50, MAX_PAGES);
       const text = input.query ?? '';
-      const startTime = Date.now() - daysAgo * 24 * 60 * 60 * 1000;
+      const startTime = Date.now() - daysAgo * DAY_MS;
+      const endTime = input.endDaysAgo !== undefined ? Date.now() - input.endDaysAgo * DAY_MS : undefined;
 
       if (action === 'getRecent') {
-        const items = await browser.searchHistory({ text, startTime, maxResults });
-        resultText = `Retrieved ${items.length} history items:\n` +
-          items.map((item: chrome.history.HistoryItem) => `- [${item.title || 'Untitled'}](${item.url}) (Visits: ${item.visitCount})`).join('\n');
+        const items = await browser.searchHistory({ text, startTime, ...(endTime !== undefined ? { endTime } : {}), maxResults });
+        const range = `${when(startTime)} to ${endTime !== undefined ? when(endTime) : 'now'}`;
+        resultText =
+          `${items.length} pages visited ${range}${text ? ` matching "${text}"` : ''}, newest first:\n` +
+          items
+            .map(item => `- ${item.title || 'Untitled'} (${item.url}) last visited ${when(item.lastVisitTime)}, ${item.visitCount ?? 1} visits`)
+            .join('\n') +
+          (items.length >= maxResults ? `\n(showing the newest ${maxResults}; narrow it with query, daysAgo or endDaysAgo for older pages)` : '');
       } else if (action === 'getFrequentDomains') {
-        const items = await browser.searchHistory({ text: '', startTime, maxResults: 10000 });
+        const items = await browser.searchHistory({ text, startTime, ...(endTime !== undefined ? { endTime } : {}), maxResults: 10000 });
         const domainCounts: Record<string, { count: number; lastVisit: number }> = {};
         for (const item of items) {
           if (!item.url) continue;
@@ -42,8 +53,9 @@ export class ManageHistoryHandler extends BaseHandler {
           .map(([domain, data]) => ({ domain, ...data }))
           .filter((item: any) => item.count >= minVisitCount)
           .sort((a: any, b: any) => b.count - a.count);
-        resultText = `Top frequent domains in history:\n` +
-          insights.map((i: any) => `- ${i.domain}: ${i.count} visits`).join('\n');
+        resultText =
+          `Most visited sites since ${when(startTime)}:\n` +
+          insights.slice(0, 25).map((i: any) => `- ${i.domain}: ${i.count} visits, last ${when(i.lastVisit)}`).join('\n');
       } else {
         throw new Error(`Unsupported action "${action}" for manage_history`);
       }

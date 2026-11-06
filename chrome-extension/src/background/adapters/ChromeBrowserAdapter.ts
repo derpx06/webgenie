@@ -229,6 +229,13 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
     }));
   }
 
+  async updateBookmark(id: string, changes: { title?: string; url?: string }): Promise<chrome.bookmarks.BookmarkTreeNode> {
+    return chrome.bookmarks.update(id, changes);
+  }
+  async moveBookmark(id: string, destination: { parentId?: string; index?: number }): Promise<chrome.bookmarks.BookmarkTreeNode> {
+    return chrome.bookmarks.move(id, destination);
+  }
+
   // Window Management
   async getCurrentWindow(): Promise<chrome.windows.Window> {
     return chrome.windows.getCurrent();
@@ -249,6 +256,9 @@ export class ChromeBrowserAdapter implements IBrowserAdapter {
   }
   async ungroupTabs(tabIds: number | number[]): Promise<void> {
     return chrome.tabs.ungroup(tabIds);
+  }
+  async queryTabGroups(queryInfo: chrome.tabGroups.QueryInfo): Promise<chrome.tabGroups.TabGroup[]> {
+    return chrome.tabGroups.query(queryInfo);
   }
   async updateTabGroup(groupId: number, updateProperties: chrome.tabGroups.UpdateProperties): Promise<chrome.tabGroups.TabGroup | undefined> {
     return chrome.tabGroups.update(groupId, updateProperties);

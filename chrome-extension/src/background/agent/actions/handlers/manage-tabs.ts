@@ -6,6 +6,9 @@ import type { manageTabsActionSchema } from '../schemas';
 
 type ManageTabsInput = z.infer<typeof manageTabsActionSchema.schema>;
 
+/** Lines a listing returns: a person with hundreds of tabs open still gets a result the model can read. */
+const MAX_LISTED = 150;
+
 export class ManageTabsHandler extends BaseHandler {
   async handleManageTabs(input: ManageTabsInput): Promise<ActionResult> {
     const action = input.action;
@@ -17,7 +20,33 @@ export class ManageTabsHandler extends BaseHandler {
     try {
       let resultText = '';
 
-      if (action === 'groupTabs') {
+      if (action === 'listTabs') {
+        const tabs = await browser.queryTabs(input.windowId !== undefined ? { windowId: input.windowId } : {});
+        const needle = input.query?.toLowerCase();
+        const shown = tabs.filter(tab => !needle || `${tab.title ?? ''} ${tab.url ?? ''}`.toLowerCase().includes(needle));
+        resultText =
+          `${shown.length} open tabs${needle ? ` matching "${input.query}"` : ''}:\n` +
+          shown
+            .slice(0, MAX_LISTED)
+            .map(
+              tab =>
+                `- [${tab.id}] ${tab.title || 'Untitled'} (${(tab.url ?? '').slice(0, 120)}) window ${tab.windowId}` +
+                `${tab.groupId !== undefined && tab.groupId >= 0 ? `, group ${tab.groupId}` : ''}${tab.active ? ', active' : ''}${tab.pinned ? ', pinned' : ''}`,
+            )
+            .join('\n') +
+          (shown.length > MAX_LISTED ? `\n(${shown.length - MAX_LISTED} more not shown: narrow it with query or windowId)` : '');
+      } else if (action === 'listGroups') {
+        const groups = await browser.queryTabGroups(input.windowId !== undefined ? { windowId: input.windowId } : {});
+        const tabs = await browser.queryTabs({});
+        resultText =
+          `${groups.length} tab groups:\n` +
+          groups
+            .map(group => {
+              const members = tabs.filter(tab => tab.groupId === group.id).map(tab => tab.id);
+              return `- [${group.id}] "${group.title || 'Unnamed'}" ${group.color}${group.collapsed ? ', collapsed' : ''}, window ${group.windowId}, tabs ${members.join(', ') || 'none'}`;
+            })
+            .join('\n');
+      } else if (action === 'groupTabs') {
         if (!input.tabIds || input.tabIds.length === 0) throw new Error('tabIds array is required to group tabs');
         if (input.windowId !== undefined) {
           const windowTabs = await browser.queryTabs({ windowId: input.windowId });
@@ -27,11 +56,13 @@ export class ManageTabsHandler extends BaseHandler {
             throw new Error(`Tabs ${outsideWindow.join(', ')} are not in window ${input.windowId}`);
           }
         }
-        const groupId = await browser.groupTabs({ tabIds: input.tabIds });
+        const groupId = await browser.groupTabs(
+          input.groupId !== undefined ? { tabIds: input.tabIds, groupId: input.groupId } : { tabIds: input.tabIds },
+        );
         if (input.title || input.color || input.collapsed !== undefined) {
           await browser.updateTabGroup(groupId, { title: input.title, color: input.color as any, collapsed: input.collapsed });
         }
-        resultText = `Successfully grouped tabs ${input.tabIds.join(', ')} into group ID: ${groupId}`;
+        resultText = `Grouped tabs ${input.tabIds.join(', ')} into group ${groupId}${input.title ? ` "${input.title}"` : ''}`;
       } else if (action === 'ungroupTabs') {
         if (!input.tabIds || input.tabIds.length === 0) throw new Error('tabIds array is required to ungroup tabs');
         await browser.ungroupTabs(input.tabIds);

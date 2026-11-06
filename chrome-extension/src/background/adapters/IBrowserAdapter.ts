@@ -57,6 +57,8 @@ export interface IBrowserAdapter {
   searchBookmarks(query: string | object): Promise<chrome.bookmarks.BookmarkTreeNode[]>;
   createBookmark(bookmark: any): Promise<chrome.bookmarks.BookmarkTreeNode>;
   removeBookmark(id: string): Promise<void>;
+  updateBookmark(id: string, changes: { title?: string; url?: string }): Promise<chrome.bookmarks.BookmarkTreeNode>;
+  moveBookmark(id: string, destination: { parentId?: string; index?: number }): Promise<chrome.bookmarks.BookmarkTreeNode>;
   getRecentBookmarks(numberOfItems: number): Promise<chrome.bookmarks.BookmarkTreeNode[]>;
 
   // Window Management
@@ -68,6 +70,7 @@ export interface IBrowserAdapter {
   // Tab Groups Management
   groupTabs(options: chrome.tabs.GroupOptions): Promise<number>;
   ungroupTabs(tabIds: number | number[]): Promise<void>;
+  queryTabGroups(queryInfo: chrome.tabGroups.QueryInfo): Promise<chrome.tabGroups.TabGroup[]>;
   updateTabGroup(groupId: number, updateProperties: chrome.tabGroups.UpdateProperties): Promise<chrome.tabGroups.TabGroup | undefined>;
 
   // Downloads

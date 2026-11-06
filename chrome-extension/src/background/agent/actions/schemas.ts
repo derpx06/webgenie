@@ -440,15 +440,19 @@ export const evalJsActionSchema: ActionSchema = {
 export const manageBookmarksActionSchema: ActionSchema = {
   name: 'manage_bookmarks',
   irreversible: 'never',
-  description: 'Manage Chrome bookmarks: get flat lists, search by title/url, get recent bookmarks, or create new ones.',
+  description:
+    "The user's bookmarks. search, getFlat, getRecent and listFolders show ids; create adds a bookmark (a folder when there is no url), update renames by id, move puts one in another folder. It cannot delete: that is the user's.",
   schema: z.object({
-    action: z.enum(['getFlat', 'search', 'create', 'getRecent']).describe('The action to perform on bookmarks'),
-    query: z.string().optional().describe('Text query for searching bookmarks'),
-    url: z.string().optional().describe('URL for bookmarking'),
-    title: z.string().optional().describe('Title of the bookmark'),
-    folderPath: z.string().optional().describe('Filter bookmarks by folder path name'),
-    parentId: z.string().optional().describe('Parent folder ID to create a bookmark in (optional)'),
-    count: z.number().int().optional().describe('Number of recent items to fetch (for getRecent)'),
+    action: z
+      .enum(['getFlat', 'search', 'create', 'getRecent', 'listFolders', 'update', 'move'])
+      .describe('What to do with the bookmarks'),
+    query: z.string().optional().describe('Text to search for'),
+    url: z.string().optional().describe('Address to bookmark, search for, or change to'),
+    title: z.string().optional().describe('Title to create, search for, or change to'),
+    folderPath: z.string().optional().describe('Only folders or bookmarks whose folder path contains this name'),
+    id: z.string().optional().describe('The bookmark or folder to update or move, from a listing'),
+    parentId: z.string().optional().describe('Folder id: where to create it, or where to move it'),
+    count: z.number().int().optional().describe('How many recent bookmarks (getRecent)'),
   }),
 };
 
@@ -466,13 +470,15 @@ export const manageReadingListActionSchema: ActionSchema = {
 export const manageHistoryActionSchema: ActionSchema = {
   name: 'manage_history',
   irreversible: 'never',
-  description: 'Manage Chrome history: get recent history items or find frequent domains.',
+  description:
+    "What the user visited: getRecent lists pages newest first with last visit and visit count, in a window (daysAgo back to endDaysAgo: yesterday is 2 to 1); getFrequentDomains ranks sites. Read-only.",
   schema: z.object({
-    action: z.enum(['getRecent', 'getFrequentDomains']).describe('The action to perform on history'),
-    query: z.string().optional().describe('Text query/search term for searching history'),
-    daysAgo: z.number().int().optional().describe('Days ago filter for history and domain analysis'),
-    maxResults: z.number().int().optional().describe('Max results to fetch for history items'),
-    minVisitCount: z.number().int().optional().describe('Minimum visit count threshold for domain analysis'),
+    action: z.enum(['getRecent', 'getFrequentDomains']).describe('List pages, or rank sites by visits'),
+    query: z.string().optional().describe('Only pages whose title or address contains this text'),
+    daysAgo: z.number().int().optional().describe('How far back to look, in days (default 7)'),
+    endDaysAgo: z.number().int().optional().describe('Stop this many days ago instead of now, to look at one day or week'),
+    maxResults: z.number().int().optional().describe('Pages to list, newest first (default 50, at most 200)'),
+    minVisitCount: z.number().int().optional().describe('getFrequentDomains: skip sites visited fewer times'),
   }),
 };
 
@@ -488,18 +494,22 @@ export const manageDownloadsActionSchema: ActionSchema = {
 export const manageTabsActionSchema: ActionSchema = {
   name: 'manage_tabs',
   irreversible: 'never',
-  description: 'Manage Chrome tab groups: group tabs, ungroup tabs, or update existing groups.',
+  description:
+    "The user's open tabs and groups. listTabs and listGroups show the ids first; then groupTabs (a new group, or an existing one with groupId), updateGroup (title, colour, collapse) or ungroupTabs. Name each group for what it holds.",
   schema: z.object({
-    action: z.enum(['groupTabs', 'ungroupTabs', 'updateGroup']).describe('The action to perform on tab groups'),
-    tabIds: z.array(z.number().int()).optional().describe('Array of tab IDs to group or ungroup'),
-    groupId: z.number().int().optional().describe('ID of the tab group to update'),
-    windowId: z.number().int().optional().describe('Window ID to target or open groups in'),
-    title: z.string().optional().describe('Title to set for the tab group'),
+    action: z
+      .enum(['listTabs', 'listGroups', 'groupTabs', 'ungroupTabs', 'updateGroup'])
+      .describe('What to do with the tabs or groups'),
+    tabIds: z.array(z.number().int()).optional().describe('Tab ids to group or ungroup, from listTabs'),
+    groupId: z.number().int().optional().describe('Group id: the group to update, or the existing group to add tabs to'),
+    windowId: z.number().int().optional().describe('Only this window'),
+    query: z.string().optional().describe('listTabs: only tabs whose title or address contains this text'),
+    title: z.string().optional().describe('Name for the group'),
     color: z
       .enum(['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'])
       .optional()
-      .describe('Color to set for a tab group'),
-    collapsed: z.boolean().optional().describe('Whether to collapse or expand a tab group'),
+      .describe('Colour for the group'),
+    collapsed: z.boolean().optional().describe('Collapse or expand the group'),
   }),
 };
 

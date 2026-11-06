@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 WebGenie works in your browser while you watch. This is the first release meant for the Chrome Web Store, and it is
 described by what it does and does not do rather than by a score: no accuracy figure is claimed.
 
+### Added: your own browser (with Browser data tools on)
+- Tabs and tab groups: list every open tab and group with its id, then group tabs by topic (a new group or an existing one),
+  name and colour a group, collapse it, or take tabs out. Before, the agent could not see the ids of tabs you had opened.
+- History: pages newest first with when and how often, in a time window (yesterday is "2 days ago to 1"); most visited sites.
+- Bookmarks: find by text, list folders with their ids, create a bookmark or a folder, rename, and move. It does not delete.
+- Long listings are cut, and the result says how many were left out. With the tools off, the agent tells you where to turn
+  them on instead of searching the web for your history.
+
 ### Changed: what the agent will and will not do
 - It no longer places orders, makes payments, opens accounts or types card, CVC or bank details, including details you gave
   it. It takes a task to the decision and hands the browser back. Subscriptions and other account changes are still asked
