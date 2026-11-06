@@ -3,6 +3,7 @@ import { BasePrompt, forTools } from './base';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '@src/background/agent/types';
 import { plannerSystemPromptTemplate } from './templates/planner';
+import { type AskLevel, askRules } from './templates/common';
 
 /** Only when the navigator can take screenshots (V2: unable to see a colour, the planner asked the user which swatch was green). */
 const PLANNER_VISION_RULES = `# Seeing the page
@@ -12,9 +13,9 @@ export class PlannerPrompt extends BasePrompt {
   private readonly systemPrompt: string;
 
   /** `tools`: the names of the navigator's registered actions; the prompt mentions no other tool. */
-  constructor(tools: ReadonlySet<string>) {
+  constructor(tools: ReadonlySet<string>, askLevel: AskLevel = 'balanced') {
     super();
-    const prompt = forTools(plannerSystemPromptTemplate, tools);
+    const prompt = forTools(plannerSystemPromptTemplate.replace('{{ask_planner}}', askRules[askLevel].planner), tools);
     this.systemPrompt = tools.has('view_screenshot') ? `${prompt}\n\n${PLANNER_VISION_RULES}` : prompt;
   }
 

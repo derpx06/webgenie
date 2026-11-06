@@ -84,7 +84,7 @@ describe('manage_history', () => {
   });
 
   it('never asks for more than 200 pages, and reads a one-day window', async () => {
-    const searchHistory = vi.fn(async (_query: Record<string, unknown>) => []);
+    const searchHistory = vi.fn<(query: Record<string, unknown>) => Promise<never[]>>(async () => []);
     await new ManageHistoryHandler(contextFor({ searchHistory })).handleManageHistory({
       action: 'getRecent',
       maxResults: 5000,

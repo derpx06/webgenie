@@ -47,6 +47,8 @@ export interface AgentOptions {
   captureSessions: boolean;
   /** Registers the manage_* tools (bookmarks, history, downloads, browsing data, extensions...); off unless the user turns them on. */
   enableBrowserDataTools: boolean;
+  /** How often the prompts tell the agent to ask the user to choose between options (settings: askLevel). */
+  askLevel: 'more' | 'balanced' | 'less';
   /** Registers eval_js, sniff_api, fetch_json, download and read_file; off unless the user turns them on. */
   enableAdvancedTools: boolean;
   /** Accept the navigator's done without the planner's check when the evidence is complete (validation/done-evidence.ts). */
@@ -72,6 +74,7 @@ export const DEFAULT_AGENT_OPTIONS: AgentOptions = {
   logDOMSnapshot: false,
   captureSessions: false,
   enableBrowserDataTools: false,
+  askLevel: 'balanced',
   enableAdvancedTools: false,
   acceptEvidencedDone: false,
   absenceRouteKinds: 2,

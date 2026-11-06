@@ -38,7 +38,12 @@ export interface GeneralSettingsConfig {
   enableAdvancedTools: boolean;
   /** Finish when the navigator's answer is fully backed by the page and validated steps, without the planner's extra check. */
   acceptEvidencedDone: boolean;
+  /** How often it asks you to pick between matching options. Orders, payments, accounts and card details are handed back whatever this says. */
+  askLevel: AskLevel;
 }
+
+/** How often the agent asks the user to choose between options: more (ask whenever options differ), balanced, or less (decide). */
+export type AskLevel = 'more' | 'balanced' | 'less';
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
   updateSettings: (settings: Partial<GeneralSettingsConfig>) => Promise<void>;
@@ -74,6 +79,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   enableBrowserDataTools: false,
   enableAdvancedTools: false,
   acceptEvidencedDone: false,
+  askLevel: 'balanced',
 };
 
 

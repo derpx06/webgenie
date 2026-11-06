@@ -4,6 +4,7 @@ import { type HumanMessage, SystemMessage } from '@langchain/core/messages';
 import type { AgentContext } from '@src/background/agent/types';
 import { createLogger } from '@src/background/log';
 import { navigatorSystemPromptTemplate } from './templates/navigator';
+import { type AskLevel, askRules } from './templates/common';
 
 const logger = createLogger('agent/prompts/navigator');
 
@@ -18,11 +19,20 @@ export class NavigatorPrompt extends BasePrompt {
   constructor(
     private readonly maxActionsPerStep: number,
     tools: ReadonlySet<string>,
+    askLevel: AskLevel = 'balanced',
   ) {
     super();
 
     // Format the template with the maxActionsPerStep
-    const formattedPrompt = forTools(navigatorSystemPromptTemplate.replace('{{max_actions}}', this.maxActionsPerStep.toString()).trim(), tools);
+    const formattedPrompt = forTools(
+      navigatorSystemPromptTemplate
+        .replace('{{max_actions}}', this.maxActionsPerStep.toString())
+        .replace('{{ask_choose}}', askRules[askLevel].choose)
+        .replace('{{ask_settle}}', askRules[askLevel].settle)
+        .replace('{{ask_never}}', askRules[askLevel].never)
+        .trim(),
+      tools,
+    );
     this.systemMessage = new SystemMessage(tools.has('view_screenshot') ? `${formattedPrompt}\n\n${NAVIGATOR_VISION_RULES}` : formattedPrompt);
   }
 

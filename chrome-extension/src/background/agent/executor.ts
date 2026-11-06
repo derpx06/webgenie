@@ -172,8 +172,8 @@ export class Executor {
     const navigatorActionRegistry = new NavigatorActionRegistry(actionBuilder.buildDefaultActions());
     // Both prompts offer only the registered tools; with view_screenshot they say the navigator can look at the page.
     const tools = new Set(navigatorActionRegistry.getAllActions().map(action => action.name()));
-    this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep, tools);
-    this.plannerPrompt = new PlannerPrompt(tools);
+    this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep, tools, context.options.askLevel);
+    this.plannerPrompt = new PlannerPrompt(tools, context.options.askLevel);
 
     // Initialize agents with their respective prompts
     this.navigator = new NavigatorAgent(navigatorActionRegistry, {

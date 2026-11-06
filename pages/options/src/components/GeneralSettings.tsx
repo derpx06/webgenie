@@ -2,9 +2,9 @@
 import { useState, useEffect } from 'react';
 import { type GeneralSettingsConfig, generalSettingsStore, DEFAULT_GENERAL_SETTINGS } from '@extension/storage';
 import { t } from '@extension/i18n';
-import { FiActivity, FiTrash2, FiZap } from 'react-icons/fi';
+import { FiActivity, FiMessageCircle, FiTrash2, FiZap } from 'react-icons/fi';
 import { DashboardSection } from './shared/DashboardSection';
-import { SettingToggle, SettingStepperInput, SettingInlineUnitInput } from './GeneralSettingsComponents';
+import { SettingToggle, SettingStepperInput, SettingInlineUnitInput, SettingChoice } from './GeneralSettingsComponents';
 
 interface GeneralSettingsProps {
   isDarkMode?: boolean;
@@ -43,6 +43,30 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 mx-auto flex max-w-2xl flex-col gap-6 pb-10 duration-700">
+
+      {/* 0. HOW OFTEN IT ASKS */}
+      <DashboardSection
+        title="Asking"
+        subtitle="How much it decides for you"
+        icon={<FiMessageCircle size={20} />}
+        isDarkMode={isDarkMode}
+        colorTheme="indigo"
+        headerClassName="py-5 px-8"
+        contentClassName="flex flex-col"
+      >
+        <SettingChoice
+          title="When several choices fit"
+          desc="Orders, payments, new accounts and card details are always left to you, whatever you pick here. So are CAPTCHAs, logins and anything only you know."
+          value={settings.askLevel ?? 'balanced'}
+          isDarkMode={isDarkMode}
+          onChange={val => updateSetting('askLevel', val)}
+          options={[
+            { value: 'more', label: 'Ask me more', hint: 'It asks whenever two options differ in price, size or the like.' },
+            { value: 'balanced', label: 'Balanced', hint: 'It decides what you can undo in a moment (a cart, a filter, a sort), tells you what it chose, and asks about the rest.' },
+            { value: 'less', label: 'Ask me less', hint: 'It chooses the closest match itself and tells you what it chose, rather than asking about options.' },
+          ]}
+        />
+      </DashboardSection>
 
       {/* 1. SAFETY & LIMITS MODULE */}
       <DashboardSection

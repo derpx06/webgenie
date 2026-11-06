@@ -867,13 +867,17 @@ const HITL = [
   },
   {
     id: 'H2',
-    title: 'Asks which of two matching items',
+    title: 'Picks between two matching items it can undo, and says which',
     url: f => `${f.hostOrigin}/shop`,
+    // Putting a shirt in a cart is undone with one click, so the agent chooses (the closest match, then the cheaper) and says
+    // which it chose and what the other was; asking would cost the user a turn for a choice they can change in a second.
     task: 'Add the blue shirt to my cart and tell me the cart total.',
-    human: [{ expect: /cotton|linen|which|two|both/i, answer: 'The linen one.' }],
     check: async ({ answer, evalOn, questions, fixtures }) => {
       const cart = await statusOn(evalOn, fixtures);
-      return { pass: cart === 'Cart: Blue shirt (linen) — total $35' && questions.length === 1 && has(answer, '35'), detail: `cart=${cart} questions=${JSON.stringify(questions)}` };
+      const chosen = /^Cart: Blue shirt \((cotton|linen)\) — total \$(20|35)$/.exec(cart ?? '');
+      const total = chosen ? chosen[2] : null;
+      const named = chosen ? has(answer, chosen[1]) : false;
+      return { pass: !!chosen && questions.length === 0 && has(answer, total ?? '?') && named, detail: `cart=${cart} questions=${JSON.stringify(questions)}` };
     },
   },
   {

@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 WebGenie works in your browser while you watch. This is the first release meant for the Chrome Web Store, and it is
 described by what it does and does not do rather than by a score: no accuracy figure is claimed.
 
+### Changed: it asks less
+- When two items match and the choice is easy to undo (a cart, a filter, a sort), it now chooses the closest match and tells you
+  what it chose and what the other was, instead of asking. It still asks when a wrong pick would cost money, change an account,
+  send a message or delete data. Before, it asked every time two options differed: on a test shop, 8 of 8 runs asked; now none do.
+- New setting, **Options → General → Asking**: Ask me more, Balanced (default) or Ask me less. It changes only these choice
+  questions; orders, payments, accounts and card details are handed back, and CAPTCHAs, logins and values only you know are asked,
+  at every level.
+
 ### Added: your own browser (with Browser data tools on)
 - Tabs and tab groups: list every open tab and group with its id, then group tabs by topic (a new group or an existing one),
   name and colour a group, collapse it, or take tabs out. Before, the agent could not see the ids of tabs you had opened.

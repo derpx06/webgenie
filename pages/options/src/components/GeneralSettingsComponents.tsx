@@ -281,3 +281,59 @@ export const SettingTextInput: React.FC<TextInputProps> = ({
     </div>
   </div>
 );
+
+interface ChoiceProps<T extends string> {
+  title: string;
+  desc: string;
+  value: T;
+  options: { value: T; label: string; hint: string }[];
+  isDarkMode: boolean;
+  onChange: (value: T) => void;
+}
+
+/** One setting with a few named values, shown as a row of radio buttons (arrow keys move between them). */
+export function SettingChoice<T extends string>({ title, desc, value, options, isDarkMode, onChange }: ChoiceProps<T>) {
+  const current = options.find(option => option.value === value);
+  return (
+    <div
+      className={`flex flex-col gap-4 border-b px-8 py-6 last:border-0 ${isDarkMode ? 'border-white/5' : 'border-slate-100'}`}
+    >
+      <div>
+        <h3 className={`font-sans text-[14px] font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{title}</h3>
+        <p className={`mt-1 text-[12px] font-medium leading-relaxed opacity-60 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{desc}</p>
+      </div>
+      <div role="radiogroup" aria-label={title} className="flex flex-wrap gap-2">
+        {options.map(option => {
+          const selected = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => onChange(option.value)}
+              onKeyDown={event => {
+                const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
+                if (!step) return;
+                event.preventDefault();
+                const next = options[(options.findIndex(o => o.value === value) + step + options.length) % options.length];
+                onChange(next.value);
+              }}
+              className={`rounded-xl border px-4 py-2 text-[12px] font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7C3AED] ${
+                selected
+                  ? 'border-[#7C3AED] bg-[#7C3AED] text-white'
+                  : isDarkMode
+                    ? 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      {current && <p className={`text-[12px] leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{current.hint}</p>}
+    </div>
+  );
+}

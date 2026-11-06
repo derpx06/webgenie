@@ -246,7 +246,7 @@ export class Harness {
   /** Provider, models, trace capture, and a chat session like the side panel creates. */
   async configure(taskId, title, settings = {}) {
     await this.ctl.evaluate(
-      async ({ provider, model, plannerModel, taskId, title, settings }) => {
+      async ({ provider, model, plannerModel, taskId, title, settings, general }) => {
         const now = Date.now();
         const sessions = (await chrome.storage.local.get('chat_sessions_meta')).chat_sessions_meta ?? [];
         sessions.push({ id: taskId, title, createdAt: now, updatedAt: now, messageCount: 0 });
@@ -268,9 +268,10 @@ export class Harness {
         // The harness stands in for a user who has read the notice shown before the first task. Merged after the
         // task's own settings, which replace 'general-settings' wholesale and would otherwise drop it.
         const stored = (await chrome.storage.local.get('general-settings'))['general-settings'] ?? {};
-        await chrome.storage.local.set({ 'general-settings': { dataDisclosureAcceptedAt: now, ...stored } });
+        await chrome.storage.local.set({ 'general-settings': { dataDisclosureAcceptedAt: now, ...stored, ...general } });
       },
-      { provider: vertexProvider(), model: MODEL, plannerModel: PLANNER_MODEL, taskId, title, settings },
+      // E2E_GENERAL='{"askLevel":"less"}' sets general settings for every task of the run.
+      { provider: vertexProvider(), model: MODEL, plannerModel: PLANNER_MODEL, taskId, title, settings, general: JSON.parse(process.env.E2E_GENERAL ?? '{}') },
     );
   }
 

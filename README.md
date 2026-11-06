@@ -124,7 +124,8 @@ docs/
 
 | Tab | Setting | Description |
 | :--- | :--- | :--- |
-| **General** | Maximum Mission Steps, Actions Per Step, Retry Limit | Task bounds. |
+| **General** | Asking: Ask me more / Balanced / Ask me less | How often it asks you to choose between matching options. Balanced (the default) decides what you can undo in a moment, such as a cart or a sort, and tells you what it chose; Less always chooses and tells you. Orders, payments, accounts and card details are handed back, and CAPTCHAs, logins and values only you know are asked, at every level. |
+| | Maximum Mission Steps, Actions Per Step, Retry Limit | Task bounds. |
 | | Planning Interval, Action Settle Timeout, Action Delay, Page Load Buffer | Execution tuning. |
 | **Advanced** | Vision for Planner Agent | Lets the planner see screenshots on multimodal models. |
 | | Interaction Highlights, Show Ambient Border, Show Status Capsule | On-page feedback. |
