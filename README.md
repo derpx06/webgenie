@@ -42,7 +42,7 @@ WebGenie is an open-source, local alternative to cloud-based web automation agen
 The agent reads the page's accessibility tree over the Chrome DevTools Protocol (`chrome.debugger`), across frames, and acts with real input events. No script is injected to read the page.
 
 ### Asking you, not guessing
-* **Confirmations for commits** — before an order, payment, subscription or account change, WebGenie itself asks you to confirm (showing the amount on the page); a "no" is respected for the rest of the task.
+* **Orders, payments, accounts and card details are yours.** WebGenie takes a task to the decision (the right items in the cart, the options and address chosen, the checkout open) and hands the browser back. It does not place orders, make payments, open accounts or type card, CVC or bank details, even ones you give it. Subscriptions and other account changes are still asked about first, in words WebGenie writes rather than the page; a "no" is respected for the rest of the task.
 * **Passwords** you type into its questions are never shown to the model; they are filled in only into a password field on the site where you gave them.
 * **Personal data and addresses** — before sending an email address or number from your task to a site, or opening a link that came from page text rather than from you, a separate check that sees only your messages confirms you asked for it.
 * **Prompt injection** — page text is wrapped as untrusted content, with look-alike delimiters defanged.
@@ -54,8 +54,14 @@ Tasks are checkpointed every step. Closing the side panel or the tab, an unanswe
 ### Memory
 After a successful task WebGenie remembers the *route* it took (pages and the kinds of elements used — never what you typed), keyed by the start page, and offers it as a hint the next time a task starts there.
 
-### Browser data tools (opt-in)
-With **Options → Advanced → browser data tools** on, the agent can also manage bookmarks, the reading list, history, downloads, tab groups, windows, sessions, extensions and browsing data. Clearing data and toggling extensions require your confirmation.
+### Your own browser (opt-in)
+With **Options → Advanced → Browser data tools** on, WebGenie can work with your own browser, not only the page in front of it. Chrome asks for the extra access when you switch it on, and it is handed back when you switch it off.
+* **Tabs and tab groups** — list every open tab and group, group tabs by topic into a new or existing group, name and colour a group, collapse it, or take tabs out.
+* **History** — what you visited and when, in a time window ("yesterday"), and which sites you visit most.
+* **Bookmarks** — find, list folders, create a bookmark or folder, rename and move. It does not delete.
+* **Also** — reading list, downloads, windows, sessions, extensions and browsing data. Clearing data and toggling extensions need your confirmation.
+
+With the tools off, asking about your history or bookmarks gets a pointer to this switch, not a web search. Titles and addresses in these results are treated as data, never as instructions.
 
 ### Model providers
 OpenAI, Anthropic, Gemini, Vertex AI, Azure OpenAI, AWS Bedrock, DeepSeek, Grok, Groq, Cerebras, Llama API, OpenRouter, Ollama and any OpenAI-compatible endpoint. Calls have per-model timeouts, hedged duplicate requests for slow replies, and rate-limit backoff.
@@ -106,6 +112,14 @@ docs/
 
 ---
 
+## Privacy, safety and what to expect
+
+- **Local.** There is no WebGenie server. The only network traffic is to the model provider you configure (and the search engine, if the agent searches). The extension's own pages load no fonts or scripts from the internet. [PRIVACY.md](PRIVACY.md) lists what is stored, what is sent and why each permission is needed.
+- **Supervised.** It works in your browser while you watch and asks before it changes anything it should not. It makes mistakes: check its answers, and you remain responsible for what you ask it to do.
+- **Reporting a problem.** Security issues go through a [GitHub security advisory](https://github.com/derpx06/webgenie/security/advisories/new) ([SECURITY.md](SECURITY.md)). What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
+
+---
+
 ## Settings reference
 
 | Tab | Setting | Description |
@@ -115,7 +129,7 @@ docs/
 | **Advanced** | Vision for Planner Agent | Lets the planner see screenshots on multimodal models. |
 | | Interaction Highlights, Show Ambient Border, Show Status Capsule | On-page feedback. |
 | | Task Tab Grouping, Auto-Close Ephemeral Tabs | Tab management. |
-| | Browser data tools | Enables the bookmark/history/downloads/tabs/windows/sessions/extensions/privacy tools. |
+| | Browser data tools | Lets the agent use your history, bookmarks, tabs and tab groups, and the downloads, windows, sessions, extensions and privacy tools. Asks Chrome for the access when turned on. |
 | **Models** | Providers, per-agent models, speech-to-text model | Planner and navigator can use different models. |
 | **Firewall** | Domain filtering | Allow or deny lists of domain patterns (e.g. `*.github.com`). |
 | **Developer** | Enable Developer Options, Log DOM Snapshot, Capture Traces | Diagnostics; traces can be downloaded as JSONL. |
@@ -128,7 +142,7 @@ docs/
 ```bash
 git clone https://github.com/derpx06/webgenie.git
 cd webgenie
-pnpm install            # Node >= 22.12, pnpm 9
+pnpm install            # Node >= 22.12, pnpm 9.15
 pnpm type-check
 pnpm -F chrome-extension test
 pnpm build              # -> dist/
@@ -136,7 +150,7 @@ pnpm build              # -> dist/
 
 Load into Chrome: open `chrome://extensions/`, enable **Developer mode**, click **Load unpacked** and select `dist/`.
 
-`pnpm e2e` builds and runs the live suite against real sites with Vertex AI (gcloud login required); see [docs/e2e.md](docs/e2e.md).
+`pnpm e2e` builds and runs the live suite against real sites and local fixtures with Vertex AI (a gcloud login, or `E2E_ADC=<credentials file>`); the suites, the offline gate and how to read a round are in [docs/e2e.md](docs/e2e.md). `E2E_SUITE=personal` covers history, bookmarks and tab groups.
 
 ---
 
