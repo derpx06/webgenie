@@ -313,13 +313,19 @@ export function searchOnlyEvidence(requirements: PlannerRequirement[]): PlannerR
   return requirements.filter(isSearchOnly);
 }
 
+/** Evidence that describes what the page's items look like (values seen in them), which says nothing about a control. */
+const DESCRIBES_ITEMS = /\b(search(es|ed|ing)?|results?|listings?|matches|titles?|shown|showing|shows|displayed|visible|listed|appear(s|ing)?|e\.g\.|for example|all (the )?(items|prices|products|listings))\b/i;
+/** Evidence that names a control or its state: a filter, sort, selection, field, slider or an address parameter. */
+const NAMES_CONTROL =
+  /\b(filter(s|ed)?|sort(ed)?|selected|checked|chip|facet|option|toggle|refine(d|ment)?|url|parameter|field|input|slider|dropdown|menu|control|button|checkbox|radio|min(imum)?|max(imum)?|set to|applied)\b|[\w-]+=\S/i;
+
+/**
+ * An applied requirement whose evidence only describes the items: a live run marked "under $40" applied because "prices
+ * shown are under $40 (e.g. $8.99, $9.99)" on a list sorted cheapest first, where every price-ceiling looks met and no
+ * ceiling was set. Values read off the results are not a filter the site applied.
+ */
 function isSearchOnly(item: PlannerRequirement): boolean {
-  return (
-    item.status === 'applied' &&
-    !!item.evidence &&
-    /\b(search(es|ed|ing)?|results?|listings?|matches|titles?)\b/i.test(item.evidence) &&
-    !/\b(filter(s|ed)?|sort(ed)?|selected|checked|chip|facet|option|toggle|refine(d|ment)?|url|parameter)\b|[\w-]+=\S/i.test(item.evidence)
-  );
+  return item.status === 'applied' && !!item.evidence && DESCRIBES_ITEMS.test(item.evidence) && !NAMES_CONTROL.test(item.evidence);
 }
 
 /** A requirement naming a range: a number with a bound word, or two numbers with a dash between them. */

@@ -343,6 +343,25 @@ boxes.forEach(b => b.addEventListener('change', show));
 <iframe allow="payment" src="about:blank" width="120" height="40" title="Wallet"></iframe>
 <form action="/storefront/results" method="get"><input type="search" name="q" aria-label="Search products" placeholder="Search products"><button type="submit">Go</button></form>`,
   '/storefront/results': `<!doctype html><meta charset="utf-8"><title>Results</title><h1>Results</h1><p>12 products found.</p>`,
+  // A catalogue with a price ceiling and a sort. Sorted cheapest first, the first rows are all cheap, which looks like a
+  // ceiling that was never set; a ceiling is only applied when its control says so.
+  '/gadgets': `<!doctype html><meta charset="utf-8"><title>Gadgets</title>
+<h1>Gadgets</h1>
+<p><label>Max price <select id="max" aria-label="Max price"><option value="">Any</option><option value="20">Under $20</option><option value="40">Under $40</option><option value="60">Under $60</option></select></label>
+<label>Sort by <select id="sort" aria-label="Sort by"><option value="featured">Featured</option><option value="asc">Price: low to high</option><option value="desc">Price: high to low</option></select></label></p>
+<ul id="list"></ul><p id="status"></p>
+<script>
+const items = [['Monitor', 120], ['Case', 15], ['Dock', 80], ['Mouse', 25], ['Lamp', 45], ['Keyboard', 39], ['Hub', 30], ['Cable', 8]];
+const max = document.getElementById('max'), sort = document.getElementById('sort');
+function render() {
+  let rows = items.filter(([, price]) => !max.value || price < Number(max.value));
+  if (sort.value === 'asc') rows = rows.slice().sort((a, b) => a[1] - b[1]);
+  if (sort.value === 'desc') rows = rows.slice().sort((a, b) => b[1] - a[1]);
+  document.getElementById('list').innerHTML = rows.map(([name, price]) => '<li>' + name + ' — $' + price + '</li>').join('');
+  document.getElementById('status').textContent = 'Max ' + (max.value || 'any') + ' · Sort ' + sort.value;
+}
+max.addEventListener('change', render); sort.addEventListener('change', render); render();
+</script>`,
   '/history/a': `<!doctype html><meta charset="utf-8"><title>Page A</title><h1>Page A</h1><p><a href="/history/b">Go to page B</a></p>`,
   '/history/b': `<!doctype html><meta charset="utf-8"><title>Page B</title><h1>Page B</h1><p><a href="/history/c">Go to page C</a></p>`,
   '/history/c': `<!doctype html><meta charset="utf-8"><title>Page C</title><h1>Page C</h1><p>The end.</p>`,

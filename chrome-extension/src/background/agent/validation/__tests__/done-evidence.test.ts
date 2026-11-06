@@ -195,6 +195,17 @@ describe('searchOnlyEvidence', () => {
     const brand = applied('brand Acme', 'filter chip "Acme" above the results');
     expect(searchOnlyEvidence([year, make, sort, brand, { requirement: 'in stock', status: 'pending' }])).toEqual([make]);
   });
+
+  // Live: "under $40" marked applied on a list sorted cheapest first, citing the prices that happened to be on screen.
+  it('names evidence that only describes the prices or items on screen, and spares evidence that names a control', () => {
+    const shown = applied('under $40', 'Prices shown are under $40 (e.g. $8.99, $9.99)');
+    const visible = applied('size 10', 'All visible shoes are size 10');
+    const filter = applied('under $40', 'Price filter set to $0 - $40');
+    const field = applied('under $40', 'The max price field shows 40');
+    const url = applied('under $40', 'URL has price=0-40');
+    const selected = applied('blue', '"Blue (167)" selected in color facet');
+    expect(searchOnlyEvidence([shown, visible, filter, field, url, selected])).toEqual([shown, visible]);
+  });
 });
 
 describe('staleRequirements', () => {

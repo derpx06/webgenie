@@ -1259,6 +1259,22 @@ const BREADTH = [
     check: ({ answer }) => ['element', 'index', 'array'].every(word => new RegExp(`\\b${word}\\b`, 'i').test(answer)),
   },
   {
+    // "Under $40" marked applied on a list sorted cheapest first, because the prices on screen were low: no ceiling was set.
+    id: 'B11',
+    title: 'Sets the price ceiling, not only the sort',
+    url: f => `${f.hostOrigin}/gadgets`,
+    task: 'Show me the gadgets under $40, sorted from the lowest price.',
+    oracle: async ({ page }) => {
+      await page.select('#max', '40');
+      await page.select('#sort', 'asc');
+      return { answer: 'Cable $8, Case $15, Mouse $25, Hub $30, Keyboard $39.' };
+    },
+    check: async ({ evalOn, fixtures }) => {
+      const status = await statusOn(evalOn, fixtures);
+      return { pass: status === 'Max 40 · Sort asc', detail: `status=${status}` };
+    },
+  },
+  {
     // The page-level payment check once refused the search box of a store homepage that embeds a wallet frame, three times in a
     // live run: pressing Enter in a search box searches, whatever else the page embeds.
     id: 'B10',
