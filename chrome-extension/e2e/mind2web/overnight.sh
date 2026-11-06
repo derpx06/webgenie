@@ -29,7 +29,8 @@ mkdir -p "$RUN_DIR"
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"
 
 # Hold off sleep and idle suspend for the whole run.
-if [ -z "${WEBGENIE_INHIBITED:-}" ] && command -v systemd-inhibit >/dev/null; then
+# ALLOW_SLEEP=1 skips it, for a run that may pause with the laptop: the workers record a task that ran across a sleep as harness_error.
+if [ -z "${ALLOW_SLEEP:-}" ] && [ -z "${WEBGENIE_INHIBITED:-}" ] && command -v systemd-inhibit >/dev/null; then
   WEBGENIE_INHIBITED=1 JUDGE="${JUDGE:-1}" WORKERS="$WORKERS" PASSES="$PASSES" LOCATIONS="$LOCATIONS" exec systemd-inhibit --what=sleep:idle --who=webgenie --why="Online-Mind2Web run" "$0" "$RUN_DIR"
 fi
 

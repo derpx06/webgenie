@@ -106,7 +106,13 @@ async function waitForNetwork() {
  */
 let droppedSince = false;
 let failedProbes = 0;
+let lastTick = Date.now();
 setInterval(async () => {
+  // A timer that fires 15 s apart and was last seen over 45 s ago means the machine slept (timers stand still while it does):
+  // the task running across it lost its pages and its model calls, and the network may already be back when this runs.
+  const gap = Date.now() - lastTick;
+  lastTick = Date.now();
+  if (gap > 45_000) droppedSince = true;
   // One failed probe is a busy machine or a slow reply; two in a row is an outage.
   failedProbes = (await online()) ? 0 : failedProbes + 1;
   if (failedProbes >= 2) droppedSince = true;
