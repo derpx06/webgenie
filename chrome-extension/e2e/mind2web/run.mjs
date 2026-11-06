@@ -99,6 +99,24 @@ async function waitForNetwork() {
   }
 }
 
+/**
+ * True when the network dropped at any moment since the last call. A task that ran through an outage says nothing about the
+ * agent (its pages failed to load, its model calls timed out), so the loop records it as harness_error and runs it again
+ * on resume instead of scoring it.
+ */
+let droppedSince = false;
+let failedProbes = 0;
+setInterval(async () => {
+  // One failed probe is a busy machine or a slow reply; two in a row is an outage.
+  failedProbes = (await online()) ? 0 : failedProbes + 1;
+  if (failedProbes >= 2) droppedSince = true;
+}, 15_000).unref();
+const networkDropped = () => {
+  const dropped = droppedSince;
+  droppedSince = false;
+  return dropped;
+};
+
 /** RAM available and swap free in MB, from /proc/meminfo; null where it does not exist. */
 function freeMemoryMb() {
   try {
@@ -777,6 +795,7 @@ async function main() {
       }
       await waitForMemory();
       await waitForNetwork();
+      networkDropped(); // the wait above is not part of the task
       process.stdout.write(
         `[${n + 1}/${todo.length}] ${task.task_id} [${task.level}] ${task.confirmed_task.slice(0, 70)} ... `,
       );
@@ -798,6 +817,11 @@ async function main() {
         }
       }
       inSession++;
+      if (networkDropped() && result.outcome !== 'harness_error') {
+        const was = result.outcome;
+        result = writeResult(runDir, task, { outcome: 'harness_error', detail: `the network dropped during the task (it ended as ${was})` });
+        console.log(`(network dropped during the task; recorded as harness_error, runs again on resume)`);
+      }
       const p = result.provider;
       const vertex = p
         ? `, vertex ${p.calls} calls ${p.failed} failed (429 ${p.rateLimited}, 5xx ${p.serverError}, timeout ${p.timeout ?? 0}, net ${p.network}, auth ${p.auth}), rate-limit wait ${Math.round(p.rateLimitWaitMs / 1000)}s`

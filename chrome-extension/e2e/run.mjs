@@ -2,7 +2,7 @@
 // local fixtures, with Vertex AI credentials from your gcloud login. Nothing here runs in `pnpm test`.
 //
 //   pnpm -F chrome-extension e2e
-//   E2E_SUITE=core|complex|hitl|security|breadth|endurance|resilience|memory|files|vision|all (default core)   E2E_ONLY=T1,C13   E2E_REPEAT=2   E2E_HEADLESS=1
+//   E2E_SUITE=core|complex|hitl|security|breadth|endurance|resilience|memory|files|vision|personal|all (default core)   E2E_ONLY=T1,C13   E2E_REPEAT=2   E2E_HEADLESS=1
 //   E2E_MODEL=gemini-2.5-flash  E2E_PLANNER_MODEL=<model>  E2E_LOCATION=us-central1  E2E_PROJECT=<id>  CHROMIUM_PATH=/usr/bin/chromium
 //   E2E_MAX_INPUT_TOKENS=4000000 (whole run)   E2E_TASK_MAX_INPUT_TOKENS=400000
 //   E2E_UPDATE_BASELINE=1 (full run with no regression: rewrite e2e/baseline.json; subset run: merge its entries)
@@ -673,6 +673,7 @@ export class Harness {
         outcome: run.outcome,
         evalOn: (...args) => this.evalOn(...args),
         evalFrame: (...args) => this.evalFrame(...args),
+        ext: (fn, ...args) => this.ctl.evaluate(fn, ...args),
         tabUrls: () => this.tabUrls(),
         activeTabUrl: () => this.activeTabUrl(),
         fetchText,
@@ -733,6 +734,8 @@ export class Harness {
     await this.clearOrigins([new URL(url).origin, ...(task.origins ?? [])]);
     await this.configure(taskId, task.title, task.settings);
     this.fixtures.resetHits();
+    // A task may seed the browser's own data (bookmarks, history, extra tabs) from the extension's page, where chrome.* lives.
+    if (task.prepare) await task.prepare({ ext: (fn, ...args) => this.ctl.evaluate(fn, ...args), browser: this.browser, fixtures: this.fixtures });
 
     const web = await this.browser.newPage();
     await web.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
@@ -905,7 +908,13 @@ async function main() {
   // `fixture` is every task that runs against the local site and needs no internet: its url is a function of the
   // fixtures, where a live task's is a plain string. No live site means no site_down, no geolocation bias and no flake,
   // which is the whole noise floor of a live round, and the right set to run on every change.
-  const inSuite = task => (suite === 'fixture' ? typeof task.url === 'function' : suite === 'all' || task.suite === suite);
+  // The personal suite needs a build with the browser-data access granted up front (personal-build.mjs), so only asking for it runs it.
+  const inSuite = task =>
+    task.suite === 'personal'
+      ? suite === 'personal'
+      : suite === 'fixture'
+        ? typeof task.url === 'function'
+        : suite === 'all' || task.suite === suite;
   const tasks = TASKS.filter(task => (only ? only.includes(task.id) : inSuite(task))).filter(task => !ORACLE || task.oracle);
   if (tasks.length === 0) throw new Error('no tasks selected');
 

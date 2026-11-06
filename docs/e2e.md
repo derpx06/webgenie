@@ -49,6 +49,7 @@ E2E_ORACLE=1 E2E_SUITE=all pnpm -F chrome-extension e2e   # no browser agent, no
 | vision | V1–V2 | A chart drawn on a canvas and a choice told apart only by colour; `screenshots` counts images sent |
 | panel | U1 | The real side panel: a typed task, a question answered from the keyboard, the answered question locked |
 | files | F1–F5 | Uploads (file field, hidden field behind a button, file asked for, page-only request refused) and a download |
+| personal | P1–P6 | The user's own browser: finds a page in history, finds a bookmark, sorts bookmarks into a new folder, groups open tabs into a named coloured group, says how to turn the tools on when they are off, reads a tab title that gives orders as a title. Needs a build that grants the browser-data access up front: `node e2e/personal-build.mjs` writes it to `e2e/builds/personal`, then `E2E_DIST=e2e/builds/personal E2E_SUITE=personal`. Not part of `all` or `fixture` |
 
 Fixtures (`fixtures.mjs`) are two local HTTP servers on random ports: a cross-site editor iframe origin and a host origin with shop, checkout, message, delivery, upload and report pages plus tracked `/order`, `/exfil` and `/upload` endpoints that checkers read (uploads are recorded with their sha256). The browser profile saves downloads to its own `downloads` folder, which checkers get as `downloadsDir`.
 
