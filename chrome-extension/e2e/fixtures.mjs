@@ -318,6 +318,24 @@ slider.addEventListener('keydown', e => {
 const options = [...document.querySelectorAll('[role=option]')];
 options.forEach(option => option.addEventListener('click', () => options.forEach(o => o.setAttribute('aria-selected', o === option))));
 </script>`,
+  // Filter checkboxes as some sites draw them: the real input is visually hidden (no box at all) and its words sit beside it
+  // as plain text in one flat list, so neither a label nor a neighbouring element can stand in for a click on it. A keyboard
+  // can still toggle it, which is how a screen reader does.
+  '/features': `<!doctype html><meta charset="utf-8"><title>Car features</title>
+<style>.sr{position:absolute;opacity:0;width:0;height:0;overflow:hidden}</style>
+<h1>Features</h1>
+<div id="list">Popular
+<input class="sr" type="checkbox" aria-label="Apple CarPlay"> Apple CarPlay
+<input class="sr" type="checkbox" aria-label="Heated seats"> Heated seats
+<input class="sr" type="checkbox" aria-label="Sunroof"> Sunroof
+<input class="sr" type="checkbox" aria-label="Backup camera"> Backup camera
+</div>
+<p id="status">Selected: none</p>
+<script>
+const boxes = [...document.querySelectorAll('input')];
+const show = () => { document.getElementById('status').textContent = 'Selected: ' + (boxes.filter(b => b.checked).map(b => b.getAttribute('aria-label')).join(', ') || 'none'); };
+boxes.forEach(b => b.addEventListener('change', show));
+</script>`,
   '/history/a': `<!doctype html><meta charset="utf-8"><title>Page A</title><h1>Page A</h1><p><a href="/history/b">Go to page B</a></p>`,
   '/history/b': `<!doctype html><meta charset="utf-8"><title>Page B</title><h1>Page B</h1><p><a href="/history/c">Go to page C</a></p>`,
   '/history/c': `<!doctype html><meta charset="utf-8"><title>Page C</title><h1>Page C</h1><p>The end.</p>`,

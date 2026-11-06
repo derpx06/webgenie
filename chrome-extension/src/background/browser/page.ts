@@ -1932,9 +1932,19 @@ export default class Page {
     void this._showPointer(target);
     const { x, y } = await target.clickablePoint(blocker?.offset).catch(async () => {
       await restoreScroll();
+      // A checkbox, radio or switch the page hides (no box at all) can still be operated from the keyboard, which is how a
+      // screen reader does: say so, because a live run clicked one seven times and never ticked it.
+      const toggles = await handle
+        .evaluate(el => {
+          const role = el.getAttribute('role');
+          const type = (el as HTMLInputElement).type;
+          return (el.tagName === 'INPUT' && (type === 'checkbox' || type === 'radio')) || role === 'checkbox' || role === 'radio' || role === 'switch';
+        })
+        .catch(() => false);
       // "Off the page" in the old wording sent the model scrolling for it; the action has already scrolled to it.
       throw new Error(
-        'The element has no visible area: it is hidden, or inside a collapsed section, menu or panel. Scrolling will not reveal it (actions already scroll to their element); open what contains it, click its visible label, or choose another element.',
+        'The element has no visible area: it is hidden, or inside a collapsed section, menu or panel. Scrolling will not reveal it (actions already scroll to their element); open what contains it, click its visible label, or choose another element.' +
+          (toggles ? ' This is a checkbox, radio or switch: send_keys with its index and the key Space toggles it without a click.' : ''),
       );
     });
 

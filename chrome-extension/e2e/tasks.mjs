@@ -1254,6 +1254,24 @@ const BREADTH = [
     task: 'According to this page, which arguments is the callback function called with?',
     check: ({ answer }) => ['element', 'index', 'array'].every(word => new RegExp(`\\b${word}\\b`, 'i').test(answer)),
   },
+  {
+    // A checkbox the page hides (no box at all) with its words beside it as plain text: a click has nothing to land on, a
+    // keyboard still works. Seen live on a car-listing filter, retried seven times and never ticked.
+    id: 'B9',
+    title: 'Ticks filter checkboxes the page hides',
+    url: f => `${f.hostOrigin}/features`,
+    task: 'Select the Apple CarPlay and Sunroof filters on this page.',
+    oracle: async ({ page }) => {
+      await page.evaluate(() => {
+        for (const label of ['Apple CarPlay', 'Sunroof']) document.querySelector(`[aria-label="${label}"]`).click();
+      });
+      return { answer: 'Selected Apple CarPlay and Sunroof.' };
+    },
+    check: async ({ evalOn, fixtures }) => {
+      const status = await statusOn(evalOn, fixtures);
+      return { pass: status === 'Selected: Apple CarPlay, Sunroof', detail: `status=${status}` };
+    },
+  },
 ];
 
 /** 20 guests for the long wizard, built from fixed lists so the ground truth never changes. */
