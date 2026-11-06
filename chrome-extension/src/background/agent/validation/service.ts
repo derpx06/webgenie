@@ -222,6 +222,9 @@ export function commitTarget(
     (isHandoverLabel(label) && (!opens || commitHref)) ||
     (!!form?.paymentContext && !searchOnly && (CLICKING_TOOLS.has(actionName) || pressesEnter(actionName, args))) ||
     (!!form?.paymentFields && !!form?.isSubmitter) ||
+    // Enter in a form submits through its default button, so a form whose submit is "Create account" or "Place order" is
+    // handed back whichever way it is sent: a live run asked the user to confirm the account instead of refusing it.
+    (pressesEnter(actionName, args) && !!form?.inForm && !!form.submitLabels[0] && isHandoverLabel(form.submitLabels[0])) ||
     // Typing a card number, CVC or bank detail is itself in the class the agent does not do.
     !!form?.targetIsPaymentField;
   return {

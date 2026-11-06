@@ -639,6 +639,19 @@ describe('committing actions', () => {
     expect(commitTarget('input_text', { index: 1, text: 'x', submit: true }, 'https://shop.test/pay', element(1, { tagName: 'input' }), payment)?.handover).toBe(true);
   });
 
+  it('hands back on Enter in a form whose submit creates an account or places an order, not a question', () => {
+    const signup: FormCommitInfo = { inForm: true, isSubmitter: false, paymentFields: false, submitLabels: ['Create account'] };
+    const field = element(1, { tagName: 'input' });
+    expect(commitTarget('input_text', { index: 1, text: 'a@b.test', submit: true }, 'https://site.test/signup', field, signup)?.handover).toBe(true);
+    expect(commitTarget('send_keys', { keys: 'Enter', index: 1 }, 'https://site.test/signup', field, signup)?.handover).toBe(true);
+    // A subscription is still a question, and an ordinary submit asks nothing.
+    const subscribe: FormCommitInfo = { ...signup, submitLabels: ['Subscribe'] };
+    const subscribed = commitTarget('input_text', { index: 1, text: 'a@b.test', submit: true }, 'https://site.test/news', field, subscribe);
+    expect(subscribed).not.toBeNull();
+    expect(subscribed?.handover).toBeUndefined();
+    expect(commitTarget('input_text', { index: 1, text: 'x', submit: true }, 'https://site.test/contact', field, { ...signup, submitLabels: ['Send'] })).toBeNull();
+  });
+
   it('lets Enter search on a page that merely embeds a payment frame, and still hands back on any other field', () => {
     const payment: FormCommitInfo = { inForm: true, isSubmitter: false, paymentFields: false, submitLabels: [], paymentContext: true };
     const search = element(1, { tagName: 'input', attributes: { type: 'search', 'aria-label': 'Search' } });
