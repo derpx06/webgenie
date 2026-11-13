@@ -72,7 +72,7 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
           {React.cloneElement(icon as React.ReactElement, { size: 18 })}
         </div>
         <div>
-          <h2 className={`font-outfit text-lg font-bold tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+          <h2 className={`font-outfit text-lg font-semibold tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
             {title}
           </h2>
           <p className={`mt-0.5 text-xs font-medium ${style.subtitleText}`}>

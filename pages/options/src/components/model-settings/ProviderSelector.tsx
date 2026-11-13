@@ -57,12 +57,12 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/5 p-5 pb-4">
         <div>
-          <h3 className={`font-outfit text-base font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Connect Provider</h3>
-          <p className={`text-[11px] font-medium opacity-50 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Choose a provider to power AI features</p>
+          <h3 className={`font-outfit text-base font-semibold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Connect Provider</h3>
+          <p className={`text-[11px] font-medium opacity-70 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Choose a provider to power AI features</p>
         </div>
         <button 
           onClick={() => setIsProviderSelectorOpen(false)}
-          className={`flex size-8 items-center justify-center rounded-lg transition-all ${isDarkMode ? 'text-slate-500 hover:bg-white/5 hover:text-white' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-900'}`}
+          className={`flex size-8 items-center justify-center rounded-lg transition-all ${isDarkMode ? 'text-slate-500 hover:bg-white/5 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
         >
           <FiX size={16} />
         </button>
@@ -71,7 +71,7 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
       {/* Search */}
       <div className="px-5 pt-4">
         <div className="group relative">
-          <FiSearch className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-sm opacity-30 transition-opacity group-focus-within:opacity-100 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`} />
+          <FiSearch className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-sm opacity-70 transition-opacity group-focus-within:opacity-100 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`} />
           <input 
             type="text"
             placeholder="Search providers..."
@@ -95,7 +95,7 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           return (
             <div key={category} className="mb-6 last:mb-2">
               <div className="mb-2.5 flex items-center gap-3 px-1">
-                <span className={`text-[10px] font-black uppercase tracking-wider opacity-30 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                <span className={`text-[11px] font-semibold uppercase tracking-wider opacity-70 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   {category}
                 </span>
                 <div className={`h-px grow opacity-5 ${isDarkMode ? 'bg-white' : 'bg-slate-900'}`} />
@@ -127,12 +127,12 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
                       </div>
                       <div className="flex-1 overflow-hidden">
                         <div className="flex items-center gap-1.5">
-                          <span className={`truncate text-[12px] font-bold tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>
+                          <span className={`truncate text-[12px] font-semibold tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>
                             {getDefaultDisplayNameFromProviderId(type)}
                           </span>
                           {isDisabled && <FiCheck size={10} className="shrink-0 text-emerald-500" />}
                         </div>
-                        <span className={`block text-[9px] font-bold opacity-30 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                        <span className={`block text-[11px] font-semibold opacity-70 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                           {meta?.type || 'Inference API'}
                         </span>
                       </div>

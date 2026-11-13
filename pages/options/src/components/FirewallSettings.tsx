@@ -55,12 +55,12 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 mx-auto flex max-w-2xl flex-col gap-6 pb-10 duration-700">
+    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 pb-10 duration-700">
       
       {/* Top Master Toggle Card */}
       <div className={`flex items-center justify-between rounded-2xl border p-6 transition-all duration-300 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-200 bg-white'}`}>
         <div>
-          <h3 className={`font-outfit text-base font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+          <h3 className={`font-outfit text-base font-semibold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
             Site rules
           </h3>
           <p className="mt-1 text-xs text-slate-400 opacity-80">
@@ -90,7 +90,7 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
         icon={<FiShield size={20} />}
         isDarkMode={isDarkMode}
         colorTheme="slate"
-        headerClassName="justify-between py-4 px-6"
+        headerClassName="py-4 px-6"
       >
         <div className="p-6">
           {/* Active Rules List */}
@@ -98,10 +98,10 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
             {allowList.map(url => (
               <div key={`allow-${url}`} className={`group/item flex items-center justify-between rounded-xl border px-4 py-3 transition-all duration-200 ${isDarkMode ? 'border-white/5 bg-white/[0.02] hover:bg-white/[0.05]' : 'border-slate-100 bg-slate-50/50 hover:bg-white hover:shadow-sm'}`}>
                 <div className="flex items-center gap-3">
-                  <span className={`rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${isDarkMode ? 'bg-teal-500/10 text-teal-400' : 'bg-teal-50 text-teal-700'}`}>Allow</span>
+                  <span className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${isDarkMode ? 'bg-teal-500/10 text-teal-400' : 'bg-teal-50 text-teal-700'}`}>Allow</span>
                   <span className={`font-mono text-[13px] font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{url}</span>
                 </div>
-                <button onClick={() => handleRemoveUrl(url, 'allow')} className={`rounded-lg p-2 opacity-0 transition-all duration-200 group-hover/item:opacity-100 ${isDarkMode ? 'text-slate-500 hover:bg-rose-500/10 hover:text-rose-400' : 'text-slate-400 hover:bg-rose-50 hover:text-rose-500'}`}>
+                <button onClick={() => handleRemoveUrl(url, 'allow')} className={`rounded-lg p-2 opacity-0 transition-all duration-200 focus-visible:opacity-100 group-hover/item:opacity-100 ${isDarkMode ? 'text-slate-500 hover:bg-rose-500/10 hover:text-rose-400' : 'text-slate-500 hover:bg-rose-50 hover:text-rose-500'}`}>
                   <FiTrash2 size={14} />
                 </button>
               </div>
@@ -110,10 +110,10 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
             {denyList.map(url => (
               <div key={`deny-${url}`} className={`group/item flex items-center justify-between rounded-xl border px-4 py-3 transition-all duration-200 ${isDarkMode ? 'border-white/5 bg-white/[0.02] hover:bg-white/[0.05]' : 'border-slate-100 bg-slate-50/50 hover:bg-white hover:shadow-sm'}`}>
                 <div className="flex items-center gap-3">
-                  <span className={`rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${isDarkMode ? 'bg-rose-500/10 text-rose-400' : 'bg-rose-50 text-rose-700'}`}>Block</span>
+                  <span className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${isDarkMode ? 'bg-rose-500/10 text-rose-400' : 'bg-rose-50 text-rose-700'}`}>Block</span>
                   <span className={`font-mono text-[13px] font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{url}</span>
                 </div>
-                <button onClick={() => handleRemoveUrl(url, 'deny')} className={`rounded-lg p-2 opacity-0 transition-all duration-200 group-hover/item:opacity-100 ${isDarkMode ? 'text-slate-500 hover:bg-rose-500/10 hover:text-rose-400' : 'text-slate-400 hover:bg-rose-50 hover:text-rose-500'}`}>
+                <button onClick={() => handleRemoveUrl(url, 'deny')} className={`rounded-lg p-2 opacity-0 transition-all duration-200 focus-visible:opacity-100 group-hover/item:opacity-100 ${isDarkMode ? 'text-slate-500 hover:bg-rose-500/10 hover:text-rose-400' : 'text-slate-500 hover:bg-rose-50 hover:text-rose-500'}`}>
                   <FiTrash2 size={14} />
                 </button>
               </div>
@@ -123,7 +123,7 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
               <div className={`rounded-xl border border-dashed py-8 text-center ${isDarkMode ? 'border-white/5 bg-black/10' : 'border-slate-200 bg-slate-50/30'}`}>
                 <div className="flex flex-col items-center">
                   <FiSlash size={24} className={`mb-3 ${isDarkMode ? 'text-slate-700' : 'text-slate-300'}`} />
-                  <span className={`text-[11px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>No filtering rules configured</span>
+                  <span className={`text-[11px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>No filtering rules configured</span>
                 </div>
               </div>
             )}
@@ -148,9 +148,9 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
               <button
                 type="button"
                 onClick={() => setNewUrlType('allow')}
-                className={`rounded-md px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-all duration-200 ${newUrlType === 'allow'
+                className={`rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-all duration-200 ${newUrlType === 'allow'
                   ? (isDarkMode ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-indigo-600 shadow-sm')
-                  : 'text-slate-400 hover:text-slate-200'
+                  : 'text-slate-500 hover:text-slate-200'
                 }`}
               >
                 Allow
@@ -158,9 +158,9 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
               <button
                 type="button"
                 onClick={() => setNewUrlType('deny')}
-                className={`rounded-md px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-all duration-200 ${newUrlType === 'deny'
+                className={`rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-all duration-200 ${newUrlType === 'deny'
                   ? (isDarkMode ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-indigo-600 shadow-sm')
-                  : 'text-slate-400 hover:text-slate-200'
+                  : 'text-slate-500 hover:text-slate-200'
                 }`}
               >
                 Block
@@ -169,7 +169,7 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
 
             <button
               onClick={handleAddUrl}
-              className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-6 py-2.5 text-[11px] font-bold uppercase tracking-widest text-white shadow-lg shadow-indigo-500/10 transition-all hover:bg-indigo-500 active:scale-95"
+              className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-6 py-2.5 text-[11px] font-medium uppercase tracking-wide text-white shadow-lg shadow-indigo-500/10 transition-all hover:bg-indigo-500 active:scale-95"
             >
               <FiPlus size={14} />
               Add Rule

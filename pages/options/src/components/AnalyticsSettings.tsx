@@ -99,7 +99,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
 
   if (loading) {
     return (
-      <div className="mx-auto flex max-w-2xl flex-col gap-6 pb-10">
+      <div className="flex flex-col gap-6 pb-10">
         <div className={`h-10 w-48 rounded-2xl ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`}></div>
         <div className="grid grid-cols-1 gap-6">
           {[1, 2, 3].map(i => (
@@ -111,88 +111,34 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
   }
 
   return (
-    <div className={`animate-in fade-in slide-in-from-bottom-4 mx-auto flex max-w-2xl flex-col gap-6 pb-10 duration-700 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+    <div className={`animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 pb-10 duration-700 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
 
       {/* 1. TOKEN CONSUMPTION HERO SECTION */}
       <DashboardSection
-        title="Compute Intelligence"
-        subtitle="Real-time LLM token utilization"
+        title="Usage"
+        subtitle="Tokens your tasks have used on this device"
         icon={<FiActivity size={20} />}
         isDarkMode={isDarkMode}
         colorTheme="indigo"
         contentClassName="p-6"
       >
-        <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-gradient-to-br from-indigo-500/10 via-cyan-500/5 to-transparent p-8 shadow-2xl">
-          <div className="absolute -right-12 -top-12 size-48 rounded-full bg-indigo-500/10 blur-3xl" />
-          <div className="absolute -bottom-12 -left-12 size-48 rounded-full bg-cyan-500/10 blur-3xl" />
-          
-          <div className="relative flex flex-col gap-8">
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-1">
-                <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>System Telemetry</span>
-                <div className="flex items-center gap-2">
-                  <div className="size-2 animate-pulse rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.6)]" />
-                  <span className="text-sm font-bold tracking-tight opacity-70">Active Monitoring</span>
-                </div>
-              </div>
-              <div className={`rounded-full px-4 py-1.5 text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-white/5 text-white/40' : 'bg-slate-200 text-slate-500'}`}>
-                Live Stream
-              </div>
+        <dl className="grid grid-cols-3 gap-4 max-sm:grid-cols-1">
+          {[
+            ['Input', stats.totalInputTokens],
+            ['Output', stats.totalOutputTokens],
+            ['Total', stats.totalInputTokens + stats.totalOutputTokens],
+          ].map(([label, value]) => (
+            <div key={label} className={`rounded-xl border px-4 py-3 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}>
+              <dt className="text-xs font-medium opacity-70">{label} tokens</dt>
+              <dd className="mt-1 font-mono text-2xl font-semibold tabular-nums tracking-tight">{formatNumber(Number(value))}</dd>
             </div>
-
-            <div className="grid grid-cols-2 gap-12">
-              <div className="group/stat flex flex-col gap-2">
-                <div className="flex items-end gap-2">
-                  <span className={`font-mono text-5xl font-black tracking-tighter transition-all duration-500 group-hover/stat:scale-110 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                    {formatNumber(stats.totalInputTokens)}
-                  </span>
-                  <span className="mb-2 text-xs font-bold opacity-30">tkns</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-1 w-12 overflow-hidden rounded-full bg-slate-500/20">
-                    <div className="h-full w-2/3 bg-slate-400/50" />
-                  </div>
-                  <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Input (Context)</span>
-                </div>
-              </div>
-
-              <div className="group/stat flex flex-col items-end gap-2 text-right">
-                <div className="flex items-end gap-2">
-                  <span className="mb-2 text-xs font-bold opacity-30">tkns</span>
-                  <span className={`font-mono text-5xl font-black tracking-tighter transition-all duration-500 group-hover/stat:scale-110 ${isDarkMode ? 'text-cyan-400' : 'text-cyan-600'}`}>
-                    {formatNumber(stats.totalOutputTokens)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Output (Inference)</span>
-                  <div className="h-1 w-12 overflow-hidden rounded-full bg-cyan-500/20">
-                    <div className="h-full w-1/3 bg-cyan-400" />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className={`mt-4 flex items-center justify-between rounded-2xl border border-white/5 p-6 ${isDarkMode ? 'bg-white/[0.03]' : 'bg-white/50 shadow-sm'}`}>
-              <div className="flex flex-col gap-0.5">
-                <span className="text-[9px] font-black uppercase tracking-[0.15em] opacity-30">Aggregate Compute Utilization</span>
-                <span className="text-lg font-black tracking-tight">Total Consumed Tokens</span>
-              </div>
-              <div className="flex flex-col items-end">
-                <span className={`font-mono text-2xl font-black tracking-tighter ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
-                  {formatNumber(stats.totalInputTokens + stats.totalOutputTokens)}
-                </span>
-                <div className="flex items-center gap-1.5 opacity-40">
-                  <span className="text-[9px] font-bold uppercase">100% Local Validation</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+          ))}
+        </dl>
       </DashboardSection>
 
       {/* 2. TELEMETRY & WORKSPACE ACTIVITY SECTION */}
       <DashboardSection
-        title="Telemetry & Workspace Activity"
+        title="Task activity"
         subtitle="Workspace activity and cumulative runtime metrics"
         icon={<FiActivity size={20} />}
         isDarkMode={isDarkMode}
@@ -201,18 +147,18 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
       >
         {/* Section A: Last 30 Days */}
         <div className="space-y-4">
-          <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Last 30 Days Activity</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">Last 30 Days Activity</div>
           <div className="group/stat flex items-center justify-between">
             <div className="flex flex-col">
-              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Tasks Executed</span>
-              <span className={`font-mono text-4xl font-bold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+              <span className={`text-[11px] font-semibold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>Tasks Executed</span>
+              <span className={`font-mono text-4xl font-semibold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                 {formatNumber(stats.last30DaySessions)}
               </span>
             </div>
             <div className={`h-10 w-px ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`}></div>
             <div className="flex flex-col text-right">
-              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Operations Processed</span>
-              <span className={`font-mono text-4xl font-bold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+              <span className={`text-[11px] font-semibold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>Operations Processed</span>
+              <span className={`font-mono text-4xl font-semibold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
                 {formatNumber(stats.last30DayMessages)}
               </span>
             </div>
@@ -220,8 +166,8 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
 
           <div className={`rounded-2xl border p-6 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-100 bg-slate-50/50'}`}>
             <div className="mb-3 flex items-center justify-between">
-              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Avg Operations / Task</span>
-              <span className={`font-mono text-xl font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{stats.avgMessagesPerSession}</span>
+              <span className={`text-[11px] font-semibold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>Avg Operations / Task</span>
+              <span className={`font-mono text-xl font-semibold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{stats.avgMessagesPerSession}</span>
             </div>
             <div className={`h-1.5 w-full overflow-hidden rounded-full ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`}>
               <div
@@ -234,23 +180,23 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
 
         {/* Section B: All-Time Logs */}
         <div className="space-y-4 pt-6">
-          <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">Cumulative Telemetry</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">Totals</div>
           <div className="grid grid-cols-2 gap-6">
             <div className="group/stat flex flex-col">
-              <span className={`font-mono text-3xl font-bold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+              <span className={`font-mono text-3xl font-semibold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
                 {formatNumber(stats.totalSessions)}
               </span>
-              <span className={`mt-1 text-[9px] font-bold uppercase tracking-wider opacity-40`}>Total Sessions</span>
+              <span className={`mt-1 text-[11px] font-semibold uppercase tracking-wider opacity-70`}>Total Sessions</span>
             </div>
             <div className="group/stat flex flex-col">
-              <span className={`font-mono text-3xl font-bold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+              <span className={`font-mono text-3xl font-semibold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                 {formatNumber(stats.totalMessages)}
               </span>
-              <span className={`mt-1 text-[9px] font-bold uppercase tracking-wider opacity-40`}>Total Messages</span>
+              <span className={`mt-1 text-[11px] font-semibold uppercase tracking-wider opacity-70`}>Total Messages</span>
             </div>
             <div className="group/stat col-span-2 flex items-center justify-between rounded-xl border border-dashed border-white/10 p-4">
-              <span className={`text-[9px] font-bold uppercase tracking-wider opacity-40`}>Archive Age</span>
-              <span className={`font-mono text-sm font-bold tracking-tight ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+              <span className={`text-[11px] font-semibold uppercase tracking-wider opacity-70`}>Archive Age</span>
+              <span className={`font-mono text-sm font-semibold tracking-tight ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
                 {daysSince(stats.oldestSessionDate)}
               </span>
             </div>
@@ -311,7 +257,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
             <FiShield size={20} />
           </div>
           <div>
-            <h3 className={`font-outfit text-base font-bold uppercase tracking-tight ${isDarkMode ? 'text-cyan-400' : 'text-cyan-800'}`}>
+            <h3 className={`font-outfit text-base font-semibold uppercase tracking-tight ${isDarkMode ? 'text-cyan-400' : 'text-cyan-800'}`}>
               Precision Analytics Active
             </h3>
             <p className={`mt-3 text-[13px] font-medium leading-relaxed opacity-70 ${isDarkMode ? 'text-cyan-200/60' : 'text-cyan-700/70'}`}>
@@ -320,7 +266,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
             
             <div className="mt-6 flex items-center gap-2">
               <div className="size-1 animate-pulse rounded-full bg-cyan-500"></div>
-              <span className="text-[9px] font-bold uppercase tracking-widest opacity-40">Precision Tracking Enabled</span>
+              <span className="text-[11px] font-medium uppercase tracking-wide opacity-70">Precision Tracking Enabled</span>
             </div>
           </div>
         </div>

@@ -26,14 +26,14 @@ export const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: strin
 ];
 
 const SUBTITLES: Record<TabTypes, string> = {
-  general: 'Configure autonomous execution constraints, safety thresholds, and visual highlight protocols.',
-  models: 'Calibrate agent cognitive models, adjust parameters like temperature, and manage provider connections.',
-  firewall: 'Configure network permissions and restrict domains to secure the automation runtime.',
-  analytics: 'Monitor system telemetry, token usage, performance logs, and command execution metrics.',
+  general: 'Autonomy, limits and how the agent shows its work.',
+  models: 'Connect a model provider and choose the model for each role.',
+  firewall: 'Choose which sites the agent may open.',
+  analytics: 'Token use and task history on this device.',
   traces: t('traces_subtitle'),
-  advanced: 'Tune low-level network limits, latency parameters, and experimental browser features.',
-  developer: 'Access sandbox bypass configurations, diagnostic logs, and verbose runtime debugging.',
-  help: 'Access documentation and user guides for WebGenie.'
+  advanced: 'Page reading, tab handling and access to your browser data.',
+  developer: 'Diagnostics for troubleshooting and development.',
+  help: 'Guides and documentation for WebGenie.'
 };
 
 /**
@@ -103,10 +103,10 @@ const Options = () => {
         />
 
         <main className="scrollbar-none custom-scrollbar min-w-0 flex-1 overflow-y-auto overflow-x-hidden pb-20">
-          <div className="mx-auto max-w-7xl px-4 py-10 md:px-8">
+          <div className="mx-auto max-w-3xl px-4 py-10 md:px-8">
             <OptionsHeader title={TABS.find(t => t.id === activeTab)?.label || ''} subtitle={SUBTITLES[activeTab]} isDarkMode={isDarkMode} />
 
-            <div className="animate-[fadeUp_0.6s_ease-out_0.2s_both]">
+            <div className="">
               {renderTabContent()}
             </div>
           </div>
@@ -121,7 +121,7 @@ const Options = () => {
           </svg>
         </div>
         <div className="flex flex-col">
-          <span className="text-xs font-black uppercase tracking-widest">Success</span>
+          <span className="text-xs font-semibold uppercase tracking-widest">Success</span>
           <span className="text-[13px] font-medium opacity-60">Preferences synchronized.</span>
         </div>
       </div>

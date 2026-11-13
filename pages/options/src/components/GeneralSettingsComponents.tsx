@@ -39,7 +39,7 @@ export const SettingToggle: React.FC<ToggleProps> = ({
             {severity === 'dangerous' && <span className="mr-1 text-[#F43F5E]">DANGEROUS:</span>}
             {title}
             {severity === 'caution' && (
-              <span className="ml-2 rounded border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#F59E0B]">
+              <span className="ml-2 rounded border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-[#F59E0B]">
                 Caution
               </span>
             )}
@@ -112,7 +112,7 @@ export const SettingStepperInput: React.FC<StepperInputProps> = ({
             {severity === 'dangerous' && <span className="mr-1 text-[#F43F5E]">DANGEROUS:</span>}
             {title}
             {severity === 'caution' && (
-              <span className="ml-2 rounded border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#F59E0B]">
+              <span className="ml-2 rounded border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-[#F59E0B]">
                 Caution
               </span>
             )}
@@ -128,7 +128,7 @@ export const SettingStepperInput: React.FC<StepperInputProps> = ({
           type="button"
           onClick={handleDecrement}
           disabled={value <= min}
-          className={`flex size-8 items-center justify-center rounded-lg border text-sm font-black transition-all ${
+          className={`flex size-8 items-center justify-center rounded-lg border text-sm font-semibold transition-all ${
             isDarkMode 
               ? 'border-white/10 bg-white/5 text-white hover:border-white/20 hover:bg-white/10 disabled:opacity-30' 
               : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-30'
@@ -136,7 +136,7 @@ export const SettingStepperInput: React.FC<StepperInputProps> = ({
         >
           -
         </button>
-        <div className={`flex h-8 min-w-14 items-center justify-center rounded-lg border px-2 text-center font-mono text-[13px] font-bold transition-all ${
+        <div className={`flex h-8 min-w-14 items-center justify-center rounded-lg border px-2 text-center font-mono text-[13px] font-semibold transition-all ${
           isDarkMode 
             ? 'border-white/10 bg-[#0B0C12] text-[#F2F3F7]' 
             : 'border-slate-200 bg-slate-50 text-slate-900'
@@ -147,7 +147,7 @@ export const SettingStepperInput: React.FC<StepperInputProps> = ({
           type="button"
           onClick={handleIncrement}
           disabled={value >= max}
-          className={`flex size-8 items-center justify-center rounded-lg border text-sm font-black transition-all ${
+          className={`flex size-8 items-center justify-center rounded-lg border text-sm font-semibold transition-all ${
             isDarkMode 
               ? 'border-white/10 bg-white/5 text-white hover:border-white/20 hover:bg-white/10 disabled:opacity-30' 
               : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-30'
@@ -199,7 +199,7 @@ export const SettingInlineUnitInput: React.FC<InlineUnitInputProps> = ({
             {severity === 'dangerous' && <span className="mr-1 text-[#F43F5E]">DANGEROUS:</span>}
             {title}
             {severity === 'caution' && (
-              <span className="ml-2 rounded border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#F59E0B]">
+              <span className="ml-2 rounded border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-[#F59E0B]">
                 Caution
               </span>
             )}
@@ -223,11 +223,11 @@ export const SettingInlineUnitInput: React.FC<InlineUnitInputProps> = ({
             step={step}
             value={value}
             onChange={e => onChange(parseInt(e.target.value, 10) || min)}
-            className={`w-20 border-none bg-transparent py-1.5 pl-3 pr-1 text-right font-mono text-[13px] font-bold outline-none focus:ring-0 ${
+            className={`w-20 border-none bg-transparent py-1.5 pl-3 pr-1 text-right font-mono text-[13px] font-semibold outline-none focus:ring-0 ${
               isDarkMode ? 'text-[#F2F3F7]' : 'text-slate-900'
             }`}
           />
-          <span className={`select-none pl-1 pr-3 font-mono text-[11px] font-bold tracking-tight opacity-40 ${
+          <span className={`select-none pl-1 pr-3 font-mono text-[11px] font-semibold tracking-tight opacity-70 ${
             isDarkMode ? 'text-slate-300' : 'text-slate-700'
           }`}>
             {unit}
@@ -320,7 +320,7 @@ export function SettingChoice<T extends string>({ title, desc, value, options, i
                 const next = options[(options.findIndex(o => o.value === value) + step + options.length) % options.length];
                 onChange(next.value);
               }}
-              className={`rounded-xl border px-4 py-2 text-[12px] font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7C3AED] ${
+              className={`rounded-xl border px-4 py-2 text-[12px] font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7C3AED] ${
                 selected
                   ? 'border-[#7C3AED] bg-[#7C3AED] text-white'
                   : isDarkMode
