@@ -27,36 +27,36 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
 }) => {
   const themeStyles = {
     indigo: {
-      border: isDarkMode ? 'border-blue-500/10' : 'border-slate-200',
-      bg: isDarkMode ? 'bg-white/[0.04] backdrop-blur-xl' : 'bg-white/70 backdrop-blur-xl',
-      iconBg: isDarkMode ? 'bg-blue-500/10' : 'bg-blue-50',
-      iconText: isDarkMode ? 'text-blue-400' : 'text-blue-600',
+      border: isDarkMode ? 'border-indigo-500/10' : 'border-slate-200',
+      bg: isDarkMode ? 'bg-[#0f1117]' : 'bg-white',
+      iconBg: isDarkMode ? 'bg-indigo-500/10' : 'bg-indigo-50',
+      iconText: isDarkMode ? 'text-indigo-400' : 'text-indigo-600',
       subtitleText: isDarkMode ? 'text-slate-500' : 'text-slate-500',
     },
     teal: {
       border: isDarkMode ? 'border-teal-500/10' : 'border-slate-200',
-      bg: isDarkMode ? 'bg-white/[0.04] backdrop-blur-xl' : 'bg-white/70 backdrop-blur-xl',
+      bg: isDarkMode ? 'bg-[#0f1117]' : 'bg-white',
       iconBg: isDarkMode ? 'bg-teal-500/10' : 'bg-teal-50',
       iconText: isDarkMode ? 'text-teal-400' : 'text-teal-600',
       subtitleText: isDarkMode ? 'text-slate-500' : 'text-slate-500',
     },
     amber: {
       border: isDarkMode ? 'border-amber-500/10' : 'border-slate-200',
-      bg: isDarkMode ? 'bg-white/[0.04] backdrop-blur-xl' : 'bg-white/70 backdrop-blur-xl',
+      bg: isDarkMode ? 'bg-[#0f1117]' : 'bg-white',
       iconBg: isDarkMode ? 'bg-amber-500/10' : 'bg-amber-50',
       iconText: isDarkMode ? 'text-amber-400' : 'text-amber-600',
       subtitleText: isDarkMode ? 'text-slate-500' : 'text-slate-500',
     },
     rose: {
       border: isDarkMode ? 'border-rose-500/10' : 'border-slate-200',
-      bg: isDarkMode ? 'bg-white/[0.04] backdrop-blur-xl' : 'bg-white/70 backdrop-blur-xl',
+      bg: isDarkMode ? 'bg-[#0f1117]' : 'bg-white',
       iconBg: isDarkMode ? 'bg-rose-500/10' : 'bg-rose-50',
       iconText: isDarkMode ? 'text-rose-400' : 'text-rose-600',
       subtitleText: isDarkMode ? 'text-slate-500' : 'text-slate-500',
     },
     slate: {
       border: isDarkMode ? 'border-white/5' : 'border-slate-200',
-      bg: isDarkMode ? 'bg-white/[0.04] backdrop-blur-xl' : 'bg-white/70 backdrop-blur-xl',
+      bg: isDarkMode ? 'bg-[#0f1117]' : 'bg-white',
       iconBg: isDarkMode ? 'bg-white/5' : 'bg-slate-100',
       iconText: isDarkMode ? 'text-slate-400' : 'text-slate-600',
       subtitleText: isDarkMode ? 'text-slate-500' : 'text-slate-500',
@@ -72,7 +72,7 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
           {React.cloneElement(icon as React.ReactElement, { size: 18 })}
         </div>
         <div>
-          <h2 className={`font-outfit text-lg font-semibold tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+          <h2 className={`font-outfit text-lg font-bold tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
             {title}
           </h2>
           <p className={`mt-0.5 text-xs font-medium ${style.subtitleText}`}>

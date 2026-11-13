@@ -9,14 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0]
 
-### Changed: a new look
-- New icon: a cursor landing on a cobalt-to-cyan tile. The toolbar icon carries a green dot while a task runs and an amber
-  dot when it needs you.
-- The side panel and the options page share one finish: a cobalt accent, frosted glass over a faint drifting light, and
-  motion that says what changed (steps arriving, a shimmer on the step in progress, a light that sweeps the primary
-  button). It all stops for people who ask for reduced motion. The violet and purple of the old look are gone.
-- The options page fits a narrow window, and its settings copy says what each setting does.
-
 ### Added: steer a task while it runs
 - Type in the composer while a task works and send it: the note joins the conversation as an update to the same task, and
   the next step plans with it. Progress, the requirement checklist and approvals are kept. A follow-up after the task ends

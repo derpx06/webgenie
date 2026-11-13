@@ -39,7 +39,7 @@ export const ChatActionButtons: React.FC<ChatActionButtonsProps> = ({
             <>
                 <button
                     type="submit"
-                    className="wg-btn wg-btn-primary wg-steer"
+                    className="wg-btn wg-btn-primary"
                     disabled={isSendButtonDisabled}
                     aria-label={t('chat_buttons_steer')}
                     title={t('chat_buttons_steer')}>

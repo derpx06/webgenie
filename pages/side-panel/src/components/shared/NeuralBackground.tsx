@@ -34,8 +34,8 @@ export const NeuralBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode
       {/* 1. Animated Gradient Surface */}
       <div className={`animate-pulse-slow absolute inset-0 opacity-15 transition-opacity duration-1000 ${
         isDarkMode 
-          ? 'bg-[radial-gradient(circle_at_50%_0%,_rgba(47, 95, 224,0.06),_transparent_70%)]' 
-          : 'bg-[radial-gradient(circle_at_50%_0%,_rgba(47, 95, 224,0.02),_transparent_70%)]'
+          ? 'bg-[radial-gradient(circle_at_50%_0%,_rgba(79,70,229,0.06),_transparent_70%)]' 
+          : 'bg-[radial-gradient(circle_at_50%_0%,_rgba(79,70,229,0.02),_transparent_70%)]'
       }`} />
       
       {/* 2. Floating Atmospheric Orbs */}
@@ -44,7 +44,7 @@ export const NeuralBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode
           <div
             key={i}
             className={`animate-float absolute rounded-full blur-[100px] ${
-              isDarkMode ? 'bg-blue-500/[0.02]' : 'bg-blue-400/[0.015]'
+              isDarkMode ? 'bg-indigo-500/[0.02]' : 'bg-indigo-400/[0.015]'
             }`}
             style={{
               width: `${250 + i * 50}px`,
@@ -64,7 +64,7 @@ export const NeuralBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode
       
       {/* 4. Volumetric Glow (Center) */}
       <div className={`absolute left-1/2 top-1/2 size-full -translate-x-1/2 -translate-y-1/2 opacity-20 ${
-        isDarkMode ? 'bg-[radial-gradient(circle_at_center,_rgba(47, 95, 224,0.04),_transparent_60%)]' : 'bg-[radial-gradient(circle_at_center,_rgba(47, 95, 224,0.01),_transparent_60%)]'
+        isDarkMode ? 'bg-[radial-gradient(circle_at_center,_rgba(79,70,229,0.04),_transparent_60%)]' : 'bg-[radial-gradient(circle_at_center,_rgba(79,70,229,0.01),_transparent_60%)]'
       }`} />
 
       {/* 5. Micro-Particles */}
@@ -73,7 +73,7 @@ export const NeuralBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode
           <div
             key={i}
             className={`animate-float-up absolute size-px rounded-full ${
-              isDarkMode ? 'bg-blue-400/10' : 'bg-blue-500/5'
+              isDarkMode ? 'bg-indigo-400/10' : 'bg-indigo-500/5'
             }`}
             style={{
               left: `${Math.random() * 100}%`,

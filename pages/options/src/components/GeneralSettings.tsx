@@ -42,7 +42,7 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-6 pb-10 duration-700">
+    <div className="animate-in fade-in slide-in-from-bottom-4 mx-auto flex max-w-2xl flex-col gap-6 pb-10 duration-700">
 
       {/* 0. HOW OFTEN IT ASKS */}
       <DashboardSection
@@ -71,15 +71,15 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
       {/* 1. SAFETY & LIMITS MODULE */}
       <DashboardSection
         title="Safety & Limits"
-        subtitle="Limits for a single task"
+        subtitle="Mission bounds and threshold constraints"
         icon={<FiZap size={20} />}
         isDarkMode={isDarkMode}
         colorTheme="indigo"
         headerClassName="py-5 px-8"
         contentClassName="flex flex-col"
       >
-        <SettingInlineUnitInput title="Maximum steps per task" desc="Stops a task that has not finished by then" value={settings.maxSteps} unit="steps" isDarkMode={isDarkMode} onChange={val => updateSetting('maxSteps', val)} min={1} max={100} />
-        <SettingStepperInput title="Actions Per Step" desc="Most actions it may take in one step" value={settings.maxActionsPerStep} isDarkMode={isDarkMode} onChange={val => updateSetting('maxActionsPerStep', val)} min={1} max={50} />
+        <SettingInlineUnitInput title="Maximum Mission Steps" desc="Safety limit for sequential reasoning" value={settings.maxSteps} unit="steps" isDarkMode={isDarkMode} onChange={val => updateSetting('maxSteps', val)} min={1} max={100} />
+        <SettingStepperInput title="Actions Per Step" desc="Maximum sub-tasks per mission step" value={settings.maxActionsPerStep} isDarkMode={isDarkMode} onChange={val => updateSetting('maxActionsPerStep', val)} min={1} max={50} />
         <SettingStepperInput title="Retry Limit" desc="Maximum failure tolerance for complex operations" value={settings.maxFailures} isDarkMode={isDarkMode} onChange={val => updateSetting('maxFailures', val)} min={1} max={10} />
       </DashboardSection>
 
@@ -115,7 +115,7 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
           <button
             type="button"
             onClick={forgetSiteMemory}
-            className={`rounded-xl px-4 py-2 text-[11px] font-medium uppercase tracking-wide transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7C3AED] ${isDarkMode ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-slate-100 text-slate-900 hover:bg-slate-200'}`}
+            className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7C3AED] ${isDarkMode ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-slate-100 text-slate-900 hover:bg-slate-200'}`}
           >
             {t('options_memory_forget')}
           </button>

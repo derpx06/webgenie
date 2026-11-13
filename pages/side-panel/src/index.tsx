@@ -3,7 +3,6 @@ import { withErrorBoundary } from '@extension/shared';
 import '@src/index.css';
 import '@src/SidePanel.css';
 import '@src/design.css';
-import '@src/glass.css';
 import SidePanel from '@src/SidePanel';
 
 /**

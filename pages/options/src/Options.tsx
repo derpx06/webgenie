@@ -26,14 +26,14 @@ export const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: strin
 ];
 
 const SUBTITLES: Record<TabTypes, string> = {
-  general: 'Autonomy, limits and how the agent shows its work.',
-  models: 'Connect a model provider and choose the model for each role.',
-  firewall: 'Choose which sites the agent may open.',
-  analytics: 'Token use and task history on this device.',
+  general: 'Configure autonomous execution constraints, safety thresholds, and visual highlight protocols.',
+  models: 'Calibrate agent cognitive models, adjust parameters like temperature, and manage provider connections.',
+  firewall: 'Configure network permissions and restrict domains to secure the automation runtime.',
+  analytics: 'Monitor system telemetry, token usage, performance logs, and command execution metrics.',
   traces: t('traces_subtitle'),
-  advanced: 'Page reading, tab handling and access to your browser data.',
-  developer: 'Diagnostics for troubleshooting and development.',
-  help: 'Guides and documentation for WebGenie.'
+  advanced: 'Tune low-level network limits, latency parameters, and experimental browser features.',
+  developer: 'Access sandbox bypass configurations, diagnostic logs, and verbose runtime debugging.',
+  help: 'Access documentation and user guides for WebGenie.'
 };
 
 /**
@@ -91,7 +91,7 @@ const Options = () => {
   };
 
   return (
-    <div className={`min-h-screen overflow-hidden font-sans transition-colors duration-500 ${isDarkMode ? 'bg-[#060a15] text-white' : 'bg-[#eef2fb] text-slate-900'}`}>
+    <div className={`min-h-screen overflow-hidden font-sans transition-colors duration-500 ${isDarkMode ? 'bg-[#0f1117] text-white' : 'bg-[#f8fafc] text-slate-900'}`}>
       <OptionsBackground isDarkMode={isDarkMode} />
 
       <div className="relative z-10 flex h-screen overflow-hidden">
@@ -103,10 +103,10 @@ const Options = () => {
         />
 
         <main className="scrollbar-none custom-scrollbar min-w-0 flex-1 overflow-y-auto overflow-x-hidden pb-20">
-          <div className="mx-auto max-w-3xl px-4 py-10 md:px-8">
+          <div className="mx-auto max-w-7xl px-4 py-10 md:px-8">
             <OptionsHeader title={TABS.find(t => t.id === activeTab)?.label || ''} subtitle={SUBTITLES[activeTab]} isDarkMode={isDarkMode} />
 
-            <div className="">
+            <div className="animate-[fadeUp_0.6s_ease-out_0.2s_both]">
               {renderTabContent()}
             </div>
           </div>
@@ -121,25 +121,19 @@ const Options = () => {
           </svg>
         </div>
         <div className="flex flex-col">
-          <span className="text-xs font-semibold uppercase tracking-widest">Success</span>
+          <span className="text-xs font-black uppercase tracking-widest">Success</span>
           <span className="text-[13px] font-medium opacity-60">Preferences synchronized.</span>
         </div>
       </div>
 
       <style dangerouslySetInnerHTML={{
         __html: `
-        .wg-aurora { position: absolute; border-radius: 9999px; filter: blur(40px); }
-        .wg-aurora-a { left: -120px; top: -100px; width: 460px; height: 460px; animation: auroraA 16s ease-in-out infinite alternate; }
-        .wg-aurora-b { right: -140px; bottom: -120px; width: 520px; height: 440px; animation: auroraB 20s ease-in-out infinite alternate; }
-        @keyframes auroraA { from { transform: translate(-20px,-10px) scale(1); } to { transform: translate(60px,50px) scale(1.15); } }
-        @keyframes auroraB { from { transform: translate(20px,10px) scale(1.05); } to { transform: translate(-60px,-30px) scale(.95); } }
-        @media (prefers-reduced-motion: reduce) { .wg-aurora { animation: none; } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(59, 109, 255, 0.1); border-radius: 20px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(59, 109, 255, 0.2); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.1); border-radius: 20px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.2); }
       ` }} />
     </div>
   );

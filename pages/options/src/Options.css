@@ -153,12 +153,12 @@ body, button, input, select, textarea {
 
 .shell.light .ws-settings-bg::before {
   background-image:
-    linear-gradient(rgba(59, 109, 255, .04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(59, 109, 255, .04) 1px, transparent 1px);
+    linear-gradient(rgba(99, 102, 241, .04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 102, 241, .04) 1px, transparent 1px);
 }
 
 .shell.light .blob.b1 {
-  background: radial-gradient(circle, rgba(59, 109, 255, .07), transparent 70%);
+  background: radial-gradient(circle, rgba(99, 102, 241, .07), transparent 70%);
 }
 
 .shell.light .blob.b2 {
@@ -167,7 +167,7 @@ body, button, input, select, textarea {
 
 .shell.light .sidebar {
   background: rgba(255, 255, 255, .85);
-  border-right-color: rgba(59, 109, 255, .12);
+  border-right-color: rgba(99, 102, 241, .12);
 }
 
 .shell.light .sb-name {
@@ -187,34 +187,34 @@ body, button, input, select, textarea {
 }
 
 .shell.light .sb-item:hover {
-  background: rgba(59, 109, 255, .08);
+  background: rgba(99, 102, 241, .08);
   color: #312e81;
 }
 
 .shell.light .sb-item.active {
-  background: linear-gradient(90deg, rgba(59, 109, 255, .15), rgba(124, 58, 237, .08));
-  color: #2449b8;
-  border-right-color: #3b6dff;
+  background: linear-gradient(90deg, rgba(99, 102, 241, .15), rgba(124, 58, 237, .08));
+  color: #4338ca;
+  border-right-color: #6366f1;
 }
 
 .shell.light .sb-badge {
-  background: rgba(59, 109, 255, .15);
-  color: #2449b8;
+  background: rgba(99, 102, 241, .15);
+  color: #4338ca;
 }
 
 .shell.light .card {
   background: #ffffff;
-  box-shadow: 0 1px 3px rgba(59, 109, 255, .08), 0 0 0 1px rgba(59, 109, 255, .08);
-  border-color: rgba(59, 109, 255, .1);
+  box-shadow: 0 1px 3px rgba(99, 102, 241, .08), 0 0 0 1px rgba(99, 102, 241, .08);
+  border-color: rgba(99, 102, 241, .1);
 }
 
 .shell.light .card::before {
-  background: linear-gradient(90deg, transparent, rgba(59, 109, 255, .12), transparent);
+  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, .12), transparent);
 }
 
 .shell.light .card-header {
-  background: rgba(59, 109, 255, .04);
-  border-bottom-color: rgba(59, 109, 255, .1);
+  background: rgba(99, 102, 241, .04);
+  border-bottom-color: rgba(99, 102, 241, .1);
 }
 
 .shell.light .card-title {
@@ -227,7 +227,7 @@ body, button, input, select, textarea {
 
 .shell.light .inp {
   background: #f5f7ff;
-  border-color: rgba(59, 109, 255, .2);
+  border-color: rgba(99, 102, 241, .2);
   color: #1e1b4b;
 }
 
@@ -236,14 +236,14 @@ body, button, input, select, textarea {
 }
 
 .shell.light .inp:focus {
-  border-color: rgba(59, 109, 255, .45);
-  box-shadow: 0 0 0 3px rgba(59, 109, 255, .08);
+  border-color: rgba(99, 102, 241, .45);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, .08);
 }
 
 .shell.light .model-sel,
 .shell.light select {
   background: #f5f7ff;
-  border-color: rgba(59, 109, 255, .2);
+  border-color: rgba(99, 102, 241, .2);
   color: #1e1b4b;
 }
 
@@ -265,7 +265,7 @@ body, button, input, select, textarea {
 
 .shell.light .agent-card {
   background: #f8f9ff;
-  border-color: rgba(59, 109, 255, .12);
+  border-color: rgba(99, 102, 241, .12);
 }
 
 .shell.light .model-label {
@@ -273,22 +273,22 @@ body, button, input, select, textarea {
 }
 
 .shell.light .slider-val {
-  color: #2449b8;
+  color: #4338ca;
 }
 
 .shell.light .slider-input {
   background: #f5f7ff;
-  border-color: rgba(59, 109, 255, .2);
+  border-color: rgba(99, 102, 241, .2);
   color: #1e1b4b;
 }
 
 .shell.light .stat-card {
   background: #f5f7ff;
-  border-color: rgba(59, 109, 255, .1);
+  border-color: rgba(99, 102, 241, .1);
 }
 
 .shell.light .stat-val {
-  color: #2449b8;
+  color: #4338ca;
 }
 
 .shell.light .stat-label {
@@ -296,7 +296,7 @@ body, button, input, select, textarea {
 }
 
 .shell.light .rule-item {
-  border-bottom-color: rgba(59, 109, 255, .08);
+  border-bottom-color: rgba(99, 102, 241, .08);
 }
 
 .shell.light .rule-pattern {
@@ -304,20 +304,20 @@ body, button, input, select, textarea {
 }
 
 .shell.light .add-rule {
-  border-top-color: rgba(59, 109, 255, .1);
-  background: rgba(59, 109, 255, .03);
+  border-top-color: rgba(99, 102, 241, .1);
+  background: rgba(99, 102, 241, .03);
 }
 
 .shell.light .theme-btn {
-  color: #2449b8;
-  background: rgba(59, 109, 255, .1);
-  border-color: rgba(59, 109, 255, .2);
+  color: #4338ca;
+  background: rgba(99, 102, 241, .1);
+  border-color: rgba(99, 102, 241, .2);
 }
 
 /* card-icon light overrides */
 .shell.light .card-icon.cyan {
-  background: rgba(47, 95, 224, .10);
-  color: #2f5fe0;
+  background: rgba(79, 70, 229, .10);
+  color: #4f46e5;
 }
 
 .shell.light .card-icon.green {
@@ -337,12 +337,12 @@ body, button, input, select, textarea {
 
 .shell.light .card-icon.vio {
   background: rgba(124, 58, 237, .10);
-  color: #2f5fe0;
+  color: #7c3aed;
 }
 
 .shell.light .card-icon.violet {
   background: rgba(124, 58, 237, .10);
-  color: #2f5fe0;
+  color: #7c3aed;
 }
 
 .shell.light .card-icon.blue {
@@ -419,7 +419,7 @@ body, button, input, select, textarea {
   height: 400px;
   bottom: -100px;
   right: -80px;
-  background: radial-gradient(circle, rgba(111, 155, 255, .04), transparent 70%);
+  background: radial-gradient(circle, rgba(129, 140, 248, .04), transparent 70%);
   animation: drift 25s ease-in-out infinite alternate-reverse;
 }
 
@@ -475,7 +475,7 @@ body, button, input, select, textarea {
   position: absolute;
   inset: 8px;
   border-radius: 50%;
-  border: 1px dashed rgba(111, 155, 255, .3);
+  border: 1px dashed rgba(129, 140, 248, .3);
   animation: sb-spin 9s linear infinite reverse;
 }
 
@@ -489,8 +489,8 @@ body, button, input, select, textarea {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #6f9bff;
-  box-shadow: 0 0 6px #6f9bff;
+  background: #818cf8;
+  box-shadow: 0 0 6px #818cf8;
 }
 
 /* Globe core */
@@ -498,7 +498,7 @@ body, button, input, select, textarea {
   position: absolute;
   inset: 10px;
   border-radius: 50%;
-  background: linear-gradient(145deg, rgba(56, 189, 248, .18), rgba(111, 155, 255, .12));
+  background: linear-gradient(145deg, rgba(56, 189, 248, .18), rgba(129, 140, 248, .12));
   border: 1.2px solid rgba(56, 189, 248, .45);
   display: flex;
   align-items: center;
@@ -513,12 +513,12 @@ body, button, input, select, textarea {
 }
 
 .shell.light .sb-orbit-outer {
-  border-color: rgba(59, 109, 255, .3);
+  border-color: rgba(99, 102, 241, .3);
 }
 
 .shell.light .sb-orbit-outer::after {
-  background: #2f5fe0;
-  box-shadow: 0 0 8px #2f5fe0;
+  background: #4f46e5;
+  box-shadow: 0 0 8px #4f46e5;
 }
 
 .shell.light .sb-orbit-mid {
@@ -526,17 +526,17 @@ body, button, input, select, textarea {
 }
 
 .shell.light .sb-orbit-mid::after {
-  background: #2f5fe0;
-  box-shadow: 0 0 6px #2f5fe0;
+  background: #7c3aed;
+  box-shadow: 0 0 6px #7c3aed;
 }
 
 .shell.light .sb-orbit-core {
-  background: linear-gradient(145deg, rgba(59, 109, 255, .15), rgba(124, 58, 237, .1));
-  border-color: rgba(59, 109, 255, .45);
+  background: linear-gradient(145deg, rgba(99, 102, 241, .15), rgba(124, 58, 237, .1));
+  border-color: rgba(99, 102, 241, .45);
 }
 
 .shell.light .sb-orbit-core svg {
-  color: #2f5fe0;
+  color: #4f46e5;
 }
 
 
@@ -571,7 +571,7 @@ body, button, input, select, textarea {
   right: -1px;
   width: 1px;
   height: 100%;
-  background: linear-gradient(180deg, transparent, rgba(56, 189, 248, .18) 30%, rgba(111, 155, 255, .12) 70%, transparent);
+  background: linear-gradient(180deg, transparent, rgba(56, 189, 248, .18) 30%, rgba(129, 140, 248, .12) 70%, transparent);
 }
 
 .sb-brand {
@@ -775,7 +775,7 @@ body, button, input, select, textarea {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: linear-gradient(135deg, #38bdf8, #6f9bff);
+  background: linear-gradient(135deg, #38bdf8, #818cf8);
   border: none;
   border-radius: 10px;
   padding: 8px 18px;
@@ -823,7 +823,7 @@ body, button, input, select, textarea {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, .15), rgba(111, 155, 255, .10), transparent);
+  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, .15), rgba(129, 140, 248, .10), transparent);
 }
 
 .card-header {
@@ -974,13 +974,13 @@ body, button, input, select, textarea {
 }
 
 .btn-prim {
-  background: linear-gradient(135deg, rgba(56, 189, 248, .18), rgba(111, 155, 255, .14));
+  background: linear-gradient(135deg, rgba(56, 189, 248, .18), rgba(129, 140, 248, .14));
   border-color: rgba(56, 189, 248, .30);
   color: var(--cyan);
 }
 
 .btn-prim:hover {
-  background: linear-gradient(135deg, rgba(56, 189, 248, .28), rgba(111, 155, 255, .22));
+  background: linear-gradient(135deg, rgba(56, 189, 248, .28), rgba(129, 140, 248, .22));
   border-color: rgba(56, 189, 248, .50);
 }
 
@@ -1157,7 +1157,7 @@ body, button, input, select, textarea {
 }
 
 .sw input:checked~.sld {
-  background: linear-gradient(135deg, rgba(56, 189, 248, .35), rgba(111, 155, 255, .25));
+  background: linear-gradient(135deg, rgba(56, 189, 248, .35), rgba(129, 140, 248, .25));
   border-color: rgba(56, 189, 248, .40);
   box-shadow: 0 0 10px rgba(56, 189, 248, .15);
 }
@@ -1450,7 +1450,7 @@ body, button, input, select, textarea {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: linear-gradient(135deg, rgba(56, 189, 248, .08), rgba(111, 155, 255, .06));
+  background: linear-gradient(135deg, rgba(56, 189, 248, .08), rgba(129, 140, 248, .06));
   border: 1px dashed rgba(56, 189, 248, .20);
   border-radius: 12px;
   padding: 13px 20px;
@@ -1464,7 +1464,7 @@ body, button, input, select, textarea {
 }
 
 .add-provider:hover {
-  background: linear-gradient(135deg, rgba(56, 189, 248, .12), rgba(111, 155, 255, .09));
+  background: linear-gradient(135deg, rgba(56, 189, 248, .12), rgba(129, 140, 248, .09));
   border-color: rgba(56, 189, 248, .35);
   box-shadow: 0 0 0 3px rgba(56, 189, 248, .05);
 }
@@ -1521,7 +1521,7 @@ body, button, input, select, textarea {
 
 .agent-pill.navigator {
   background: var(--violet3);
-  border: 1px solid rgba(111, 155, 255, .22);
+  border: 1px solid rgba(129, 140, 248, .22);
   color: var(--violet)
 }
 
@@ -1729,7 +1729,7 @@ input[type=range]:focus {
 }
 
 .toggle input:checked~.toggle-track {
-  background: linear-gradient(135deg, rgba(56, 189, 248, .35), rgba(111, 155, 255, .25));
+  background: linear-gradient(135deg, rgba(56, 189, 248, .35), rgba(129, 140, 248, .25));
   border-color: rgba(56, 189, 248, .40);
   box-shadow: 0 0 10px rgba(56, 189, 248, .15);
 }

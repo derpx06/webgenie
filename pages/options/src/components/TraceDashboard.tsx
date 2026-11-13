@@ -65,8 +65,8 @@ const outcomeLabel = (outcome: TaskOverview['outcome']): string =>
 
 const Stat = ({ label, value, isDarkMode }: { label: string; value: string; isDarkMode: boolean }) => (
   <div className={`rounded-xl border px-4 py-3 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-200 bg-slate-50/60'}`}>
-    <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{label}</div>
-    <div className="font-outfit mt-1 text-lg font-semibold tracking-tight">{value}</div>
+    <div className="text-[9px] font-black uppercase tracking-[0.18em] opacity-40">{label}</div>
+    <div className="font-outfit mt-1 text-lg font-bold tracking-tight">{value}</div>
   </div>
 );
 
@@ -103,14 +103,14 @@ const WallClockBar = ({ wallClock, isDarkMode }: { wallClock: WallClock; isDarkM
 const StepRow = ({ step, isDarkMode }: { step: StepSummary; isDarkMode: boolean }) => (
   <li className={`border-t px-5 py-3 ${isDarkMode ? 'border-white/5' : 'border-slate-100'}`}>
     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-      <span className="font-outfit min-w-14 text-sm font-semibold tracking-tight">
+      <span className="font-outfit min-w-14 text-sm font-black tracking-tight">
         {t('traces_step')} {step.step}
       </span>
-      <span className="font-mono text-[11px] tabular-nums opacity-70">{formatDuration(step.durationMs)}</span>
-      <span className="font-mono text-[11px] tabular-nums opacity-70">
+      <span className="font-mono text-[11px] tabular-nums opacity-50">{formatDuration(step.durationMs)}</span>
+      <span className="font-mono text-[11px] tabular-nums opacity-50">
         {formatTokens(step.tokens.inputTokens)} / {formatTokens(step.tokens.outputTokens)}
       </span>
-      <span className="font-mono text-[11px] tabular-nums opacity-70">
+      <span className="font-mono text-[11px] tabular-nums opacity-50">
         {t('traces_step_model')} {formatDuration(step.modelMs)}
       </span>
     </div>
@@ -119,11 +119,11 @@ const StepRow = ({ step, isDarkMode }: { step: StepSummary; isDarkMode: boolean 
         <span
           key={`${call.ts}-${call.component}`}
           title={call.error ?? call.finishReason ?? ''}
-          className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${
+          className={`rounded-md border px-2 py-0.5 font-mono text-[10px] ${
             call.status === 'ok'
               ? isDarkMode
-                ? 'border-blue-500/20 bg-blue-500/10 text-blue-300'
-                : 'border-blue-100 bg-blue-50 text-blue-700'
+                ? 'border-indigo-500/20 bg-indigo-500/10 text-indigo-300'
+                : 'border-indigo-100 bg-indigo-50 text-indigo-700'
               : 'border-[#F43F5E]/20 bg-[#F43F5E]/10 text-[#F43F5E]'
           }`}>
           {call.component} {formatDuration(call.durationMs)}
@@ -134,7 +134,7 @@ const StepRow = ({ step, isDarkMode }: { step: StepSummary; isDarkMode: boolean 
         <span
           key={`${action.ts}-${action.name}`}
           title={action.error ?? ''}
-          className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${
+          className={`rounded-md border px-2 py-0.5 font-mono text-[10px] ${
             action.error
               ? 'border-[#F59E0B]/20 bg-[#F59E0B]/10 text-[#F59E0B]'
               : isDarkMode
@@ -147,7 +147,7 @@ const StepRow = ({ step, isDarkMode }: { step: StepSummary; isDarkMode: boolean 
       {step.validations.map(validation => (
         <span
           key={`${validation.ts}-${validation.name}`}
-          className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${
+          className={`rounded-md border px-2 py-0.5 font-mono text-[10px] ${
             validation.verdict === 'failed'
               ? 'border-[#F43F5E]/20 bg-[#F43F5E]/10 text-[#F43F5E]'
               : 'border-[#2ED9A8]/20 bg-[#2ED9A8]/10 text-[#2ED9A8]'
@@ -157,7 +157,7 @@ const StepRow = ({ step, isDarkMode }: { step: StepSummary; isDarkMode: boolean 
       ))}
     </div>
     {step.errors.map(error => (
-      <p key={`${error.ts}-${error.msg}`} className="mt-1 truncate font-mono text-[11px] text-[#F43F5E]">
+      <p key={`${error.ts}-${error.msg}`} className="mt-1 truncate font-mono text-[10px] text-[#F43F5E]">
         {error.component}: {error.msg}
       </p>
     ))}
@@ -218,14 +218,14 @@ export const TraceDashboard = ({ isDarkMode = false }: TraceDashboardProps) => {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6 duration-700">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[11px] font-medium opacity-70">
+        <p className="text-[11px] font-medium opacity-50">
           {t('traces_store_summary')} {records} · {t('traces_store_limit')} {MAX_TASKS}
         </p>
         <button
           type="button"
           onClick={() => void refresh()}
           disabled={busy}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-[11px] font-medium uppercase tracking-wide transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7C3AED] disabled:opacity-70 ${isDarkMode ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-slate-100 text-slate-900 hover:bg-slate-200'}`}>
+          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7C3AED] disabled:opacity-40 ${isDarkMode ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-slate-100 text-slate-900 hover:bg-slate-200'}`}>
           <FiRefreshCw size={12} className={busy ? 'animate-spin' : ''} />
           {t('traces_refresh')}
         </button>
@@ -257,16 +257,16 @@ export const TraceDashboard = ({ isDarkMode = false }: TraceDashboardProps) => {
           colorTheme="indigo">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[11px]">
-              <thead className={`border-b text-[11px] font-semibold uppercase tracking-wide opacity-70 ${cardBorder}`}>
+              <thead className={`border-b text-[9px] font-black uppercase tracking-[0.18em] opacity-40 ${cardBorder}`}>
                 <tr>
-                  <th className="px-5 py-2 font-semibold">{t('traces_col_started')}</th>
-                  <th className="px-3 py-2 font-semibold">{t('traces_col_task')}</th>
-                  <th className="px-3 py-2 font-semibold">{t('traces_col_outcome')}</th>
-                  <th className="px-3 py-2 text-right font-semibold">{t('traces_col_steps')}</th>
-                  <th className="px-3 py-2 text-right font-semibold">{t('traces_col_duration')}</th>
-                  <th className="px-3 py-2 text-right font-semibold">{t('traces_col_tokens')}</th>
-                  <th className="px-3 py-2 text-right font-semibold">{t('traces_col_cached')}</th>
-                  <th className="px-5 py-2 font-semibold">{t('traces_col_model')}</th>
+                  <th className="px-5 py-2 font-black">{t('traces_col_started')}</th>
+                  <th className="px-3 py-2 font-black">{t('traces_col_task')}</th>
+                  <th className="px-3 py-2 font-black">{t('traces_col_outcome')}</th>
+                  <th className="px-3 py-2 text-right font-black">{t('traces_col_steps')}</th>
+                  <th className="px-3 py-2 text-right font-black">{t('traces_col_duration')}</th>
+                  <th className="px-3 py-2 text-right font-black">{t('traces_col_tokens')}</th>
+                  <th className="px-3 py-2 text-right font-black">{t('traces_col_cached')}</th>
+                  <th className="px-5 py-2 font-black">{t('traces_col_model')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -285,8 +285,8 @@ export const TraceDashboard = ({ isDarkMode = false }: TraceDashboardProps) => {
                     className={`cursor-pointer border-b transition-colors ${cardBorder} ${
                       selected === task.taskId
                         ? isDarkMode
-                          ? 'bg-blue-500/10'
-                          : 'bg-blue-50'
+                          ? 'bg-indigo-500/10'
+                          : 'bg-indigo-50'
                         : isDarkMode
                           ? 'hover:bg-white/[0.03]'
                           : 'hover:bg-slate-50'
@@ -298,7 +298,7 @@ export const TraceDashboard = ({ isDarkMode = false }: TraceDashboardProps) => {
                       {task.task ?? <span className="font-mono opacity-50">{task.taskId}</span>}
                     </td>
                     <td className="px-3 py-2.5">
-                      <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${OUTCOME_STYLE[task.outcome]}`}>
+                      <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${OUTCOME_STYLE[task.outcome]}`}>
                         {outcomeLabel(task.outcome)}
                       </span>
                     </td>
@@ -316,7 +316,7 @@ export const TraceDashboard = ({ isDarkMode = false }: TraceDashboardProps) => {
               </tbody>
             </table>
           </div>
-          <p className="px-5 py-3 text-[11px] font-medium opacity-70">{t('traces_provider_note')}</p>
+          <p className="px-5 py-3 text-[10px] font-medium opacity-40">{t('traces_provider_note')}</p>
         </DashboardSection>
       )}
 
@@ -344,7 +344,7 @@ export const TraceDashboard = ({ isDarkMode = false }: TraceDashboardProps) => {
                 <p className="text-[12px] font-medium leading-relaxed opacity-70">{detail.detail.overview.outcomeDetails}</p>
               )}
               {detail.truncated && (
-                <p className="text-[11px] font-medium text-[#F59E0B]">
+                <p className="text-[10px] font-medium text-[#F59E0B]">
                   {t('traces_truncated')} {MAX_TASK_RECORDS}
                 </p>
               )}
@@ -362,7 +362,7 @@ export const TraceDashboard = ({ isDarkMode = false }: TraceDashboardProps) => {
                 <li key={row.key} className="flex items-baseline justify-between gap-3 text-[11px] font-medium">
                   <span className="truncate opacity-60">{row.label()}</span>
                   <span
-                    className={`font-mono tabular-nums ${detail.detail.health[row.key] > 0 ? 'font-semibold text-[#F59E0B]' : 'opacity-70'}`}>
+                    className={`font-mono tabular-nums ${detail.detail.health[row.key] > 0 ? 'font-bold text-[#F59E0B]' : 'opacity-30'}`}>
                     {detail.detail.health[row.key]}
                   </span>
                 </li>

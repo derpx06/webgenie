@@ -96,7 +96,7 @@ export const TabMentionsDropdown: React.FC<TabMentionsDropdownProps> = ({
                         onClick={() => onSelect(tab)}
                         onMouseEnter={() => setSelectedIndex(index)}
                         className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-200 ${index === selectedIndex
-                            ? isDarkMode ? 'bg-blue-500/30 text-white shadow-lg shadow-blue-500/10' : 'bg-blue-50 text-blue-700'
+                            ? isDarkMode ? 'bg-indigo-500/30 text-white shadow-lg shadow-indigo-500/10' : 'bg-indigo-50 text-indigo-700'
                             : 'hover:bg-slate-400/5'
                             }`}
                     >
