@@ -40,7 +40,7 @@ export const STAGE_COLORS: Record<WorkflowStage, { primary: string; secondary: s
   typing: { primary: '96, 200, 255', secondary: '150, 230, 255', speed: '2.6s' },
   clicking: { primary: '110, 214, 255', secondary: '170, 238, 255', speed: '2s' },
   waiting: { primary: '255, 186, 66', secondary: '255, 214, 130', speed: '5.5s' },
-  planning: { primary: '162, 118, 255', secondary: '198, 168, 255', speed: '4.5s' },
+  planning: { primary: '112, 148, 255', secondary: '170, 196, 255', speed: '4.5s' },
   comparing: { primary: '58, 210, 186', secondary: '130, 236, 218', speed: '3.4s' },
   completed: { primary: '74, 214, 126', secondary: '146, 238, 176', speed: '7s' },
   error: { primary: '255, 94, 94', secondary: '255, 150, 150', speed: '1.6s' },
@@ -237,7 +237,33 @@ export function motion(reduced: boolean, ms: number): number {
 }
 
 /** The travel easing: quick away, a touch past the target, then settle. */
-export const TRAVEL_EASING = 'cubic-bezier(0.34, 1.24, 0.42, 1)';
+/* No overshoot: the cursor decelerates onto the point and stops there, so it is on the target when the click lands. */
+export const TRAVEL_EASING = 'cubic-bezier(0.22, 0.9, 0.3, 1)';
+/**
+ * The cursor's path: a shallow arc, not a straight slide. A hand moving a mouse bends toward the target, and the bend
+ * is what makes the motion read as someone's rather than as a CSS transition. Sampled from a quadratic curve whose
+ * control point sits off the midpoint by a tenth of the distance (at most 36 px), always bending the same way for the
+ * same direction, so a back-and-forth does not wobble. The last sample is exactly `to`.
+ */
+export function arcPath(from: Point, to: Point, samples = 8): Point[] {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 24) return [from, to];
+  const bend = Math.min(36, distance * 0.1) * (dx >= 0 ? 1 : -1);
+  const control = { x: (from.x + to.x) / 2 + (-dy / distance) * bend, y: (from.y + to.y) / 2 + (dx / distance) * bend };
+  const points: Point[] = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples;
+    const a = (1 - t) * (1 - t);
+    const b = 2 * (1 - t) * t;
+    const c = t * t;
+    points.push({ x: a * from.x + b * control.x + c * to.x, y: a * from.y + b * control.y + c * to.y });
+  }
+  points[points.length - 1] = to;
+  return points;
+}
+
 /** Everything that is not travel — fades, dips, glows. */
 export const SOFT_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
 

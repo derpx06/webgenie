@@ -17,6 +17,7 @@ import {
   aimPoint,
   caretTrack,
   chipPlacement,
+  arcPath,
   clampPoint,
   exactPoint,
   haloBox,
@@ -90,15 +91,54 @@ const CSS = `
   opacity: 0;
   transition: opacity ${SLOW}ms ${SOFT_EASING};
   box-shadow:
-    inset 0 0 0 1px rgba(var(--wg-b), 0.22),
-    inset 0 0 16px -4px rgba(var(--wg-b), 0.55),
-    inset 0 0 54px -16px rgba(var(--wg-a), 0.85);
+    inset 0 0 0 1px rgba(var(--wg-b), 0.18),
+    inset 0 0 14px -5px rgba(var(--wg-b), 0.32),
+    inset 0 0 40px -18px rgba(var(--wg-a), 0.4);
 }
 .border.on {
   opacity: 1;
   animation: breathe var(--wg-speed, 4s) ease-in-out infinite;
 }
 @keyframes breathe { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+/* The frame: a bright gradient ring around the whole window, with a comet of light that circles it. The ring is a
+   static mask; only the conic square behind it turns, and a turning transform costs the page nothing. */
+.frame {
+  position: absolute;
+  inset: 0;
+  padding: 3.5px;
+  border-radius: 16px;
+  overflow: hidden;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.frame::before, .rim::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  aspect-ratio: 1;
+  background: conic-gradient(from 0deg,
+    rgba(var(--wg-a), 0.55) 0%, rgb(var(--wg-b)) 12%, rgba(var(--wg-a), 0.15) 30%,
+    rgba(var(--wg-a), 0.15) 50%, rgb(var(--wg-b)) 64%, rgba(var(--wg-a), 0.9) 78%, rgba(var(--wg-a), 0.55) 100%);
+  animation: orbit calc(var(--wg-speed, 4s) * 2.2) linear infinite;
+}
+.frame::before { width: 250vmax; margin: -125vmax 0 0 -125vmax; }
+@keyframes orbit { to { transform: rotate(360deg); } }
+/* The same ring, closed around the status capsule. */
+.rim {
+  position: absolute;
+  inset: 0;
+  padding: 1.5px;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.rim::before { width: 520px; margin: -260px 0 0 -260px; }
 
 /* ── Target halo: the element's own shape, lit from behind ──────────────── */
 .halo {
@@ -246,10 +286,10 @@ const CSS = `
   letter-spacing: -0.05px;
   white-space: nowrap;
   overflow: hidden;
-  background: var(--wg-glass);
+  background: linear-gradient(135deg, rgba(var(--wg-a), 0.16), rgba(var(--wg-a), 0.04) 60%), var(--wg-glass);
   backdrop-filter: var(--wg-blur);
   -webkit-backdrop-filter: var(--wg-blur);
-  box-shadow: var(--wg-surface), 0 0 30px rgba(var(--wg-a), 0.15);
+  box-shadow: var(--wg-surface), 0 0 34px rgba(var(--wg-a), 0.28);
   opacity: 0;
   transform: translate3d(-50%, 130%, 0);
   transition:
@@ -301,7 +341,7 @@ const CSS = `
 /* ── Less motion: everything still happens, nothing travels ─────────────── */
 @media (prefers-reduced-motion: reduce) {
   .chip, .capsule { transition-property: opacity; }
-  .border.on, .cursor.idle .float, .caret.on, .ring .pip { animation: none; }
+  .border.on, .cursor.idle .float, .caret.on, .ring .pip, .frame::before, .rim::before { animation: none; }
   .shadow, .glow { transition: none; }
   .smear { display: none; }
 }
@@ -322,26 +362,27 @@ const CSS = `
  * margin pulls onto the point the agent is acting on.
  */
 const ARROW_PATH =
-  'M1.63 1.57 Q1.0 1.0 1.0 1.85 L1.0 15.1 Q1.0 16.6 2.13 15.61 L4.41 13.59 Q5.2 12.9 5.6 13.87 ' +
-  'L7.6 18.63 Q8.0 19.6 8.97 19.19 L9.63 18.91 Q10.6 18.5 10.2 17.53 L8.3 12.87 Q7.9 11.9 8.95 11.9 ' +
-  'L11.9 11.9 Q13.2 11.9 12.23 11.03 Z';
+  'M1.9 1.7 Q1.0 1.0 1.0 2.1 L1.0 17.2 Q1.0 18.4 1.9 17.6 L5.1 14.7 L7.9 20.6 Q8.4 21.5 9.3 21.1 L10.3 20.6 Q11.2 20.2 10.8 19.3 L8.1 13.6 L12.4 13.6 Q13.6 13.6 12.7 12.8 Z';
 const ARROW = `
-<svg class="arrow" width="17" height="23" viewBox="0 0 16 22" xmlns="http://www.w3.org/2000/svg">
+<svg class="arrow" width="22" height="29" viewBox="0 0 17 23" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="wgSkin" x1="0.1" y1="0" x2="0.75" y2="1">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="0.45" stop-color="#f8fafd"/>
-      <stop offset="1" stop-color="#d6dfeb"/>
+    <linearGradient id="wgSkin" x1="0.05" y1="0" x2="0.8" y2="1">
+      <stop offset="0" style="stop-color: rgb(var(--wg-b))"/>
+      <stop offset="1" style="stop-color: rgb(var(--wg-a))"/>
     </linearGradient>
-    <linearGradient id="wgBevel" x1="0" y1="0" x2="0.55" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
-      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.3"/>
+    <linearGradient id="wgShade" x1="0" y1="0.3" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#0a1c5c" stop-opacity="0"/>
+      <stop offset="1" stop-color="#0a1c5c" stop-opacity="0.55"/>
+    </linearGradient>
+    <linearGradient id="wgSheen" x1="0" y1="0" x2="0.5" y2="0.6">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.7"/>
       <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <path d="${ARROW_PATH}" fill="rgba(9,13,21,0.5)" stroke="rgba(9,13,21,0.5)" stroke-width="2" stroke-linejoin="round"/>
-  <path d="${ARROW_PATH}" fill="url(#wgSkin)"/>
-  <path d="${ARROW_PATH}" fill="none" stroke="url(#wgBevel)" stroke-width="1.1" stroke-linejoin="round"/>
+  <path d="${ARROW_PATH}" fill="rgba(8,12,22,0.55)" stroke="rgba(8,12,22,0.55)" stroke-width="3.2" stroke-linejoin="round"/>
+  <path d="${ARROW_PATH}" fill="url(#wgSkin)" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="${ARROW_PATH}" fill="url(#wgShade)"/>
+  <path d="${ARROW_PATH}" fill="url(#wgSheen)"/>
 </svg>`;
 
 interface StatusUpdate {
@@ -403,7 +444,7 @@ export class Presence {
     this.root = this.host.attachShadow({ mode: 'open' });
     this.root.innerHTML = `
       <style>${CSS}</style>
-      <div class="border"></div>
+      <div class="border"><i class="frame"></i></div>
       <div class="halo"></div>
       <div class="caret"></div>
       <div class="ripple"></div>
@@ -417,6 +458,7 @@ export class Presence {
       </div>
       <div class="chip"></div>
       <div class="capsule">
+        <i class="rim"></i>
         <svg class="ring" viewBox="0 0 22 22" aria-hidden="true">
           <circle class="track" cx="11" cy="11" r="${RING_RADIUS}"></circle>
           <circle class="fill" cx="11" cy="11" r="${RING_RADIUS}" stroke-dashoffset="${RING_CIRCUMFERENCE}"></circle>
@@ -582,7 +624,8 @@ export class Presence {
     this.showChip(goal, point, rect);
 
     if (rect) this.showHalo(rect, track ? TRAVEL_MS + TYPE_MS : 520);
-    if (kind === 'click') this.press(point);
+    // A click is pressed when the gesture reaches the element (aimAt), at the point it really clicks. An action the
+    // page refuses sends no pointer, so the cursor never presses something that was not clicked.
     if (track) this.type(track);
 
     // Back to a slow breath once the action has had its moment, so a thinking agent still looks alive.
@@ -602,6 +645,7 @@ export class Presence {
     // The click goes to `at` when the page says where; the cursor is drawn there, not on the box's centre.
     const landing = at ? exactPoint(at, this.viewport) : point;
     this.glide(landing, FAST);
+    if (this.kind === 'click' && at) this.press(landing, 90);
     this.showHalo(rect, track ? TRAVEL_MS + TYPE_MS : 520);
     // Typing is a walk along the field, already scheduled from where the field used to be: start it again here, or the
     // caret writes in the old place and drags the cursor back to it. When the click has a point, the walk waits until the
@@ -638,12 +682,10 @@ export class Presence {
       return;
     }
 
+    // A shallow arc sampled from a curve, eased as a whole: a hand bends toward its target.
     this.play(
       this.cursor,
-      [
-        { transform: `translate3d(${from.x}px, ${from.y}px, 0)` },
-        { transform: `translate3d(${next.x}px, ${next.y}px, 0)` },
-      ],
+      arcPath(from, next).map(at => ({ transform: `translate3d(${at.x}px, ${at.y}px, 0)` })),
       ms,
       TRAVEL_EASING,
       null,
@@ -721,9 +763,9 @@ export class Presence {
     );
   }
 
-  private press(point: Point): void {
+  private press(point: Point, after = TRAVEL_MS - 70): void {
     // The dip waits out the travel so the cursor presses where it lands, not on the way.
-    const delay = this.reduced ? 0 : TRAVEL_MS - 70;
+    const delay = this.reduced ? 0 : after;
     setTimeout(() => {
       if (!this.host.isConnected) return;
       this.cursor.classList.add('press');
@@ -742,8 +784,9 @@ export class Presence {
         null,
       );
       // Positioned with left/top, not a transform: the ripple's own keyframes own its transform.
-      this.ripple.style.left = `${point.x}px`;
-      this.ripple.style.top = `${point.y}px`;
+      const at = this.point ?? point;
+      this.ripple.style.left = `${at.x}px`;
+      this.ripple.style.top = `${at.y}px`;
       this.play(
         this.ripple,
         [

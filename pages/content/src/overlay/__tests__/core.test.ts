@@ -4,6 +4,7 @@ import {
   aimPoint,
   caretTrack,
   chipPlacement,
+  arcPath,
   clampPoint,
   exactPoint,
   DEFAULT_STAGE,
@@ -385,5 +386,29 @@ describe('re-planning a typing action at the corrected position', () => {
     const { point } = aimPlan('type', edge, VIEWPORT);
     expect(point.x).toBeLessThanOrEqual(VIEWPORT.width - 16);
     expect(point.y).toBeLessThanOrEqual(VIEWPORT.height - 16);
+  });
+});
+
+describe('arcPath', () => {
+  const from = { x: 100, y: 100 };
+  it('ends exactly on the target, so the cursor is on it when the click lands', () => {
+    const path = arcPath(from, { x: 700, y: 420 });
+    expect(path[0]).toEqual(from);
+    expect(path.at(-1)).toEqual({ x: 700, y: 420 });
+  });
+  it('bends away from the straight line, never by more than 36 px', () => {
+    const to = { x: 900, y: 100 };
+    const offsets = arcPath(from, to).map(p => Math.abs(p.y - 100));
+    expect(Math.max(...offsets)).toBeGreaterThan(5);
+    expect(Math.max(...offsets)).toBeLessThanOrEqual(36);
+  });
+  it('bows to the same side going out and coming back, so a repeated move does not wobble', () => {
+    const out = arcPath({ x: 0, y: 0 }, { x: 400, y: 0 })[4];
+    const back = arcPath({ x: 400, y: 0 }, { x: 0, y: 0 })[4];
+    expect(Math.sign(out.y)).toBe(Math.sign(back.y));
+    expect(out.y).not.toBe(0);
+  });
+  it('leaves a short move straight', () => {
+    expect(arcPath(from, { x: 110, y: 105 })).toHaveLength(2);
   });
 });
