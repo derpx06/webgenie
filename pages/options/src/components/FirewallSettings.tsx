@@ -77,7 +77,7 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
           <input type="checkbox" className="peer sr-only" checked={isEnabled} onChange={handleToggleFirewall} />
           <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
             after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-focus:outline-none
-            ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#818cf8] peer-checked:bg-indigo-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
+            ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#6f9bff] peer-checked:bg-blue-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-blue-600'} 
             peer-checked:after:border-white peer-checked:after:bg-white`}>
           </div>
         </label>
@@ -130,12 +130,12 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
           </div>
 
           {/* Add Rule Interface */}
-          <div className={`flex flex-col items-stretch gap-3 rounded-xl border p-3 transition-all duration-300 sm:flex-row sm:items-center ${isDarkMode ? 'border-white/5 bg-black/20 focus-within:border-indigo-500/30' : 'border-slate-200 bg-slate-50'}`}>
+          <div className={`flex flex-col items-stretch gap-3 rounded-xl border p-3 transition-all duration-300 sm:flex-row sm:items-center ${isDarkMode ? 'border-white/5 bg-black/20 focus-within:border-blue-500/30' : 'border-slate-200 bg-slate-50'}`}>
             <div className="relative flex-1">
               <FiTarget className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 opacity-40" />
               <input
                 type="text"
-                className={`w-full rounded-lg border-0 py-2.5 pl-10 pr-4 focus:ring-1 focus:ring-indigo-500 ${isDarkMode ? 'bg-white/5 text-white placeholder:text-slate-600' : 'bg-white text-slate-900 shadow-sm placeholder:text-slate-400'} font-mono text-[13px] font-medium transition-all`}
+                className={`w-full rounded-lg border-0 py-2.5 pl-10 pr-4 focus:ring-1 focus:ring-blue-500 ${isDarkMode ? 'bg-white/5 text-white placeholder:text-slate-600' : 'bg-white text-slate-900 shadow-sm placeholder:text-slate-400'} font-mono text-[13px] font-medium transition-all`}
                 placeholder="domain.com"
                 value={newUrl}
                 onChange={e => setNewUrl(e.target.value)}
@@ -149,7 +149,7 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
                 type="button"
                 onClick={() => setNewUrlType('allow')}
                 className={`rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-all duration-200 ${newUrlType === 'allow'
-                  ? (isDarkMode ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-indigo-600 shadow-sm')
+                  ? (isDarkMode ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-blue-600 shadow-sm')
                   : 'text-slate-500 hover:text-slate-200'
                 }`}
               >
@@ -159,7 +159,7 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
                 type="button"
                 onClick={() => setNewUrlType('deny')}
                 className={`rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-all duration-200 ${newUrlType === 'deny'
-                  ? (isDarkMode ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-indigo-600 shadow-sm')
+                  ? (isDarkMode ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-blue-600 shadow-sm')
                   : 'text-slate-500 hover:text-slate-200'
                 }`}
               >
@@ -169,7 +169,7 @@ export const FirewallSettings = ({ isDarkMode }: FirewallSettingsProps) => {
 
             <button
               onClick={handleAddUrl}
-              className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-6 py-2.5 text-[11px] font-medium uppercase tracking-wide text-white shadow-lg shadow-indigo-500/10 transition-all hover:bg-indigo-500 active:scale-95"
+              className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 text-[11px] font-medium uppercase tracking-wide text-white shadow-lg shadow-blue-500/10 transition-all hover:bg-blue-500 active:scale-95"
             >
               <FiPlus size={14} />
               Add Rule

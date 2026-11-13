@@ -54,7 +54,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
       <div className="mb-8 flex flex-col justify-between gap-6 sm:flex-row sm:items-start">
         <div className="flex flex-col gap-3">
           <div className={`w-fit rounded-lg px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${isPlanner
-            ? (isDark ? 'bg-indigo-500/10 text-indigo-400' : 'bg-indigo-50 text-indigo-700')
+            ? (isDark ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-50 text-blue-700')
             : (isDark ? 'bg-slate-500/10 text-slate-400' : 'bg-slate-100 text-slate-700')
             }`}>
             {isPlanner ? 'Planning Model' : 'Execution Model'}
@@ -70,7 +70,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
 
       <div className="grid grid-cols-1 gap-5">
         {/* Model Selection Field */}
-        <div className={`group/field relative rounded-xl border p-4 transition-all duration-200 ${isDark ? 'border-white/5 bg-black/20 focus-within:border-indigo-500/30' : 'border-slate-200 bg-slate-50 focus-within:border-indigo-300'
+        <div className={`group/field relative rounded-xl border p-4 transition-all duration-200 ${isDark ? 'border-white/5 bg-black/20 focus-within:border-blue-500/30' : 'border-slate-200 bg-slate-50 focus-within:border-blue-300'
           }`}>
           <div className="mb-2 ml-1 block text-[11px] font-semibold uppercase tracking-widest opacity-70">Selected Model</div>
           <div className="relative">
@@ -108,7 +108,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
             <div className={`rounded-xl border p-4 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
               <div className="mb-3 flex items-center justify-between">
                 <div className="text-[11px] font-semibold uppercase tracking-widest opacity-70">Temperature</div>
-                <span className={`font-mono text-[11px] font-semibold ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                <span className={`font-mono text-[11px] font-semibold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
                   {modelParameters[agentName].temperature.toFixed(2)}
                 </span>
               </div>
@@ -130,7 +130,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
               <div className={`rounded-xl border p-4 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-[11px] font-semibold uppercase tracking-widest opacity-70">Top P</div>
-                  <span className={`font-mono text-[11px] font-semibold ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                  <span className={`font-mono text-[11px] font-semibold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
                     {modelParameters[agentName].topP.toFixed(3)}
                   </span>
                 </div>
@@ -156,7 +156,7 @@ export const AgentCalibrationCard: React.FC<AgentCalibrationCardProps> = ({
                     key={level}
                     onClick={() => handleReasoningEffortChange(agentName, level)}
                     className={`flex-1 rounded-lg py-2 text-[11px] font-semibold uppercase tracking-tight transition-all duration-200 ${(reasoningEffort[agentName] || 'low') === level
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
                       : isDarkMode ? 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300' : 'border border-slate-200 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700'
                       }`}
                   >

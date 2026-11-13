@@ -78,8 +78,8 @@
   --wg-accent-hover: #4338ca;
   --wg-accent-text: #4338ca;
   --wg-accent-on: #ffffff;
-  --wg-accent-bg: rgba(79, 70, 229, 0.08);
-  --wg-accent-border: rgba(79, 70, 229, 0.22);
+  --wg-accent-bg: rgba(47, 95, 224, 0.08);
+  --wg-accent-border: rgba(47, 95, 224, 0.22);
 
   --wg-ok: #047857;
   --wg-ok-bg: rgba(4, 120, 87, 0.09);
@@ -118,8 +118,8 @@
   --wg-accent-hover: #818cf8;
   --wg-accent-text: #a5b4fc;
   --wg-accent-on: #ffffff;
-  --wg-accent-bg: rgba(129, 140, 248, 0.14);
-  --wg-accent-border: rgba(129, 140, 248, 0.3);
+  --wg-accent-bg: rgba(111, 155, 255, 0.14);
+  --wg-accent-border: rgba(111, 155, 255, 0.3);
 
   --wg-ok: #34d399;
   --wg-ok-bg: rgba(52, 211, 153, 0.13);

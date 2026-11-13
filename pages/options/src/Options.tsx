@@ -91,7 +91,7 @@ const Options = () => {
   };
 
   return (
-    <div className={`min-h-screen overflow-hidden font-sans transition-colors duration-500 ${isDarkMode ? 'bg-[#0f1117] text-white' : 'bg-[#f8fafc] text-slate-900'}`}>
+    <div className={`min-h-screen overflow-hidden font-sans transition-colors duration-500 ${isDarkMode ? 'bg-[#060a15] text-white' : 'bg-[#eef2fb] text-slate-900'}`}>
       <OptionsBackground isDarkMode={isDarkMode} />
 
       <div className="relative z-10 flex h-screen overflow-hidden">
@@ -128,12 +128,18 @@ const Options = () => {
 
       <style dangerouslySetInnerHTML={{
         __html: `
+        .wg-aurora { position: absolute; border-radius: 9999px; filter: blur(40px); }
+        .wg-aurora-a { left: -120px; top: -100px; width: 460px; height: 460px; animation: auroraA 16s ease-in-out infinite alternate; }
+        .wg-aurora-b { right: -140px; bottom: -120px; width: 520px; height: 440px; animation: auroraB 20s ease-in-out infinite alternate; }
+        @keyframes auroraA { from { transform: translate(-20px,-10px) scale(1); } to { transform: translate(60px,50px) scale(1.15); } }
+        @keyframes auroraB { from { transform: translate(20px,10px) scale(1.05); } to { transform: translate(-60px,-30px) scale(.95); } }
+        @media (prefers-reduced-motion: reduce) { .wg-aurora { animation: none; } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.1); border-radius: 20px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.2); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(59, 109, 255, 0.1); border-radius: 20px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(59, 109, 255, 0.2); }
       ` }} />
     </div>
   );

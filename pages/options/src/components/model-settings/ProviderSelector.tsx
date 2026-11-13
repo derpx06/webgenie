@@ -16,14 +16,14 @@ const PROVIDER_METADATA: Record<string, { category: string; type: string; icon: 
   [ProviderTypeEnum.OpenAI]: { category: 'Recommended', type: 'Hosted API', icon: <SiOpenai />, color: 'bg-slate-900' },
   [ProviderTypeEnum.Anthropic]: { category: 'Recommended', type: 'Hosted API', icon: <SiAnthropic />, color: 'bg-white' },
   [ProviderTypeEnum.Gemini]: { category: 'Recommended', type: 'Hosted API', icon: <SiGoogle />, color: 'bg-blue-500' },
-  [ProviderTypeEnum.DeepSeek]: { category: 'Recommended', type: 'Hosted API', icon: <FiActivity />, color: 'bg-indigo-600' },
+  [ProviderTypeEnum.DeepSeek]: { category: 'Recommended', type: 'Hosted API', icon: <FiActivity />, color: 'bg-blue-600' },
   [ProviderTypeEnum.Grok]: { category: 'Recommended', type: 'Hosted API', icon: <FiActivity />, color: 'bg-black' },
   [ProviderTypeEnum.Ollama]: { category: 'Local & Open Source', type: 'Local Runtime', icon: <FiServer />, color: 'bg-orange-500' },
   [ProviderTypeEnum.Groq]: { category: 'Local & Open Source', type: 'Hosted API', icon: <FiCpu />, color: 'bg-orange-600' },
   [ProviderTypeEnum.Cerebras]: { category: 'Local & Open Source', type: 'Hosted API', icon: <FiCpu />, color: 'bg-emerald-600' },
   [ProviderTypeEnum.Llama]: { category: 'Local & Open Source', type: 'Hosted API', icon: <FiActivity />, color: 'bg-blue-600' },
   [ProviderTypeEnum.AzureOpenAI]: { category: 'Enterprise & Compatible', type: 'Enterprise API', icon: <FiShield />, color: 'bg-blue-700' },
-  [ProviderTypeEnum.OpenRouter]: { category: 'Enterprise & Compatible', type: 'API Aggregator', icon: <FiGlobe />, color: 'bg-violet-600' },
+  [ProviderTypeEnum.OpenRouter]: { category: 'Enterprise & Compatible', type: 'API Aggregator', icon: <FiGlobe />, color: 'bg-blue-600' },
   [ProviderTypeEnum.Bedrock]: { category: 'Enterprise & Compatible', type: 'Enterprise API', icon: <FiShield />, color: 'bg-orange-700' },
   [ProviderTypeEnum.VertexAI]: { category: 'Enterprise & Compatible', type: 'Enterprise API', icon: <SiGoogle />, color: 'bg-blue-600' },
   [ProviderTypeEnum.CustomOpenAI]: { category: 'Enterprise & Compatible', type: 'Custom Endpoint', icon: <FiCpu />, color: 'bg-slate-500' },
@@ -79,8 +79,8 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
             onChange={(e) => setSearchQuery(e.target.value)}
             className={`w-full rounded-xl border py-2.5 pl-10 pr-4 text-xs font-semibold outline-none transition-all ${
               isDarkMode 
-                ? 'border-white/5 bg-white/5 text-white focus:border-indigo-500/50 focus:bg-white/[0.08]' 
-                : 'border-slate-100 bg-slate-50 text-slate-900 focus:border-indigo-300 focus:bg-white focus:shadow-sm'
+                ? 'border-white/5 bg-white/5 text-white focus:border-blue-500/50 focus:bg-white/[0.08]' 
+                : 'border-slate-100 bg-slate-50 text-slate-900 focus:border-blue-300 focus:bg-white focus:shadow-sm'
             }`}
           />
         </div>
@@ -116,8 +116,8 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
                       disabled={isDisabled}
                       className={`group/item flex items-center gap-3 rounded-xl border p-3 text-left transition-all duration-200 ${
                         isDarkMode 
-                          ? 'border-white/5 bg-white/[0.02] hover:border-indigo-500/30 hover:bg-indigo-500/5' 
-                          : 'border-slate-100 bg-slate-50/50 hover:border-indigo-200 hover:bg-white hover:shadow-sm'
+                          ? 'border-white/5 bg-white/[0.02] hover:border-blue-500/30 hover:bg-blue-500/5' 
+                          : 'border-slate-100 bg-slate-50/50 hover:border-blue-200 hover:bg-white hover:shadow-sm'
                       } ${isDisabled ? 'cursor-not-allowed opacity-40 grayscale-[0.5]' : ''}`}
                     >
                       <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg border text-sm transition-transform duration-300 group-hover/item:scale-105 ${

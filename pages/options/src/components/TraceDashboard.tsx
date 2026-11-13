@@ -122,8 +122,8 @@ const StepRow = ({ step, isDarkMode }: { step: StepSummary; isDarkMode: boolean 
           className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${
             call.status === 'ok'
               ? isDarkMode
-                ? 'border-indigo-500/20 bg-indigo-500/10 text-indigo-300'
-                : 'border-indigo-100 bg-indigo-50 text-indigo-700'
+                ? 'border-blue-500/20 bg-blue-500/10 text-blue-300'
+                : 'border-blue-100 bg-blue-50 text-blue-700'
               : 'border-[#F43F5E]/20 bg-[#F43F5E]/10 text-[#F43F5E]'
           }`}>
           {call.component} {formatDuration(call.durationMs)}
@@ -285,8 +285,8 @@ export const TraceDashboard = ({ isDarkMode = false }: TraceDashboardProps) => {
                     className={`cursor-pointer border-b transition-colors ${cardBorder} ${
                       selected === task.taskId
                         ? isDarkMode
-                          ? 'bg-indigo-500/10'
-                          : 'bg-indigo-50'
+                          ? 'bg-blue-500/10'
+                          : 'bg-blue-50'
                         : isDarkMode
                           ? 'hover:bg-white/[0.03]'
                           : 'hover:bg-slate-50'

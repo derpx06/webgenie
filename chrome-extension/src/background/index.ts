@@ -986,6 +986,17 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
 }
 
 // Update subscribeToExecutorEvents to use port
+/**
+ * The toolbar icon says what the task is doing without opening the panel: a green dot while it works, amber when it
+ * needs the user (a question, a hand-back, a pause), nothing when it is over.
+ */
+function showTaskOnToolbar(state: string, waitingForHuman: boolean): void {
+  const idle = state === 'task.ok' || state === 'task.fail' || state === 'task.cancel';
+  const colour = idle ? null : waitingForHuman || state === 'task.pause' ? '#ffb04d' : '#34e0a8';
+  void chrome.action.setBadgeText({ text: colour ? ' ' : '' }).catch(() => {});
+  if (colour) void chrome.action.setBadgeBackgroundColor({ color: colour }).catch(() => {});
+}
+
 async function subscribeToExecutorEvents(executor: Executor) {
   // Clear previous event listeners to prevent multiple subscriptions
   executor.clearExecutionEvents();
@@ -1005,6 +1016,8 @@ async function subscribeToExecutorEvents(executor: Executor) {
         };
         currentPort.postMessage(plainEvent);
       }
+
+      showTaskOnToolbar(event.state, executor.getContext().waitingForHuman === true);
 
       // Sync the current active tab with the orchestrator
       const agentTabId = executor.getCurrentTabId();

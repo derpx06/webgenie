@@ -55,7 +55,7 @@ export const SettingToggle: React.FC<ToggleProps> = ({
         aria-checked={checked}
         aria-label={title}
         onClick={() => onChange(!checked)}
-        className="relative inline-flex shrink-0 cursor-pointer items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
+        className="relative inline-flex shrink-0 cursor-pointer items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
       >
         <span className={`h-6 w-11 rounded-full border transition-all duration-300 after:absolute
           after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-['']

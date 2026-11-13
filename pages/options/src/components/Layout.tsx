@@ -44,13 +44,13 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
     }, []);
 
     return (
-        <aside className={`flex w-16 shrink-0 flex-col border-r transition-colors duration-300 md:w-64 ${isDarkMode ? 'border-white/5 bg-[#0f1117]' : 'border-slate-200 bg-white'}`}>
+        <aside className={`flex w-16 shrink-0 flex-col border-r backdrop-blur-xl transition-colors duration-300 md:w-64 ${isDarkMode ? 'border-white/10 bg-[#080c1a]/60' : 'border-slate-200/70 bg-white/60'}`}>
             <div className="group flex cursor-pointer items-center justify-center gap-3 p-3 md:justify-start md:p-6 md:pb-4" onClick={() => window.open('https://github.com/derpx06/webgenie', '_blank')}>
                 <div className={`flex size-9 items-center justify-center transition-all duration-700 group-hover:scale-110`}>
                     <img
                         src={chrome.runtime.getURL('webgenie-logo.png')}
                         alt="WebGenie"
-                        className="size-8 object-contain drop-shadow-[0_0_8px_rgba(99,102,241,0.2)]"
+                        className="drop-shadow-[0_0_8px_rgba(59, 109, 255,0.2)] size-8 object-contain"
                     />
                 </div>
                 <div className="flex flex-col max-md:hidden">
@@ -66,7 +66,7 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
                         title={item.label}
                         aria-label={item.label}
                         className={`group relative flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-[12px] font-semibold transition-all duration-300 max-md:justify-center max-md:px-0 ${activeTab === item.id
-                            ? (isDarkMode ? 'bg-indigo-600/10 text-indigo-400 shadow-lg shadow-indigo-500/5 ring-1 ring-indigo-500/20' : 'bg-indigo-50 text-indigo-600 shadow-sm ring-1 ring-indigo-100')
+                            ? (isDarkMode ? 'bg-blue-600/10 text-blue-400 shadow-lg shadow-blue-500/5 ring-1 ring-blue-500/20' : 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100')
                             : (isDarkMode ? 'text-slate-400 hover:bg-white/5 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900')
                             }`}
                     >
@@ -83,7 +83,7 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
                                 {firewallStatus.text}
                             </span>
                         )}
-                        {activeTab === item.id && <div className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>}
+                        {activeTab === item.id && <div className="shadow-[0_0_10px_rgba(59, 109, 255,0.5)] absolute inset-y-2 left-0 w-1 rounded-r-full bg-blue-500"></div>}
                     </button>
                 ))}
             </nav>
@@ -119,7 +119,13 @@ export const OptionsSidebar: React.FC<OptionsSidebarProps> = ({
     );
 };
 
-export const OptionsBackground: React.FC<{ isDarkMode: boolean }> = () => null; // kept so callers need not change
+/** The faint light behind the glass sidebar and cards; it drifts slowly and stops for reduced motion. */
+export const OptionsBackground: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) => (
+    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
+        <div className="wg-aurora wg-aurora-a" style={{ background: `radial-gradient(circle, ${isDarkMode ? 'rgba(47,91,255,.18)' : 'rgba(47,95,224,.14)'}, transparent 68%)` }} />
+        <div className="wg-aurora wg-aurora-b" style={{ background: `radial-gradient(circle at 30% 30%, ${isDarkMode ? 'rgba(255,154,61,.10)' : 'rgba(255,170,80,.14)'}, transparent 66%), radial-gradient(circle at 80% 10%, ${isDarkMode ? 'rgba(19,196,230,.09)' : 'rgba(19,196,230,.1)'}, transparent 60%)` }} />
+    </div>
+);
 
 export const OptionsHeader: React.FC<{ title: string; subtitle: string; isDarkMode: boolean }> = ({ title, subtitle, isDarkMode }) => (
     <header className="mb-8">

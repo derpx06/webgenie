@@ -112,7 +112,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
               <input
                 type="text"
                 id={`${providerId}-name`}
-                className={`w-full rounded-xl border px-4 py-3 text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
+                className={`w-full rounded-xl border px-4 py-3 text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-blue-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
                 placeholder="Provider Label"
                 value={providerConfig.name || ''}
                 onChange={e => handleNameChange(providerId, e.target.value)}
@@ -128,7 +128,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
               <input
                 type={visibleApiKeys[providerId] ? 'text' : 'password'}
                 id={`${providerId}-api-key`}
-                className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
+                className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-blue-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
                 placeholder="••••••••••••••••"
                 value={providerConfig.apiKey || ''}
                 onChange={e => handleApiKeyChange(providerId, e.target.value, providerConfig.baseUrl)}
@@ -147,7 +147,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
               <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">AWS Region</div>
               <input
                 type="text"
-                className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
+                className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-blue-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
                 placeholder="us-east-1"
                 value={providerConfig.region || ''}
                 onChange={e => handleRegionChange(providerId, e.target.value)}
@@ -161,7 +161,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
               <div className="group relative">
                 <input
                   type={visibleApiKeys[`${providerId}-secret`] ? 'text' : 'password'}
-                  className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
+                  className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-blue-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
                   placeholder="••••••••••••••••"
                   value={providerConfig.bedrockSecretKey || ''}
                   onChange={e => handleSecretKeyChange(providerId, e.target.value)}
@@ -182,7 +182,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
               <div className="group relative">
                 <input
                   type={visibleApiKeys[`${providerId}-session`] ? 'text' : 'password'}
-                  className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
+                  className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-blue-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
                   placeholder="For temporary STS credentials only"
                   value={providerConfig.bedrockSessionToken || ''}
                   onChange={e => handleSessionTokenChange(providerId, e.target.value)}
@@ -211,7 +211,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
                 <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">Base Endpoint</div>
                 <input
                   type="text"
-                  className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-indigo-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
+                  className={`w-full rounded-xl border px-4 py-3 font-mono text-xs font-semibold outline-none transition-all focus:ring-1 focus:ring-blue-500 ${isDark ? 'border-white/10 bg-white/5 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}
                   placeholder={
                     providerConfig.type === ProviderTypeEnum.Gemini || providerConfig.type === ProviderTypeEnum.VertexAI
                       ? "https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT_ID/locations/us-central1"
@@ -228,7 +228,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
               <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">Models</div>
               <div className={`flex min-h-[40px] flex-wrap gap-1.5 rounded-xl border p-4 ${isDark ? 'border-white/5 bg-black/20' : 'border-slate-100 bg-slate-50'}`}>
                 {(providerConfig.modelNames || llmProviderModelNames[providerId as keyof typeof llmProviderModelNames] || []).map(model => (
-                  <div key={model} className="group/tag flex items-center gap-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-tight text-indigo-400">
+                  <div key={model} className="group/tag flex items-center gap-1.5 rounded-lg border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-tight text-blue-400">
                     {model}
                     <button onClick={() => removeModel(providerId, model)} className="opacity-0 transition-opacity group-hover/tag:opacity-100">
                       <FiX size={8} />

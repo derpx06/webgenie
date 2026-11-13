@@ -151,7 +151,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
           <div className="group/stat flex items-center justify-between">
             <div className="flex flex-col">
               <span className={`text-[11px] font-semibold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>Tasks Executed</span>
-              <span className={`font-mono text-4xl font-semibold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+              <span className={`font-mono text-4xl font-semibold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                 {formatNumber(stats.last30DaySessions)}
               </span>
             </div>
@@ -167,11 +167,11 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
           <div className={`rounded-2xl border p-6 ${isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-100 bg-slate-50/50'}`}>
             <div className="mb-3 flex items-center justify-between">
               <span className={`text-[11px] font-semibold uppercase tracking-wider ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>Avg Operations / Task</span>
-              <span className={`font-mono text-xl font-semibold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{stats.avgMessagesPerSession}</span>
+              <span className={`font-mono text-xl font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>{stats.avgMessagesPerSession}</span>
             </div>
             <div className={`h-1.5 w-full overflow-hidden rounded-full ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`}>
               <div
-                className="h-full bg-indigo-500 transition-all duration-1000"
+                className="h-full bg-blue-500 transition-all duration-1000"
                 style={{ width: `${Math.min(100, (stats.avgMessagesPerSession / 20) * 100)}%` }}
               ></div>
             </div>
@@ -189,7 +189,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
               <span className={`mt-1 text-[11px] font-semibold uppercase tracking-wider opacity-70`}>Total Sessions</span>
             </div>
             <div className="group/stat flex flex-col">
-              <span className={`font-mono text-3xl font-semibold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+              <span className={`font-mono text-3xl font-semibold tracking-tight transition-all duration-300 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                 {formatNumber(stats.totalMessages)}
               </span>
               <span className={`mt-1 text-[11px] font-semibold uppercase tracking-wider opacity-70`}>Total Messages</span>
@@ -223,7 +223,7 @@ export const AnalyticsSettings: React.FC<AnalyticsSettingsProps> = ({ isDarkMode
               <input type="checkbox" className="peer sr-only" checked={settings.enabled} onChange={e => handleToggleAnalytics(e.target.checked)} />
               <div className={`peer h-6 w-11 rounded-full border transition-all duration-300 after:absolute 
                 after:left-[2px] after:top-[2px] after:size-5 after:rounded-full after:transition-all after:content-[''] peer-checked:after:translate-x-full peer-focus:outline-none
-                ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#818cf8] peer-checked:bg-indigo-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-indigo-600'} 
+                ${isDarkMode ? 'border-white/10 bg-white/5 after:bg-[#6f9bff] peer-checked:bg-blue-500' : 'border-slate-200 bg-slate-200 after:bg-white peer-checked:bg-blue-600'} 
                 peer-checked:after:border-white peer-checked:after:bg-white`}>
               </div>
             </label>

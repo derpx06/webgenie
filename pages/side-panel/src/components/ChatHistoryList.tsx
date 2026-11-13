@@ -224,8 +224,8 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               className="font-sans text-[22px] font-extrabold tracking-tight"
               style={{
                 background: isDarkMode
-                  ? 'linear-gradient(135deg, #f1f5f9 0%, #a5b4fc 60%, #818cf8 100%)'
-                  : 'linear-gradient(135deg, #0f172a 0%, #4f46e5 60%, #7c3aed 100%)',
+                  ? 'linear-gradient(135deg, #f1f5f9 0%, #9fbcff 60%, #6f9bff 100%)'
+                  : 'linear-gradient(135deg, #0f172a 0%, #2f5fe0 60%, #2f5fe0 100%)',
                 WebkitBackgroundClip: 'text',
                 backgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
@@ -247,7 +247,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               }}
               className={`cursor-pointer rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all duration-200 ${
                 isManageMode
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/20'
+                  ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
                   : isDarkMode
                     ? 'border border-white/10 text-slate-400 hover:bg-white/5 hover:text-slate-200'
                     : 'border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -260,13 +260,13 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
               style={{
                 background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.10))'
-                  : 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.06))',
-                border: isDarkMode ? '1px solid rgba(99,102,241,0.2)' : '1px solid rgba(99,102,241,0.15)',
+                  ? 'linear-gradient(135deg, rgba(59, 109, 255,0.15), rgba(59, 130, 246,0.10))'
+                  : 'linear-gradient(135deg, rgba(59, 109, 255,0.08), rgba(59, 130, 246,0.06))',
+                border: isDarkMode ? '1px solid rgba(59, 109, 255,0.2)' : '1px solid rgba(59, 109, 255,0.15)',
               }}
             >
-              <BsChatSquareDotsFill size={9} className={isDarkMode ? 'text-indigo-400' : 'text-indigo-500'} />
-              <span className={`text-[10px] font-bold tabular-nums ${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'}`}>
+              <BsChatSquareDotsFill size={9} className={isDarkMode ? 'text-blue-400' : 'text-blue-500'} />
+              <span className={`text-[10px] font-bold tabular-nums ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>
                 {sessions.length}
               </span>
             </div>
@@ -277,8 +277,8 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
         <div
           className={`relative flex items-center gap-2.5 rounded-xl px-3.5 py-2 transition-all duration-300 ${
             isDarkMode
-              ? 'border border-white/[0.06] bg-white/[0.03] backdrop-blur-md focus-within:border-indigo-500/30 focus-within:bg-white/[0.06]'
-              : 'border border-slate-200/60 bg-white/60 backdrop-blur-md focus-within:border-indigo-300 focus-within:bg-white'
+              ? 'border border-white/[0.06] bg-white/[0.03] backdrop-blur-md focus-within:border-blue-500/30 focus-within:bg-white/[0.06]'
+              : 'border border-slate-200/60 bg-white/60 backdrop-blur-md focus-within:border-blue-300 focus-within:bg-white'
           }`}
           style={{
             boxShadow: isDarkMode
@@ -289,7 +289,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
           <svg
             viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
             strokeLinecap="round" strokeLinejoin="round"
-            className={`size-3.5 shrink-0 transition-colors duration-300 ${isDarkMode ? 'text-indigo-400/60' : 'text-indigo-500/60'}`}
+            className={`size-3.5 shrink-0 transition-colors duration-300 ${isDarkMode ? 'text-blue-400/60' : 'text-blue-500/60'}`}
           >
             <polyline points="4 17 10 11 4 5" />
             <line x1="12" y1="19" x2="20" y2="19" />
@@ -326,8 +326,8 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-semibold tracking-tight transition-all duration-200 ${
                 activeFilter === filter
                   ? isDarkMode
-                    ? 'border border-indigo-500/30 bg-indigo-600/20 text-indigo-300'
-                    : 'border border-indigo-200 bg-indigo-50 text-indigo-600'
+                    ? 'border border-blue-500/30 bg-blue-600/20 text-blue-300'
+                    : 'border border-blue-200 bg-blue-50 text-blue-600'
                   : isDarkMode
                     ? 'border border-transparent text-slate-500 hover:bg-white/[0.02] hover:text-slate-300'
                     : 'border border-transparent text-slate-500 hover:bg-slate-100/50 hover:text-slate-700'
@@ -336,7 +336,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               <span className="capitalize">{filter}</span>
               <span className={`rounded-md px-1 text-[9.5px] ${
                 activeFilter === filter
-                  ? isDarkMode ? 'bg-indigo-500/30' : 'bg-indigo-100'
+                  ? isDarkMode ? 'bg-blue-500/30' : 'bg-blue-100'
                   : isDarkMode ? 'bg-white/[0.04]' : 'bg-slate-200/50'
               }`}>
                 {counts[filter]}
@@ -350,8 +350,8 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
           className="pointer-events-none absolute inset-x-0 bottom-0 h-px"
           style={{
             background: isDarkMode
-              ? 'linear-gradient(90deg, transparent 0%, rgba(99,102,241,0.15) 40%, rgba(139,92,246,0.15) 60%, transparent 100%)'
-              : 'linear-gradient(90deg, transparent 0%, rgba(99,102,241,0.10) 40%, rgba(139,92,246,0.10) 60%, transparent 100%)',
+              ? 'linear-gradient(90deg, transparent 0%, rgba(59, 109, 255,0.15) 40%, rgba(59, 130, 246,0.15) 60%, transparent 100%)'
+              : 'linear-gradient(90deg, transparent 0%, rgba(59, 109, 255,0.10) 40%, rgba(59, 130, 246,0.10) 60%, transparent 100%)',
           }}
         />
       </div>
@@ -364,13 +364,13 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
               className="mb-4 flex size-16 items-center justify-center rounded-2xl"
               style={{
                 background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(99,102,241,0.10), rgba(139,92,246,0.06))'
-                  : 'linear-gradient(135deg, rgba(99,102,241,0.06), rgba(139,92,246,0.04))',
-                border: isDarkMode ? '1px solid rgba(99,102,241,0.12)' : '1px solid rgba(99,102,241,0.10)',
+                  ? 'linear-gradient(135deg, rgba(59, 109, 255,0.10), rgba(59, 130, 246,0.06))'
+                  : 'linear-gradient(135deg, rgba(59, 109, 255,0.06), rgba(59, 130, 246,0.04))',
+                border: isDarkMode ? '1px solid rgba(59, 109, 255,0.12)' : '1px solid rgba(59, 109, 255,0.10)',
               }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
-                className={`size-7 ${isDarkMode ? 'text-indigo-400/40' : 'text-indigo-500/40'}`}>
+                className={`size-7 ${isDarkMode ? 'text-blue-400/40' : 'text-blue-500/40'}`}>
                 <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
             </div>
@@ -389,7 +389,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                 {/* Group Label */}
                 <div className="mb-2.5 flex items-center gap-3 px-0.5">
                   <span className={`text-[9px] font-black uppercase tracking-[0.14em] ${
-                    isDarkMode ? 'text-indigo-400/60' : 'text-indigo-600/55'
+                    isDarkMode ? 'text-blue-400/60' : 'text-blue-600/55'
                   }`}>
                     {group}
                   </span>
@@ -397,8 +397,8 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                     className="h-px flex-1"
                     style={{
                       background: isDarkMode
-                        ? 'linear-gradient(90deg, rgba(99,102,241,0.15) 0%, transparent 100%)'
-                        : 'linear-gradient(90deg, rgba(99,102,241,0.10) 0%, transparent 100%)',
+                        ? 'linear-gradient(90deg, rgba(59, 109, 255,0.15) 0%, transparent 100%)'
+                        : 'linear-gradient(90deg, rgba(59, 109, 255,0.10) 0%, transparent 100%)',
                     }}
                   />
                 </div>
@@ -420,10 +420,10 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                           background: isDarkMode ? '#0f172a' : '#ffffff',
                           border: isDarkMode
                             ? isSelected
-                              ? '1px solid rgba(99,102,241,0.5)'
+                              ? '1px solid rgba(59, 109, 255,0.5)'
                               : '1px solid rgba(255,255,255,0.12)'
                             : isSelected
-                              ? '1px solid rgba(99,102,241,0.5)'
+                              ? '1px solid rgba(59, 109, 255,0.5)'
                               : '1px solid rgba(0,0,0,0.12)',
                           boxShadow: isDarkMode
                             ? '0 2px 12px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.03)'
@@ -438,10 +438,10 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                           el.style.background = isDarkMode ? '#1e293b' : '#f8fafc';
                           el.style.border = isDarkMode
                             ? '1px solid rgba(255,255,255,0.22)'
-                            : '1px solid rgba(99,102,241,0.28)';
+                            : '1px solid rgba(59, 109, 255,0.28)';
                           el.style.boxShadow = isDarkMode
-                            ? '0 6px 24px rgba(0,0,0,0.25), 0 0 0 1px rgba(99,102,241,0.08)'
-                            : '0 6px 20px rgba(99,102,241,0.08), inset 0 1px 0 rgba(255,255,255,1)';
+                            ? '0 6px 24px rgba(0,0,0,0.25), 0 0 0 1px rgba(59, 109, 255,0.08)'
+                            : '0 6px 20px rgba(59, 109, 255,0.08), inset 0 1px 0 rgba(255,255,255,1)';
                         }}
                         onMouseLeave={e => {
                           if (isManageMode) return;
@@ -449,10 +449,10 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                           el.style.background = isDarkMode ? '#0f172a' : '#ffffff';
                           el.style.border = isDarkMode
                             ? isSelected
-                              ? '1px solid rgba(99,102,241,0.5)'
+                              ? '1px solid rgba(59, 109, 255,0.5)'
                               : '1px solid rgba(255,255,255,0.12)'
                             : isSelected
-                              ? '1px solid rgba(99,102,241,0.5)'
+                              ? '1px solid rgba(59, 109, 255,0.5)'
                               : '1px solid rgba(0,0,0,0.12)';
                           el.style.boxShadow = isDarkMode
                             ? '0 2px 12px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.03)'
@@ -464,8 +464,8 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                           <div
                             className="absolute left-0 top-1/2 h-8 w-[2.5px] -translate-y-1/2 rounded-r-full opacity-0 transition-all duration-300 group-hover:opacity-100"
                             style={{
-                              background: 'linear-gradient(180deg, #8b5cf6, #6366f1, #06b6d4)',
-                              boxShadow: '0 0 8px rgba(99,102,241,0.6)',
+                              background: 'linear-gradient(180deg, #3b82f6, #3b6dff, #06b6d4)',
+                              boxShadow: '0 0 8px rgba(59, 109, 255,0.6)',
                             }}
                           />
                         )}
@@ -474,7 +474,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                         {isManageMode && (
                           <div className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border transition-all ${
                             isSelected
-                              ? 'border-indigo-600 bg-indigo-600 text-white'
+                              ? 'border-blue-600 bg-blue-600 text-white'
                               : isDarkMode
                                 ? 'border-white/20 hover:border-white/40'
                                 : 'border-slate-300 hover:border-slate-400'
@@ -492,17 +492,17 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                           className="flex size-9 shrink-0 items-center justify-center rounded-lg transition-all duration-300 group-hover:scale-105"
                           style={{
                             background: isDarkMode
-                              ? 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08))'
-                              : 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.06))',
+                              ? 'linear-gradient(135deg, rgba(59, 109, 255,0.12), rgba(59, 130, 246,0.08))'
+                              : 'linear-gradient(135deg, rgba(59, 109, 255,0.08), rgba(59, 130, 246,0.06))',
                             border: isDarkMode
-                              ? '1px solid rgba(99,102,241,0.15)'
-                              : '1px solid rgba(99,102,241,0.12)',
+                              ? '1px solid rgba(59, 109, 255,0.15)'
+                              : '1px solid rgba(59, 109, 255,0.12)',
                           }}
                         >
                           <BsChatSquareDotsFill
                             size={14}
                             className={`transition-all duration-300 group-hover:scale-110 ${
-                              isDarkMode ? 'text-indigo-400' : 'text-indigo-500'
+                              isDarkMode ? 'text-blue-400' : 'text-blue-500'
                             }`}
                           />
                         </div>
@@ -528,7 +528,7 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                               <>
                                 <span className={`text-[10px] ${isDarkMode ? 'text-slate-700' : 'text-slate-300'}`}>•</span>
                                 <span className={`flex items-center gap-1 text-[10px] font-semibold ${
-                                  isDarkMode ? 'text-indigo-400/85' : 'text-indigo-600/85'
+                                  isDarkMode ? 'text-blue-400/85' : 'text-blue-600/85'
                                 }`}>
                                   <BsLightningChargeFill size={8} className="opacity-80" />
                                   {enriched.stepsCount} step{enriched.stepsCount === 1 ? '' : 's'}
@@ -558,8 +558,8 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
                                 onClick={e => { e.stopPropagation(); onSessionBookmark(session.id); }}
                                 className={`rounded-lg p-1.5 transition-all duration-150 ${
                                   isDarkMode
-                                    ? 'text-slate-500 hover:bg-indigo-500/15 hover:text-indigo-300'
-                                    : 'text-slate-400 hover:bg-indigo-50 hover:text-indigo-600'
+                                    ? 'text-slate-500 hover:bg-blue-500/15 hover:text-blue-300'
+                                    : 'text-slate-400 hover:bg-blue-50 hover:text-blue-600'
                                 }`}
                                 title="Bookmark"
                                 type="button"

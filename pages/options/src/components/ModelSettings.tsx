@@ -93,7 +93,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
         <div className="flex items-center justify-between px-2">
           <div>
             <h2 className="font-outfit text-xl font-semibold tracking-tight">Model Connectivity</h2>
-            <p className={`mt-0.5 text-[11px] font-semibold uppercase tracking-wider ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
+            <p className={`mt-0.5 text-[11px] font-semibold uppercase tracking-wider ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
               API & Integration Status
             </p>
           </div>
@@ -101,7 +101,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
           <div className="group/add provider-selector-container relative">
             <button
               onClick={() => setIsProviderSelectorOpen(!isProviderSelectorOpen)}
-              className={`flex size-9 items-center justify-center rounded-xl shadow-lg transition-all duration-300 hover:scale-105 active:scale-95 ${isDarkMode ? 'bg-indigo-600 text-white hover:bg-indigo-500' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+              className={`flex size-9 items-center justify-center rounded-xl shadow-lg transition-all duration-300 hover:scale-105 active:scale-95 ${isDarkMode ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-blue-600 text-white hover:bg-blue-700'
                 }`}
               title="Add New Provider"
             >
@@ -130,7 +130,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
         >
           {getSortedProviders().length === 0 ? (
             <div className="p-12 text-center">
-              <div className="mb-4 inline-flex size-12 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-500">
+              <div className="mb-4 inline-flex size-12 items-center justify-center rounded-full bg-blue-500/10 text-blue-500">
                 <FiCpu size={20} />
               </div>
               <h3 className="mb-1 text-base font-semibold">No Active Providers</h3>

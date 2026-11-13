@@ -13,7 +13,7 @@ export const BrandingSection: React.FC<BrandingSectionProps> = ({ isDarkMode }) 
             <div className="space-y-4">
                 <h1 className={`bg-gradient-to-b bg-clip-text text-4xl font-bold tracking-tight text-transparent md:text-5xl ${isDarkMode
                         ? "from-white via-slate-200 to-obsidian-accent/60"
-                        : "from-slate-900 via-slate-700 to-indigo-600/80"
+                        : "from-slate-900 via-slate-700 to-blue-600/80"
                     }`} data-purpose="main-headline">
                     {t('welcome_title')}
                 </h1>
@@ -37,12 +37,12 @@ export const ActionSection: React.FC<ActionSectionProps> = ({ isDarkMode, onOpen
                 onClick={onOpenSettings}
                 className={`btn-glow w-full rounded-2xl px-8 py-4 text-lg font-bold shadow-lg transition-all duration-300 hover:scale-[1.03] active:scale-[0.98] ${isDarkMode
                         ? "bg-gradient-to-r from-obsidian-accent to-obsidian-violet text-slate-50 shadow-obsidian-accent/20"
-                        : "bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-indigo-200"
+                        : "bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-blue-200"
                     }`} data-purpose="settings-button">
                 {t('welcome_openSettings')}
             </button>
             <div className={`flex items-center justify-center space-x-6 text-sm font-semibold ${isDarkMode ? "text-slate-500" : "text-slate-400"}`} data-purpose="external-links">
-                <a className={`${isDarkMode ? "hover:text-obsidian-accent" : "hover:text-indigo-600"} flex items-center transition-colors`} href="https://github.com/derpx06/webgenie#readme" target="_blank" rel="noopener noreferrer">
+                <a className={`${isDarkMode ? "hover:text-obsidian-accent" : "hover:text-blue-600"} flex items-center transition-colors`} href="https://github.com/derpx06/webgenie#readme" target="_blank" rel="noopener noreferrer">
                     <span>{t('welcome_quickStart')}</span>
                 </a>
             </div>
