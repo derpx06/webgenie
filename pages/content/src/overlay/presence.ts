@@ -18,6 +18,7 @@ import {
   caretTrack,
   chipPlacement,
   clampPoint,
+  exactPoint,
   haloBox,
   motion,
   ringOffset,
@@ -595,17 +596,24 @@ export class Presence {
    * the page read the cursor was aimed from, so without this the cursor presses where the element used to be.
    * A short correction, not a new flight: the action is already under way.
    */
-  aimAt(rect: Rect): void {
+  aimAt(rect: Rect, at?: Point): void {
     if (!this.kind || !this.cursor.classList.contains('on')) return;
     const { point, track } = aimPlan(this.kind, rect, this.viewport);
-    this.glide(point, FAST);
+    // The click goes to `at` when the page says where; the cursor is drawn there, not on the box's centre.
+    const landing = at ? exactPoint(at, this.viewport) : point;
+    this.glide(landing, FAST);
     this.showHalo(rect, track ? TRAVEL_MS + TYPE_MS : 520);
     // Typing is a walk along the field, already scheduled from where the field used to be: start it again here, or the
-    // caret writes in the old place and drags the cursor back to it.
+    // caret writes in the old place and drags the cursor back to it. When the click has a point, the walk waits until the
+    // cursor has arrived there, so the press is seen where it happens.
     if (!track) return;
     if (this.typeTimer) clearTimeout(this.typeTimer);
     this.typeTimer = null;
-    this.type(track);
+    if (!at) return this.type(track);
+    this.typeTimer = setTimeout(() => {
+      this.typeTimer = null;
+      this.type(track);
+    }, FAST);
   }
 
   /**

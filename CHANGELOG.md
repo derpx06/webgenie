@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0]
 
+### Fixed: the cursor you watch is where the click lands
+- The on-page cursor used to fly to the middle of the element's box, while the browser clicks a point it picks inside the
+  element (one line of a wrapped link, clear of anything overlapping it). On a link spanning several lines the two were
+  50 px or more apart. The cursor now goes to the exact point the click is sent to, is drawn there even at the very edge of
+  the window, and is given a moment to arrive before the press. Typing waits for the cursor to reach the field first.
+
 ### Added: steer a task while it runs
 - Type in the composer while a task works and send it: the note joins the conversation as an update to the same task, and
   the next step plans with it. Progress, the requirement checklist and approvals are kept. A follow-up after the task ends

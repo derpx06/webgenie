@@ -70,7 +70,9 @@ chrome.runtime.onMessage.addListener(message => {
 
   if (message?.type === 'AGENT_POINTER') {
     const rect = readRect(message.rect);
-    if (rect) overlay()?.aimAt(rect);
+    const at = message.point as { x?: unknown; y?: unknown } | undefined;
+    const point = typeof at?.x === 'number' && typeof at.y === 'number' && Number.isFinite(at.x) && Number.isFinite(at.y) ? { x: at.x, y: at.y } : undefined;
+    if (rect) overlay()?.aimAt(rect, point);
     return;
   }
 

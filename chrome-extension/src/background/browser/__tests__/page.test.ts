@@ -418,7 +418,7 @@ describe('Page click that opens a tab', () => {
       const fixture = aiming({ x: 1027, y: 562, width: 291, height: 56 });
       await withTarget(fixture);
       await fixture.page.clickNode(node());
-      expect(fixture.sent).toEqual([{ type: 'AGENT_POINTER', rect: { x: 1027, y: 562, w: 291, h: 56 } }]);
+      expect(fixture.sent).toEqual([{ type: 'AGENT_POINTER', rect: { x: 1027, y: 562, w: 291, h: 56 }, point: { x: 5, y: 5 } }]);
     });
 
     it('sends it only once the gesture has scrolled to the element', async () => {
@@ -427,6 +427,22 @@ describe('Page click that opens a tab', () => {
       await withTarget(fixture, order);
       await fixture.page.clickNode(node());
       expect(order.indexOf('scroll')).toBeLessThan(order.indexOf('box'));
+    });
+
+    it('tells the cursor the exact point the browser clicks, which is not the centre of the box, before it clicks', async () => {
+      const order: string[] = [];
+      const fixture = aiming({ x: 100, y: 100, width: 400, height: 60 });
+      const target = await withTarget(fixture, order);
+      // The browser picks the first line of a wrapped link, not the middle of its box.
+      target.clickablePoint = vi.fn(async () => ({ x: 130, y: 112 }));
+      const send = vi.fn<(method: string, params: { x: number; y: number }) => Promise<undefined>>(async () => undefined);
+      Object.assign(fixture.page, { _pageClient: () => ({ send }) });
+      fixture.adapter.sendTabMessage = vi.fn(async (_tab: number, message: unknown) => void order.push(`aim ${JSON.stringify((message as { point: unknown }).point)}`));
+      await fixture.page.clickNode(node());
+      expect(order).toContain('aim {"x":130,"y":112}');
+      const mouse = send.mock.calls.filter(call => call[0] === 'Input.dispatchMouseEvent').map(call => call[1]);
+      expect(mouse.length).toBeGreaterThan(0);
+      for (const event of mouse) expect(event).toMatchObject({ x: 130, y: 112 });
     });
 
     it('says nothing when the gesture is refused, so the cursor never presses a covered element', async () => {
@@ -456,7 +472,7 @@ describe('Page click that opens a tab', () => {
       const fixture = aiming({ x: 7, y: 8, width: 9, height: 10 });
       await withTarget(fixture);
       await fixture.page.hoverNode(node());
-      expect(fixture.sent).toEqual([{ type: 'AGENT_POINTER', rect: { x: 7, y: 8, w: 9, h: 10 } }]);
+      expect(fixture.sent).toEqual([{ type: 'AGENT_POINTER', rect: { x: 7, y: 8, w: 9, h: 10 }, point: { x: 5, y: 5 } }]);
     });
   });
 

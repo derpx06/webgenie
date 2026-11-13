@@ -247,4 +247,10 @@ export interface AgentActionMessage {
 export interface AgentPointerMessage {
   type: 'AGENT_POINTER';
   rect: { x: number; y: number; w: number; h: number };
+  /**
+   * The exact point the mouse events are sent to, in top-level viewport CSS pixels. It is not the box's centre: the browser
+   * picks a clickable point inside the element (one line of a wrapped link, clear of what overlaps it), and the cursor
+   * the user watches has to be on that point.
+   */
+  point?: { x: number; y: number };
 }

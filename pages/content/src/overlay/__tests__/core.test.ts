@@ -5,6 +5,7 @@ import {
   caretTrack,
   chipPlacement,
   clampPoint,
+  exactPoint,
   DEFAULT_STAGE,
   haloBox,
   motion,
@@ -75,6 +76,9 @@ describe('cursor geometry', () => {
   it('keeps an off-screen target inside the viewport', () => {
     expect(clampPoint({ x: -400, y: 5000 }, VIEWPORT)).toEqual({ x: 16, y: 784 });
     expect(clampPoint({ x: 180, y: 220 }, VIEWPORT)).toEqual({ x: 180, y: 220 });
+    // A click on an element at the very edge is drawn where it lands, not pulled 16 px in.
+    expect(exactPoint({ x: 3, y: 790 }, VIEWPORT)).toEqual({ x: 3, y: 790 });
+    expect(exactPoint({ x: -40, y: 5000 }, VIEWPORT)).toEqual({ x: 0, y: VIEWPORT.height });
   });
 
   it('never leaves the viewport even when it is smaller than the margins', () => {

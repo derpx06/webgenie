@@ -115,6 +115,15 @@ export function aimPlan(
   return { point: clampPoint(track ? typingCursorPoint(track) : targetPoint(rect, viewport), viewport), track };
 }
 
+/**
+ * Where the cursor rests for a click the browser sends to exactly `point`: that point, and only kept inside the window.
+ * (`clampPoint`'s margin keeps a cursor that is merely heading somewhere off the very edge; a click on an element at the
+ * edge must still be drawn where it lands.)
+ */
+export function exactPoint(point: Point, viewport: Viewport): Point {
+  return clampPoint(point, viewport, 0);
+}
+
 /** Keeps the cursor inside the viewport: an element scrolled just out of frame still shows where the agent is. */
 export function clampPoint(point: Point, viewport: Viewport, margin = 16): Point {
   return {

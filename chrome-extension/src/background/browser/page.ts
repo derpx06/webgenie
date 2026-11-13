@@ -566,6 +566,8 @@ export function needsReload(status?: number, errorMessage?: string): boolean {
 }
 
 /** Animation frames a target may still be moving in before the gesture is refused (Playwright waits for the same). */
+/** How long the cursor is given to reach the point a gesture is about to press (the overlay's short glide is 200 ms). */
+const POINTER_SETTLE_MS = 180;
 const MOVING_CHECKS = 6;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -1934,9 +1936,6 @@ export default class Page {
         'The element is still moving (an animation, a sliding panel or a list still loading). Wait for the page to settle and try again; if it keeps moving, use a control that stands still.',
       );
     }
-    // The overlay aimed its cursor from the page read; the scroll above has since moved the element, so the gesture
-    // tells the page where the element really is. Decoration, so it is never awaited and never throws.
-    void this._showPointer(target);
     const { x, y } = await target.clickablePoint(blocker?.offset).catch(async () => {
       await restoreScroll();
       // A checkbox, radio or switch the page hides (no box at all) can still be operated from the keyboard, which is how a
@@ -1954,6 +1953,11 @@ export default class Page {
           (toggles ? ' This is a checkbox, radio or switch: send_keys with its index and the key Space toggles it without a click.' : ''),
       );
     });
+
+    // The overlay aimed its cursor from the page read; the scroll above has since moved the element. Tell it the exact
+    // point the mouse events go to, and give the cursor the moment it needs to get there, so the press the user sees is the
+    // press that happens. Decoration, so it never throws; a tab with no overlay costs no wait.
+    if (await this._showPointer(target, { x, y })) await sleep(POINTER_SETTLE_MS);
 
     const client = this._pageClient();
     const button = kind === 'right' ? 'right' : 'left';
@@ -1989,16 +1993,19 @@ export default class Page {
    * Where the element sits now, in top-level viewport pixels, for the on-page cursor. Sent after the gesture has
    * scrolled to the element and found it clickable, so a refused gesture never moves the cursor to it.
    */
-  private async _showPointer(target: ElementHandle): Promise<void> {
+  private async _showPointer(target: ElementHandle, point: { x: number; y: number }): Promise<boolean> {
     try {
       const box = await target.boundingBox();
-      if (!box || box.width <= 0 || box.height <= 0) return;
+      if (!box || box.width <= 0 || box.height <= 0) return false;
       await this._browserAdapter.sendTabMessage(this._tabId, {
         type: 'AGENT_POINTER',
         rect: { x: box.x, y: box.y, w: box.width, h: box.height },
+        point,
       } satisfies AgentPointerMessage);
+      return true;
     } catch {
       // A tab without the content script, or one navigating away: the gesture itself is unaffected.
+      return false;
     }
   }
 
