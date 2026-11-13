@@ -6,7 +6,8 @@ Please create a [Github Security Advisory](https://github.com/derpx06/webgenie/s
 
 ## Known dependency advisories
 
-`pnpm audit --prod` reports nine advisories after the 1.0.0 dependency update (down from 40, none critical). Each needs a
+`pnpm audit --prod` reports twelve advisories (re-checked 2026-11-13; five high, none critical; down from 40). They are in the
+same packages listed below: newer advisories were filed against them, not new packages. Each needs a
 major-version jump the libraries above it do not yet allow, or has no fixed release. None is reachable from what the
 extension does:
 

@@ -9,7 +9,7 @@ function init() {
     throw new Error('Can not find #app-container');
   }
   const root = createRoot(appContainer);
-  appContainer.className = 'min-w-[768px]';
+  appContainer.className = 'min-w-[320px]';
   root.render(<Options />);
 }
 

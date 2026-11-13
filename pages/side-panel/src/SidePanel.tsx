@@ -187,7 +187,7 @@ const SidePanel = () => {
           isDarkMode={isDarkMode}
           recentSessions={chatSessions}
           isDebugExtractingDom={isDebugExtractingDom}
-          onDebugExtractDom={handleDebugExtractDom}
+          onDebugExtractDom={import.meta.env.DEV ? handleDebugExtractDom : undefined}
           onSelectPrompt={text => setInputTextRef.current?.(text)}
           onSelectSession={handleSessionSelect}>
           <div className="wg-composer">

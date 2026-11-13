@@ -102,8 +102,8 @@ const Options = () => {
           onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
         />
 
-        <main className="scrollbar-none custom-scrollbar flex-1 overflow-y-auto pb-20">
-          <div className="mx-auto max-w-7xl px-8 py-10">
+        <main className="scrollbar-none custom-scrollbar min-w-0 flex-1 overflow-y-auto overflow-x-hidden pb-20">
+          <div className="mx-auto max-w-7xl px-4 py-10 md:px-8">
             <OptionsHeader title={TABS.find(t => t.id === activeTab)?.label || ''} subtitle={SUBTITLES[activeTab]} isDarkMode={isDarkMode} />
 
             <div className="animate-[fadeUp_0.6s_ease-out_0.2s_both]">
@@ -114,7 +114,7 @@ const Options = () => {
       </div>
 
       {/* Premium Toast Notification */}
-      <div id="toast" className={`fixed bottom-8 right-8 z-[100] flex translate-y-20 scale-90 items-center gap-3 rounded-2xl border px-6 py-4 opacity-0 shadow-2xl transition-all duration-500${isDarkMode ? 'border-emerald-500/30 bg-[#1a1c23] text-white' : 'border-emerald-100 bg-white text-slate-900'}`}>
+      <div id="toast" className={`fixed bottom-8 right-8 z-[100] flex translate-y-20 scale-90 items-center gap-3 rounded-2xl border px-6 py-4 opacity-0 shadow-2xl transition-all duration-500 ${isDarkMode ? 'border-emerald-500/30 bg-[#1a1c23] text-white' : 'border-emerald-100 bg-white text-slate-900'}`}>
         <div className="flex size-8 items-center justify-center rounded-full bg-emerald-500 shadow-lg shadow-emerald-500/20">
           <svg fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" className="size-4">
             <polyline points="20 6 9 17 4 12" />

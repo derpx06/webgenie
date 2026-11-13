@@ -16,7 +16,7 @@ const SUGGESTIONS = [
     'Summarise the page I have open',
     'Find the cheapest direct flight to Lisbon next month',
     'Collect the top Hacker News posts and their links',
-    'Fill in this form with my saved details',
+    'Read this article and give me the three key points',
 ];
 
 const getTimeAgo = (timestamp: number): string => {
