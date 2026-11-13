@@ -10,6 +10,8 @@ export interface ReplanDecisionInput {
   waitingForHuman: boolean;
   /** The planner's last plan was sent back (a pending requirement, an unread page, a goal repeated without progress). */
   completionRefused?: boolean;
+  /** The user sent a note while the task ran: the plan must take it into account before the next step. */
+  steered?: boolean;
   /** A guard refused an action last step: the route the plan chose is closed, whatever the step count says. */
   guardRefused?: boolean;
   /** Consecutive steps whose last page-changing action validated failed or unknown. */
@@ -30,6 +32,7 @@ const replan = (trigger: ReplanTrigger, reason: string): ReplanDecision => ({ sh
 export function getReplanDecision(input: ReplanDecisionInput): ReplanDecision {
   if (!input.planned) return replan('initial', 'The task needs a plan.');
   if (input.waitingForHuman) return replan('human_needed', 'The user answered; the plan must use the answer.');
+  if (input.steered) return replan('human_needed', 'The user steered the task; the plan must use their note.');
   if (input.completionRefused) return replan('completion_refused', 'The last plan was sent back; the planner plans again with the reason.');
   if (input.navigatorDone) return replan('contract_complete', 'The navigator reported completion; the planner verifies it.');
   if (input.navigatorErrored) return replan('navigator_error', 'The navigator could not produce a valid action.');

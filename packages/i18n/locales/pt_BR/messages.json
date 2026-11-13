@@ -1258,5 +1258,11 @@
   },
   "bg_errors_disclosureRequired": {
     "message": "Abra o painel do WebGenie e leia o aviso exibido antes da primeira tarefa. O WebGenie não vai começar até que você o leia."
+  },
+  "chat_input_steer_placeholder": {
+    "message": "Direcione: “só a Air Portugal”, “sem escalas”…"
+  },
+  "chat_buttons_steer": {
+    "message": "Enviar à tarefa em andamento"
   }
 }

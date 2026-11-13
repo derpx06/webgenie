@@ -50,6 +50,21 @@ describe('ContextBuilder packets', () => {
     expect(text(ContextBuilder.buildContextPacket(context, system, state(1), 'planner')[0])).toContain('[TODAY]');
   });
 
+  it('puts a steering note in the transcript as an update to the same task, not a new one', () => {
+    const { context, messageManager } = makeContext();
+    messageManager.addTask('find the cheapest flight');
+    messageManager.addSteering('only Air Portugal');
+
+    const humanTexts = ContextBuilder.buildContextPacket(context, system, state(1))
+      .filter(m => m instanceof HumanMessage)
+      .map(text);
+
+    const note = humanTexts.find(t => t.includes('only Air Portugal')) ?? '';
+    expect(note).toContain('Update from the user while you work');
+    expect(note).not.toContain('Follow-up task');
+    expect(humanTexts.filter(t => t.includes('Task: find the cheapest flight'))).toHaveLength(1);
+  });
+
   it('adds a task once on resume and keeps follow-up tasks and human answers in order', () => {
     const { context, messageManager } = makeContext();
     messageManager.addTask('open the first page');

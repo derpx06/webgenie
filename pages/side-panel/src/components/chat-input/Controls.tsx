@@ -37,6 +37,14 @@ export const ChatActionButtons: React.FC<ChatActionButtonsProps> = ({
     if (showStopButton) {
         return (
             <>
+                <button
+                    type="submit"
+                    className="wg-btn wg-btn-primary wg-steer"
+                    disabled={isSendButtonDisabled}
+                    aria-label={t('chat_buttons_steer')}
+                    title={t('chat_buttons_steer')}>
+                    <svg {...glyph}><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>
+                </button>
                 <button type="button" className="wg-btn wg-btn-quiet" onClick={isPaused ? onResumeTask : onPauseTask}>
                     <svg {...glyph} fill="currentColor" stroke="none">
                         {isPaused ? <path d="M5 3.5v9l7-4.5-7-4.5Z" /> : <path d="M5.5 3.5h2v9h-2zM8.5 3.5h2v9h-2z" />}

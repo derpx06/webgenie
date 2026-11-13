@@ -127,6 +127,7 @@ export const useSidePanelController = () => {
     setIsHistoricalSession,
     setIsReplaying,
     isWaitingForHuman,
+    isTaskRunning: showStopButton,
     setIsWaitingForHuman,
     setPausedReason,
     resumableTask,

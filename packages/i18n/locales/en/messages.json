@@ -1258,5 +1258,11 @@
   },
   "bg_errors_disclosureRequired": {
     "message": "Open the WebGenie panel and read the notice shown before the first task. WebGenie will not start until you have."
+  },
+  "chat_input_steer_placeholder": {
+    "message": "Steer it: “only Air Portugal”, “skip layovers”…"
+  },
+  "chat_buttons_steer": {
+    "message": "Send to the running task"
   }
 }

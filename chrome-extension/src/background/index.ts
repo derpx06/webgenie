@@ -548,6 +548,15 @@ chrome.runtime.onConnect.addListener(port => {
             break;
           }
 
+          case 'steer_task': {
+            if (!message.task) return port.postMessage({ type: 'error', error: t('bg_cmd_followUpTask_noTask') });
+            // Only a task that is running can be steered; otherwise the panel treats the message as a follow-up.
+            if (!currentExecutor || !runningTask) return port.postMessage({ type: 'error', error: 'No task is running to steer.' });
+            logger.info('steer_task', message.task);
+            currentExecutor.steer(message.task);
+            break;
+          }
+
           case 'parallel_task': {
             if (!message.task) return port.postMessage({ type: 'error', error: t('bg_cmd_newTask_noTask') });
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });

@@ -197,6 +197,20 @@ export default class MessageManager {
   }
 
   /**
+   * A note the user sends while the task runs. It changes what the task asks for from here on, so it is worded as an
+   * update to the same task: everything done so far still counts, and nothing is started over.
+   */
+  public addSteering(note: string): void {
+    const { userText } = splitUserTextAndAttachments(note);
+    const content = wrapUserRequest(
+      `Update from the user while you work (keep the progress so far; apply this from the next step on): ${filterExternalContent(userText, false)}`,
+      false,
+    );
+    this.addMessage(new HumanMessage(content), 'human_answer');
+    void this.saveToSession();
+  }
+
+  /**
    * Records one navigator step. Each call is stored as its own call/result pair because adapters pair
    * parallel results inconsistently (Gemini names every result after the first call of the turn).
    * The message text stays empty so the model's reasoning is not replayed.

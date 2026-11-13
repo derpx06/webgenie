@@ -131,6 +131,8 @@ export class Executor {
   private readonly goalRepeats = new GoalRepeats();
   /** A goal was planned five times without progress: the planner was told to finish, and its done is accepted as it is. */
   private mustFinish = false;
+  /** A steering note arrived since the last plan; the next decision re-plans with it. */
+  private steered = false;
   /** Navigator steps since the last plan that did not validate as passed. */
   private unpassedSinceLastPlan = 0;
   /** The last plan moved a requirement from applied back to pending. */
@@ -210,6 +212,17 @@ export class Executor {
 
   getCurrentTabId(): number | null {
     return this.context.browserContext.getCurrentTabId();
+  }
+
+  /**
+   * The user steers the task while it runs: their note joins the conversation and the next step re-plans with it. The
+   * task, its requirement checklist, approvals and progress stay as they are; a follow-up, by contrast, starts over.
+   */
+  steer(note: string): void {
+    this.context.messageManager.addSteering(note);
+    this.steered = true;
+    this.goalRepeats.progress();
+    this.mustFinish = false;
   }
 
   addFollowUpTask(task: string): void {
@@ -558,6 +571,7 @@ export class Executor {
           navigatorDone,
           navigatorErrored,
           waitingForHuman: context.actionResults.some(result => result.isWaitingForHuman),
+          steered: this.steered,
           completionRefused,
           guardRefused: context.guardRefused,
           unvalidatedSteps,
@@ -568,6 +582,7 @@ export class Executor {
           requirementReopened: this.requirementReopened,
         });
         context.guardRefused = false;
+        this.steered = false;
         logger.info(`[Planner] Replan decision: ${replanDecision.shouldReplan} trigger=${replanDecision.trigger} reason=${replanDecision.reason}`);
         // Stuck (steps that did not validate, or a stall): this step's state carries a screenshot when vision is on.
         if (unvalidatedSteps >= 2 || stalled) context.screenshotWanted = true;

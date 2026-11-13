@@ -89,7 +89,7 @@ export default function ChatInput({
           onKeyDown={handleKeyDown}
           disabled={disabled}
           rows={2}
-          placeholder={t('chat_input_placeholder')}
+          placeholder={showStopButton ? t('chat_input_steer_placeholder') : t('chat_input_placeholder')}
         />
 
         <div className="wg-composer-bar">

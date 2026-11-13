@@ -1258,5 +1258,11 @@
   },
   "bg_errors_disclosureRequired": {
     "message": "請開啟 WebGenie 面板，並閱讀第一次任務前顯示的通知。在您閱讀之前，WebGenie 不會開始執行。"
+  },
+  "chat_input_steer_placeholder": {
+    "message": "引導它：「只要 Air Portugal」、「不要轉機」…"
+  },
+  "chat_buttons_steer": {
+    "message": "傳送給執行中的任務"
   }
 }

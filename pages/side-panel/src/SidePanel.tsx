@@ -139,7 +139,7 @@ const SidePanel = () => {
       onMicClick={handleMicClick}
       isRecording={isRecording}
       isProcessingSpeech={isProcessingSpeech}
-      disabled={!inputEnabled}
+      disabled={!inputEnabled && !showStopButton}
       showStopButton={showStopButton}
       setContent={setter => {
         setInputTextRef.current = setter;

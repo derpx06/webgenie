@@ -174,6 +174,7 @@ describe('P1 replanning and progress', () => {
   it('replans for each trigger and keeps the plan otherwise', () => {
     expect(decide({ planned: false })).toMatchObject({ shouldReplan: true, trigger: 'initial' });
     expect(decide({ waitingForHuman: true })).toMatchObject({ shouldReplan: true, trigger: 'human_needed' });
+    expect(decide({ steered: true })).toMatchObject({ shouldReplan: true, trigger: 'human_needed', reason: expect.stringContaining('steered') });
     expect(decide({ navigatorDone: true })).toMatchObject({ shouldReplan: true, trigger: 'contract_complete' });
     expect(decide({ completionRefused: true })).toMatchObject({ shouldReplan: true, trigger: 'completion_refused' });
     expect(decide({ navigatorErrored: true })).toMatchObject({ shouldReplan: true, trigger: 'navigator_error' });

@@ -21,6 +21,8 @@ interface UseTaskExecutionProps {
     setIsHistoricalSession: (historical: boolean) => void;
     setIsReplaying: (replaying: boolean) => void;
     isWaitingForHuman: boolean;
+    /** A task is running: what the user sends now steers it instead of starting another. */
+    isTaskRunning: boolean;
     setIsWaitingForHuman: (waiting: boolean) => void;
     setPausedReason: (reason: string | null) => void;
     resumableTask: ResumableTask | null;
@@ -56,6 +58,7 @@ export const useTaskExecution = ({
     setIsHistoricalSession,
     setIsReplaying,
     isWaitingForHuman,
+    isTaskRunning,
     setIsWaitingForHuman,
     setPausedReason,
     resumableTask,
@@ -142,6 +145,14 @@ export const useTaskExecution = ({
             if (isHistoricalSession) {
                 setIsHistoricalSession(false);
                 setIsFollowUpMode(true);
+            }
+
+            // While a task runs, a message steers it: it joins the conversation and the next step plans with it.
+            if (isTaskRunning && !isWaitingForHuman) {
+                appendMessage({ actor: Actors.USER, content: displayText || text, timestamp: Date.now() }, sessionIdRef.current ?? undefined);
+                if (!portRef.current) setupConnection();
+                await sendMessage({ type: 'steer_task', task: text });
+                return;
             }
 
             try {
