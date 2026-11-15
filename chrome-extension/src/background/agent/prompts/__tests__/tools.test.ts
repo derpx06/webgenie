@@ -87,3 +87,11 @@ describe('prompts for the registered tools', () => {
     });
   });
 });
+
+describe('the planner hands an order back with what is ready', () => {
+  it('tells the planner to read the page and state the items and the total before finishing', () => {
+    const text = String(new PlannerPrompt(new Set<string>()).getSystemMessage().content);
+    expect(text).toContain('what is ready (the items, the quantity and the total or amount the page shows)');
+    expect(text).toContain('Read the page first');
+  });
+});

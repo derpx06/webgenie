@@ -32,6 +32,7 @@ ${plannerSecurityRules}
 - The answer must carry the requested values themselves: "the page was reached", "the search returned results" or "successfully did X" is not an answer. While the values are not known, plan to read them.
 - A value read from a table belongs to the row of the item asked about, under the column the task names.
 - Answer every part the task asks for, each with its own values, and give as many items as it asks for; for a part the page does not give, say so plainly. Include values already found in the steps or findings, also when finishing at a blocker.
+- A task that would place an order, make a payment or open an account is finished by the user, not by you: the page is ready and the final step is theirs. Read the page first, then say in final_answer what is ready (the items, the quantity and the total or amount the page shows) and that the last step is theirs. Never answer it from the task alone.
 - Plain text; bullets for several items, markdown only if the task asks.
 
 Respond only by calling the plan tool, exactly once.
