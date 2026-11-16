@@ -65,11 +65,12 @@ lending.
 
 **Remote code:** none. All code ships in the package; the extension makes no remote-code requests.
 
-## Assets still to produce (Gate 4 screenshots)
+## Assets
 
-- 1280×800 screenshots: the first-run notice; a task running with the on-page cursor and goal chip; the hand-back at a checkout;
-  the confirmation before a subscription; the options page showing optional permissions.
-- Small promo tile 440×280.
+Produced from the real screens, 1280×800, in `store-assets/` (not committed; regenerate from a build): the first-run notice,
+the ready-for-a-task screen and the options page. Still to capture, because they only exist during a live task: a task
+running with the on-page cursor and goal chip, the hand-back at a checkout, and the confirmation before a subscription.
+Small promo tile 440×280 not yet made.
 
 ## Needs the owner
 

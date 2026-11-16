@@ -65,3 +65,4 @@ chrome-extension/e2e/results/
 chrome-extension/e2e/builds/
 # Compressed copies of benchmark round folders (every trace kept)
 chrome-extension/e2e/archive/
+store-assets/
