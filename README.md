@@ -49,6 +49,8 @@ The agent reads the page's accessibility tree over the Chrome DevTools Protocol 
 * **Domain firewall** — an allow/deny list checked on every navigation.
 
 ### Interruptions
+While a task runs you can steer it: type in the composer and send, and the note joins the conversation as an update to the same task, so the next step plans with it and the progress so far is kept (a message after the task ends starts a new one). The on-page cursor shows each action at the exact point the click is sent to, with a gradient frame around the window and a status pill, and it stops moving for people who ask for reduced motion.
+
 Tasks are checkpointed every step. Closing the side panel or the tab, an unanswered question, or a provider rate limit pauses the task instead of failing it; reopen the panel to resume or discard it, or answer a pending question late.
 
 ### Memory
