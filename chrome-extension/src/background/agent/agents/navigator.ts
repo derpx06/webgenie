@@ -35,6 +35,7 @@ import {
   loopNudge,
   LOOP_WINDOW,
   commitQuestion,
+  namedByTask,
   handoverNotice,
   commitTarget,
   currentIndexFor,
@@ -992,7 +993,15 @@ export class NavigatorAgent extends BaseAgent<NavigatorResult> {
           if (others.some(info => info?.targetIsPaymentField)) form = { ...form, targetIsPaymentField: true };
         }
         const commit = commitTarget(actionName, actionArgs as Record<string, unknown>, beforeState.url, indexedNode, form);
-        if (commit && this.context.approvedCommitKey !== commit.key) {
+        // The model flagged this control as a commit and nothing else does, and the user's own request names it: they asked for
+        // it, so it is not asked about. A declined key stays declined.
+        // Pressing Enter in a form submits through its own button, so that button's label is what the request has to name.
+        const namedByUser =
+          !!commit?.declared &&
+          !this.context.declinedCommitKeys.has(commit.key) &&
+          [commit.label, ...(form?.submitLabels ?? [])].some(label => namedByTask(label, this.userText('task')));
+        if (namedByUser) traceGuard('commit', 'allowed', actionName, `the request names it: ${commit!.label}`);
+        if (commit && !namedByUser && this.context.approvedCommitKey !== commit.key) {
           if (this.context.declinedCommitKeys.has(commit.key)) {
             refuse('commit-declined', `The user declined "${commit.label}": it was not done and must not be done. Report that to the user.`);
             break;

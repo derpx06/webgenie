@@ -16,6 +16,7 @@ import {
   commitQuestion,
   handoverNotice,
   commitTarget,
+  namedByTask,
   echoesActionResult,
   currentIndexFor,
   dispatchGuard,
@@ -489,6 +490,30 @@ describe('committing actions', () => {
   const click = (node: DOMElementNode, args: Record<string, unknown> = {}, form: FormCommitInfo | null = null) =>
     commitTarget('click_element', { index: 1, ...args }, 'https://shop.test/checkout?step=2', node, form);
   const noForm: FormCommitInfo = { inForm: false, isSubmitter: false, paymentFields: false, submitLabels: [] };
+
+  it('marks a control as only declared when the model\'s own flag is the sole reason it is a commit', () => {
+    expect(click(button('Submit application'), { commits: 'data_change' })?.declared).toBe(true);
+    expect(click(button('Change photo'), { commits: 'account_change' })?.declared).toBe(true);
+    // Wording, payment or a hand-back label make it a commit whatever the model said.
+    expect(click(button('Subscribe now'), { commits: 'subscription' })?.declared).toBeUndefined();
+    expect(click(button('Place order'), { commits: 'order' })?.declared).toBeUndefined();
+    const paying: FormCommitInfo = { inForm: true, isSubmitter: true, paymentFields: true, submitLabels: ['Continue'] };
+    expect(click(button('Continue'), { commits: 'payment' }, paying)?.declared).toBeUndefined();
+  });
+
+  it('treats a control the request itself names as asked for, but never money, a subscription, an account or a deletion', () => {
+    expect(namedByTask('Submit application', 'Submit my job application with the CV I attached.')).toBe(true);
+    expect(namedByTask('Change photo', 'Change my profile photo to the picture I attached.')).toBe(true);
+    expect(namedByTask('Send message', 'Send the message to my landlord')).toBe(true);
+    // Named in the request, and still not skipped.
+    expect(namedByTask('Subscribe', 'Subscribe me to this newsletter.')).toBe(false);
+    expect(namedByTask('Place order', 'Place the order for my cart.')).toBe(false);
+    expect(namedByTask('Delete account', 'Delete my account.')).toBe(false);
+    expect(namedByTask('Create account', 'Create an account for me.')).toBe(false);
+    // Not named.
+    expect(namedByTask('Submit application', 'Find the cheapest flight to Lisbon')).toBe(false);
+    expect(namedByTask('Save changes', 'Update my profile photo')).toBe(false);
+  });
 
   it('asks when the page would not let the form be read, and not when there was no form to read', () => {
     const unreadable: FormCommitInfo = { inForm: true, isSubmitter: true, paymentFields: false, submitLabels: [], unreadable: true };

@@ -110,6 +110,12 @@ export interface CommitTarget {
   what: string;
   /** The control may only disclose a page or form, so the question asks rather than asserts. */
   opens?: boolean;
+  /**
+   * The only reason this is a commit is the model's own `commits` flag: the control's wording is not a commit wording, no
+   * payment field is involved and the form's submit is not one. Such a control is not asked about when the user's own
+   * request names it (see `namedByTask`).
+   */
+  declared?: boolean;
   /** `label` is the page's own wording for an element. Without this it is a phrase the system composed. */
   pageWords?: boolean;
   /**
@@ -227,6 +233,16 @@ export function commitTarget(
     (pressesEnter(actionName, args) && !!form?.inForm && !!form.submitLabels[0] && isHandoverLabel(form.submitLabels[0])) ||
     // Typing a card number, CVC or bank detail is itself in the class the agent does not do.
     !!form?.targetIsPaymentField;
+  const declared =
+    modelSaysCommit &&
+    !handover &&
+    !isCommitLabel(label) &&
+    !commitHref &&
+    !form?.unreadable &&
+    !form?.paymentContext &&
+    !form?.paymentFields &&
+    !form?.targetIsPaymentField &&
+    !(form?.inForm && form.submitLabels.some(isCommitLabel));
   return {
     key: `${place}|${label.toLowerCase()}`,
     label,
@@ -235,6 +251,7 @@ export function commitTarget(
     ...(handover ? { handover: true } : {}),
     ...(CLICKING_TOOLS.has(actionName) ? { pageWords: true } : {}),
     ...(opens ? { opens: true } : {}),
+    ...(declared ? { declared: true } : {}),
   };
 }
 
@@ -247,6 +264,27 @@ export function commitTarget(
  * user's money was the page's to choose. An amount we cannot vouch for is worse than none: it invites the user to
  * approve a charge against a number we made up on the page's behalf.
  */
+/** Words that say nothing about which control is meant. */
+const LABEL_FILLER = new Set(['the', 'my', 'your', 'our', 'this', 'that', 'now', 'button', 'link', 'and', 'for', 'with', 'to', 'a', 'an', 'it', 'me']);
+/** Controls the agent never treats as named by the task: money, subscriptions, accounts and anything destructive. */
+const NEVER_NAMED = /subscri|trial|\bpay|buy|purchas|order|checkout|donat|delete|remov|cancel|unsubscri|close|erase|clear|password|account|sign ?up|register|transfer/i;
+
+const stem = (word: string) => word.toLowerCase().replace(/(ing|ed|es|s)$/, '');
+
+/**
+ * Whether the user's own request names this control: every meaningful word of its label is in the request ("Submit
+ * application" in "Submit my job application", "Change photo" in "Change my profile photo"). An action the user asked
+ * for is not asked about again. Never for money, a subscription, an account or anything that deletes: those keep their
+ * own handling whatever the request says.
+ */
+export function namedByTask(label: string, userText: string): boolean {
+  if (NEVER_NAMED.test(label)) return false;
+  const words = (label.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter(word => !LABEL_FILLER.has(word)).map(stem);
+  if (words.length === 0) return false;
+  const asked = new Set((userText.toLowerCase().match(/[a-z]{3,}/g) ?? []).map(stem));
+  return words.every(word => asked.has(word));
+}
+
 /** What the user is told when the agent stops at something it does not do. No model writes it. */
 export function handoverNotice(target: CommitTarget): string {
   return `I have stopped at ${target.what} on ${target.place} that the page labels "${target.label}". I do not place orders, make payments or open accounts — the browser is yours from here, and the page is ready for you. Tell me what to do next once you have decided.`;
