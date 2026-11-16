@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0]
 
+### Changed: it asks only when you did not
+- A control your own request names is no longer asked about when the only reason it counted as a commit was the model's own
+  flag: "Submit my job application", "Change my profile photo", "Book a delivery" go ahead. Orders, payments and new accounts
+  are still handed back to you, subscriptions are still confirmed, and a deletion is never treated as named by the request.
+  Cold-start live runs: file upload tasks 12/12, booking across two sites 6/6 (was 3/6).
+- When a task would place an order, make a payment or open an account, the answer now says what is ready (items, quantity
+  and the total the page shows) and that the last step is yours. Live: 6/6 (was 5/6).
+
 ### Fixed: the cursor you watch is where the click lands
 - The on-page cursor used to fly to the middle of the element's box, while the browser clicks a point it picks inside the
   element (one line of a wrapped link, clear of anything overlapping it). On a link spanning several lines the two were

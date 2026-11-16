@@ -69,6 +69,13 @@ Human-in-the-loop is scripted: on `act.ask_human` the harness sends the task's n
 - Measurement integrity: `summary.json` carries an `integrity` block (also printed at the end of a run) with the provider and both models, the region and locale served, the memory mode, how many attempts were measured and passed, which tasks were excluded and why, how many the harness itself ended (`harness_error`, `limit_*`) and how much time the model provider took away. A pass rate quoted without it is not a measurement.
 - Output: `e2e/results/<timestamp>/summary.json` (models, git sha, build time, integrity, health, comparison, results) and per attempt `<id>.events.jsonl`, `<id>.trace.jsonl`, `<id>.png`, plus `<id>.timeline.txt` on failure.
 
+## Cold start versus repeats
+
+Repeats inside one run share the profile, so only the first attempt of a task is a cold start, which is what a new user gets
+(the agent has no remembered route yet). A comparison that matters for first-use behaviour runs the task in **separate
+invocations** (`E2E_REPEAT=1`, a fresh profile each time) and counts those: a regression that only the first attempt shows
+(the agent asking to confirm an action the request named) is invisible in `E2E_REPEAT=4`.
+
 ## Online-Mind2Web (`e2e/mind2web/`)
 
 A reproducible slice of the Online-Mind2Web benchmark with a WebJudge-style judge; see `e2e/mind2web/README.md` for data access and attribution. Scores are indicative only (the judge is Gemini, not the paper's o4-mini).
